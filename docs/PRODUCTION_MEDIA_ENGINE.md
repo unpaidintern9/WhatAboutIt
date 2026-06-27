@@ -4,6 +4,8 @@ Phase 7 status: blocked for full production readiness.
 
 Phase 7A status: real FFmpeg export integration completed.
 
+Phase 7B status: partial real recording capture integration completed.
+
 This pass audited the current media engine against the requirement to replace placeholder or simulated behavior with production-ready integrations. The project is not ready for a Phase 7 production commit because the required real media integrations are not yet implemented or validated.
 
 No new UI features were added. No interface redesign was performed. No Version 2 features were started.
@@ -16,30 +18,40 @@ The requested commit condition was not met:
 
 > Commit only if production integrations replace placeholder implementations.
 
-Because recording, timeline playback, Auto Edit, recovery, and packaging placeholders or unvalidated foundations remain, the full Phase 7 production gate is still not complete. Phase 7A specifically replaces the export placeholder with a real local FFmpeg render path.
+Because multi-device recording, media-backed timeline playback, Auto Edit, full recovery, and packaging remain unvalidated foundations, the full Phase 7 production gate is still not complete. Phase 7A specifically replaced the export placeholder with a real local FFmpeg render path. Phase 7B hardens the browser MediaRecorder path for one-camera/one-mic capture where supported and validates saved recordings with ffprobe.
 
 ## Recording
 
-Status: needs real integration.
+Status: partial real integration.
 
 Evidence:
 
 - `app/src/renderer/plugins/recording/browser-media-recorder-plugin.ts`
 - `app/src/renderer/plugins/recording/obs-control-plugin.ts`
+- `app/src/main/recording-session-store.ts`
+- `app/src/main/recording-session-store.test.ts`
+- `app/src/renderer/services/recording-service.test.ts`
 
-The browser recording plugin uses `navigator.mediaDevices.getUserMedia` and `MediaRecorder` with one selected camera and one selected microphone. This can create a browser-captured WebM on supported machines, but it is not a production recording engine for the Phase 7 requirements.
+The browser recording plugin uses `navigator.mediaDevices.getUserMedia` and `MediaRecorder` with one selected camera and one selected microphone. The main process now saves the captured bytes to `Episode/Program/program.webm`, validates that file with ffprobe, mirrors the program recording to `Episode/Cameras/camera-1.webm`, and extracts microphone audio to `Episode/Audio/morgan-mic.m4a` when the recording contains audio.
+
+The recording save path updates `Session/sync-metadata.json` with saved media file paths and validation status.
+
+Friendly capture failure states now include:
+
+- `Camera needs attention`
+- `Mic needs attention`
 
 The OBS control plugin still throws `OBS recording engine is not connected yet.` for start, pause, resume, and stop.
 
 Missing production work:
 
-- Connect the chosen production backend.
 - Validate up to three cameras with supported hardware.
 - Validate multiple microphone input capture.
 - Validate separate tracks where supported.
 - Validate long-duration recording stability.
 - Validate audio/video sync.
 - Validate dropped frame and drift reporting from the real backend.
+- Complete a manual hardware recording test from the packaged or launched Electron app.
 
 ## Timeline
 
@@ -163,10 +175,19 @@ Status: partial.
 
 Phase 7A completed a real export test with generated sample media. The test uses bundled FFmpeg to create sample media, exports a playable output, and validates it with ffprobe.
 
-The full app launch-to-record-to-review-to-edit-to-export real-media test is still blocked because real recording, media-backed timeline playback, and real Auto Edit remain incomplete.
+Phase 7B completed automated real-media recording-path tests with generated local media:
+
+- A generated WebM is saved through the recording session store.
+- `Program/program.webm` is validated with ffprobe.
+- `Cameras/camera-1.webm` is written and validated.
+- `Audio/morgan-mic.m4a` is extracted and validated.
+- `sync-metadata.json` records saved media files and validation state.
+- Export from an existing `Episode/Program/program.webm` file is validated.
+
+The full app launch-to-record-to-review-to-edit-to-export real-media test is still blocked because physical camera/mic hardware capture was not manually validated in this terminal session, media-backed timeline playback remains incomplete, and real Auto Edit remains incomplete.
 
 ## Production Gate Decision
 
 The MVP user flow remains useful as a guided prototype and offline product shell. It is not yet a production media engine.
 
-The Phase 7A export commit may be made because placeholder export behavior has been replaced with a real FFmpeg integration and verified with generated local media. The full Phase 7 production gate should remain blocked until at least one real recording can be captured, reviewed, edited non-destructively, exported to a playable file, and documented with real test evidence.
+The Phase 7B recording commit may be made as a truthful partial integration because the local recording save/validation pipeline is real and tested with generated media, while physical hardware capture remains unvalidated. The full Phase 7 production gate should remain blocked until at least one real camera/mic recording can be captured, reviewed, edited non-destructively, exported to a playable file, and documented with real test evidence.

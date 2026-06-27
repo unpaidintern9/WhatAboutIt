@@ -70,4 +70,40 @@ describe("RecordingService", () => {
     expect((await service.stop()).status).toBe("stopped");
     expect(window.studio.saveProgramRecording).not.toHaveBeenCalled();
   });
+
+  it("shows a friendly camera status when capture cannot start", async () => {
+    installStudioMock();
+    const plugin: RecordingEnginePlugin = {
+      start: vi.fn(async () => {
+        throw new Error("Camera needs attention");
+      }),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn()
+    };
+    const service = new RecordingService(plugin);
+    const snapshot = await service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } });
+
+    expect(snapshot.status).toBe("error");
+    expect(snapshot.friendlyError).toBe("Camera needs attention");
+    expect(window.studio.appendRecordingError).toHaveBeenCalledWith("C:/recording/episode-a", "Camera needs attention");
+  });
+
+  it("shows a friendly mic status when capture cannot start", async () => {
+    installStudioMock();
+    const plugin: RecordingEnginePlugin = {
+      start: vi.fn(async () => {
+        throw new Error("Mic needs attention");
+      }),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn()
+    };
+    const service = new RecordingService(plugin);
+    const snapshot = await service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } });
+
+    expect(snapshot.status).toBe("error");
+    expect(snapshot.friendlyError).toBe("Mic needs attention");
+    expect(window.studio.appendRecordingError).toHaveBeenCalledWith("C:/recording/episode-a", "Mic needs attention");
+  });
 });

@@ -11,9 +11,11 @@ import {
   createInitialRecordingState,
   createSyncMetadata,
   isUnfinishedRecordingState,
-  requiredRecordingSessionFolders
+  requiredRecordingSessionFolders,
+  type SyncMetadata
 } from "../shared/recording";
 import { getEpisodesRoot } from "./config-service";
+import { runFfmpeg, validatePlayableMedia } from "./ffmpeg-tools";
 import { logger } from "./logger";
 
 function slugify(input: string) {
@@ -83,9 +85,62 @@ export async function writeRecordingState(folderPath: string, state: RecordingSt
 
 export async function saveProgramRecording(folderPath: string, bytes: Uint8Array) {
   const filePath = path.join(folderPath, "Program", "program.webm");
+  const cameraFilePath = path.join(folderPath, "Cameras", "camera-1.webm");
+  const audioFilePath = path.join(folderPath, "Audio", "morgan-mic.m4a");
   await fs.writeFile(filePath, bytes);
-  await logger.info("RecordingService", "Saved local program recording.", { filePath });
+  const programPlayable = await isPlayableRecording(filePath);
+  if (!programPlayable) {
+    await appendRecordingError(folderPath, "Program recording could not be validated.");
+    throw new Error("Saved recording could not be validated.");
+  }
+
+  await fs.copyFile(filePath, cameraFilePath);
+
+  try {
+    await runFfmpeg(["-y", "-i", filePath, "-vn", "-c:a", "aac", "-b:a", "160k", audioFilePath]);
+  } catch (error) {
+    await appendRecordingError(folderPath, "Mic needs attention");
+    await logger.warning("RecordingService", "Could not extract recording audio track.", {
+      filePath,
+      error: String(error)
+    });
+  }
+
+  const syncMetadataPath = path.join(folderPath, "Session", "sync-metadata.json");
+  const syncMetadata = (await readJsonFile<SyncMetadata>(syncMetadataPath)) ?? createSyncMetadata({ cameras: {}, microphones: {} });
+  const nextSyncMetadata: SyncMetadata = {
+    ...syncMetadata,
+    savedMediaFiles: {
+      ...syncMetadata.savedMediaFiles,
+      program: filePath,
+      camera1: cameraFilePath,
+      morganMic: await fileExists(audioFilePath) ? audioFilePath : syncMetadata.savedMediaFiles?.morganMic
+    },
+    validation: {
+      programPlayable,
+      validatedAt: new Date().toISOString()
+    }
+  };
+  await writeJson(syncMetadataPath, nextSyncMetadata);
+  await logger.info("RecordingService", "Saved and validated local program recording.", { filePath, cameraFilePath });
   return filePath;
+}
+
+async function fileExists(filePath: string) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function isPlayableRecording(filePath: string) {
+  try {
+    return await validatePlayableMedia(filePath);
+  } catch {
+    return false;
+  }
 }
 
 export async function appendRecordingError(folderPath: string, message: string) {

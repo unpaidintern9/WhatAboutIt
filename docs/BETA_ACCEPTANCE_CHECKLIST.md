@@ -6,11 +6,11 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 
 | Question | Answer | Evidence |
 | --- | --- | --- |
-| Can Morgan record a full episode? | No | The browser recorder foundation is not validated for long-duration multi-camera and multi-mic recording. OBS integration is still a stub. |
+| Can Morgan record a full episode? | No | The one-camera/one-mic browser recording save path now validates playable media after save, but physical hardware capture and long-duration recording have not been manually validated. |
 | Can Morgan review the recording? | No | The review screen uses draft timeline data and placeholders, not a validated real media playback timeline. |
 | Can Morgan edit the recording? | No | Edit operations are non-destructive draft entries, but they are not yet applied to playable media in preview or render. |
 | Can Morgan run Auto Edit on a real recording? | No | Auto Edit currently generates deterministic suggestions from draft metadata and markers rather than analyzing real media. |
-| Can Morgan export a playable episode? | No | The app can now render playable exports from available/generated local media through FFmpeg, but a real recorded podcast episode has not yet been captured and exported end to end. |
+| Can Morgan export a playable episode? | No | The app can now render playable exports from generated local media and from an existing `Episode/Program/program.webm`, but a real hardware-recorded podcast episode has not yet been captured and exported end to end. |
 | Can Morgan recover from an interrupted session? | No | Recovery state exists, but interrupted real recording recovery has not been validated. |
 
 ## Required Evidence Before Beta
@@ -18,6 +18,7 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 Before any item can move to "Yes," the project needs a recorded test episode that proves:
 
 - Actual camera and microphone input were captured locally.
+- The captured `Program/program.webm` validates with ffprobe.
 - The saved recording can be opened and reviewed in the application.
 - Draft timeline edits are preserved without modifying originals.
 - Export produces a playable media file from real recorded podcast media.

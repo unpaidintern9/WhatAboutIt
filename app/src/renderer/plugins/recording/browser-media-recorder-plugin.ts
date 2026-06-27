@@ -11,17 +11,21 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       return;
     }
 
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Permission needed before we can record.");
-    }
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera needs attention");
 
     const videoDeviceId = request.deviceDefaults.cameras.camera1;
     const audioDeviceId = request.deviceDefaults.microphones.morganMic;
 
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      video: videoDeviceId ? { deviceId: { exact: videoDeviceId } } : true,
-      audio: audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true
-    });
+    try {
+      this.stream = await navigator.mediaDevices.getUserMedia({
+        video: videoDeviceId ? { deviceId: { exact: videoDeviceId } } : true,
+        audio: audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true
+      });
+    } catch (error) {
+      const message = String(error);
+      if (message.includes("audio") || message.includes("microphone")) throw new Error("Mic needs attention", { cause: error });
+      throw new Error("Camera needs attention", { cause: error });
+    }
 
     this.chunks = [];
     this.recorder = new MediaRecorder(this.stream, { mimeType: pickMimeType() });
@@ -74,4 +78,3 @@ function pickMimeType() {
   const options = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
   return options.find((option) => MediaRecorder.isTypeSupported(option)) ?? "video/webm";
 }
-

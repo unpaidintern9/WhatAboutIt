@@ -90,6 +90,46 @@ describe("export store", () => {
     expect(await validatePlayableMedia(outputPath)).toBe(true);
   }, 20000);
 
+  it("exports a playable file from an existing program recording", async () => {
+    const { createExport } = await import("./export-store");
+    const { runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");
+    const programFolder = path.join(mockPaths.episodesRoot, "episode-recorded", "Program");
+    const sourcePath = path.join(programFolder, "program.webm");
+    await fs.mkdir(programFolder, { recursive: true });
+    await runFfmpeg([
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc=size=640x360:rate=24",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=550:sample_rate=48000",
+      "-t",
+      "1",
+      "-c:v",
+      "libvpx",
+      "-c:a",
+      "libopus",
+      "-shortest",
+      sourcePath
+    ]);
+
+    const job = await createExport({
+      episodeId: "episode-recorded",
+      type: "full-episode-video",
+      qualityPreset: "standard",
+      draft: createTimelineDraft({ episodeId: "episode-recorded", deviceDefaults: { cameras: {}, microphones: {} } })
+    });
+
+    const outputPath = path.join(mockPaths.episodesRoot, "episode-recorded", "Exports", job.outputFileName ?? "");
+
+    expect(job.status).toBe("complete");
+    expect(job.outputFileName).toBe("what-about-it-full-episode-video.mp4");
+    expect(await validatePlayableMedia(outputPath)).toBe(true);
+  }, 20000);
+
   it("returns a friendly missing recording state when real media is unavailable", async () => {
     const { createExport } = await import("./export-store");
     const job = await createExport({

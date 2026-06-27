@@ -54,9 +54,14 @@ export class RecordingService {
       this.friendlyError = undefined;
       await this.persistState();
       this.startStateTimer();
-    } catch {
+    } catch (error) {
       this.status = "error";
-      this.friendlyError = friendlyRecordingError("device");
+      const message = String(error);
+      this.friendlyError = message.includes("Camera needs attention")
+        ? friendlyRecordingError("camera")
+        : message.includes("Mic needs attention")
+        ? friendlyRecordingError("mic")
+        : friendlyRecordingError("device");
       if (this.session) await window.studio.appendRecordingError(this.session.folderPath, this.friendlyError);
     }
 

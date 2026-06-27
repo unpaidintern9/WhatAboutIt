@@ -36,6 +36,15 @@ export interface DeviceMap {
 export interface SyncMetadata {
   sessionStartTime: string;
   deviceStartTimestamps: Record<string, string>;
+  savedMediaFiles?: {
+    program?: string;
+    camera1?: string;
+    morganMic?: string;
+  };
+  validation?: {
+    programPlayable: boolean;
+    validatedAt: string;
+  };
   droppedFrameWarnings: string[];
   audioDriftWarning: string;
 }
@@ -103,9 +112,11 @@ export function isUnfinishedRecordingState(state: RecordingState) {
   return state.status === "recording" || state.status === "paused" || state.status === "interrupted";
 }
 
-export function friendlyRecordingError(reason: "permission" | "device" | "storage" | "unknown") {
+export function friendlyRecordingError(reason: "permission" | "camera" | "mic" | "device" | "storage" | "unknown") {
   const messages = {
     permission: "Permission needed before we can record.",
+    camera: "Camera needs attention",
+    mic: "Mic needs attention",
     device: "We could not start that device yet.",
     storage: "We need more room before recording.",
     unknown: "Something got in the way, but your local files are still safe."
