@@ -12,6 +12,9 @@ npm run test
 - Theme fallback behavior.
 - CSS custom property application.
 - Component library render smoke test.
+- Device config defaults and slot helpers.
+- Device setup empty states and readiness.
+- Device setup wizard render states.
 
 ## Future Requirements
 
@@ -20,4 +23,3 @@ npm run test
 - Offline launch checks.
 - Accessibility checks.
 - Screenshot review with the Brand Guardian.
-

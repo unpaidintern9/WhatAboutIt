@@ -1,0 +1,8 @@
+{
+  "studioSetup": "Check cameras, microphones, and headphones before recording day.",
+  "cameraSlot": "Pick which camera should appear in this slot later.",
+  "microphoneSlot": "Pick which voice this microphone belongs to.",
+  "testSound": "Play a short local sound through your current output.",
+  "saySomething": "Speak normally and watch the meter move."
+}
+

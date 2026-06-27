@@ -11,9 +11,11 @@ for (const forbiddenPath of forbiddenPaths) {
 const sourceFiles = await listFiles(path.join(appRoot, "src"));
 for (const file of sourceFiles) {
   const content = await readFile(file, "utf8");
+  const relativeFile = path.relative(projectRoot, file);
+  const isDevicePlugin = relativeFile.includes(`${path.sep}plugins${path.sep}devices${path.sep}`);
   if (content.includes("external-repos")) fail(`App source must not import external repos directly: ${path.relative(projectRoot, file)}`);
-  if (content.includes("getUserMedia") || content.includes("enumerateDevices")) {
-    fail(`Phase 2 device integration is not allowed yet: ${path.relative(projectRoot, file)}`);
+  if (!isDevicePlugin && (content.includes("getUserMedia") || content.includes("enumerateDevices"))) {
+    fail(`Device APIs must stay behind the device plugin boundary: ${relativeFile}`);
   }
 }
 
@@ -22,4 +24,3 @@ const duplicates = componentFiles.filter((file, index) => componentFiles.indexOf
 if (duplicates.length > 0) fail(`Duplicate component files: ${duplicates.join(", ")}`);
 
 console.log("Architecture validation passed.");
-

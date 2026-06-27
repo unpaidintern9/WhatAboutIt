@@ -16,6 +16,21 @@ export interface StudioSettings {
   activeThemeId: string;
   defaultEpisodeFolderName: string;
   practiceModeEnabled: boolean;
+  deviceDefaults: DeviceDefaults;
+}
+
+export interface DeviceDefaults {
+  cameras: {
+    camera1?: string;
+    camera2?: string;
+    camera3?: string;
+  };
+  microphones: {
+    morganMic?: string;
+    guestMic?: string;
+    extraMic?: string;
+  };
+  audioOutputId?: string;
 }
 
 export interface ThemeTokens {

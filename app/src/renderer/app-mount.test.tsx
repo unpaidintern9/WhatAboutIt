@@ -11,7 +11,11 @@ describe("app mount", () => {
       getSettings: vi.fn(async () => ({
         activeThemeId: "what-about-it",
         defaultEpisodeFolderName: "episodes",
-        practiceModeEnabled: false
+        practiceModeEnabled: false,
+        deviceDefaults: {
+          cameras: {},
+          microphones: {}
+        }
       })),
       saveSettings: vi.fn()
     };
@@ -29,4 +33,3 @@ describe("app mount", () => {
     expect(host.textContent).toContain("Camera 1");
   });
 });
-

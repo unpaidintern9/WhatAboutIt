@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BookOpen,
   Brush,
   Camera,
   Clapperboard,
   FolderOpen,
+  Headphones,
   Mic2,
   MonitorPlay,
   Plus,
@@ -12,35 +13,52 @@ import {
   Sparkles,
   Wand2
 } from "lucide-react";
-import type { EpisodeMetadata, StudioSettings } from "../shared/types";
-import { Button, CameraPreview } from "./components";
+import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
+import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
+import { Button, CameraPreview, DeviceSetupWizard } from "./components";
+import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
+import type { DeviceDetectionResult } from "./plugins/devices/types";
+import { DeviceService } from "./services";
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
-type View = "home" | "new-episode" | "settings" | "learn" | "practice" | "theme-editor";
+type View = "home" | "new-episode" | "device-setup" | "settings" | "learn" | "practice" | "theme-editor";
 
 const fallbackSettings: StudioSettings = {
   activeThemeId: "what-about-it",
   defaultEpisodeFolderName: "episodes",
-  practiceModeEnabled: false
+  practiceModeEnabled: false,
+  deviceDefaults: defaultDeviceDefaults
+};
+
+const emptyDetection: DeviceDetectionResult = {
+  cameras: [],
+  microphones: [],
+  speakers: [],
+  permissionNeeded: false
 };
 
 export default function App() {
   const [view, setView] = useState<View>("home");
   const [episodes, setEpisodes] = useState<EpisodeMetadata[]>([]);
   const [settings, setSettings] = useState<StudioSettings>(fallbackSettings);
+  const [deviceDetection, setDeviceDetection] = useState<DeviceDetectionResult>(emptyDetection);
+  const [wizardStep, setWizardStep] = useState(0);
+  const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [title, setTitle] = useState("");
   const [guestName, setGuestName] = useState("");
   const [description, setDescription] = useState("");
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
+  const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
 
   useEffect(() => {
     applyTheme(activeTheme);
   }, [activeTheme]);
 
   useEffect(() => {
-    void window.studio.getSettings().then(setSettings);
+    void window.studio.getSettings().then((nextSettings) => setSettings(withDeviceDefaults(nextSettings)));
     void refreshEpisodes();
+    void refreshDevices();
   }, []);
 
   async function refreshEpisodes() {
@@ -62,6 +80,29 @@ export default function App() {
     await window.studio.saveSettings(nextSettings);
   }
 
+  async function refreshDevices() {
+    setDeviceDetection(await deviceService.detectDevices());
+  }
+
+  async function requestStudioPermissions() {
+    setDeviceDetection(await deviceService.requestStudioPermissions());
+  }
+
+  async function saveDeviceDefaults(deviceDefaults: DeviceDefaults) {
+    const nextSettings = withDeviceDefaults({ ...settings, deviceDefaults });
+    setSettings(nextSettings);
+    await window.studio.saveSettings(nextSettings);
+  }
+
+  async function testMicrophone() {
+    const level = await deviceService.sampleMicrophoneLevel(settings.deviceDefaults.microphones.morganMic);
+    setMicrophoneLevel(level);
+  }
+
+  async function playTestSound() {
+    await deviceService.playTestSound(settings.deviceDefaults.audioOutputId);
+  }
+
   return (
     <main className="studio-shell">
       <aside className="sidebar">
@@ -80,6 +121,9 @@ export default function App() {
           <button className={view === "new-episode" ? "active" : ""} onClick={() => setView("new-episode")}>
             <Plus size={20} /> New Episode
           </button>
+          <button className={view === "device-setup" ? "active" : ""} onClick={() => setView("device-setup")}>
+            <Camera size={20} /> Studio Setup
+          </button>
           <button className={view === "theme-editor" ? "active" : ""} onClick={() => setView("theme-editor")}>
             <Brush size={20} /> Theme Editor
           </button>
@@ -96,7 +140,7 @@ export default function App() {
 
         <div className="phase-note">
           <Sparkles size={18} />
-          Phase 1 shell. Devices and recording stay locked until later phases.
+          Phase 2 setup only. Recording stays locked until Phase 3.
         </div>
       </aside>
 
@@ -113,11 +157,25 @@ export default function App() {
             createEpisode={createEpisode}
           />
         )}
+        {view === "device-setup" && (
+          <DeviceSetupWizard
+            detection={deviceDetection}
+            defaults={settings.deviceDefaults}
+            microphoneLevel={microphoneLevel}
+            currentStep={wizardStep}
+            onStepChange={setWizardStep}
+            onRefresh={() => void refreshDevices()}
+            onRequestPermission={() => void requestStudioPermissions()}
+            onDefaultsChange={(defaults) => void saveDeviceDefaults(defaults)}
+            onTestMicrophone={() => void testMicrophone()}
+            onPlayTestSound={() => void playTestSound()}
+          />
+        )}
         {view === "theme-editor" && (
           <ThemeEditorView activeThemeId={settings.activeThemeId} changeTheme={changeTheme} />
         )}
-        {view === "learn" && <PlaceholderView icon={<BookOpen />} title="Learn Studio" message="Offline lessons are getting their boots on. This will become the friendly guide for setup, recording, reviewing, and exporting." />}
-        {view === "practice" && <PlaceholderView icon={<Clapperboard />} title="Practice Mode" message="A no-pressure rehearsal space is planned here. For Phase 1, it is intentionally a placeholder." />}
+        {view === "learn" && <LearnStudioView />}
+        {view === "practice" && <PracticeModeView />}
         {view === "settings" && <SettingsView settings={settings} activeThemeName={activeTheme.name} />}
       </section>
     </main>
@@ -153,7 +211,7 @@ function HomeView({ episodes, onNewEpisode }: { episodes: EpisodeMetadata[]; onN
                 <article className="episode-card" key={episode.id}>
                   <div>
                     <h4>{episode.title}</h4>
-                    <p>{episode.guestName || "Solo episode"} · {new Date(episode.createdAt).toLocaleDateString()}</p>
+                    <p>{episode.guestName || "Solo episode"} - {new Date(episode.createdAt).toLocaleDateString()}</p>
                   </div>
                   <span>{episode.status}</span>
                 </article>
@@ -168,11 +226,11 @@ function HomeView({ episodes, onNewEpisode }: { episodes: EpisodeMetadata[]; onN
             <Wand2 size={22} />
           </div>
           <div className="locked-tools">
-            <span><Camera size={18} /> Camera setup</span>
-            <span><Mic2 size={18} /> Mic setup</span>
+            <span><Camera size={18} /> Studio Setup is ready</span>
+            <span><Mic2 size={18} /> Mic check is ready</span>
             <span><Wand2 size={18} /> Auto Edit</span>
           </div>
-          <p>These stay as placeholders in Phase 1. No Phase 2 device work is active yet.</p>
+          <p>Use Studio Setup to pick devices. Recording and Auto Edit stay locked for later phases.</p>
         </div>
       </section>
     </div>
@@ -258,21 +316,65 @@ function SettingsView({ settings, activeThemeName }: { settings: StudioSettings;
         <div><dt>Active theme</dt><dd>{activeThemeName}</dd></div>
         <div><dt>Episode folder</dt><dd>{settings.defaultEpisodeFolderName}</dd></div>
         <div><dt>Practice Mode</dt><dd>{settings.practiceModeEnabled ? "On" : "Off"}</dd></div>
+        <div><dt>Camera 1</dt><dd>{settings.deviceDefaults.cameras.camera1 ? "Saved" : "Not picked yet"}</dd></div>
+        <div><dt>Morgan Mic</dt><dd>{settings.deviceDefaults.microphones.morganMic ? "Saved" : "Not picked yet"}</dd></div>
         <div><dt>Storage</dt><dd>Local Documents folder</dd></div>
       </dl>
     </section>
   );
 }
 
-function PlaceholderView({ icon, title, message }: { icon: ReactNode; title: string; message: string }) {
+function LearnStudioView() {
+  const lessons = [
+    "How to connect a camera",
+    "How to connect a microphone",
+    "How to use headphones",
+    "What to do if your camera does not show up",
+    "What to do if your mic is too quiet"
+  ];
+
   return (
-    <section className="placeholder-panel">
-      <div className="placeholder-icon">{icon}</div>
-      <p className="signature">Coming in a later pass</p>
-      <h2>{title}</h2>
-      <p>{message}</p>
+    <section className="panel learning-panel">
+      <p className="signature">Little lessons, right in the studio</p>
+      <h2>Learn Studio</h2>
+      <p className="soft-copy">Offline help is ready for device setup. No internet, no tech lecture, just the next helpful step.</p>
+      <div className="lesson-grid">
+        {lessons.map((lesson) => (
+          <article className="lesson-card" key={lesson}>
+            <BookOpen size={22} />
+            <h3>{lesson}</h3>
+            <p>{getLessonCopy(lesson)}</p>
+          </article>
+        ))}
+      </div>
     </section>
   );
+}
+
+function PracticeModeView() {
+  return (
+    <section className="panel practice-panel">
+      <p className="signature">Try it without touching real gear</p>
+      <h2>Practice Mode</h2>
+      <p className="soft-copy">
+        Walk through a safe fake setup with branded placeholders. No fake people photos, no recording, and no real device changes.
+      </p>
+      <div className="practice-steps">
+        <span><Camera size={20} /> Pretend Camera 1 is plugged in</span>
+        <span><Mic2 size={20} /> Pretend Morgan Mic is loud and clear</span>
+        <span><Headphones size={20} /> Pretend headphones played the test sound</span>
+        <span><Clapperboard size={20} /> Practice says: everything looks good</span>
+      </div>
+    </section>
+  );
+}
+
+function getLessonCopy(lesson: string) {
+  if (lesson.includes("camera does not")) return "Try a different port, close other video apps, then run Studio Setup again.";
+  if (lesson.includes("mic is too quiet")) return "Move the mic closer, check the gain knob, and use Say something! to watch the meter.";
+  if (lesson.includes("camera")) return "Plug the camera in first, then choose it for Camera 1, Camera 2, or Camera 3.";
+  if (lesson.includes("microphone")) return "Pick Morgan Mic first so the app knows which voice matters most.";
+  return "Use headphones during recording so the microphones do not hear the show audio.";
 }
 
 function CameraPreviewWall() {

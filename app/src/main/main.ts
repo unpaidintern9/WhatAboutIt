@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
 import { defaultStudioConfiguration } from "../shared/config";
+import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import { getAppDataRoot, getEpisodesRoot, getSettingsPath } from "./config-service";
 import { logger } from "./logger";
 
@@ -101,17 +102,21 @@ async function createEpisode(input: { title: string; guestName?: string; descrip
 
 async function getSettings(): Promise<StudioSettings> {
   await fs.mkdir(appDataRoot, { recursive: true });
-  return readJsonFile<StudioSettings>(settingsPath, {
+  const settings = await readJsonFile<StudioSettings>(settingsPath, {
     activeThemeId: defaultStudioConfiguration.theme.activeThemeId,
     defaultEpisodeFolderName: defaultStudioConfiguration.storage.episodeFolderName,
-    practiceModeEnabled: false
+    practiceModeEnabled: false,
+    deviceDefaults: defaultDeviceDefaults
   });
+  return withDeviceDefaults(settings);
 }
 
 async function saveSettings(settings: StudioSettings) {
   await fs.mkdir(appDataRoot, { recursive: true });
-  await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2), "utf8");
-  return settings;
+  const nextSettings = withDeviceDefaults(settings);
+  await fs.writeFile(settingsPath, JSON.stringify(nextSettings, null, 2), "utf8");
+  await logger.info("SettingsService", "Saved local studio settings.");
+  return nextSettings;
 }
 
 app.whenReady().then(async () => {
