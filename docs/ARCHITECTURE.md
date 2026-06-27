@@ -31,7 +31,7 @@ Not implemented:
 
 ## Theme Engine
 
-Theme JSON files define visual tokens for colors, typography, branding, textures, and component behavior. Renderer styles consume CSS custom properties generated from the active theme.
+Root-level theme folders define visual tokens for colors, typography, spacing, components, icons, textures, and animations. Renderer styles consume CSS custom properties generated from the active theme.
 
 Later phases should add:
 
@@ -40,3 +40,18 @@ Later phases should add:
 - Import/export/share theme flows.
 - Brand Guardian visual review reports.
 
+## Plugin Architecture
+
+Major feature areas are replaceable plugins behind core contracts:
+
+- Recording
+- Cameras
+- Audio
+- Timeline
+- Auto Edit
+- Export
+- Teleprompter
+- Themes
+- Learning Center
+
+Screens and services may call contracts. They must not call external repo internals directly.

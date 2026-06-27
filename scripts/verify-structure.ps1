@@ -11,11 +11,30 @@ $required = @(
   "assets",
   "assets\branding",
   "assets\placeholders",
+  "core",
+  "plugins",
+  "services",
+  "themes",
+  "learning",
   "research",
   "README.md",
   "agents\brand-guardian-agent.md",
   "docs\BRAND_SYSTEM.md",
-  "app\themes\what-about-it.json"
+  "docs\CODING_STANDARDS.md",
+  "docs\PLUGIN_ARCHITECTURE.md",
+  "docs\DESIGN_TOKENS.md",
+  "docs\COMPONENT_LIBRARY.md",
+  "docs\AUTO_EDIT_ARCHITECTURE.md",
+  "docs\LEARNING_ARCHITECTURE.md",
+  "docs\ARCHITECTURE_REVIEW.md",
+  "docs\dependency-audit\obs-studio.md",
+  "themes\what-about-it\colors.json",
+  "themes\what-about-it\typography.json",
+  "themes\what-about-it\spacing.json",
+  "themes\what-about-it\components.json",
+  "themes\what-about-it\icons.json",
+  "themes\what-about-it\textures.json",
+  "themes\what-about-it\animations.json"
 )
 
 foreach ($item in $required) {
@@ -26,4 +45,3 @@ foreach ($item in $required) {
 }
 
 Write-Host "What About It? Studio structure verified."
-

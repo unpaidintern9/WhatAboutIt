@@ -35,6 +35,7 @@ export interface ThemeTokens {
     letterSpacing: string;
     lineHeight: string;
   };
+  spacing: Record<string, string>;
   branding: {
     applicationName: string;
     logoText: string;
@@ -44,6 +45,13 @@ export interface ThemeTokens {
     exportBranding: string;
     iconStyle: string;
   };
+  icons: {
+    style: string;
+    strokeWidth: number;
+    buttonSize: string;
+    heroSize: string;
+    badgeText: string;
+  };
   textures: {
     paper: string;
     leather: string;
@@ -52,6 +60,14 @@ export interface ThemeTokens {
     metal: string;
     active: "paper" | "leather" | "wood" | "fabric" | "metal" | "flat" | "none";
     intensity: number;
+  };
+  animations: {
+    transitionFast: string;
+    transitionBase: string;
+    transitionSlow: string;
+    hoverLift: string;
+    pressDepth: string;
+    disabledOpacity: number;
   };
   components: {
     buttonShape: string;
@@ -63,6 +79,8 @@ export interface ThemeTokens {
     hoverAnimation: string;
     transitionSpeed: string;
     iconStyle: string;
+    buttonShadow?: string;
+    borderWidth?: string;
+    focusRing?: string;
   };
 }
-

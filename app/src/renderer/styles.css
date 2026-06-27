@@ -8,8 +8,8 @@
 
 body {
   margin: 0;
-  min-width: 980px;
-  min-height: 720px;
+  min-width: var(--space-minShellWidth);
+  min-height: var(--space-minShellHeight);
   color: var(--color-text);
   background:
     linear-gradient(rgba(26, 17, 16, calc(0.85 - var(--texture-intensity, 0.5) * 0.2)), rgba(26, 17, 16, 0.92)),
@@ -33,7 +33,7 @@ button {
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.58;
+  opacity: var(--animation-disabled-opacity);
 }
 
 .studio-shell {
@@ -45,8 +45,8 @@ button:disabled {
 .sidebar {
   display: flex;
   flex-direction: column;
-  gap: 28px;
-  padding: 28px;
+  gap: var(--space-sidebar);
+  padding: var(--space-sidebar);
   color: var(--color-inverseText);
   background:
     linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.24)),
@@ -57,16 +57,16 @@ button:disabled {
 
 .brand-lockup {
   display: grid;
-  grid-template-columns: 72px 1fr;
-  gap: 14px;
+  grid-template-columns: calc(var(--space-xxl) + var(--space-xxl) + var(--space-sm)) 1fr;
+  gap: var(--space-lg);
   align-items: center;
 }
 
 .brand-badge {
   display: grid;
   place-items: center;
-  width: 72px;
-  height: 72px;
+  width: calc(var(--space-xxl) + var(--space-xxl) + var(--space-sm));
+  height: calc(var(--space-xxl) + var(--space-xxl) + var(--space-sm));
   color: var(--color-inverseText);
   background: var(--color-primary);
   border: 3px double var(--color-accent);
@@ -78,7 +78,7 @@ button:disabled {
 
 .eyebrow,
 .signature {
-  margin: 0 0 6px;
+  margin: 0 0 var(--space-sm);
   color: var(--color-accent);
 }
 
@@ -90,7 +90,7 @@ button:disabled {
 
 .signature {
   font-family: var(--font-accent);
-  font-size: 1.25rem;
+  font-size: var(--font-heading-size);
 }
 
 h1,
@@ -112,33 +112,33 @@ h4 {
 
 h1 {
   margin-bottom: 0;
-  font-size: 1.35rem;
+  font-size: var(--font-heading-size);
 }
 
 h2 {
-  margin-bottom: 14px;
+  margin-bottom: var(--space-lg);
   font-family: var(--font-display);
-  font-size: clamp(2.3rem, 4vw, 4.6rem);
+  font-size: var(--font-display-size);
   font-weight: var(--font-display-weight);
   line-height: 0.95;
 }
 
 h3 {
-  font-size: 1.25rem;
+  font-size: var(--font-heading-size);
 }
 
 .nav-stack {
   display: grid;
-  gap: 10px;
+  gap: var(--space-md);
 }
 
 .nav-stack button,
 .editor-actions button {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-md);
   width: 100%;
-  padding: 14px 15px;
+  padding: var(--space-lg);
   color: inherit;
   background: rgba(255, 244, 220, 0.08);
   border: 1px solid rgba(255, 244, 220, 0.18);
@@ -149,15 +149,15 @@ h3 {
 .nav-stack button:hover,
 .nav-stack button.active {
   background: var(--color-primary);
-  transform: translateY(-1px);
+  transform: var(--animation-hover-lift);
 }
 
 .phase-note {
   display: flex;
-  gap: 10px;
+  gap: var(--space-md);
   align-items: flex-start;
   margin-top: auto;
-  padding: 14px;
+  padding: var(--space-lg);
   color: var(--color-inverseText);
   background: rgba(255, 244, 220, 0.09);
   border: 1px solid rgba(255, 244, 220, 0.18);
@@ -165,13 +165,13 @@ h3 {
 }
 
 .workspace {
-  padding: 32px;
+  padding: var(--space-xxl);
   overflow: auto;
 }
 
 .view-stack {
   display: grid;
-  gap: 24px;
+  gap: var(--space-xl);
 }
 
 .hero-panel,
@@ -192,7 +192,7 @@ h3 {
   grid-template-columns: minmax(0, 1fr) 380px;
   gap: 28px;
   align-items: center;
-  padding: 36px;
+  padding: var(--space-section);
 }
 
 .hero-copy,
@@ -204,36 +204,39 @@ h3 {
   font-size: 1.02rem;
 }
 
-.primary-action {
+.primary-action,
+.wai-button-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  min-height: 58px;
-  padding: 16px 22px;
+  gap: var(--space-md);
+  min-height: var(--space-controlHeight);
+  padding: var(--space-lg) var(--space-xl);
   color: var(--color-inverseText);
   background: var(--color-buttons);
   border: 3px double var(--color-accent);
   border-radius: var(--component-border-radius);
-  box-shadow: 0 8px 0 rgba(35, 19, 16, 0.28);
+  box-shadow: var(--component-button-shadow);
   font-weight: 900;
   transition: transform var(--component-transition-speed), box-shadow var(--component-transition-speed);
 }
 
-.primary-action:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 10px 0 rgba(35, 19, 16, 0.26);
+.primary-action:hover,
+.wai-button-primary:hover {
+  transform: var(--animation-hover-lift);
+  box-shadow: var(--component-button-shadow);
 }
 
 .preview-wall {
   display: grid;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
-.camera-box {
+.camera-box,
+.wai-camera-preview {
   display: grid;
   place-items: center;
-  min-height: 116px;
+  min-height: var(--space-previewHeight);
   color: var(--color-mutedText);
   background:
     linear-gradient(135deg, rgba(0, 0, 0, 0.08), rgba(255, 255, 255, 0.16)),
@@ -254,34 +257,34 @@ h3 {
 .split-row {
   display: grid;
   grid-template-columns: 1.25fr 0.75fr;
-  gap: 24px;
+  gap: var(--space-xl);
 }
 
 .panel,
 .form-panel,
 .placeholder-panel {
-  padding: 26px;
+  padding: var(--space-xl);
 }
 
 .panel-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-lg);
   color: var(--color-primary);
 }
 
 .episode-list {
   display: grid;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .episode-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
-  padding: 16px;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
   background: var(--color-cards);
   border: 1px solid color-mix(in srgb, var(--color-border), transparent 45%);
   border-radius: var(--component-card-radius);
@@ -301,21 +304,21 @@ h3 {
   color: var(--color-inverseText);
   background: var(--color-primary);
   border-radius: 999px;
-  font-size: 0.85rem;
+  font-size: var(--font-small-size);
   font-weight: 900;
 }
 
 .locked-tools {
   display: grid;
-  gap: 10px;
-  margin-bottom: 18px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
 }
 
 .locked-tools span {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px;
+  gap: var(--space-md);
+  padding: var(--space-md);
   background: var(--color-cards);
   border-radius: var(--component-card-radius);
 }
@@ -326,8 +329,8 @@ h3 {
 
 label {
   display: grid;
-  gap: 8px;
-  margin-bottom: 18px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
   color: var(--color-primary);
   font-weight: 900;
 }
@@ -335,7 +338,7 @@ label {
 input,
 textarea {
   width: 100%;
-  padding: 14px 15px;
+  padding: var(--space-lg);
   color: var(--color-text);
   background: var(--color-cards);
   border: 2px solid var(--color-border);
@@ -346,26 +349,26 @@ textarea {
 input:focus,
 textarea:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent), transparent 72%);
+  box-shadow: var(--component-focus-ring);
 }
 
 textarea {
-  min-height: 130px;
+  min-height: calc(var(--space-previewHeight) + var(--space-lg));
   resize: vertical;
 }
 
 .theme-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-  margin: 22px 0;
+  gap: var(--space-lg);
+  margin: var(--space-xl) 0;
 }
 
 .theme-tile {
   display: grid;
   gap: 10px;
-  min-height: 168px;
-  padding: 16px;
+  min-height: calc(var(--space-previewHeight) + var(--space-xxl));
+  padding: var(--space-lg);
   text-align: left;
   border: 2px solid;
   border-radius: var(--component-card-radius);
@@ -394,20 +397,20 @@ textarea {
 .editor-actions {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .settings-panel dl {
   display: grid;
-  gap: 14px;
+  gap: var(--space-lg);
   margin: 0;
 }
 
 .settings-panel div {
   display: flex;
   justify-content: space-between;
-  gap: 18px;
-  padding: 14px 0;
+  gap: var(--space-lg);
+  padding: var(--space-lg) 0;
   border-bottom: 1px solid color-mix(in srgb, var(--color-border), transparent 55%);
 }
 
@@ -423,20 +426,82 @@ dd {
 .placeholder-panel {
   display: grid;
   place-items: center;
-  min-height: 520px;
+  min-height: calc(var(--space-previewHeight) * 4.5);
   text-align: center;
 }
 
 .placeholder-icon {
   display: grid;
   place-items: center;
-  width: 84px;
-  height: 84px;
-  margin-bottom: 18px;
+  width: calc(var(--space-xxl) + var(--space-xxl) + var(--space-xl));
+  height: calc(var(--space-xxl) + var(--space-xxl) + var(--space-xl));
+  margin-bottom: var(--space-lg);
   color: var(--color-inverseText);
   background: var(--color-primary);
   border: 3px double var(--color-accent);
   border-radius: 50%;
+}
+
+.wai-button-secondary,
+.wai-button-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  min-height: var(--space-controlHeight);
+  padding: var(--space-md) var(--space-lg);
+  color: var(--color-text);
+  background: var(--color-cards);
+  border: var(--component-border-width) solid var(--color-border);
+  border-radius: var(--component-border-radius);
+  transition: transform var(--component-transition-speed), background var(--component-transition-speed);
+}
+
+.wai-button-secondary:hover,
+.wai-button-icon:hover {
+  transform: var(--animation-hover-lift);
+}
+
+.wai-card,
+.wai-panel,
+.wai-modal,
+.wai-toast {
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+}
+
+.wai-panel-heading,
+.wai-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+}
+
+.wai-audio-meter {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.wai-audio-meter div {
+  block-size: var(--space-sm);
+  background: var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.wai-audio-meter i {
+  display: block;
+  block-size: 100%;
+  background: var(--color-audioMeters);
+  border-radius: inherit;
+}
+
+.wai-timeline-marker,
+.wai-toast,
+.wai-tooltip span[role="tooltip"] {
+  padding: var(--space-sm) var(--space-md);
 }
 
 @media (max-width: 1100px) {
@@ -457,4 +522,3 @@ dd {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-

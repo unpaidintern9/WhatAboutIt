@@ -24,7 +24,7 @@ The product should be recognizable as What About It? Studio from a screenshot be
 
 ## Theme Engine Requirement
 
-Branding must not be hardcoded. Every visual decision should come from theme files and, later, the visual Theme Editor.
+Branding must not be hardcoded. Every visual decision should come from split token files in root-level theme folders and, later, the visual Theme Editor.
 
 Theme options include:
 
@@ -46,6 +46,10 @@ Theme options include:
 
 Users must eventually be able to create, export, import, and share custom themes.
 
+## Brand Guardian Gate
+
+Every screen receives a visual score from 0 to 100. The target score is 90+. A screen below 90 is not approved for merge.
+
 ## Visual Rules
 
 - Do not use fake people photos.
@@ -66,4 +70,3 @@ Every new screen must:
 - Feel approachable.
 - Be easy enough for a first-time user.
 - Avoid generic admin dashboard or boilerplate Electron styling.
-

@@ -13,6 +13,7 @@ import {
   Wand2
 } from "lucide-react";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
+import { Button, CameraPreview } from "./components";
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
@@ -133,9 +134,7 @@ function HomeView({ episodes, onNewEpisode }: { episodes: EpisodeMetadata[]; onN
           <p className="hero-copy">
             Start a new episode, keep everything local, and let the heavy media tools stay behind the curtain.
           </p>
-          <button className="primary-action" onClick={onNewEpisode}>
-            <Plus size={24} /> New Episode
-          </button>
+          <Button variant="primary" icon={<Plus size={24} />} onClick={onNewEpisode}>New Episode</Button>
         </div>
         <CameraPreviewWall />
       </section>
@@ -205,9 +204,9 @@ function NewEpisodeView(props: {
         Notes
         <textarea value={props.description} onChange={(event) => props.setDescription(event.target.value)} placeholder="Big idea, segment notes, or anything Morgan wants handy." />
       </label>
-      <button className="primary-action" disabled={!props.title.trim()} onClick={() => void props.createEpisode()}>
-        <Plus size={22} /> Create Local Episode
-      </button>
+      <Button variant="primary" icon={<Plus size={22} />} disabled={!props.title.trim()} onClick={() => void props.createEpisode()}>
+        Create Local Episode
+      </Button>
     </section>
   );
 }
@@ -280,11 +279,7 @@ function CameraPreviewWall() {
   return (
     <div className="preview-wall" aria-label="Branded empty camera preview placeholders">
       {["Camera 1", "Camera 2", "Camera 3"].map((label) => (
-        <div className="camera-box" key={label}>
-          <Camera size={26} />
-          <span>{label}</span>
-          <small>Preview comes in Phase 2</small>
-        </div>
+        <CameraPreview label={label} key={label} />
       ))}
     </div>
   );
