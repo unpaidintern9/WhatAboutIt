@@ -89,10 +89,11 @@ async function createEpisode(input: { title: string; guestName?: string; descrip
   const id = `${now.slice(0, 10)}-${slugify(input.title)}-${crypto.randomUUID().slice(0, 8)}`;
   const folderPath = path.join(episodesRoot, id);
 
-  await fs.mkdir(path.join(folderPath, "media"), { recursive: true });
-  await fs.mkdir(path.join(folderPath, "drafts"), { recursive: true });
-  await fs.mkdir(path.join(folderPath, "exports"), { recursive: true });
-  await fs.mkdir(path.join(folderPath, "reports"), { recursive: true });
+  await Promise.all(
+    ["Program", "Cameras", "Audio", "Backup", "Session", "Logs", "Exports", "Reports"].map((folder) =>
+      fs.mkdir(path.join(folderPath, folder), { recursive: true })
+    )
+  );
 
   const metadata: EpisodeMetadata = {
     id,

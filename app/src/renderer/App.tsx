@@ -916,6 +916,8 @@ function PracticeModeView() {
         Walk through the recording room tools with branded placeholders. No fake people photos and no real media files.
       </p>
       <div className="practice-steps">
+        <span><Plus size={20} /> Practice starting a new episode</span>
+        <span><Camera size={20} /> Practice Studio Setup with safe placeholders</span>
         <span><Circle size={20} /> Press Practice on the Record screen</span>
         <span><Mic2 size={20} /> Practice pause and resume</span>
         <span><BookOpen size={20} /> Try the teleprompter and sponsor script</span>

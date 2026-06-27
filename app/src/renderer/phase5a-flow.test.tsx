@@ -8,6 +8,35 @@ import { createTimelineDraft } from "../shared/timeline";
 import { defaultExportSettings } from "../shared/export";
 
 describe("Phase 5C flow", () => {
+  it("smoke tests the full MVP flow surfaces from launch to export", async () => {
+    const routes = [
+      ["home", "Ready when you are."],
+      ["new-episode", "New Episode"],
+      ["device-setup", "Let's check your studio"],
+      ["recording", "Everything is saving locally"],
+      ["timeline-review", "Review your episode"],
+      ["export", "Export your episode"]
+    ];
+
+    for (const [view, expectedCopy] of routes) {
+      window.history.replaceState(null, "", `/?view=${view}&tour=off`);
+      Reflect.deleteProperty(window, "studio");
+      const host = document.createElement("div");
+      document.body.appendChild(host);
+      const root = createRoot(host);
+
+      await act(async () => {
+        root.render(<App />);
+      });
+
+      expect(host.textContent).toContain(expectedCopy);
+      expect(host.textContent).not.toContain("FFmpeg");
+      expect(host.textContent).not.toContain("codec");
+      root.unmount();
+      host.remove();
+    }
+  });
+
   it("renders the Review Episode route with safe draft editing controls", async () => {
     window.history.replaceState(null, "", "/?view=timeline-review&tour=off");
     const episode: EpisodeMetadata = {
