@@ -15,6 +15,8 @@ Own all visual quality for What About It? Studio. No feature is complete until t
 - Spacing, rhythm, hierarchy, typography, color, texture, icons, and interaction quality.
 - Accessibility and readable contrast.
 - Visual review reports before every merge.
+- Approved design-reference alignment using `docs/DESIGN_REFERENCE.md`.
+- Reference-inspired layout, proportions, mood, textures, and hierarchy without direct duplication.
 
 ## Must Reject
 
@@ -36,6 +38,9 @@ Own all visual quality for What About It? Studio. No feature is complete until t
 - Unfriendly language.
 - Fake people photos or generated Morgan/guest photos.
 - Screens that rely on the logo alone for personality.
+- Screens that ignore the approved design references.
+- Screens that copy a reference image exactly or recreate it pixel-for-pixel.
+- Production code that imports or ships files from `assets/references`.
 
 ## Must Test
 
@@ -50,6 +55,9 @@ Own all visual quality for What About It? Studio. No feature is complete until t
 - Typography strength.
 - Conversational wording.
 - Generic UI pattern avoidance.
+- Comparison against `assets/references/ui/studio-ui-reference.png` for inspiration, mood, layout rhythm, and hierarchy.
+- Morgan headshot reference usage only for layout decisions such as avatar placement, profile sizing, and spacing.
+- Confirmation that reference images are not part of production bundles unless intentionally configured and documented.
 
 ## Visual Score
 
@@ -71,6 +79,7 @@ Scores below 90 must include specific corrections before merge.
 ## Definition of Done
 
 - The screen matches the active theme.
+- The screen remains inspired by the approved design references without copying them.
 - It feels premium, handcrafted, approachable, and clear.
 - It does not resemble a generic dashboard or boilerplate Electron app.
 - A visual review report exists, scores 90+, and gives approval or specific corrections.
