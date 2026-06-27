@@ -1,3 +1,5 @@
+import type { ExportSettings } from "./export";
+
 export type EpisodeStatus = "draft" | "ready" | "recorded" | "exported";
 
 export interface EpisodeMetadata {
@@ -17,6 +19,7 @@ export interface StudioSettings {
   defaultEpisodeFolderName: string;
   practiceModeEnabled: boolean;
   deviceDefaults: DeviceDefaults;
+  exportSettings: ExportSettings;
   onboarding?: {
     guidedTour: "show" | "remind-later" | "never";
   };

@@ -24,7 +24,10 @@ function installStudioMock() {
     loadPodcastTools: vi.fn(),
     savePodcastTools: vi.fn(),
     loadTimelineDraft: vi.fn(),
-    saveTimelineDraft: vi.fn()
+    saveTimelineDraft: vi.fn(),
+    createExport: vi.fn(),
+    cancelExport: vi.fn(),
+    openExportFolder: vi.fn()
   };
 }
 

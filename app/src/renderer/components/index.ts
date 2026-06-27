@@ -10,6 +10,7 @@ export * from "./RecordingStudio";
 export * from "./Sidebar";
 export * from "./TimelineMarker";
 export * from "./TimelineReview";
+export * from "./ExportEpisode";
 export * from "./Toast";
 export * from "./Toolbar";
 export * from "./Tooltip";

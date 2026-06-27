@@ -3,6 +3,7 @@ import type { EpisodeMetadata, StudioSettings } from "../shared/types";
 import type { RecordingSession, RecordingSessionCreateInput, RecordingState } from "../shared/recording";
 import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
+import type { ExportJob, ExportRequest } from "../shared/export";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
@@ -24,5 +25,9 @@ contextBridge.exposeInMainWorld("studio", {
     ipcRenderer.invoke("podcast-tools:save", { episodeId, state }),
   loadTimelineDraft: (episodeId: string): Promise<TimelineDraft | null> => ipcRenderer.invoke("timeline:load", episodeId),
   saveTimelineDraft: (episodeId: string, draft: TimelineDraft): Promise<TimelineDraft> =>
-    ipcRenderer.invoke("timeline:save", { episodeId, draft })
+    ipcRenderer.invoke("timeline:save", { episodeId, draft }),
+  createExport: (request: ExportRequest): Promise<ExportJob> => ipcRenderer.invoke("export:create", request),
+  cancelExport: (episodeId: string, job: ExportJob): Promise<ExportJob> =>
+    ipcRenderer.invoke("export:cancel", { episodeId, job }),
+  openExportFolder: (episodeId: string): Promise<string> => ipcRenderer.invoke("export:open-folder", episodeId)
 });

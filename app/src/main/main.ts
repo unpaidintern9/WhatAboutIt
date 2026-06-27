@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
 import { defaultStudioConfiguration } from "../shared/config";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
+import { defaultExportSettings } from "../shared/export";
 import { getAppDataRoot, getEpisodesRoot, getSettingsPath } from "./config-service";
 import { logger } from "./logger";
 import {
@@ -16,6 +17,7 @@ import {
 } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
 import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
+import { cancelExport, createExport, openExportFolder } from "./export-store";
 
 const appDataRoot = getAppDataRoot();
 const episodesRoot = getEpisodesRoot();
@@ -116,14 +118,15 @@ async function getSettings(): Promise<StudioSettings> {
     defaultEpisodeFolderName: defaultStudioConfiguration.storage.episodeFolderName,
     practiceModeEnabled: false,
     deviceDefaults: defaultDeviceDefaults,
+    exportSettings: defaultExportSettings,
     onboarding: { guidedTour: "show" }
   });
-  return withDeviceDefaults(settings);
+  return { ...withDeviceDefaults(settings), exportSettings: { ...defaultExportSettings, ...settings.exportSettings } };
 }
 
 async function saveSettings(settings: StudioSettings) {
   await fs.mkdir(appDataRoot, { recursive: true });
-  const nextSettings = withDeviceDefaults(settings);
+  const nextSettings = { ...withDeviceDefaults(settings), exportSettings: { ...defaultExportSettings, ...settings.exportSettings } };
   await fs.writeFile(settingsPath, JSON.stringify(nextSettings, null, 2), "utf8");
   await logger.info("SettingsService", "Saved local studio settings.");
   return nextSettings;
@@ -148,6 +151,9 @@ app.whenReady().then(async () => {
   ipcMain.handle("podcast-tools:save", (_event, input) => savePodcastTools(input.episodeId, input.state));
   ipcMain.handle("timeline:load", (_event, episodeId) => loadTimelineDraft(episodeId));
   ipcMain.handle("timeline:save", (_event, input) => saveTimelineDraft(input.episodeId, input.draft));
+  ipcMain.handle("export:create", (_event, input) => createExport(input));
+  ipcMain.handle("export:cancel", (_event, input) => cancelExport(input.episodeId, input.job));
+  ipcMain.handle("export:open-folder", (_event, episodeId) => openExportFolder(episodeId));
 
   createWindow();
 

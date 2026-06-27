@@ -43,7 +43,7 @@ describe("timeline draft", () => {
     const draft = createTimelineDraft({ deviceDefaults });
 
     expect(draft.lockedTools).toEqual(lockedTimelineTools);
-    expect(draft.lockedTools).toEqual(["Auto Edit", "Export"]);
+    expect(draft.lockedTools).toEqual(["Auto Edit"]);
   });
 
   it("fills missing draft data safely", () => {

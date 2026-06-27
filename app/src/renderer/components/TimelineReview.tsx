@@ -1,4 +1,4 @@
-import { Clock, History, Lock, Pause, Play, RotateCcw, Save, Scissors, ShieldCheck, SkipForward, Split, Trash2, Undo2, Redo2 } from "lucide-react";
+import { Clock, Download, History, Lock, Pause, Play, RotateCcw, Save, Scissors, ShieldCheck, SkipForward, Split, Trash2, Undo2, Redo2 } from "lucide-react";
 import type { TimelineDraft } from "../../shared/timeline";
 import { applyTimelineEdit, redoTimelineEdit, restoreOriginalTimeline, selectTimelinePoint, undoTimelineEdit } from "../../shared/timeline";
 import { Button } from ".";
@@ -8,9 +8,10 @@ interface TimelineReviewProps {
   draft: TimelineDraft;
   onDraftChange: (draft: TimelineDraft) => void;
   onSaveDraft: () => void;
+  onExport: () => void;
 }
 
-export function TimelineReview({ draft, onDraftChange, onSaveDraft }: TimelineReviewProps) {
+export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport }: TimelineReviewProps) {
   const selectedTimestamp = draft.selection?.timestampMs ?? 0;
 
   function choosePoint(timestampMs: number, markerId?: string) {
@@ -43,6 +44,9 @@ export function TimelineReview({ draft, onDraftChange, onSaveDraft }: TimelineRe
         </Button>
         <Button variant="secondary" icon={<Save size={18} />} onClick={onSaveDraft}>
           Save draft
+        </Button>
+        <Button variant="primary" icon={<Download size={20} />} onClick={onExport}>
+          Export
         </Button>
       </div>
 
@@ -144,7 +148,7 @@ export function TimelineReview({ draft, onDraftChange, onSaveDraft }: TimelineRe
       <section className="locked-editing-tools">
         <div>
           <h3>Big finishing tools are coming next</h3>
-          <p className="soft-copy">Auto Edit and Export are still locked for later phases. Today, your draft edits stay safe and simple.</p>
+          <p className="soft-copy">Auto Edit is still locked for later. Export is ready when you want a finished local copy.</p>
         </div>
         <div className="locked-tool-grid">
           {draft.lockedTools.map((tool) => (

@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { createDefaultPodcastToolsState } from "../shared/podcast-tools";
 import { createTimelineDraft } from "../shared/timeline";
+import { defaultExportSettings } from "../shared/export";
 
 describe("app mount", () => {
   it("renders the home screen with studio bridge data", async () => {
@@ -14,6 +15,7 @@ describe("app mount", () => {
         activeThemeId: "what-about-it",
         defaultEpisodeFolderName: "episodes",
         practiceModeEnabled: false,
+        exportSettings: defaultExportSettings,
         deviceDefaults: {
           cameras: {},
           microphones: {}
@@ -30,7 +32,10 @@ describe("app mount", () => {
       loadTimelineDraft: vi.fn(async () =>
         createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } } })
       ),
-      saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft)
+      saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft),
+      createExport: vi.fn(),
+      cancelExport: vi.fn(),
+      openExportFolder: vi.fn()
     };
 
     const host = document.createElement("div");

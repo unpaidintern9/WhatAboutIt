@@ -46,7 +46,7 @@ export interface TimelineDraft {
   nonDestructive: true;
 }
 
-export const lockedTimelineTools: LockedTimelineTool[] = ["Auto Edit", "Export"];
+export const lockedTimelineTools: LockedTimelineTool[] = ["Auto Edit"];
 
 export function createTimelineDraft(input: {
   episodeId?: string;

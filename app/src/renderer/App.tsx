@@ -9,6 +9,7 @@ import {
   Clapperboard,
   Circle,
   Compass,
+  Download,
   FolderOpen,
   Headphones,
   Mic2,
@@ -27,21 +28,23 @@ import type { PodcastToolsState } from "../shared/podcast-tools";
 import { createDefaultPodcastToolsState, withPodcastToolDefaults } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import { createTimelineDraft, markTimelineSaved, withTimelineDraftDefaults } from "../shared/timeline";
+import type { ExportJob, ExportQualityPreset, ExportType } from "../shared/export";
+import { defaultExportSettings } from "../shared/export";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
-import { Button, CameraPreview, DeviceSetupWizard, RecordingStudio, TimelineReview } from "./components";
+import { Button, CameraPreview, DeviceSetupWizard, ExportEpisode, RecordingStudio, TimelineReview } from "./components";
 import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
 import { BrowserMediaRecorderPlugin } from "./plugins/recording/browser-media-recorder-plugin";
 import type { DeviceDetectionResult } from "./plugins/devices/types";
-import { DeviceService, RecordingService, type RecordingServiceSnapshot } from "./services";
+import { DeviceService, ExportService, RecordingService, type RecordingServiceSnapshot } from "./services";
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
-type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "settings" | "learn" | "practice" | "theme-editor";
+type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "export" | "settings" | "learn" | "practice" | "theme-editor";
 
 function getInitialView(): View {
   if (typeof window === "undefined") return "home";
   const requestedView = new URLSearchParams(window.location.search).get("view");
-  const views: View[] = ["home", "new-episode", "device-setup", "recording", "timeline-review", "settings", "learn", "practice", "theme-editor"];
+  const views: View[] = ["home", "new-episode", "device-setup", "recording", "timeline-review", "export", "settings", "learn", "practice", "theme-editor"];
   return views.includes(requestedView as View) ? (requestedView as View) : "home";
 }
 
@@ -50,8 +53,16 @@ const fallbackSettings: StudioSettings = {
   defaultEpisodeFolderName: "episodes",
   practiceModeEnabled: false,
   deviceDefaults: defaultDeviceDefaults,
+  exportSettings: defaultExportSettings,
   onboarding: { guidedTour: "show" }
 };
+
+function withExportSettings(settings: StudioSettings): StudioSettings {
+  return {
+    ...settings,
+    exportSettings: { ...defaultExportSettings, ...settings.exportSettings }
+  };
+}
 
 const emptyDetection: DeviceDetectionResult = {
   cameras: [],
@@ -164,7 +175,22 @@ function getStudioBridge(): Window["studio"] {
         durationMs: 112000,
         now
       }),
-    saveTimelineDraft: async (_episodeId, draft) => draft
+    saveTimelineDraft: async (_episodeId, draft) => draft,
+    createExport: async (request) => ({
+      id: "review-export",
+      episodeId: request.episodeId,
+      type: request.type,
+      qualityPreset: request.qualityPreset,
+      status: "complete",
+      progress: 100,
+      createdAt: now,
+      updatedAt: now,
+      outputFolder: "review-only/Exports",
+      message: "Export complete",
+      outputFileName: "what-about-it-full-episode-video.txt"
+    }),
+    cancelExport: async (_episodeId, job) => ({ ...job, status: "canceled", error: "canceled", message: "Export was canceled" }),
+    openExportFolder: async () => "review-only/Exports"
   };
 }
 
@@ -188,9 +214,13 @@ export default function App() {
   const [timelineDraft, setTimelineDraft] = useState<TimelineDraft>(() =>
     createTimelineDraft({ deviceDefaults: defaultDeviceDefaults })
   );
+  const [selectedExportType, setSelectedExportType] = useState<ExportType>(defaultExportSettings.defaultExportType);
+  const [selectedQualityPreset, setSelectedQualityPreset] = useState<ExportQualityPreset>(defaultExportSettings.qualityPreset);
+  const [exportJob, setExportJob] = useState<ExportJob | undefined>();
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
   const recordingService = useMemo(() => new RecordingService(new BrowserMediaRecorderPlugin()), []);
+  const exportService = useMemo(() => new ExportService(studio), [studio]);
 
   useEffect(() => {
     applyTheme(activeTheme);
@@ -198,8 +228,10 @@ export default function App() {
 
   useEffect(() => {
     void studio.getSettings().then((nextSettings) => {
-      const hydratedSettings = withDeviceDefaults(nextSettings);
+      const hydratedSettings = withExportSettings(withDeviceDefaults(nextSettings));
       setSettings(hydratedSettings);
+      setSelectedExportType(hydratedSettings.exportSettings?.defaultExportType ?? defaultExportSettings.defaultExportType);
+      setSelectedQualityPreset(hydratedSettings.exportSettings?.qualityPreset ?? defaultExportSettings.qualityPreset);
       const tourParam = new URLSearchParams(window.location.search).get("tour");
       setShowTour(tourParam === "on" || (tourParam !== "off" && hydratedSettings.onboarding?.guidedTour !== "never"));
     });
@@ -262,6 +294,48 @@ export default function App() {
     }
   }
 
+  async function startExport(practice = false) {
+    if (!activeEpisode) return;
+    const job = await exportService.start({
+      episodeId: activeEpisode.id,
+      type: selectedExportType,
+      qualityPreset: selectedQualityPreset,
+      draft: timelineDraft,
+      practice
+    });
+    setExportJob(job);
+  }
+
+  async function cancelExport() {
+    if (!activeEpisode || !exportJob) return;
+    setExportJob(await exportService.cancel(activeEpisode.id, exportJob));
+  }
+
+  async function openExportFolder() {
+    if (!activeEpisode) return;
+    await exportService.openFolder(activeEpisode.id);
+  }
+
+  async function changeExportType(type: ExportType) {
+    setSelectedExportType(type);
+    const nextSettings = {
+      ...settings,
+      exportSettings: { ...settings.exportSettings, defaultExportType: type }
+    };
+    setSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
+  }
+
+  async function changeQualityPreset(qualityPreset: ExportQualityPreset) {
+    setSelectedQualityPreset(qualityPreset);
+    const nextSettings = {
+      ...settings,
+      exportSettings: { ...settings.exportSettings, qualityPreset }
+    };
+    setSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
+  }
+
   async function savePodcastToolsState(nextState: PodcastToolsState) {
     const stateWithEpisode = withPodcastToolDefaults(nextState, activeEpisode?.id);
     setPodcastTools(stateWithEpisode);
@@ -308,7 +382,7 @@ export default function App() {
   }
 
   async function saveDeviceDefaults(deviceDefaults: DeviceDefaults) {
-    const nextSettings = withDeviceDefaults({ ...settings, deviceDefaults });
+    const nextSettings = withExportSettings(withDeviceDefaults({ ...settings, deviceDefaults }));
     setSettings(nextSettings);
     await studio.saveSettings(nextSettings);
   }
@@ -406,6 +480,9 @@ export default function App() {
           <button className={view === "timeline-review" ? "active" : ""} onClick={() => setView("timeline-review")}>
             <ListVideo size={20} /> Review Episode
           </button>
+          <button className={view === "export" ? "active" : ""} onClick={() => setView("export")}>
+            <Download size={20} /> Export
+          </button>
           <button className={view === "theme-editor" ? "active" : ""} onClick={() => setView("theme-editor")}>
             <Brush size={20} /> Theme Editor
           </button>
@@ -422,12 +499,12 @@ export default function App() {
 
         <div className="phase-note">
           <Sparkles size={18} />
-          Phase 5B safe draft editing. Auto Edit and export stay locked.
+          Phase 5C offline export foundation. Auto Edit stays locked.
         </div>
       </aside>
 
       <section className="workspace">
-        <JourneyProgress view={view} hasEpisode={episodes.length > 0} studioReady={studioReady} recordingComplete={recordingSnapshot.status === "stopped"} reviewReady={timelineDraft.tracks.length > 0} />
+        <JourneyProgress view={view} hasEpisode={episodes.length > 0} studioReady={studioReady} recordingComplete={recordingSnapshot.status === "stopped"} reviewReady={timelineDraft.tracks.length > 0} exportComplete={exportJob?.status === "complete"} />
         {showTour && <GuidedTour onClose={(preference) => void closeTour(preference)} />}
         {view === "home" && <HomeView episodes={episodes} onNewEpisode={() => setView("new-episode")} onStudioSetup={() => setView("device-setup")} />}
         {view === "new-episode" && (
@@ -493,6 +570,19 @@ export default function App() {
             draft={timelineDraft}
             onDraftChange={(nextDraft) => void saveTimelineDraftState(nextDraft)}
             onSaveDraft={() => void saveTimelineDraftState(markTimelineSaved(timelineDraft))}
+            onExport={() => setView("export")}
+          />
+        )}
+        {view === "export" && (
+          <ExportEpisode
+            selectedType={selectedExportType}
+            qualityPreset={selectedQualityPreset}
+            job={exportJob}
+            onTypeChange={(type) => void changeExportType(type)}
+            onQualityChange={(preset) => void changeQualityPreset(preset)}
+            onStartExport={() => void startExport(reviewMode)}
+            onCancelExport={() => void cancelExport()}
+            onOpenFolder={() => void openExportFolder()}
           />
         )}
         {view === "theme-editor" && (
@@ -511,21 +601,23 @@ function JourneyProgress({
   hasEpisode,
   studioReady,
   recordingComplete,
-  reviewReady
+  reviewReady,
+  exportComplete
 }: {
   view: View;
   hasEpisode: boolean;
   studioReady: boolean;
   recordingComplete: boolean;
   reviewReady: boolean;
+  exportComplete: boolean;
 }) {
-  const steps = [
+  const steps: Array<{ label: string; complete: boolean; active: boolean; locked?: boolean }> = [
     { label: "New Episode", complete: hasEpisode, active: view === "home" || view === "new-episode" },
     { label: "Studio Setup", complete: studioReady, active: view === "device-setup" },
     { label: "Record", complete: recordingComplete, active: view === "recording" },
     { label: "Review", complete: reviewReady && view !== "recording", active: view === "timeline-review" },
-    { label: "Edit", complete: false, active: false, locked: true },
-    { label: "Export", complete: false, active: false, locked: true }
+    { label: "Edit", complete: reviewReady, active: view === "timeline-review" },
+    { label: "Export", complete: exportComplete, active: view === "export" }
   ];
 
   return (
@@ -752,6 +844,9 @@ function SettingsView({ settings, activeThemeName }: { settings: StudioSettings;
         <div><dt>Camera 1</dt><dd>{settings.deviceDefaults.cameras.camera1 ? "Saved" : "Not picked yet"}</dd></div>
         <div><dt>Morgan Mic</dt><dd>{settings.deviceDefaults.microphones.morganMic ? "Saved" : "Not picked yet"}</dd></div>
         <div><dt>Storage</dt><dd>Local Documents folder</dd></div>
+        <div><dt>Default export folder</dt><dd>{settings.exportSettings.defaultExportFolder}</dd></div>
+        <div><dt>Default export type</dt><dd>{settings.exportSettings.defaultExportType}</dd></div>
+        <div><dt>Export quality</dt><dd>{settings.exportSettings.qualityPreset}</dd></div>
       </dl>
     </section>
   );
@@ -787,7 +882,11 @@ function LearnStudioView() {
     "How to cut a section",
     "How undo and redo work",
     "Why original recordings stay safe",
-    "What editing will do later"
+    "What editing will do later",
+    "How to export",
+    "Which export should I choose?",
+    "Where exported files go",
+    "Why originals stay safe during export"
   ];
 
   return (
@@ -825,6 +924,7 @@ function PracticeModeView() {
         <span><Sparkles size={20} /> Mark funny, highlight, and fix-later moments</span>
         <span><ListVideo size={20} /> Practice timeline review with fake markers</span>
         <span><Scissors size={20} /> Practice safe trim, split, undo, redo, and restore original</span>
+        <span><Download size={20} /> Practice exporting a finished copy without real media</span>
         <span><Headphones size={20} /> Learn that everything saves locally</span>
         <span><Clapperboard size={20} /> Try the recovery message without risking real media</span>
       </div>
@@ -846,7 +946,11 @@ function getLessonCopy(lesson: string) {
   if (lesson.includes("cut a section")) return "Pick the part that needs to go and choose Cut this section. You can undo it anytime.";
   if (lesson.includes("undo and redo")) return "Undo steps backward through draft edits. Redo brings a change back if you changed your mind.";
   if (lesson.includes("original recordings stay safe")) return "Review and future edits use a draft timeline. Your original recording stays untouched.";
-  if (lesson.includes("editing will do later")) return "Editing tools will trim, split, delete, auto-edit, and export later. For now they stay locked.";
+  if (lesson.includes("editing will do later")) return "Auto Edit stays locked for later. Safe draft edits and local export are ready now.";
+  if (lesson.includes("How to export")) return "Open Export, choose the finished copy you need, then save it locally.";
+  if (lesson.includes("Which export")) return "Full Episode Video is ready for YouTube, Audio Only is for podcast platforms, and Archive Master is the keep-forever copy.";
+  if (lesson.includes("Where exported")) return "Finished copies go into the episode's Exports folder, separate from the original recording.";
+  if (lesson.includes("originals stay safe during export")) return "Export creates a new finished copy. It never overwrites the original recording.";
   if (lesson.includes("choose cameras")) return "Open Studio Setup, pick Camera 1 first, then add Camera 2 and Camera 3 if you want more angles.";
   if (lesson.includes("test cameras")) return "Use Test Camera after choosing one. If it needs attention, the card will tell you the next simple step.";
   if (lesson.includes("gear icon")) return "The gear keeps extra camera choices tucked away so the main setup stays calm.";
