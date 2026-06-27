@@ -113,7 +113,8 @@ async function getSettings(): Promise<StudioSettings> {
     activeThemeId: defaultStudioConfiguration.theme.activeThemeId,
     defaultEpisodeFolderName: defaultStudioConfiguration.storage.episodeFolderName,
     practiceModeEnabled: false,
-    deviceDefaults: defaultDeviceDefaults
+    deviceDefaults: defaultDeviceDefaults,
+    onboarding: { guidedTour: "show" }
   });
   return withDeviceDefaults(settings);
 }

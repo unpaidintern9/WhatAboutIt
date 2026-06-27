@@ -1,4 +1,4 @@
-import { AlertTriangle, Camera, Circle, Mic2, Pause, Play, RotateCcw, Save, Square } from "lucide-react";
+import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Circle, Mic2, Pause, Play, RotateCcw, Save, Square } from "lucide-react";
 import type { DeviceDefaults } from "../../shared/types";
 import type { RecordingSession } from "../../shared/recording";
 import { AudioMeter, Button, CameraPreview } from ".";
@@ -16,6 +16,7 @@ interface RecordingStudioProps {
   onStop: () => void;
   onPractice: () => void;
   onDismissRecovery: () => void;
+  onNext: () => void;
 }
 
 const cameraSlots = [
@@ -40,10 +41,12 @@ export function RecordingStudio({
   onResume,
   onStop,
   onPractice,
-  onDismissRecovery
+  onDismissRecovery,
+  onNext
 }: RecordingStudioProps) {
   const isRecording = snapshot.status === "recording";
   const isPaused = snapshot.status === "paused";
+  const isComplete = snapshot.status === "stopped";
 
   return (
     <section className="recording-studio">
@@ -60,10 +63,14 @@ export function RecordingStudio({
 
       <div className="recording-hero">
         <div>
-          <p className="signature">Everything is saving locally</p>
-          <h2>Recording Room</h2>
+          <p className="signature">{isComplete ? "Recording Complete" : isRecording ? "Recording Started" : "Everything is saving locally"}</p>
+          <h2>{isComplete ? "Recording Complete" : "Recording Room"}</h2>
           <p className="soft-copy">
-            Record with your selected studio setup. The heavy lifting stays tucked away so you can focus on the show.
+            {isComplete
+              ? "Nice work. Your episode is safely stored on this computer."
+              : isRecording
+              ? "Relax. Everything is saving safely to your computer."
+              : "Record with your selected studio setup. The heavy lifting stays tucked away so you can focus on the show."}
           </p>
         </div>
         <div className="recording-timer" aria-label="Recording timer">
@@ -86,6 +93,17 @@ export function RecordingStudio({
         </div>
       )}
 
+      {isComplete && (
+        <div className="recording-complete-card">
+          <CheckCircle2 size={34} />
+          <div>
+            <h3>Nice work!</h3>
+            <p>Your episode is safely stored. Next step: continue to editing when Phase 4 arrives.</p>
+          </div>
+          <Button variant="primary" icon={<ArrowRight size={20} />} onClick={onNext}>What's Next?</Button>
+        </div>
+      )}
+
       <div className="recording-controls">
         <Button variant="primary" icon={<Circle size={22} />} disabled={isRecording || isPaused} onClick={onStart}>
           Record
@@ -99,7 +117,7 @@ export function RecordingStudio({
         <Button variant="secondary" icon={<Square size={22} />} disabled={!isRecording && !isPaused} onClick={onStop}>
           Stop
         </Button>
-        <Button variant="secondary" icon={<RotateCcw size={22} />} onClick={onPractice}>
+        <Button variant="secondary" icon={<RotateCcw size={22} />} disabled={isRecording || isPaused} onClick={onPractice}>
           Practice
         </Button>
       </div>

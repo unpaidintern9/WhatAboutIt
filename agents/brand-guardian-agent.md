@@ -72,9 +72,9 @@ Score categories:
 - Accessibility and contrast: 15 points.
 - Interaction polish and friendly language: 15 points.
 
-Target score: 90+.
+Target score: 95+.
 
-Scores below 90 must include specific corrections before merge.
+Scores below 95 must include specific corrections before merge.
 
 ## Definition of Done
 
@@ -82,4 +82,4 @@ Scores below 90 must include specific corrections before merge.
 - The screen remains inspired by the approved design references without copying them.
 - It feels premium, handcrafted, approachable, and clear.
 - It does not resemble a generic dashboard or boilerplate Electron app.
-- A visual review report exists, scores 90+, and gives approval or specific corrections.
+- A visual review report exists, scores 95+, and gives approval or specific corrections.

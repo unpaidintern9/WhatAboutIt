@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ArrowLeft,
+  ArrowRight,
   BookOpen,
   Brush,
   Camera,
+  CheckCircle2,
   Clapperboard,
   Circle,
+  Compass,
   FolderOpen,
   Headphones,
   Mic2,
@@ -12,7 +16,8 @@ import {
   Plus,
   Settings,
   Sparkles,
-  Wand2
+  Wand2,
+  X
 } from "lucide-react";
 import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
 import type { RecordingSession } from "../shared/recording";
@@ -27,11 +32,19 @@ import "./styles.css";
 
 type View = "home" | "new-episode" | "device-setup" | "recording" | "settings" | "learn" | "practice" | "theme-editor";
 
+function getInitialView(): View {
+  if (typeof window === "undefined") return "home";
+  const requestedView = new URLSearchParams(window.location.search).get("view");
+  const views: View[] = ["home", "new-episode", "device-setup", "recording", "settings", "learn", "practice", "theme-editor"];
+  return views.includes(requestedView as View) ? (requestedView as View) : "home";
+}
+
 const fallbackSettings: StudioSettings = {
   activeThemeId: "what-about-it",
   defaultEpisodeFolderName: "episodes",
   practiceModeEnabled: false,
-  deviceDefaults: defaultDeviceDefaults
+  deviceDefaults: defaultDeviceDefaults,
+  onboarding: { guidedTour: "show" }
 };
 
 const emptyDetection: DeviceDetectionResult = {
@@ -47,18 +60,94 @@ const idleRecordingSnapshot: RecordingServiceSnapshot = {
   localSaveMessage: "Everything is saving locally"
 };
 
+function getInitialRecordingSnapshot(): RecordingServiceSnapshot {
+  if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("recording") === "complete") {
+    return {
+      status: "stopped",
+      elapsedMs: 112000,
+      localSaveMessage: "Everything is saving locally"
+    };
+  }
+  return idleRecordingSnapshot;
+}
+
+function getStudioBridge(): Window["studio"] {
+  if (window.studio) return window.studio;
+
+  const now = new Date().toISOString();
+  const searchParams = new URLSearchParams(window.location.search);
+  const isWelcomeReview = searchParams.get("tour") === "on";
+  const demoSettings: StudioSettings = {
+    ...fallbackSettings,
+    deviceDefaults: {
+      cameras: isWelcomeReview ? {} : { camera1: "demo-camera-1" },
+      microphones: isWelcomeReview ? {} : { morganMic: "demo-mic-1" },
+      audioOutputId: isWelcomeReview ? undefined : "demo-speakers"
+    },
+    onboarding: { guidedTour: isWelcomeReview ? "show" : "never" }
+  };
+
+  return {
+    listEpisodes: async () =>
+      isWelcomeReview
+        ? []
+        : [
+            {
+              id: "review-episode",
+              title: "First What About It? Episode",
+              guestName: "Solo episode",
+              description: "Review fixture",
+              status: "draft",
+              createdAt: now,
+              updatedAt: now,
+              folderPath: "review-only",
+              phase: "phase-1-shell"
+            }
+          ],
+    createEpisode: async (input) => ({
+      id: "review-new-episode",
+      title: input.title || "Review Episode",
+      guestName: input.guestName,
+      description: input.description,
+      status: "draft",
+      createdAt: now,
+      updatedAt: now,
+      folderPath: "review-only",
+      phase: "phase-1-shell"
+    }),
+    getSettings: async () => demoSettings,
+    saveSettings: async (nextSettings) => nextSettings,
+    createRecordingSession: async () => ({
+      id: "review-session",
+      episodeId: "review-episode",
+      episodeTitle: "Review Episode",
+      folderPath: "review-only",
+      startedAt: now,
+      status: "recording",
+      practice: true
+    }),
+    writeRecordingState: async (_folderPath, state) => state,
+    saveProgramRecording: async () => "review-only/program.webm",
+    appendRecordingError: async () => undefined,
+    listUnfinishedRecordingSessions: async () => []
+  };
+}
+
 export default function App() {
-  const [view, setView] = useState<View>("home");
+  const reviewMode = typeof window !== "undefined" && !window.studio;
+  const studio = useMemo(() => getStudioBridge(), []);
+  const [view, setView] = useState<View>(getInitialView);
   const [episodes, setEpisodes] = useState<EpisodeMetadata[]>([]);
   const [settings, setSettings] = useState<StudioSettings>(fallbackSettings);
   const [deviceDetection, setDeviceDetection] = useState<DeviceDetectionResult>(emptyDetection);
-  const [recordingSnapshot, setRecordingSnapshot] = useState<RecordingServiceSnapshot>(idleRecordingSnapshot);
+  const [recordingSnapshot, setRecordingSnapshot] = useState<RecordingServiceSnapshot>(getInitialRecordingSnapshot);
   const [unfinishedSessions, setUnfinishedSessions] = useState<RecordingSession[]>([]);
-  const [wizardStep, setWizardStep] = useState(0);
+  const [wizardStep, setWizardStep] = useState(() => Number(new URLSearchParams(window.location.search).get("wizard") ?? 0));
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [title, setTitle] = useState("");
   const [guestName, setGuestName] = useState("");
   const [description, setDescription] = useState("");
+  const [showTour, setShowTour] = useState(false);
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
   const recordingService = useMemo(() => new RecordingService(new BrowserMediaRecorderPlugin()), []);
@@ -68,26 +157,32 @@ export default function App() {
   }, [activeTheme]);
 
   useEffect(() => {
-    void window.studio.getSettings().then((nextSettings) => setSettings(withDeviceDefaults(nextSettings)));
+    void studio.getSettings().then((nextSettings) => {
+      const hydratedSettings = withDeviceDefaults(nextSettings);
+      setSettings(hydratedSettings);
+      const tourParam = new URLSearchParams(window.location.search).get("tour");
+      setShowTour(tourParam === "on" || (tourParam !== "off" && hydratedSettings.onboarding?.guidedTour !== "never"));
+    });
     void refreshEpisodes();
     void refreshDevices();
     void refreshUnfinishedSessions();
-  }, []);
+  }, [studio]);
 
   useEffect(() => {
+    if (reviewMode && new URLSearchParams(window.location.search).get("recording") === "complete") return undefined;
     const timer = window.setInterval(() => {
       setRecordingSnapshot(recordingService.getSnapshot());
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [recordingService]);
+  }, [recordingService, reviewMode]);
 
   async function refreshEpisodes() {
-    setEpisodes(await window.studio.listEpisodes());
+    setEpisodes(await studio.listEpisodes());
   }
 
   async function createEpisode() {
-    const episode = await window.studio.createEpisode({ title, guestName, description });
+    const episode = await studio.createEpisode({ title, guestName, description });
     setTitle("");
     setGuestName("");
     setDescription("");
@@ -98,10 +193,33 @@ export default function App() {
   async function changeTheme(themeId: string) {
     const nextSettings = { ...settings, activeThemeId: themeId };
     setSettings(nextSettings);
-    await window.studio.saveSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
+  }
+
+  async function closeTour(preference: "skip" | "remind-later" | "never") {
+    setShowTour(false);
+    if (preference === "skip") return;
+    const nextSettings = {
+      ...settings,
+      onboarding: { guidedTour: preference === "never" ? "never" : "remind-later" }
+    } satisfies StudioSettings;
+    setSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
   }
 
   async function refreshDevices() {
+    if (reviewMode) {
+      setDeviceDetection({
+        cameras: [
+          { id: "demo-camera-1", label: "Main Studio Camera", kind: "camera", camera: { connectionType: "usb", signal: "good", autoReconnect: true, maxResolution: "Auto", maxFps: 30 } },
+          { id: "demo-camera-2", label: "Side Angle Camera", kind: "camera", camera: { connectionType: "wireless", signal: "good", batteryPercent: 86, autoReconnect: true, maxResolution: "Auto", maxFps: 30 } }
+        ],
+        microphones: [{ id: "demo-mic-1", label: "Morgan Mic", kind: "microphone" }],
+        speakers: [{ id: "demo-speakers", label: "Studio Headphones", kind: "speaker" }],
+        permissionNeeded: false
+      });
+      return;
+    }
     setDeviceDetection(await deviceService.detectDevices());
   }
 
@@ -112,7 +230,7 @@ export default function App() {
   async function saveDeviceDefaults(deviceDefaults: DeviceDefaults) {
     const nextSettings = withDeviceDefaults({ ...settings, deviceDefaults });
     setSettings(nextSettings);
-    await window.studio.saveSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
   }
 
   async function testMicrophone() {
@@ -125,7 +243,7 @@ export default function App() {
   }
 
   async function refreshUnfinishedSessions() {
-    setUnfinishedSessions(await window.studio.listUnfinishedRecordingSessions());
+    setUnfinishedSessions(await studio.listUnfinishedRecordingSessions());
   }
 
   async function startRecording(practice = false) {
@@ -144,6 +262,8 @@ export default function App() {
     setRecordingSnapshot(await recordingService.stop());
     await refreshUnfinishedSessions();
   }
+
+  const studioReady = Boolean(settings.deviceDefaults.cameras.camera1 && settings.deviceDefaults.microphones.morganMic);
 
   return (
     <main className="studio-shell">
@@ -190,7 +310,9 @@ export default function App() {
       </aside>
 
       <section className="workspace">
-        {view === "home" && <HomeView episodes={episodes} onNewEpisode={() => setView("new-episode")} />}
+        <JourneyProgress view={view} hasEpisode={episodes.length > 0} studioReady={studioReady} recordingComplete={recordingSnapshot.status === "stopped"} />
+        {showTour && <GuidedTour onClose={(preference) => void closeTour(preference)} />}
+        {view === "home" && <HomeView episodes={episodes} onNewEpisode={() => setView("new-episode")} onStudioSetup={() => setView("device-setup")} />}
         {view === "new-episode" && (
           <NewEpisodeView
             title={title}
@@ -200,21 +322,33 @@ export default function App() {
             setGuestName={setGuestName}
             setDescription={setDescription}
             createEpisode={createEpisode}
+            onBack={() => setView("home")}
+            onNext={() => setView("device-setup")}
           />
         )}
         {view === "device-setup" && (
-          <DeviceSetupWizard
-            detection={deviceDetection}
-            defaults={settings.deviceDefaults}
-            microphoneLevel={microphoneLevel}
-            currentStep={wizardStep}
-            onStepChange={setWizardStep}
-            onRefresh={() => void refreshDevices()}
-            onRequestPermission={() => void requestStudioPermissions()}
-            onDefaultsChange={(defaults) => void saveDeviceDefaults(defaults)}
-            onTestMicrophone={() => void testMicrophone()}
-            onPlayTestSound={() => void playTestSound()}
-          />
+          <div className="view-stack">
+            {studioReady && (
+              <SuccessPanel
+                title="Studio Ready!"
+                message="Your cameras and microphones are ready to go."
+                actionLabel="Start Recording"
+                onAction={() => setView("recording")}
+              />
+            )}
+            <DeviceSetupWizard
+              detection={deviceDetection}
+              defaults={settings.deviceDefaults}
+              microphoneLevel={microphoneLevel}
+              currentStep={wizardStep}
+              onStepChange={setWizardStep}
+              onRefresh={() => void refreshDevices()}
+              onRequestPermission={() => void requestStudioPermissions()}
+              onDefaultsChange={(defaults) => void saveDeviceDefaults(defaults)}
+              onTestMicrophone={() => void testMicrophone()}
+              onPlayTestSound={() => void playTestSound()}
+            />
+          </div>
         )}
         {view === "recording" && (
           <RecordingStudio
@@ -228,6 +362,7 @@ export default function App() {
             onStop={() => void stopRecording()}
             onPractice={() => void startRecording(true)}
             onDismissRecovery={() => setUnfinishedSessions([])}
+            onNext={() => setView("learn")}
           />
         )}
         {view === "theme-editor" && (
@@ -241,7 +376,102 @@ export default function App() {
   );
 }
 
-function HomeView({ episodes, onNewEpisode }: { episodes: EpisodeMetadata[]; onNewEpisode: () => void }) {
+function JourneyProgress({
+  view,
+  hasEpisode,
+  studioReady,
+  recordingComplete
+}: {
+  view: View;
+  hasEpisode: boolean;
+  studioReady: boolean;
+  recordingComplete: boolean;
+}) {
+  const steps = [
+    { label: "New Episode", complete: hasEpisode, active: view === "home" || view === "new-episode" },
+    { label: "Studio Setup", complete: studioReady, active: view === "device-setup" },
+    { label: "Record", complete: recordingComplete, active: view === "recording" },
+    { label: "Edit", complete: false, active: false, locked: true },
+    { label: "Export", complete: false, active: false, locked: true }
+  ];
+
+  return (
+    <nav className="journey-progress" aria-label="Episode progress">
+      {steps.map((step) => (
+        <span className={`${step.complete ? "complete" : ""} ${step.active ? "active" : ""} ${step.locked ? "locked" : ""}`} key={step.label}>
+          <i aria-hidden="true">{step.complete ? <CheckCircle2 size={18} /> : step.active ? <Circle size={14} /> : null}</i>
+          {step.label}
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+function GuidedTour({ onClose }: { onClose: (preference: "skip" | "remind-later" | "never") => void }) {
+  const topics = [
+    "Navigation keeps the whole studio one click away.",
+    "Studio Setup walks through cameras, mics, and headphones.",
+    "Recording saves everything safely on this computer.",
+    "Practice Mode lets you rehearse without touching real gear.",
+    "Learn Studio is always there when you want a hand."
+  ];
+
+  return (
+    <section className="tour-card" role="dialog" aria-label="Guided tour">
+      <button className="tour-close" type="button" aria-label="Skip guided tour" onClick={() => onClose("skip")}>
+        <X size={18} />
+      </button>
+      <div>
+        <p className="signature">Need help? I'll walk you through it.</p>
+        <h2>Let's make something great.</h2>
+        <p className="soft-copy">Five quick stops, no tech lecture. You can come back to Learn Studio anytime.</p>
+      </div>
+      <div className="tour-topic-grid">
+        {topics.map((topic) => (
+          <span key={topic}><Compass size={18} /> {topic}</span>
+        ))}
+      </div>
+      <div className="tour-actions">
+        <Button variant="primary" icon={<ArrowRight size={20} />} onClick={() => onClose("skip")}>Start with Home</Button>
+        <Button variant="secondary" onClick={() => onClose("remind-later")}>Remind Me Later</Button>
+        <Button variant="secondary" onClick={() => onClose("never")}>Never Show Again</Button>
+      </div>
+    </section>
+  );
+}
+
+function SuccessPanel({
+  title,
+  message,
+  actionLabel,
+  onAction
+}: {
+  title: string;
+  message: string;
+  actionLabel: string;
+  onAction: () => void;
+}) {
+  return (
+    <section className="success-panel">
+      <CheckCircle2 size={34} />
+      <div>
+        <h3>{title}</h3>
+        <p>{message}</p>
+      </div>
+      <Button variant="primary" icon={<ArrowRight size={20} />} onClick={onAction}>{actionLabel}</Button>
+    </section>
+  );
+}
+
+function HomeView({
+  episodes,
+  onNewEpisode,
+  onStudioSetup
+}: {
+  episodes: EpisodeMetadata[];
+  onNewEpisode: () => void;
+  onStudioSetup: () => void;
+}) {
   return (
     <div className="view-stack">
       <section className="hero-panel">
@@ -249,7 +479,7 @@ function HomeView({ episodes, onNewEpisode }: { episodes: EpisodeMetadata[]; onN
           <p className="signature">Morgan's offline podcast room</p>
           <h2>Ready when you are.</h2>
           <p className="hero-copy">
-            Start a new episode, keep everything local, and let the heavy media tools stay behind the curtain.
+            Start with a new episode. Then I will walk you through setup, recording, and what comes next.
           </p>
           <Button variant="primary" icon={<Plus size={24} />} onClick={onNewEpisode}>New Episode</Button>
         </div>
@@ -263,7 +493,12 @@ function HomeView({ episodes, onNewEpisode }: { episodes: EpisodeMetadata[]; onN
             <FolderOpen size={22} />
           </div>
           {episodes.length === 0 ? (
-            <p className="empty-copy">No local episodes yet. Make the first one and this list will fill itself in.</p>
+            <div className="empty-state-card">
+              <p className="signature">Looks like this is your first episode.</p>
+              <h4>Let's create something awesome.</h4>
+              <p>Start a local episode and this list will fill itself in.</p>
+              <Button variant="primary" icon={<Plus size={20} />} onClick={onNewEpisode}>New Episode</Button>
+            </div>
           ) : (
             <div className="episode-list">
               {episodes.map((episode) => (
@@ -289,7 +524,8 @@ function HomeView({ episodes, onNewEpisode }: { episodes: EpisodeMetadata[]; onN
             <span><Mic2 size={18} /> Mic check is ready</span>
             <span><Circle size={18} /> Recording foundation is ready</span>
           </div>
-          <p>Use Record for a local program recording. Auto Edit and timeline tools stay locked for later phases.</p>
+          <p>Next best move: check the studio, then record. Editing and export stay locked for Phase 4 and beyond.</p>
+          <Button variant="secondary" icon={<ArrowRight size={20} />} onClick={onStudioSetup}>Go to Studio Setup</Button>
         </div>
       </section>
     </div>
@@ -304,6 +540,8 @@ function NewEpisodeView(props: {
   setGuestName: (value: string) => void;
   setDescription: (value: string) => void;
   createEpisode: () => Promise<void>;
+  onBack: () => void;
+  onNext: () => void;
 }) {
   return (
     <section className="form-panel">
@@ -321,9 +559,12 @@ function NewEpisodeView(props: {
         Notes
         <textarea value={props.description} onChange={(event) => props.setDescription(event.target.value)} placeholder="Big idea, segment notes, or anything Morgan wants handy." />
       </label>
-      <Button variant="primary" icon={<Plus size={22} />} disabled={!props.title.trim()} onClick={() => void props.createEpisode()}>
-        Create Local Episode
-      </Button>
+      <div className="form-actions">
+        <Button variant="secondary" icon={<ArrowLeft size={20} />} onClick={props.onBack}>Back Home</Button>
+        <Button variant="primary" icon={<Plus size={22} />} disabled={!props.title.trim()} onClick={() => void props.createEpisode().then(props.onNext)}>
+          Create Episode and Check Studio
+        </Button>
+      </div>
     </section>
   );
 }

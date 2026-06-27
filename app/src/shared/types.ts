@@ -17,6 +17,9 @@ export interface StudioSettings {
   defaultEpisodeFolderName: string;
   practiceModeEnabled: boolean;
   deviceDefaults: DeviceDefaults;
+  onboarding?: {
+    guidedTour: "show" | "remind-later" | "never";
+  };
 }
 
 export interface DeviceDefaults {

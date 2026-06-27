@@ -166,6 +166,9 @@ h3 {
 }
 
 .workspace {
+  display: grid;
+  gap: var(--space-xl);
+  align-content: start;
   padding: var(--space-xxl);
   overflow: auto;
 }
@@ -178,7 +181,11 @@ h3 {
 .hero-panel,
 .panel,
 .form-panel,
-.placeholder-panel {
+.placeholder-panel,
+.tour-card,
+.success-panel,
+.empty-state-card,
+.recording-complete-card {
   background:
     linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
     var(--texture-active),
@@ -263,8 +270,140 @@ h3 {
 
 .panel,
 .form-panel,
-.placeholder-panel {
+.placeholder-panel,
+.tour-card,
+.success-panel,
+.empty-state-card,
+.recording-complete-card {
   padding: var(--space-xl);
+}
+
+.journey-progress {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.journey-progress span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: var(--space-controlHeight);
+  padding: var(--space-md);
+  color: var(--color-mutedText);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.46)),
+    var(--texture-active),
+    var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) color-mix(in srgb, var(--color-border), transparent 20%);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
+.journey-progress i {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: inherit;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+}
+
+.journey-progress span.active {
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+  border-color: var(--color-accent);
+}
+
+.journey-progress span.complete {
+  color: var(--color-inverseText);
+  background: var(--color-success);
+}
+
+.journey-progress span.locked {
+  opacity: 0.72;
+}
+
+.tour-card {
+  position: relative;
+  display: grid;
+  gap: var(--space-lg);
+  border-color: var(--color-accent);
+}
+
+.tour-close {
+  position: absolute;
+  top: var(--space-lg);
+  right: var(--space-lg);
+  display: grid;
+  place-items: center;
+  width: var(--icon-button-size);
+  height: var(--icon-button-size);
+  color: var(--color-text);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.tour-topic-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.tour-topic-grid span,
+.empty-state-card,
+.success-panel,
+.recording-complete-card {
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+}
+
+.tour-topic-grid span {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+  color: var(--color-text);
+  background: var(--color-cards);
+}
+
+.tour-actions,
+.form-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.success-panel,
+.recording-complete-card {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+}
+
+.success-panel {
+  border-color: var(--color-success);
+}
+
+.success-panel svg,
+.recording-complete-card svg {
+  color: var(--color-success);
+}
+
+.success-panel p,
+.recording-complete-card p,
+.empty-state-card p {
+  margin-bottom: 0;
+  color: var(--color-mutedText);
+}
+
+.empty-state-card {
+  display: grid;
+  gap: var(--space-md);
+  background: var(--color-cards);
 }
 
 .panel-heading {
