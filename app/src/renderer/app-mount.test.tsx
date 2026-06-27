@@ -2,6 +2,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
+import { createDefaultPodcastToolsState } from "../shared/podcast-tools";
 
 describe("app mount", () => {
   it("renders the home screen with studio bridge data", async () => {
@@ -22,7 +23,9 @@ describe("app mount", () => {
       writeRecordingState: vi.fn(),
       saveProgramRecording: vi.fn(),
       appendRecordingError: vi.fn(),
-      listUnfinishedRecordingSessions: vi.fn(async () => [])
+      listUnfinishedRecordingSessions: vi.fn(async () => []),
+      loadPodcastTools: vi.fn(async () => createDefaultPodcastToolsState("episode-a", "2026-06-27T10:00:00.000Z")),
+      savePodcastTools: vi.fn(async (_episodeId, state) => state)
     };
 
     const host = document.createElement("div");

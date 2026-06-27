@@ -1,7 +1,8 @@
 import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Circle, Mic2, Pause, Play, RotateCcw, Save, Square } from "lucide-react";
 import type { DeviceDefaults } from "../../shared/types";
 import type { RecordingSession } from "../../shared/recording";
-import { AudioMeter, Button, CameraPreview } from ".";
+import type { PodcastToolsState } from "../../shared/podcast-tools";
+import { AudioMeter, Button, CameraPreview, PodcastToolsPanel } from ".";
 import type { RecordingServiceSnapshot } from "../services";
 import { formatRecordingTime } from "../services";
 
@@ -9,6 +10,7 @@ interface RecordingStudioProps {
   defaults: DeviceDefaults;
   snapshot: RecordingServiceSnapshot;
   unfinishedSessions: RecordingSession[];
+  podcastTools: PodcastToolsState;
   storageWarning?: string;
   onStart: () => void;
   onPause: () => void;
@@ -17,6 +19,8 @@ interface RecordingStudioProps {
   onPractice: () => void;
   onDismissRecovery: () => void;
   onNext: () => void;
+  onPodcastToolsChange: (state: PodcastToolsState) => void;
+  onPopOutTeleprompter: () => void;
 }
 
 const cameraSlots = [
@@ -35,6 +39,7 @@ export function RecordingStudio({
   defaults,
   snapshot,
   unfinishedSessions,
+  podcastTools,
   storageWarning,
   onStart,
   onPause,
@@ -42,7 +47,9 @@ export function RecordingStudio({
   onStop,
   onPractice,
   onDismissRecovery,
-  onNext
+  onNext,
+  onPodcastToolsChange,
+  onPopOutTeleprompter
 }: RecordingStudioProps) {
   const isRecording = snapshot.status === "recording";
   const isPaused = snapshot.status === "paused";
@@ -130,7 +137,7 @@ export function RecordingStudio({
       <div className="recording-status-grid">
         <div className="panel">
           <div className="panel-heading">
-            <h3>Camera status</h3>
+            <h3>Preview area</h3>
             <Camera size={22} />
           </div>
           <div className="device-slot-grid">
@@ -160,6 +167,13 @@ export function RecordingStudio({
           </div>
         </div>
       </div>
+
+      <PodcastToolsPanel
+        state={podcastTools}
+        snapshot={snapshot}
+        onChange={onPodcastToolsChange}
+        onPopOutTeleprompter={onPopOutTeleprompter}
+      />
     </section>
   );
 }

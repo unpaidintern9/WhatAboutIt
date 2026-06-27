@@ -20,7 +20,9 @@ function installStudioMock() {
     writeRecordingState: vi.fn(async (_folderPath, state) => state),
     saveProgramRecording: vi.fn(async () => "C:/recording/episode-a/Program/program.webm"),
     appendRecordingError: vi.fn(),
-    listUnfinishedRecordingSessions: vi.fn()
+    listUnfinishedRecordingSessions: vi.fn(),
+    loadPodcastTools: vi.fn(),
+    savePodcastTools: vi.fn()
   };
 }
 
@@ -40,7 +42,7 @@ describe("RecordingService", () => {
     const service = new RecordingService(plugin);
     const defaults = { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } };
 
-    expect((await service.start(defaults)).status).toBe("recording");
+    expect((await service.start(defaults, { episodeId: "episode-a", episodeTitle: "Studio Recording" })).status).toBe("recording");
     expect((await service.pause()).status).toBe("paused");
     expect((await service.resume()).status).toBe("recording");
     expect((await service.stop()).status).toBe("stopped");
@@ -57,7 +59,7 @@ describe("RecordingService", () => {
     };
     const service = new RecordingService(plugin);
 
-    expect((await service.start({ cameras: {}, microphones: {} }, true)).status).toBe("recording");
+    expect((await service.start({ cameras: {}, microphones: {} }, { practice: true })).status).toBe("recording");
     expect((await service.stop()).status).toBe("stopped");
     expect(window.studio.saveProgramRecording).not.toHaveBeenCalled();
   });

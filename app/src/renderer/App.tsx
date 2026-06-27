@@ -21,6 +21,8 @@ import {
 } from "lucide-react";
 import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
 import type { RecordingSession } from "../shared/recording";
+import type { PodcastToolsState } from "../shared/podcast-tools";
+import { createDefaultPodcastToolsState, withPodcastToolDefaults } from "../shared/podcast-tools";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import { Button, CameraPreview, DeviceSetupWizard, RecordingStudio } from "./components";
 import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
@@ -129,7 +131,23 @@ function getStudioBridge(): Window["studio"] {
     writeRecordingState: async (_folderPath, state) => state,
     saveProgramRecording: async () => "review-only/program.webm",
     appendRecordingError: async () => undefined,
-    listUnfinishedRecordingSessions: async () => []
+    listUnfinishedRecordingSessions: async () => [],
+    loadPodcastTools: async (episodeId) => ({
+      ...createDefaultPodcastToolsState(episodeId),
+      teleprompter: {
+        ...createDefaultPodcastToolsState(episodeId).teleprompter,
+        script: "Welcome back to What About It? Today we're keeping it real, useful, and a little spicy.",
+        sponsorScript: "This episode is brought to you by a sponsor Morgan actually likes."
+      },
+      guestNotes: {
+        questions: "What made this story worth telling?",
+        talkingPoints: "Keep the intro tight. Leave room for the no-filter moment.",
+        researchNotes: "Reference notes stay local.",
+        links: "https://example.local",
+        dontForget: "Mark the best clip."
+      }
+    }),
+    savePodcastTools: async (_episodeId, state) => state
   };
 }
 
@@ -138,6 +156,7 @@ export default function App() {
   const studio = useMemo(() => getStudioBridge(), []);
   const [view, setView] = useState<View>(getInitialView);
   const [episodes, setEpisodes] = useState<EpisodeMetadata[]>([]);
+  const [activeEpisode, setActiveEpisode] = useState<EpisodeMetadata | undefined>();
   const [settings, setSettings] = useState<StudioSettings>(fallbackSettings);
   const [deviceDetection, setDeviceDetection] = useState<DeviceDetectionResult>(emptyDetection);
   const [recordingSnapshot, setRecordingSnapshot] = useState<RecordingServiceSnapshot>(getInitialRecordingSnapshot);
@@ -148,6 +167,7 @@ export default function App() {
   const [guestName, setGuestName] = useState("");
   const [description, setDescription] = useState("");
   const [showTour, setShowTour] = useState(false);
+  const [podcastTools, setPodcastTools] = useState<PodcastToolsState>(() => createDefaultPodcastToolsState());
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
   const recordingService = useMemo(() => new RecordingService(new BrowserMediaRecorderPlugin()), []);
@@ -178,7 +198,9 @@ export default function App() {
   }, [recordingService, reviewMode]);
 
   async function refreshEpisodes() {
-    setEpisodes(await studio.listEpisodes());
+    const nextEpisodes = await studio.listEpisodes();
+    setEpisodes(nextEpisodes);
+    setActiveEpisode((currentEpisode) => currentEpisode ?? nextEpisodes[0]);
   }
 
   async function createEpisode() {
@@ -187,7 +209,25 @@ export default function App() {
     setGuestName("");
     setDescription("");
     setEpisodes([episode, ...episodes]);
+    setActiveEpisode(episode);
     setView("home");
+  }
+
+  useEffect(() => {
+    if (!activeEpisode) {
+      setPodcastTools(createDefaultPodcastToolsState());
+      return;
+    }
+
+    void studio.loadPodcastTools(activeEpisode.id).then((state) => setPodcastTools(withPodcastToolDefaults(state, activeEpisode.id)));
+  }, [activeEpisode, studio]);
+
+  async function savePodcastToolsState(nextState: PodcastToolsState) {
+    const stateWithEpisode = withPodcastToolDefaults(nextState, activeEpisode?.id);
+    setPodcastTools(stateWithEpisode);
+    if (activeEpisode) {
+      setPodcastTools(await studio.savePodcastTools(activeEpisode.id, stateWithEpisode));
+    }
   }
 
   async function changeTheme(themeId: string) {
@@ -247,7 +287,13 @@ export default function App() {
   }
 
   async function startRecording(practice = false) {
-    setRecordingSnapshot(await recordingService.start(settings.deviceDefaults, practice));
+    setRecordingSnapshot(
+      await recordingService.start(settings.deviceDefaults, {
+        episodeId: activeEpisode?.id,
+        episodeTitle: activeEpisode?.title,
+        practice
+      })
+    );
   }
 
   async function pauseRecording() {
@@ -261,6 +307,25 @@ export default function App() {
   async function stopRecording() {
     setRecordingSnapshot(await recordingService.stop());
     await refreshUnfinishedSessions();
+  }
+
+  function popOutTeleprompter() {
+    const promptWindow = window.open("", "what-about-it-teleprompter", "width=900,height=700");
+    if (!promptWindow) return;
+    const mode = podcastTools.teleprompter.mode;
+    const text = `${podcastTools.teleprompter.script}\n\n${podcastTools.teleprompter.sponsorScript}`.trim() || "Teleprompter is ready when you are.";
+    promptWindow.document.write(`
+      <html>
+        <head>
+          <title>Teleprompter</title>
+          <style>
+            body { margin: 0; padding: 48px; font-family: Georgia, serif; font-size: ${podcastTools.teleprompter.fontSize}px; line-height: 1.5; color: ${mode === "dark" ? "#fff4dc" : "#211513"}; background: ${mode === "dark" ? "#211513" : "#fff4dc"}; }
+          </style>
+        </head>
+        <body>${text.replace(/[&<>]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[character] ?? character).replace(/\n/g, "<br />")}</body>
+      </html>
+    `);
+    promptWindow.document.close();
   }
 
   const studioReady = Boolean(settings.deviceDefaults.cameras.camera1 && settings.deviceDefaults.microphones.morganMic);
@@ -355,6 +420,7 @@ export default function App() {
             defaults={settings.deviceDefaults}
             snapshot={recordingSnapshot}
             unfinishedSessions={unfinishedSessions}
+            podcastTools={podcastTools}
             storageWarning={undefined}
             onStart={() => void startRecording(false)}
             onPause={() => void pauseRecording()}
@@ -363,6 +429,8 @@ export default function App() {
             onPractice={() => void startRecording(true)}
             onDismissRecovery={() => setUnfinishedSessions([])}
             onNext={() => setView("learn")}
+            onPodcastToolsChange={(nextState) => void savePodcastToolsState(nextState)}
+            onPopOutTeleprompter={popOutTeleprompter}
           />
         )}
         {view === "theme-editor" && (
@@ -640,7 +708,13 @@ function LearnStudioView() {
     "What happens when you press Record",
     "Why files are saved locally",
     "What to do if recording stops",
-    "How recovery works"
+    "How recovery works",
+    "How to use the teleprompter",
+    "How to add guest notes",
+    "How to use sponsor notes",
+    "How to use the soundboard",
+    "How to mark funny and highlight moments",
+    "How to switch camera layouts"
   ];
 
   return (
@@ -667,11 +741,15 @@ function PracticeModeView() {
       <p className="signature">Try it without touching real gear</p>
       <h2>Practice Mode</h2>
       <p className="soft-copy">
-        Walk through a safe fake setup with branded placeholders. No fake people photos and no real media files.
+        Walk through the recording room tools with branded placeholders. No fake people photos and no real media files.
       </p>
       <div className="practice-steps">
         <span><Circle size={20} /> Press Practice on the Record screen</span>
         <span><Mic2 size={20} /> Practice pause and resume</span>
+        <span><BookOpen size={20} /> Try the teleprompter and sponsor script</span>
+        <span><Clapperboard size={20} /> Tap soundboard buttons without playing real files</span>
+        <span><Camera size={20} /> Switch camera layouts safely</span>
+        <span><Sparkles size={20} /> Mark funny, highlight, and fix-later moments</span>
         <span><Headphones size={20} /> Learn that everything saves locally</span>
         <span><Clapperboard size={20} /> Try the recovery message without risking real media</span>
       </div>
@@ -680,6 +758,12 @@ function PracticeModeView() {
 }
 
 function getLessonCopy(lesson: string) {
+  if (lesson.includes("teleprompter")) return "Paste a script, pick a comfortable size, then start or pause scrolling whenever you need.";
+  if (lesson.includes("guest notes")) return "Keep questions, talking points, research, links, and don't-forget notes beside the recording controls.";
+  if (lesson.includes("sponsor notes")) return "Store the read script, talking points, and required disclaimer, then mark the sponsor moment live.";
+  if (lesson.includes("soundboard")) return "Use local intro, outro, and custom sounds only. Nothing comes from the cloud.";
+  if (lesson.includes("funny and highlight")) return "Tap a marker during recording so the moment is saved with a timestamp.";
+  if (lesson.includes("camera layouts")) return "Pick Host, Guest, Split, Triple, Picture-in-Picture, Sponsor Card, Intro, or Outro without seeing technical scene names.";
   if (lesson.includes("choose cameras")) return "Open Studio Setup, pick Camera 1 first, then add Camera 2 and Camera 3 if you want more angles.";
   if (lesson.includes("test cameras")) return "Use Test Camera after choosing one. If it needs attention, the card will tell you the next simple step.";
   if (lesson.includes("gear icon")) return "The gear keeps extra camera choices tucked away so the main setup stays calm.";

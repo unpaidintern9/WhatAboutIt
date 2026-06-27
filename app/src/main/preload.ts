@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
 import type { RecordingSession, RecordingSessionCreateInput, RecordingState } from "../shared/recording";
+import type { PodcastToolsState } from "../shared/podcast-tools";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
@@ -16,5 +17,8 @@ contextBridge.exposeInMainWorld("studio", {
     ipcRenderer.invoke("recording:save-program", { folderPath, bytes }),
   appendRecordingError: (folderPath: string, message: string): Promise<void> =>
     ipcRenderer.invoke("recording:append-error", { folderPath, message }),
-  listUnfinishedRecordingSessions: (): Promise<RecordingSession[]> => ipcRenderer.invoke("recording:list-unfinished")
+  listUnfinishedRecordingSessions: (): Promise<RecordingSession[]> => ipcRenderer.invoke("recording:list-unfinished"),
+  loadPodcastTools: (episodeId: string): Promise<PodcastToolsState> => ipcRenderer.invoke("podcast-tools:load", episodeId),
+  savePodcastTools: (episodeId: string, state: PodcastToolsState): Promise<PodcastToolsState> =>
+    ipcRenderer.invoke("podcast-tools:save", { episodeId, state })
 });

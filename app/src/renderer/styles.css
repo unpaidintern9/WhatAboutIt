@@ -1023,6 +1023,159 @@ dd {
   gap: var(--space-xl);
 }
 
+.podcast-tools {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.tool-section {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
+    var(--texture-active),
+    var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+  overflow: hidden;
+}
+
+.tool-section summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  cursor: pointer;
+  list-style: none;
+}
+
+.tool-section summary::-webkit-details-marker {
+  display: none;
+}
+
+.tool-section summary span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  color: var(--color-primary);
+  font-family: var(--font-heading);
+  font-size: var(--font-heading-size);
+}
+
+.tool-section summary small {
+  color: var(--color-mutedText);
+  font-weight: 900;
+}
+
+.tool-section-body {
+  display: grid;
+  gap: var(--space-lg);
+  padding: 0 var(--space-lg) var(--space-lg);
+}
+
+.teleprompter-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(260px, 0.8fr);
+  gap: var(--space-md);
+}
+
+.teleprompter-card.dark textarea {
+  color: var(--color-inverseText);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.28)),
+    var(--texture-active),
+    var(--color-secondary);
+}
+
+.teleprompter-card.light textarea {
+  color: var(--color-text);
+  background: var(--color-cards);
+}
+
+.tool-control-row,
+.marker-button-grid,
+.layout-button-grid {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.tool-control-row label {
+  min-width: 150px;
+  margin-bottom: 0;
+}
+
+input[type="range"] {
+  accent-color: var(--color-primary);
+}
+
+.notes-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.notes-grid label {
+  margin-bottom: 0;
+}
+
+.soundboard-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.soundboard-grid button,
+.layout-button-grid button {
+  display: grid;
+  gap: var(--space-xs);
+  min-height: var(--space-controlHeight);
+  padding: var(--space-md);
+  color: var(--color-text);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  text-align: left;
+  transition: transform var(--component-transition-speed), background var(--component-transition-speed);
+}
+
+.soundboard-grid button.playing,
+.layout-button-grid button.active,
+.layout-button-grid button:hover,
+.soundboard-grid button:hover {
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+  transform: var(--animation-hover-lift);
+}
+
+.soundboard-grid span,
+.soundboard-grid small,
+.marker-list span {
+  color: var(--color-mutedText);
+  font-size: var(--font-small-size);
+}
+
+.soundboard-grid button.playing span,
+.soundboard-grid button.playing small,
+.layout-button-grid button.active {
+  color: var(--color-inverseText);
+}
+
+.marker-list {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
+.marker-list span {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
 .mic-status-list {
   display: grid;
   gap: var(--space-md);
@@ -1055,6 +1208,9 @@ dd {
   .device-slot-grid,
   .camera-card-grid,
   .lesson-grid,
+  .notes-grid,
+  .soundboard-grid,
+  .teleprompter-card,
   .recording-hero,
   .recording-status-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

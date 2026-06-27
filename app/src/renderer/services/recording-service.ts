@@ -11,6 +11,12 @@ export interface RecordingServiceSnapshot {
   localSaveMessage: string;
 }
 
+export interface RecordingStartOptions {
+  episodeId?: string;
+  episodeTitle?: string;
+  practice?: boolean;
+}
+
 export class RecordingService {
   private status: RecordingStatus = "idle";
   private session?: RecordingSession;
@@ -31,16 +37,17 @@ export class RecordingService {
     };
   }
 
-  async start(deviceDefaults: DeviceDefaults, practice = false) {
+  async start(deviceDefaults: DeviceDefaults, options: RecordingStartOptions = {}) {
     if (this.status === "recording" || this.status === "paused") return this.getSnapshot();
 
     try {
       this.session = await window.studio.createRecordingSession({
         deviceDefaults,
-        episodeTitle: practice ? "Practice Recording" : "Studio Recording",
-        practice
+        episodeId: options.episodeId,
+        episodeTitle: options.episodeTitle ?? (options.practice ? "Practice Recording" : "Studio Recording"),
+        practice: options.practice
       });
-      await this.plugin.start({ deviceDefaults, practice });
+      await this.plugin.start({ deviceDefaults, practice: options.practice });
       this.status = "recording";
       this.startedAt = Date.now();
       this.elapsedBeforePause = 0;
@@ -125,4 +132,3 @@ export function formatRecordingTime(elapsedMs: number) {
   const seconds = totalSeconds % 60;
   return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
 }
-

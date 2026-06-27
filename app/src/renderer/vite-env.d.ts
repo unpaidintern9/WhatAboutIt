@@ -2,6 +2,7 @@
 
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
 import type { RecordingSession, RecordingSessionCreateInput, RecordingState } from "../shared/recording";
+import type { PodcastToolsState } from "../shared/podcast-tools";
 
 declare global {
   interface Window {
@@ -15,6 +16,8 @@ declare global {
       saveProgramRecording: (folderPath: string, bytes: number[]) => Promise<string>;
       appendRecordingError: (folderPath: string, message: string) => Promise<void>;
       listUnfinishedRecordingSessions: () => Promise<RecordingSession[]>;
+      loadPodcastTools: (episodeId: string) => Promise<PodcastToolsState>;
+      savePodcastTools: (episodeId: string, state: PodcastToolsState) => Promise<PodcastToolsState>;
     };
   }
 }

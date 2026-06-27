@@ -14,6 +14,7 @@ import {
   saveProgramRecording,
   writeRecordingState
 } from "./recording-session-store";
+import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
 
 const appDataRoot = getAppDataRoot();
 const episodesRoot = getEpisodesRoot();
@@ -142,6 +143,8 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle("recording:append-error", (_event, input) => appendRecordingError(input.folderPath, input.message));
   ipcMain.handle("recording:list-unfinished", listUnfinishedRecordingSessions);
+  ipcMain.handle("podcast-tools:load", (_event, episodeId) => loadPodcastTools(episodeId));
+  ipcMain.handle("podcast-tools:save", (_event, input) => savePodcastTools(input.episodeId, input.state));
 
   createWindow();
 
