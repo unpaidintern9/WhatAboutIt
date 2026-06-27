@@ -4,6 +4,7 @@ import {
   Brush,
   Camera,
   Clapperboard,
+  Circle,
   FolderOpen,
   Headphones,
   Mic2,
@@ -14,15 +15,17 @@ import {
   Wand2
 } from "lucide-react";
 import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
+import type { RecordingSession } from "../shared/recording";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
-import { Button, CameraPreview, DeviceSetupWizard } from "./components";
+import { Button, CameraPreview, DeviceSetupWizard, RecordingStudio } from "./components";
 import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
+import { BrowserMediaRecorderPlugin } from "./plugins/recording/browser-media-recorder-plugin";
 import type { DeviceDetectionResult } from "./plugins/devices/types";
-import { DeviceService } from "./services";
+import { DeviceService, RecordingService, type RecordingServiceSnapshot } from "./services";
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
-type View = "home" | "new-episode" | "device-setup" | "settings" | "learn" | "practice" | "theme-editor";
+type View = "home" | "new-episode" | "device-setup" | "recording" | "settings" | "learn" | "practice" | "theme-editor";
 
 const fallbackSettings: StudioSettings = {
   activeThemeId: "what-about-it",
@@ -38,11 +41,19 @@ const emptyDetection: DeviceDetectionResult = {
   permissionNeeded: false
 };
 
+const idleRecordingSnapshot: RecordingServiceSnapshot = {
+  status: "idle",
+  elapsedMs: 0,
+  localSaveMessage: "Everything is saving locally"
+};
+
 export default function App() {
   const [view, setView] = useState<View>("home");
   const [episodes, setEpisodes] = useState<EpisodeMetadata[]>([]);
   const [settings, setSettings] = useState<StudioSettings>(fallbackSettings);
   const [deviceDetection, setDeviceDetection] = useState<DeviceDetectionResult>(emptyDetection);
+  const [recordingSnapshot, setRecordingSnapshot] = useState<RecordingServiceSnapshot>(idleRecordingSnapshot);
+  const [unfinishedSessions, setUnfinishedSessions] = useState<RecordingSession[]>([]);
   const [wizardStep, setWizardStep] = useState(0);
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [title, setTitle] = useState("");
@@ -50,6 +61,7 @@ export default function App() {
   const [description, setDescription] = useState("");
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
+  const recordingService = useMemo(() => new RecordingService(new BrowserMediaRecorderPlugin()), []);
 
   useEffect(() => {
     applyTheme(activeTheme);
@@ -59,7 +71,16 @@ export default function App() {
     void window.studio.getSettings().then((nextSettings) => setSettings(withDeviceDefaults(nextSettings)));
     void refreshEpisodes();
     void refreshDevices();
+    void refreshUnfinishedSessions();
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setRecordingSnapshot(recordingService.getSnapshot());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [recordingService]);
 
   async function refreshEpisodes() {
     setEpisodes(await window.studio.listEpisodes());
@@ -103,6 +124,27 @@ export default function App() {
     await deviceService.playTestSound(settings.deviceDefaults.audioOutputId);
   }
 
+  async function refreshUnfinishedSessions() {
+    setUnfinishedSessions(await window.studio.listUnfinishedRecordingSessions());
+  }
+
+  async function startRecording(practice = false) {
+    setRecordingSnapshot(await recordingService.start(settings.deviceDefaults, practice));
+  }
+
+  async function pauseRecording() {
+    setRecordingSnapshot(await recordingService.pause());
+  }
+
+  async function resumeRecording() {
+    setRecordingSnapshot(await recordingService.resume());
+  }
+
+  async function stopRecording() {
+    setRecordingSnapshot(await recordingService.stop());
+    await refreshUnfinishedSessions();
+  }
+
   return (
     <main className="studio-shell">
       <aside className="sidebar">
@@ -124,6 +166,9 @@ export default function App() {
           <button className={view === "device-setup" ? "active" : ""} onClick={() => setView("device-setup")}>
             <Camera size={20} /> Studio Setup
           </button>
+          <button className={view === "recording" ? "active" : ""} onClick={() => setView("recording")}>
+            <Circle size={20} /> Record
+          </button>
           <button className={view === "theme-editor" ? "active" : ""} onClick={() => setView("theme-editor")}>
             <Brush size={20} /> Theme Editor
           </button>
@@ -140,7 +185,7 @@ export default function App() {
 
         <div className="phase-note">
           <Sparkles size={18} />
-          Phase 2 setup only. Recording stays locked until Phase 3.
+          Phase 3 recording foundation. Auto Edit and timeline stay locked.
         </div>
       </aside>
 
@@ -169,6 +214,20 @@ export default function App() {
             onDefaultsChange={(defaults) => void saveDeviceDefaults(defaults)}
             onTestMicrophone={() => void testMicrophone()}
             onPlayTestSound={() => void playTestSound()}
+          />
+        )}
+        {view === "recording" && (
+          <RecordingStudio
+            defaults={settings.deviceDefaults}
+            snapshot={recordingSnapshot}
+            unfinishedSessions={unfinishedSessions}
+            storageWarning={undefined}
+            onStart={() => void startRecording(false)}
+            onPause={() => void pauseRecording()}
+            onResume={() => void resumeRecording()}
+            onStop={() => void stopRecording()}
+            onPractice={() => void startRecording(true)}
+            onDismissRecovery={() => setUnfinishedSessions([])}
           />
         )}
         {view === "theme-editor" && (
@@ -228,9 +287,9 @@ function HomeView({ episodes, onNewEpisode }: { episodes: EpisodeMetadata[]; onN
           <div className="locked-tools">
             <span><Camera size={18} /> Studio Setup is ready</span>
             <span><Mic2 size={18} /> Mic check is ready</span>
-            <span><Wand2 size={18} /> Auto Edit</span>
+            <span><Circle size={18} /> Recording foundation is ready</span>
           </div>
-          <p>Use Studio Setup to pick devices. Recording and Auto Edit stay locked for later phases.</p>
+          <p>Use Record for a local program recording. Auto Edit and timeline tools stay locked for later phases.</p>
         </div>
       </section>
     </div>
@@ -330,7 +389,12 @@ function LearnStudioView() {
     "How to connect a microphone",
     "How to use headphones",
     "What to do if your camera does not show up",
-    "What to do if your mic is too quiet"
+    "What to do if your mic is too quiet",
+    "How to record your first episode",
+    "What happens when you press Record",
+    "Why files are saved locally",
+    "What to do if recording stops",
+    "How recovery works"
   ];
 
   return (
@@ -357,13 +421,13 @@ function PracticeModeView() {
       <p className="signature">Try it without touching real gear</p>
       <h2>Practice Mode</h2>
       <p className="soft-copy">
-        Walk through a safe fake setup with branded placeholders. No fake people photos, no recording, and no real device changes.
+        Walk through a safe fake setup with branded placeholders. No fake people photos and no real media files.
       </p>
       <div className="practice-steps">
-        <span><Camera size={20} /> Pretend Camera 1 is plugged in</span>
-        <span><Mic2 size={20} /> Pretend Morgan Mic is loud and clear</span>
-        <span><Headphones size={20} /> Pretend headphones played the test sound</span>
-        <span><Clapperboard size={20} /> Practice says: everything looks good</span>
+        <span><Circle size={20} /> Press Practice on the Record screen</span>
+        <span><Mic2 size={20} /> Practice pause and resume</span>
+        <span><Headphones size={20} /> Learn that everything saves locally</span>
+        <span><Clapperboard size={20} /> Try the recovery message without risking real media</span>
       </div>
     </section>
   );
@@ -371,6 +435,11 @@ function PracticeModeView() {
 
 function getLessonCopy(lesson: string) {
   if (lesson.includes("camera does not")) return "Try a different port, close other video apps, then run Studio Setup again.";
+  if (lesson.includes("first episode")) return "Pick devices first, press Record, pause if you need a breath, then Stop when you are done.";
+  if (lesson.includes("press Record")) return "The app creates a local session folder and starts saving the program recording.";
+  if (lesson.includes("saved locally")) return "Recordings stay on this computer inside the episode folder.";
+  if (lesson.includes("recording stops")) return "Open the app again and look for the unfinished recording recovery message.";
+  if (lesson.includes("recovery")) return "Recovery points you back to the local session folder and never deletes raw recordings.";
   if (lesson.includes("mic is too quiet")) return "Move the mic closer, check the gain knob, and use Say something! to watch the meter.";
   if (lesson.includes("camera")) return "Plug the camera in first, then choose it for Camera 1, Camera 2, or Camera 3.";
   if (lesson.includes("microphone")) return "Pick Morgan Mic first so the app knows which voice matters most.";

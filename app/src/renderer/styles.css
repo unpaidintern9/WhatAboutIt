@@ -678,6 +678,101 @@ dd {
   gap: var(--space-lg);
 }
 
+.recording-studio {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.recording-hero,
+.recovery-banner,
+.recording-timer,
+.local-save-note,
+.mic-status-card {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.64)),
+    var(--texture-active),
+    var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+}
+
+.recording-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 260px;
+  gap: var(--space-xl);
+  align-items: center;
+  padding: var(--space-xl);
+}
+
+.recording-timer {
+  display: grid;
+  place-items: center;
+  min-height: calc(var(--space-controlHeight) * 2);
+  color: var(--color-inverseText);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.24)),
+    var(--texture-active),
+    var(--color-primary);
+}
+
+.recording-timer span {
+  font-size: var(--font-small-size);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.recording-timer strong {
+  font-family: var(--font-heading);
+  font-size: calc(var(--font-heading-size) * 1.7);
+}
+
+.recording-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+}
+
+.local-save-note,
+.recovery-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+}
+
+.local-save-note {
+  color: var(--color-inverseText);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.16)),
+    var(--texture-active),
+    var(--color-success);
+}
+
+.recovery-banner svg {
+  color: var(--color-warning);
+}
+
+.recording-status-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+  gap: var(--space-xl);
+}
+
+.mic-status-list {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.mic-status-card {
+  padding: var(--space-lg);
+  box-shadow: none;
+}
+
+.mic-status-card h4 {
+  color: var(--color-primary);
+}
+
 @media (max-width: 1100px) {
   .studio-shell {
     grid-template-columns: 260px minmax(0, 1fr);
@@ -694,7 +789,9 @@ dd {
 
   .wizard-steps,
   .device-slot-grid,
-  .lesson-grid {
+  .lesson-grid,
+  .recording-hero,
+  .recording-status-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

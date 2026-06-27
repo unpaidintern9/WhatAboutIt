@@ -7,6 +7,13 @@ import { defaultStudioConfiguration } from "../shared/config";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import { getAppDataRoot, getEpisodesRoot, getSettingsPath } from "./config-service";
 import { logger } from "./logger";
+import {
+  appendRecordingError,
+  createRecordingSession,
+  listUnfinishedRecordingSessions,
+  saveProgramRecording,
+  writeRecordingState
+} from "./recording-session-store";
 
 const appDataRoot = getAppDataRoot();
 const episodesRoot = getEpisodesRoot();
@@ -127,6 +134,13 @@ app.whenReady().then(async () => {
   ipcMain.handle("episodes:create", (_event, input) => createEpisode(input));
   ipcMain.handle("settings:get", getSettings);
   ipcMain.handle("settings:save", (_event, settings) => saveSettings(settings));
+  ipcMain.handle("recording:create-session", (_event, input) => createRecordingSession(input));
+  ipcMain.handle("recording:write-state", (_event, input) => writeRecordingState(input.folderPath, input.state));
+  ipcMain.handle("recording:save-program", (_event, input) =>
+    saveProgramRecording(input.folderPath, Uint8Array.from(input.bytes))
+  );
+  ipcMain.handle("recording:append-error", (_event, input) => appendRecordingError(input.folderPath, input.message));
+  ipcMain.handle("recording:list-unfinished", listUnfinishedRecordingSessions);
 
   createWindow();
 

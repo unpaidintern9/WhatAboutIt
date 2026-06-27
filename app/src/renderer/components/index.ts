@@ -5,6 +5,7 @@ export * from "./Card";
 export * from "./DeviceSetupWizard";
 export * from "./Modal";
 export * from "./Panel";
+export * from "./RecordingStudio";
 export * from "./Sidebar";
 export * from "./TimelineMarker";
 export * from "./Toast";

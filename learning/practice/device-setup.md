@@ -8,3 +8,5 @@ Practice Mode uses pretend devices:
 
 No real recording starts. No fake people photos are used.
 
+Phase 3 practice can also simulate Record, Pause, Stop, local saving, and recovery without writing real media.
+

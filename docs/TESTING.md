@@ -15,6 +15,9 @@ npm run test
 - Device config defaults and slot helpers.
 - Device setup empty states and readiness.
 - Device setup wizard render states.
+- Recording service state changes.
+- Recording session metadata and required folder layout.
+- Practice mode recording simulation.
 
 ## Future Requirements
 

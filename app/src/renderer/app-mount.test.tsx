@@ -17,7 +17,12 @@ describe("app mount", () => {
           microphones: {}
         }
       })),
-      saveSettings: vi.fn()
+      saveSettings: vi.fn(),
+      createRecordingSession: vi.fn(),
+      writeRecordingState: vi.fn(),
+      saveProgramRecording: vi.fn(),
+      appendRecordingError: vi.fn(),
+      listUnfinishedRecordingSessions: vi.fn(async () => [])
     };
 
     const host = document.createElement("div");
