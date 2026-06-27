@@ -119,6 +119,33 @@ describe("recording session store", () => {
     expect(unfinished[0]).toMatchObject({ id: session.id, status: "interrupted" });
   });
 
+  it("marks the session complete when recording state stops", async () => {
+    const { createRecordingSession, writeRecordingState } = await import("./recording-session-store");
+    const session = await createRecordingSession({
+      episodeId: "episode-stopped",
+      episodeTitle: "Stopped Recording",
+      deviceDefaults: {
+        cameras: { camera1: "camera-a" },
+        microphones: { morganMic: "mic-a" }
+      }
+    });
+
+    await writeRecordingState(session.folderPath, {
+      sessionId: session.id,
+      status: "stopped",
+      updatedAt: "2026-06-27T22:00:00.000Z",
+      elapsedMs: 30000,
+      lastSavedAt: "2026-06-27T22:00:00.000Z"
+    });
+
+    const savedSession = JSON.parse(
+      await fs.readFile(path.join(session.folderPath, "Session", "recording-session.json"), "utf8")
+    ) as { status: string; stoppedAt?: string };
+
+    expect(savedSession.status).toBe("stopped");
+    expect(savedSession.stoppedAt).toBeTruthy();
+  });
+
   it("rejects invalid program media instead of pretending it recorded", async () => {
     const { createRecordingSession, saveProgramRecording } = await import("./recording-session-store");
     const session = await createRecordingSession({

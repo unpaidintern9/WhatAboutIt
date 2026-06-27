@@ -1186,6 +1186,11 @@ input[type="range"] {
   gap: var(--space-xl);
 }
 
+.hardware-test-screen {
+  display: grid;
+  gap: var(--space-xl);
+}
+
 .auto-edit-screen {
   display: grid;
   gap: var(--space-xl);
@@ -1193,6 +1198,7 @@ input[type="range"] {
 
 .timeline-hero,
 .export-hero,
+.hardware-test-hero,
 .auto-edit-hero,
 .visual-timeline,
 .timeline-marker-list,
@@ -1201,6 +1207,9 @@ input[type="range"] {
 .export-option-grid,
 .export-settings-panel,
 .export-progress-panel,
+.hardware-test-steps,
+.hardware-test-panel,
+.hardware-result-card,
 .auto-edit-mode-grid,
 .auto-edit-progress-panel,
 .auto-edit-summary-grid,
@@ -1217,6 +1226,7 @@ input[type="range"] {
 
 .timeline-hero,
 .export-hero,
+.hardware-test-hero,
 .auto-edit-hero,
 .locked-editing-tools {
   display: flex;
@@ -1224,6 +1234,107 @@ input[type="range"] {
   justify-content: space-between;
   gap: var(--space-xl);
   padding: var(--space-xl);
+}
+
+.hardware-test-hero svg,
+.hardware-result-card svg {
+  color: var(--color-primary);
+}
+
+.hardware-test-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-md);
+  padding: var(--space-lg);
+}
+
+.hardware-test-steps button {
+  display: grid;
+  gap: var(--space-xs);
+  min-height: var(--space-controlHeight);
+  padding: var(--space-md);
+  color: var(--color-text);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  text-align: left;
+  transition: transform var(--component-transition-speed), background var(--component-transition-speed);
+}
+
+.hardware-test-steps button.active,
+.hardware-test-steps button:hover {
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+  transform: var(--animation-hover-lift);
+}
+
+.hardware-test-steps span {
+  color: var(--color-mutedText);
+  font-size: var(--font-small-size);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.hardware-test-steps button.active span,
+.hardware-test-steps button:hover span {
+  color: var(--color-inverseText);
+}
+
+.hardware-test-panel {
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+}
+
+.hardware-test-panel p,
+.hardware-result-card p {
+  color: var(--color-mutedText);
+}
+
+.hardware-action-row {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.hardware-test-message,
+.hardware-inline-status {
+  padding: var(--space-md);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
+.hardware-inline-status.ready {
+  color: var(--color-inverseText);
+  background: var(--color-success);
+}
+
+.hardware-inline-status.needs-attention {
+  color: var(--color-text);
+  background: var(--color-warning);
+}
+
+.hardware-results-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.hardware-result-card {
+  display: grid;
+  gap: var(--space-sm);
+  min-height: 150px;
+  padding: var(--space-lg);
+}
+
+.hardware-result-card.ready {
+  border-color: var(--color-success);
+}
+
+.hardware-result-card.needs-attention {
+  border-color: var(--color-warning);
 }
 
 .auto-edit-mode-grid {
@@ -1714,7 +1825,9 @@ input[type="range"] {
   .auto-edit-mode-grid,
   .auto-edit-summary-grid,
   .auto-edit-review-grid,
-  .auto-edit-stage-list {
+  .auto-edit-stage-list,
+  .hardware-test-steps,
+  .hardware-results-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

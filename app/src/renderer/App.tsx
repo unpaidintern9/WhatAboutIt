@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -17,6 +17,7 @@ import {
   Plus,
   Scissors,
   Settings,
+  ShieldCheck,
   Sparkles,
   ListVideo,
   Wand2,
@@ -33,6 +34,14 @@ import { defaultExportSettings } from "../shared/export";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import { runOfflineAutoEdit } from "../shared/auto-edit";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
+import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
+import {
+  createHardwareTestResults,
+  getExportTestStatus,
+  getFriendlyHardwareFailureMessage,
+  getNextHardwareTestStep,
+  getRecordingTestStatus
+} from "../shared/hardware-test";
 import { AutoEditReview, Button, CameraPreview, DeviceSetupWizard, ExportEpisode, RecordingStudio, TimelineReview } from "./components";
 import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
 import { BrowserMediaRecorderPlugin } from "./plugins/recording/browser-media-recorder-plugin";
@@ -41,12 +50,12 @@ import { DeviceService, ExportService, RecordingService, type RecordingServiceSn
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
-type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "auto-edit-review" | "export" | "settings" | "learn" | "practice" | "theme-editor";
+type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "auto-edit-review" | "export" | "hardware-test" | "settings" | "learn" | "practice" | "theme-editor";
 
 function getInitialView(): View {
   if (typeof window === "undefined") return "home";
   const requestedView = new URLSearchParams(window.location.search).get("view");
-  const views: View[] = ["home", "new-episode", "device-setup", "recording", "timeline-review", "auto-edit-review", "export", "settings", "learn", "practice", "theme-editor"];
+  const views: View[] = ["home", "new-episode", "device-setup", "recording", "timeline-review", "auto-edit-review", "export", "hardware-test", "settings", "learn", "practice", "theme-editor"];
   return views.includes(requestedView as View) ? (requestedView as View) : "home";
 }
 
@@ -225,6 +234,10 @@ export default function App() {
   const [autoEditMode, setAutoEditMode] = useState<AutoEditMode>("balanced");
   const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | undefined>();
   const [autoEditRunning, setAutoEditRunning] = useState(false);
+  const [hardwareTestStep, setHardwareTestStep] = useState<HardwareTestStep>("cameras");
+  const [hardwareTestResults, setHardwareTestResults] = useState<HardwareTestResults>(() => createHardwareTestResults());
+  const [hardwareTestMessage, setHardwareTestMessage] = useState("Real hardware only. Nothing passes until the studio can actually see it.");
+  const hardwareStopTimerRef = useRef<number | undefined>(undefined);
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
   const recordingService = useMemo(() => new RecordingService(new BrowserMediaRecorderPlugin()), []);
@@ -260,6 +273,12 @@ export default function App() {
 
     return () => window.clearInterval(timer);
   }, [recordingService, reviewMode]);
+
+  useEffect(() => {
+    return () => {
+      if (hardwareStopTimerRef.current) window.clearTimeout(hardwareStopTimerRef.current);
+    };
+  }, []);
 
   async function refreshEpisodes() {
     const nextEpisodes = await studio.listEpisodes();
@@ -385,7 +404,7 @@ export default function App() {
 
   async function refreshDevices() {
     if (reviewMode) {
-      setDeviceDetection({
+      const demoDetection = {
         cameras: [
           { id: "demo-camera-1", label: "Main Studio Camera", kind: "camera", camera: { connectionType: "usb", signal: "good", autoReconnect: true, maxResolution: "Auto", maxFps: 30 } },
           { id: "demo-camera-2", label: "Side Angle Camera", kind: "camera", camera: { connectionType: "wireless", signal: "good", batteryPercent: 86, autoReconnect: true, maxResolution: "Auto", maxFps: 30 } }
@@ -393,10 +412,13 @@ export default function App() {
         microphones: [{ id: "demo-mic-1", label: "Morgan Mic", kind: "microphone" }],
         speakers: [{ id: "demo-speakers", label: "Studio Headphones", kind: "speaker" }],
         permissionNeeded: false
-      });
-      return;
+      } satisfies DeviceDetectionResult;
+      setDeviceDetection(demoDetection);
+      return demoDetection;
     }
-    setDeviceDetection(await deviceService.detectDevices());
+    const detectedDevices = await deviceService.detectDevices();
+    setDeviceDetection(detectedDevices);
+    return detectedDevices;
   }
 
   async function requestStudioPermissions() {
@@ -416,6 +438,126 @@ export default function App() {
 
   async function playTestSound() {
     await deviceService.playTestSound(settings.deviceDefaults.audioOutputId);
+  }
+
+  function updateHardwareResults(exportStatus = exportJob?.status) {
+    const cameraReady: [boolean | undefined, boolean | undefined, boolean | undefined] = [
+      Boolean(settings.deviceDefaults.cameras.camera1 || deviceDetection.cameras[0]),
+      Boolean(settings.deviceDefaults.cameras.camera2 || deviceDetection.cameras[1]),
+      Boolean(settings.deviceDefaults.cameras.camera3 || deviceDetection.cameras[2])
+    ];
+
+    const nextResults = createHardwareTestResults({
+      cameraReady,
+      morganMicReady: Boolean(settings.deviceDefaults.microphones.morganMic || deviceDetection.microphones[0]),
+      exportStatus
+    });
+    setHardwareTestResults(nextResults);
+    return nextResults;
+  }
+
+  async function runHardwareCameraCheck() {
+    const detectedDevices = await refreshDevices();
+    const cameraReady: [boolean | undefined, boolean | undefined, boolean | undefined] = [
+      Boolean(settings.deviceDefaults.cameras.camera1 || detectedDevices.cameras[0]),
+      Boolean(settings.deviceDefaults.cameras.camera2 || detectedDevices.cameras[1]),
+      Boolean(settings.deviceDefaults.cameras.camera3 || detectedDevices.cameras[2])
+    ];
+    setHardwareTestResults(
+      createHardwareTestResults({
+        cameraReady,
+        morganMicReady: undefined,
+        exportStatus: exportJob?.status
+      })
+    );
+    setHardwareTestMessage("Camera check finished. Anything marked Needs Attention should be checked before a real episode.");
+    setHardwareTestStep("microphones");
+  }
+
+  async function runHardwareMicrophoneCheck() {
+    await testMicrophone();
+    updateHardwareResults();
+    setHardwareTestMessage("Morgan Mic check finished. Say something again if the room was quiet.");
+    setHardwareTestStep("recording");
+  }
+
+  async function createHardwareTestEpisode() {
+    const episode = await studio.createEpisode({
+      title: `Hardware Test ${new Date().toLocaleString()}`,
+      description: "Real camera and microphone validation recording."
+    });
+    setEpisodes([episode, ...episodes]);
+    setActiveEpisode(episode);
+    return episode;
+  }
+
+  async function startHardwareTestRecording() {
+    const episode = await createHardwareTestEpisode();
+    setHardwareTestMessage("Recording a 30-second hardware test. Everything is saving locally.");
+    const snapshot = await recordingService.start(settings.deviceDefaults, {
+      episodeId: episode.id,
+      episodeTitle: episode.title,
+      practice: false
+    });
+    setRecordingSnapshot(snapshot);
+
+    if (snapshot.status === "recording") {
+      if (hardwareStopTimerRef.current) window.clearTimeout(hardwareStopTimerRef.current);
+      hardwareStopTimerRef.current = window.setTimeout(() => {
+        void stopHardwareTestRecording();
+      }, 30000);
+    } else {
+      setHardwareTestMessage(getFriendlyHardwareFailureMessage("recording"));
+    }
+  }
+
+  async function stopHardwareTestRecording() {
+    if (hardwareStopTimerRef.current) window.clearTimeout(hardwareStopTimerRef.current);
+    const nextSnapshot = await recordingService.stop();
+    setRecordingSnapshot(nextSnapshot);
+    const episodeId = nextSnapshot.session?.episodeId ?? activeEpisode?.id;
+    const draft = createTimelineDraft({
+      episodeId,
+      recordingSessionId: nextSnapshot.session?.id,
+      deviceDefaults: settings.deviceDefaults,
+      markers: podcastTools.markers,
+      durationMs: nextSnapshot.elapsedMs
+    });
+    setTimelineDraft(draft);
+    if (episodeId) {
+      setTimelineDraft(await studio.saveTimelineDraft(episodeId, draft));
+    }
+    await refreshUnfinishedSessions();
+    await refreshEpisodes();
+    updateHardwareResults();
+    setHardwareTestMessage(
+      nextSnapshot.status === "stopped"
+        ? "Test recording saved safely. Next, export the test."
+        : getFriendlyHardwareFailureMessage("recording")
+    );
+    setHardwareTestStep("export");
+  }
+
+  async function exportHardwareTestRecording() {
+    const episodeId = recordingSnapshot.session?.episodeId ?? activeEpisode?.id;
+    if (!episodeId) {
+      setHardwareTestMessage(getFriendlyHardwareFailureMessage("export"));
+      return;
+    }
+
+    const job = await exportService.start({
+      episodeId,
+      type: "full-episode-video",
+      qualityPreset: "standard",
+      draft: timelineDraft,
+      practice: false
+    });
+    setExportJob(job);
+    updateHardwareResults(job.status);
+    setHardwareTestMessage(
+      job.status === "complete" ? "Export test complete. The finished copy is saved locally." : getFriendlyHardwareFailureMessage("export")
+    );
+    setHardwareTestStep("results");
   }
 
   async function refreshUnfinishedSessions() {
@@ -507,6 +649,9 @@ export default function App() {
           </button>
           <button className={view === "export" ? "active" : ""} onClick={() => setView("export")}>
             <Download size={20} /> Export
+          </button>
+          <button className={view === "hardware-test" ? "active" : ""} onClick={() => setView("hardware-test")}>
+            <ShieldCheck size={20} /> Hardware Test
           </button>
           <button className={view === "theme-editor" ? "active" : ""} onClick={() => setView("theme-editor")}>
             <Brush size={20} /> Theme Editor
@@ -620,6 +765,22 @@ export default function App() {
             onStartExport={() => void startExport(reviewMode)}
             onCancelExport={() => void cancelExport()}
             onOpenFolder={() => void openExportFolder()}
+          />
+        )}
+        {view === "hardware-test" && (
+          <HardwareTestModeView
+            step={hardwareTestStep}
+            results={hardwareTestResults}
+            message={hardwareTestMessage}
+            recordingSnapshot={recordingSnapshot}
+            exportJob={exportJob}
+            mediaToolsStatus={mediaToolsStatus}
+            onStepChange={setHardwareTestStep}
+            onCheckCameras={() => void runHardwareCameraCheck()}
+            onCheckMicrophones={() => void runHardwareMicrophoneCheck()}
+            onStartRecording={() => void startHardwareTestRecording()}
+            onStopRecording={() => void stopHardwareTestRecording()}
+            onExport={() => void exportHardwareTestRecording()}
           />
         )}
         {view === "theme-editor" && (
@@ -865,6 +1026,150 @@ function ThemeEditorView({ activeThemeId, changeTheme }: { activeThemeId: string
           <button disabled>Import theme</button>
           <button disabled>Share theme</button>
         </div>
+      </div>
+    </section>
+  );
+}
+
+function HardwareTestModeView({
+  step,
+  results,
+  message,
+  recordingSnapshot,
+  exportJob,
+  mediaToolsStatus,
+  onStepChange,
+  onCheckCameras,
+  onCheckMicrophones,
+  onStartRecording,
+  onStopRecording,
+  onExport
+}: {
+  step: HardwareTestStep;
+  results: HardwareTestResults;
+  message: string;
+  recordingSnapshot: RecordingServiceSnapshot;
+  exportJob?: ExportJob;
+  mediaToolsStatus?: MediaToolsStatus;
+  onStepChange: (step: HardwareTestStep) => void;
+  onCheckCameras: () => void;
+  onCheckMicrophones: () => void;
+  onStartRecording: () => void;
+  onStopRecording: () => void;
+  onExport: () => void;
+}) {
+  const recordingStatus = getRecordingTestStatus(recordingSnapshot.status);
+  const exportStatus = getExportTestStatus(exportJob?.status);
+  const isRecording = recordingSnapshot.status === "recording" || recordingSnapshot.status === "paused";
+
+  return (
+    <section className="hardware-test-screen">
+      <div className="hardware-test-hero">
+        <div>
+          <p className="signature">Real gear check</p>
+          <h2>Let's test the studio for real</h2>
+          <p className="soft-copy">
+            This mode only passes when your actual camera, microphone, recording, and export path work on this computer.
+          </p>
+        </div>
+        <ShieldCheck size={54} aria-hidden="true" />
+      </div>
+
+      <div className="hardware-test-steps" aria-label="Real hardware test steps">
+        {[
+          ["cameras", "Step 1", "Check cameras"],
+          ["microphones", "Step 2", "Check microphones"],
+          ["recording", "Step 3", "Record a test"],
+          ["export", "Step 4", "Export the test"],
+          ["results", "Step 5", "Results"]
+        ].map(([stepId, eyebrow, label]) => (
+          <button
+            className={step === stepId ? "active" : ""}
+            key={stepId}
+            onClick={() => onStepChange(stepId as HardwareTestStep)}
+          >
+            <span>{eyebrow}</span>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="hardware-test-panel">
+        {step === "cameras" && (
+          <>
+            <h3>Step 1: Check cameras</h3>
+            <p>We'll look for real cameras and keep the main screen simple: Camera 1, Camera 2, Camera 3.</p>
+            <Button variant="primary" icon={<Camera size={22} />} onClick={onCheckCameras}>
+              Check cameras
+            </Button>
+          </>
+        )}
+
+        {step === "microphones" && (
+          <>
+            <h3>Step 2: Check microphones</h3>
+            <p>Say something out loud so Morgan Mic can prove it is ready.</p>
+            <Button variant="primary" icon={<Mic2 size={22} />} onClick={onCheckMicrophones}>
+              Check microphones
+            </Button>
+          </>
+        )}
+
+        {step === "recording" && (
+          <>
+            <h3>Step 3: Record a 30-second test</h3>
+            <p>Use the actual camera and microphone. No practice mode, no simulated success.</p>
+            <div className="hardware-action-row">
+              <Button variant="primary" icon={<Circle size={22} />} disabled={isRecording} onClick={onStartRecording}>
+                Record test
+              </Button>
+              <Button variant="secondary" icon={<X size={22} />} disabled={!isRecording} onClick={onStopRecording}>
+                Stop test
+              </Button>
+            </div>
+            <p className={`hardware-inline-status ${recordingStatus}`}>{recordingSnapshot.localSaveMessage}</p>
+          </>
+        )}
+
+        {step === "export" && (
+          <>
+            <h3>Step 4: Export the test</h3>
+            <p>Save a finished test copy locally and keep the original recording untouched.</p>
+            <Button variant="primary" icon={<Download size={22} />} onClick={onExport}>
+              Export test
+            </Button>
+            <p className={`hardware-inline-status ${exportStatus}`}>
+              {exportJob?.message ?? mediaToolsStatus?.message ?? "Export is waiting for the test recording."}
+            </p>
+          </>
+        )}
+
+        {step === "results" && (
+          <>
+            <h3>Step 5: Results</h3>
+            <p>Only real checks count here. Anything that needs attention gets fixed before a full episode.</p>
+            <Button variant="secondary" icon={<ArrowRight size={22} />} onClick={() => onStepChange("cameras")}>
+              Run again
+            </Button>
+          </>
+        )}
+
+        <p className="hardware-test-message">{message}</p>
+        {step !== "results" && (
+          <Button variant="secondary" icon={<ArrowRight size={22} />} onClick={() => onStepChange(getNextHardwareTestStep(step))}>
+            Next step
+          </Button>
+        )}
+      </div>
+
+      <div className="hardware-results-grid" aria-label="Hardware test results">
+        {Object.values(results).map((result) => (
+          <article className={`hardware-result-card ${result.status}`} key={result.label}>
+            {result.status === "ready" ? <CheckCircle2 size={24} /> : result.status === "needs-attention" ? <X size={24} /> : <Circle size={18} />}
+            <h3>{result.label}</h3>
+            <p>{result.message}</p>
+          </article>
+        ))}
       </div>
     </section>
   );

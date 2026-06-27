@@ -99,7 +99,21 @@ export async function writeRecordingState(folderPath: string, state: RecordingSt
     lastSavedAt: new Date().toISOString()
   };
   await writeJson(path.join(folderPath, "Session", "recording-state.json"), nextState);
+  await syncRecordingSessionStatus(folderPath, nextState);
   return nextState;
+}
+
+async function syncRecordingSessionStatus(folderPath: string, state: RecordingState) {
+  const sessionPath = path.join(folderPath, "Session", "recording-session.json");
+  const session = await readJsonFile<RecordingSession>(sessionPath);
+  if (!session || session.status === state.status) return;
+
+  const nextSession: RecordingSession = {
+    ...session,
+    status: state.status,
+    stoppedAt: state.status === "stopped" ? state.updatedAt : session.stoppedAt
+  };
+  await writeJson(sessionPath, nextSession);
 }
 
 export async function saveProgramRecording(folderPath: string, bytes: Uint8Array) {

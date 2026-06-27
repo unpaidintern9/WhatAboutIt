@@ -14,6 +14,8 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 | Can Morgan recover from an interrupted session? | No | Recovery state exists, but interrupted real recording recovery has not been validated. |
 | Can Morgan use multiple Sony cameras? | No | Sony provider slots and Camera 1/2/3 ordering are in place, but no Sony camera was detected for physical validation. |
 | Can Morgan use Sony wireless video? | No | Wireless video is not confirmed. Bluetooth is treated as control-only unless a real video stream is validated. |
+| Can Morgan launch the app from the desktop? | Partial | `What About It Studio.lnk` was created and launched the Electron app. Final installer and branded icon are still pending. |
+| Can Morgan run a guided real hardware test? | Partial | The Phase 8A flow completed with one physical camera, one physical mic, a 30.899-second recording, ffprobe validation, and MP4 export. Multi-camera and long-duration validation remain pending. |
 
 ## Required Evidence Before Beta
 
@@ -27,6 +29,8 @@ Before any item can move to "Yes," the project needs a recorded test episode tha
 - Auto Edit analysis is derived from the recorded media or is clearly disabled until a real backend is available.
 - An interrupted real recording can be detected and recovered without deleting raw files.
 - Sony cameras can be validated by exact model, connection method, and recorded output.
+- The desktop shortcut can be created and used to launch the app from a clean installed build.
+- The real hardware test mode can complete Camera, Microphone, Recording, Export, and Results using all intended production hardware, including multi-camera setups.
 
 ## Current Gate Decision
 

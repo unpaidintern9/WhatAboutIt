@@ -12,7 +12,7 @@
     "typecheck": "cd app && npm run typecheck",
     "test": "cd app && npm run test",
     "verify": "cd app && npm run verify",
-    "package": "cd app && npm run package"
+    "package": "cd app && npm run package",
+    "create-shortcut": "cd app && npm run create-shortcut"
   }
 }
-
