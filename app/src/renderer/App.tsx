@@ -386,6 +386,11 @@ function SettingsView({ settings, activeThemeName }: { settings: StudioSettings;
 function LearnStudioView() {
   const lessons = [
     "How to connect a camera",
+    "How to choose cameras",
+    "How to test cameras",
+    "What the gear icon means",
+    "What to do if a camera disconnects",
+    "How wireless cameras work",
     "How to connect a microphone",
     "How to use headphones",
     "What to do if your camera does not show up",
@@ -434,6 +439,11 @@ function PracticeModeView() {
 }
 
 function getLessonCopy(lesson: string) {
+  if (lesson.includes("choose cameras")) return "Open Studio Setup, pick Camera 1 first, then add Camera 2 and Camera 3 if you want more angles.";
+  if (lesson.includes("test cameras")) return "Use Test Camera after choosing one. If it needs attention, the card will tell you the next simple step.";
+  if (lesson.includes("gear icon")) return "The gear keeps extra camera choices tucked away so the main setup stays calm.";
+  if (lesson.includes("camera disconnects")) return "The studio will say it lost the camera and try to reconnect without deleting anything.";
+  if (lesson.includes("wireless cameras")) return "Use Find Cameras, then Connect. Signal can be Good, Weak, or Lost when the camera shares that info.";
   if (lesson.includes("camera does not")) return "Try a different port, close other video apps, then run Studio Setup again.";
   if (lesson.includes("first episode")) return "Pick devices first, press Record, pause if you need a breath, then Stop when you are done.";
   if (lesson.includes("press Record")) return "The app creates a local session folder and starts saving the program recording.";

@@ -527,6 +527,7 @@ dd {
 
 .wizard-intro,
 .wizard-panel,
+.camera-setup-card,
 .device-slot,
 .device-test-card,
 .lesson-card,
@@ -603,10 +604,134 @@ dd {
 }
 
 .device-slot-grid,
+.camera-card-grid,
 .lesson-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-lg);
+}
+
+.camera-card-grid {
+  align-items: stretch;
+}
+
+.camera-setup-card {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-lg);
+  position: relative;
+}
+
+.camera-setup-card.ready {
+  border-color: var(--color-success);
+}
+
+.camera-setup-card.needs-attention {
+  border-color: var(--color-warning);
+}
+
+.camera-card-topline,
+.camera-button-row,
+.camera-signal-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.camera-card-topline h4 {
+  color: var(--color-primary);
+  font-size: var(--font-heading-size);
+}
+
+.camera-gear-menu {
+  position: relative;
+}
+
+.camera-gear-menu summary {
+  display: grid;
+  place-items: center;
+  width: var(--icon-button-size);
+  height: var(--icon-button-size);
+  color: var(--color-text);
+  background: var(--color-buttons);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  cursor: pointer;
+  list-style: none;
+}
+
+.camera-gear-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.camera-gear-panel {
+  position: absolute;
+  right: 0;
+  top: calc(100% + var(--space-sm));
+  z-index: 3;
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 240px;
+  padding: var(--space-md);
+  color: var(--color-text);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.74)),
+    var(--texture-active),
+    var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+}
+
+.camera-gear-panel span,
+.camera-signal-line {
+  color: var(--color-mutedText);
+  font-size: var(--font-small-size);
+}
+
+.camera-gear-panel button {
+  min-height: var(--space-controlHeight);
+  color: var(--color-danger);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
+.camera-card-status {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.camera-card-status strong {
+  color: var(--color-primary);
+  font-family: var(--font-heading);
+  font-size: var(--font-heading-size);
+}
+
+.camera-card-status span,
+.camera-name,
+.camera-find-strip span {
+  color: var(--color-mutedText);
+}
+
+.camera-name {
+  min-height: calc(var(--font-base-size) * 1.5);
+  font-weight: 900;
+}
+
+.camera-button-row {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.camera-find-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  flex-wrap: wrap;
 }
 
 .device-slot,
@@ -789,6 +914,7 @@ dd {
 
   .wizard-steps,
   .device-slot-grid,
+  .camera-card-grid,
   .lesson-grid,
   .recording-hero,
   .recording-status-grid {

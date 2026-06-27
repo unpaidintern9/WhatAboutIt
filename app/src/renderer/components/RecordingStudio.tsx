@@ -63,7 +63,7 @@ export function RecordingStudio({
           <p className="signature">Everything is saving locally</p>
           <h2>Recording Room</h2>
           <p className="soft-copy">
-            Record the program track with your selected studio setup. OBS and media details stay behind the curtain.
+            Record with your selected studio setup. The heavy lifting stays tucked away so you can focus on the show.
           </p>
         </div>
         <div className="recording-timer" aria-label="Recording timer">
@@ -120,7 +120,7 @@ export function RecordingStudio({
               <article className="device-slot" key={key}>
                 <h4>{label}</h4>
                 <CameraPreview label={label} />
-                <p>{defaults.cameras[key] ? "Ready for program setup" : "Not picked yet"}</p>
+                <p>{defaults.cameras[key] ? "Ready" : "Not picked yet"}</p>
               </article>
             ))}
           </div>
@@ -145,4 +145,3 @@ export function RecordingStudio({
     </section>
   );
 }
-

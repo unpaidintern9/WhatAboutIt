@@ -5,8 +5,7 @@ export function CameraPreview({ label }: { label: string }) {
     <div className="wai-camera-preview" aria-label={`${label} empty camera preview`}>
       <Camera aria-hidden="true" />
       <span>{label}</span>
-      <small>Preview comes in Phase 2</small>
+      <small>Preview box</small>
     </div>
   );
 }
-

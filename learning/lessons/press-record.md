@@ -6,5 +6,4 @@ It saves the device map, recording state, sync notes, and logs.
 
 Then it starts a local program recording using the selected camera and microphone.
 
-OBS and media details stay hidden.
-
+The behind-the-scenes work stays hidden so the recording room feels simple.

@@ -1,9 +1,9 @@
-import { Camera, CheckCircle2, Headphones, Mic2, ShieldCheck } from "lucide-react";
+import { Camera, CheckCircle2, Headphones, Mic2, RotateCcw, Search, Settings, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import type { DeviceDefaults } from "../../shared/types";
 import { saveCameraSlot, saveMicrophoneSlot } from "../../shared/device-config";
 import { AudioMeter, Button, CameraPreview } from ".";
-import type { DeviceDetectionResult } from "../plugins/devices/types";
+import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import { findDeviceLabel, getDeviceReadiness, getEmptyStateMessage } from "../services";
 
 interface DeviceSetupWizardProps {
@@ -88,25 +88,27 @@ export function DeviceSetupWizard({
 
       {currentStep === 0 && (
         <div className="wizard-panel">
-          <WizardHeading title="Pick your cameras" message="Use up to three camera slots. Live preview comes later; these boxes stay photo-free and safe." />
+          <WizardHeading title="Let's pick your cameras" message="Choose up to three cameras. Keep it simple here; the little gear has the extra knobs if you need them." />
           {detection.cameras.length === 0 ? (
-            <FriendlyState title={getEmptyStateMessage("camera")} message="Plug in a camera, close other camera apps, then check again." />
+            <FriendlyState title={getEmptyStateMessage("camera")} message="Plug in a camera, close other camera apps, then choose Find Cameras." />
           ) : (
-            <div className="device-slot-grid">
+            <div className="camera-card-grid">
               {cameraSlots.map((slot) => (
-                <DeviceSlot key={slot.key} label={slot.label}>
-                  <CameraPreview label={slot.label} />
-                  <DeviceSelect
-                    label={`Assign ${slot.label}`}
-                    value={defaults.cameras[slot.key] ?? ""}
-                    devices={detection.cameras}
-                    emptyLabel="Leave this camera off"
-                    onChange={(deviceId) => onDefaultsChange(saveCameraSlot(defaults, slot.key, deviceId))}
-                  />
-                </DeviceSlot>
+                <CameraSetupCard
+                  key={slot.key}
+                  label={slot.label}
+                  selectedDeviceId={defaults.cameras[slot.key]}
+                  devices={detection.cameras}
+                  onChoose={(deviceId) => onDefaultsChange(saveCameraSlot(defaults, slot.key, deviceId))}
+                  onRefresh={onRefresh}
+                />
               ))}
             </div>
           )}
+          <div className="camera-find-strip">
+            <Button variant="secondary" icon={<Search size={20} />} onClick={onRefresh}>Find Cameras</Button>
+            <span>Everything stays local while the studio looks for what is connected.</span>
+          </div>
         </div>
       )}
 
@@ -194,6 +196,71 @@ function DeviceSlot({ label, children }: { label: string; children: ReactNode })
   );
 }
 
+function CameraSetupCard({
+  label,
+  selectedDeviceId,
+  devices,
+  onChoose,
+  onRefresh
+}: {
+  label: string;
+  selectedDeviceId?: string;
+  devices: StudioDevice[];
+  onChoose: (deviceId: string) => void;
+  onRefresh: () => void;
+}) {
+  const selectedDevice = devices.find((device) => device.id === selectedDeviceId);
+  const firstDevice = devices[0];
+  const status = getCameraCardStatus(selectedDevice, devices.length);
+  const buttonLabel = selectedDevice ? "Test Camera" : firstDevice ? "Use This Camera" : "Choose Camera";
+
+  return (
+    <article className={`camera-setup-card ${status.className}`}>
+      <div className="camera-card-topline">
+        <h4>{label}</h4>
+        <details className="camera-gear-menu">
+          <summary aria-label={`${label} advanced settings`}>
+            <Settings size={18} />
+          </summary>
+          <div className="camera-gear-panel">
+            <span>Connection type: {formatConnectionType(selectedDevice?.camera?.connectionType)}</span>
+            <span>Resolution: {selectedDevice?.camera?.maxResolution ?? "Auto"}</span>
+            <span>FPS: {selectedDevice?.camera?.maxFps ?? "Auto"}</span>
+            <span>Preferred camera: {selectedDevice?.camera?.preferred ? "Yes" : "Not set"}</span>
+            <span>Auto reconnect: {selectedDevice?.camera?.autoReconnect === false ? "Off" : "On"}</span>
+            <span>Signal: {formatSignal(selectedDevice?.camera?.signal)}</span>
+            <span>Battery: {formatBattery(selectedDevice?.camera?.batteryPercent)}</span>
+            <button type="button" onClick={() => onChoose("")}>Forget camera</button>
+          </div>
+        </details>
+      </div>
+      <CameraPreview label={label} />
+      <div className="camera-card-status">
+        <strong>{status.text}</strong>
+        <span>{selectedDevice ? `${label} is ready` : "Pick a camera when you are ready"}</span>
+      </div>
+      <p className="camera-name">{selectedDevice?.label ?? "No camera picked yet"}</p>
+      <DeviceSelect
+        label="Choose Camera"
+        value={selectedDeviceId ?? ""}
+        devices={devices}
+        emptyLabel="Choose Camera"
+        onChange={onChoose}
+      />
+      <div className="camera-button-row">
+        <Button variant={selectedDevice ? "secondary" : "primary"} icon={<Camera size={20} />} onClick={() => onChoose(selectedDeviceId ?? firstDevice?.id ?? "")}>
+          {buttonLabel}
+        </Button>
+        <Button variant="secondary" icon={<RotateCcw size={18} />} onClick={onRefresh}>Reconnect</Button>
+      </div>
+      <div className="camera-signal-line">
+        <span>Signal: {formatSignal(selectedDevice?.camera?.signal)}</span>
+        {selectedDevice?.camera?.batteryPercent !== undefined && <span>Battery: {formatBattery(selectedDevice.camera.batteryPercent)}</span>}
+      </div>
+    </article>
+  );
+}
+
 function DeviceSelect({
   label,
   value,
@@ -229,6 +296,31 @@ function FriendlyState({ title, message }: { title: string; message: string }) {
       <p>{message}</p>
     </div>
   );
+}
+
+function getCameraCardStatus(device: StudioDevice | undefined, availableCount: number) {
+  if (!device) return { text: availableCount > 0 ? "Needs attention" : "Not connected", className: "needs-attention" };
+  if (device.camera?.signal === "lost") return { text: "Needs attention", className: "needs-attention" };
+  return { text: "Ready", className: "ready" };
+}
+
+function formatConnectionType(value?: StudioDevice["camera"] extends infer CameraMeta ? CameraMeta extends { connectionType: infer Type } ? Type : never : never) {
+  if (value === "built-in") return "Built-in";
+  if (value === "usb") return "Plugged in";
+  if (value === "capture-card") return "Capture card";
+  if (value === "wireless") return "Wireless";
+  return "Auto";
+}
+
+function formatSignal(signal?: StudioDevice["camera"] extends infer CameraMeta ? CameraMeta extends { signal: infer Signal } ? Signal : never : never) {
+  if (signal === "good") return "Good";
+  if (signal === "weak") return "Weak";
+  if (signal === "lost") return "Lost";
+  return "Good";
+}
+
+function formatBattery(percent?: number) {
+  return percent === undefined ? "Not available" : `${percent}%`;
 }
 
 function getReadinessCopy(state: ReturnType<typeof getDeviceReadiness>) {

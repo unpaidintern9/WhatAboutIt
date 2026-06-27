@@ -26,9 +26,10 @@ describe("DeviceSetupWizard", () => {
 
     expect(markup).toContain("No camera found");
     expect(markup).toContain("Plug in a camera");
+    expect(markup).toContain("Find Cameras");
   });
 
-  it("renders assigned camera slots when cameras exist", () => {
+  it("renders simple camera cards when cameras exist", () => {
     const markup = renderToStaticMarkup(
       <DeviceSetupWizard
         {...baseProps}
@@ -43,7 +44,31 @@ describe("DeviceSetupWizard", () => {
 
     expect(markup).toContain("Camera 1");
     expect(markup).toContain("Studio Camera");
-    expect(markup).toContain("Preview comes in Phase 2");
+    expect(markup).toContain("Use This Camera");
+    expect(markup).toContain("Needs attention");
+    expect(markup).toContain("Connection type");
+    expect(markup).not.toContain("driver stack");
+    expect(markup).not.toContain("backend provider");
+  });
+
+  it("shows ready status for a selected camera", () => {
+    const markup = renderToStaticMarkup(
+      <DeviceSetupWizard
+        {...baseProps}
+        defaults={{ cameras: { camera1: "camera-a" }, microphones: {} }}
+        detection={{
+          cameras: [{ id: "camera-a", label: "Studio Camera", kind: "camera", camera: { connectionType: "usb", signal: "good" } }],
+          microphones: [],
+          speakers: [],
+          permissionNeeded: false
+        }}
+      />
+    );
+
+    expect(markup).toContain("Ready");
+    expect(markup).toContain("Camera 1 is ready");
+    expect(markup).toContain("Signal: Good");
+    expect(markup).toContain("Test Camera");
   });
 
   it("renders microphone, headphone, and ready steps", () => {

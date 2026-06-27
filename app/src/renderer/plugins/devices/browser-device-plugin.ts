@@ -11,7 +11,17 @@ function toStudioDevice(device: MediaDeviceInfo, kind: StudioDeviceKind, index: 
     id: device.deviceId,
     label: friendlyDeviceLabel(device, fallbackName),
     kind,
-    isDefault: device.deviceId === "default"
+    isDefault: device.deviceId === "default",
+    camera:
+      kind === "camera"
+        ? {
+            connectionType: index === 0 ? "built-in" : "usb",
+            signal: "unknown",
+            autoReconnect: true,
+            maxResolution: "Auto",
+            maxFps: 30
+          }
+        : undefined
   };
 }
 

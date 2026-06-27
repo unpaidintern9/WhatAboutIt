@@ -13,9 +13,10 @@ for (const file of sourceFiles) {
   const content = await readFile(file, "utf8");
   const relativeFile = path.relative(projectRoot, file);
   const isDevicePlugin = relativeFile.includes(`${path.sep}plugins${path.sep}devices${path.sep}`);
+  const isCameraPlugin = relativeFile.includes(`${path.sep}plugins${path.sep}cameras${path.sep}`);
   const isRecordingPlugin = relativeFile.includes(`${path.sep}plugins${path.sep}recording${path.sep}`);
   if (content.includes("external-repos")) fail(`App source must not import external repos directly: ${path.relative(projectRoot, file)}`);
-  if (!isDevicePlugin && !isRecordingPlugin && (content.includes("getUserMedia") || content.includes("enumerateDevices"))) {
+  if (!isDevicePlugin && !isCameraPlugin && !isRecordingPlugin && (content.includes("getUserMedia") || content.includes("enumerateDevices"))) {
     fail(`Device APIs must stay behind the device plugin boundary: ${relativeFile}`);
   }
 }
