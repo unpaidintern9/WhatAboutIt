@@ -27,6 +27,7 @@ function installStudioMock() {
     saveTimelineDraft: vi.fn(),
     runAutoEdit: vi.fn(),
     createExport: vi.fn(),
+    getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })),
     cancelExport: vi.fn(),
     openExportFolder: vi.fn()
   };

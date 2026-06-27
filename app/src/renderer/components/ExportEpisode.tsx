@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import { CheckCircle2, ExternalLink, FileArchive, FileAudio, Lock, Play, ShieldCheck, Square, Video } from "lucide-react";
-import type { ExportJob, ExportQualityPreset, ExportType } from "../../shared/export";
+import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../../shared/export";
 import { exportFriendlyErrorCopy, exportTypeLabels } from "../../shared/export";
 import { Button } from ".";
 
@@ -8,6 +8,7 @@ interface ExportEpisodeProps {
   selectedType: ExportType;
   qualityPreset: ExportQualityPreset;
   job?: ExportJob;
+  mediaToolsStatus?: MediaToolsStatus;
   onTypeChange: (type: ExportType) => void;
   onQualityChange: (preset: ExportQualityPreset) => void;
   onStartExport: () => void;
@@ -26,6 +27,7 @@ export function ExportEpisode({
   selectedType,
   qualityPreset,
   job,
+  mediaToolsStatus,
   onTypeChange,
   onQualityChange,
   onStartExport,
@@ -95,6 +97,9 @@ export function ExportEpisode({
           <h3>{isComplete ? "Export complete" : isError ? "Something needs attention before export" : "Ready to export"}</h3>
           {isComplete ? <CheckCircle2 size={24} /> : <ShieldCheck size={24} />}
         </div>
+        <p className={`media-tools-status ${mediaToolsStatus?.ready ? "ready" : "needs-setup"}`}>
+          {mediaToolsStatus?.message ?? "Checking local media tools..."}
+        </p>
         <div className="export-progress-bar" aria-label="Export progress">
           <span style={{ width: `${job?.progress ?? 0}%` }} />
         </div>

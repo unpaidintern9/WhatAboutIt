@@ -9,6 +9,7 @@ function render(job?: ExportJob) {
       selectedType="full-episode-video"
       qualityPreset="standard"
       job={job}
+      mediaToolsStatus={{ ready: true, message: "Media tools are ready" }}
       onTypeChange={vi.fn()}
       onQualityChange={vi.fn()}
       onStartExport={vi.fn()}
@@ -32,6 +33,7 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("Archive Master");
     expect(markup).toContain("Social Clip");
     expect(markup).toContain("Saved for Version 2");
+    expect(markup).toContain("Media tools are ready");
   });
 
   it("renders progress and complete state", () => {
@@ -46,7 +48,7 @@ describe("ExportEpisode", () => {
       updatedAt: "2026-06-27T10:05:00.000Z",
       outputFolder: "Episode/Exports",
       message: "Export complete",
-      outputFileName: "video.txt"
+      outputFileName: "video.mp4"
     });
 
     expect(markup).toContain("Export complete");

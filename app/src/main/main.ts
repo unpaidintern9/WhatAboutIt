@@ -17,7 +17,7 @@ import {
 } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
 import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
-import { cancelExport, createExport, openExportFolder } from "./export-store";
+import { cancelExport, createExport, detectMediaTools, openExportFolder } from "./export-store";
 import { runAutoEdit } from "./auto-edit-store";
 
 const appDataRoot = getAppDataRoot();
@@ -155,6 +155,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("timeline:save", (_event, input) => saveTimelineDraft(input.episodeId, input.draft));
   ipcMain.handle("auto-edit:run", (_event, input) => runAutoEdit(input));
   ipcMain.handle("export:create", (_event, input) => createExport(input));
+  ipcMain.handle("export:media-tools-status", detectMediaTools);
   ipcMain.handle("export:cancel", (_event, input) => cancelExport(input.episodeId, input.job));
   ipcMain.handle("export:open-folder", (_event, episodeId) => openExportFolder(episodeId));
 

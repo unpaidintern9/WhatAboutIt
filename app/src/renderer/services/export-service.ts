@@ -1,10 +1,14 @@
-import type { ExportJob, ExportRequest } from "../../shared/export";
+import type { ExportJob, ExportRequest, MediaToolsStatus } from "../../shared/export";
 
 export class ExportService {
   constructor(private readonly studio: Window["studio"]) {}
 
   start(request: ExportRequest): Promise<ExportJob> {
     return this.studio.createExport(request);
+  }
+
+  mediaToolsStatus(): Promise<MediaToolsStatus> {
+    return this.studio.getMediaToolsStatus();
   }
 
   cancel(episodeId: string, job: ExportJob): Promise<ExportJob> {

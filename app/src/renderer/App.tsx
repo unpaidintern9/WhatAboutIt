@@ -28,7 +28,7 @@ import type { PodcastToolsState } from "../shared/podcast-tools";
 import { createDefaultPodcastToolsState, withPodcastToolDefaults } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import { createTimelineDraft, markTimelineSaved, withTimelineDraftDefaults } from "../shared/timeline";
-import type { ExportJob, ExportQualityPreset, ExportType } from "../shared/export";
+import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
 import { defaultExportSettings } from "../shared/export";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import { runOfflineAutoEdit } from "../shared/auto-edit";
@@ -190,8 +190,9 @@ function getStudioBridge(): Window["studio"] {
       updatedAt: now,
       outputFolder: "review-only/Exports",
       message: "Export complete",
-      outputFileName: "what-about-it-full-episode-video.txt"
+      outputFileName: "what-about-it-full-episode-video.mp4"
     }),
+    getMediaToolsStatus: async () => ({ ready: true, message: "Media tools are ready" }),
     cancelExport: async (_episodeId, job) => ({ ...job, status: "canceled", error: "canceled", message: "Export was canceled" }),
     openExportFolder: async () => "review-only/Exports"
   };
@@ -220,6 +221,7 @@ export default function App() {
   const [selectedExportType, setSelectedExportType] = useState<ExportType>(defaultExportSettings.defaultExportType);
   const [selectedQualityPreset, setSelectedQualityPreset] = useState<ExportQualityPreset>(defaultExportSettings.qualityPreset);
   const [exportJob, setExportJob] = useState<ExportJob | undefined>();
+  const [mediaToolsStatus, setMediaToolsStatus] = useState<MediaToolsStatus | undefined>();
   const [autoEditMode, setAutoEditMode] = useState<AutoEditMode>("balanced");
   const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | undefined>();
   const [autoEditRunning, setAutoEditRunning] = useState(false);
@@ -244,6 +246,10 @@ export default function App() {
     void refreshEpisodes();
     void refreshDevices();
     void refreshUnfinishedSessions();
+  }, [studio]);
+
+  useEffect(() => {
+    void studio.getMediaToolsStatus().then(setMediaToolsStatus);
   }, [studio]);
 
   useEffect(() => {
@@ -608,6 +614,7 @@ export default function App() {
             selectedType={selectedExportType}
             qualityPreset={selectedQualityPreset}
             job={exportJob}
+            mediaToolsStatus={mediaToolsStatus}
             onTypeChange={(type) => void changeExportType(type)}
             onQualityChange={(preset) => void changeQualityPreset(preset)}
             onStartExport={() => void startExport(reviewMode)}

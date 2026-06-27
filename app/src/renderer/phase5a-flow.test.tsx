@@ -91,6 +91,7 @@ describe("Phase 5C flow", () => {
         outputFolder: "Episode/Exports",
         message: "Export complete"
       })),
+      getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })),
       cancelExport: vi.fn(async (_episodeId, job) => job),
       openExportFolder: vi.fn(async () => "Episode/Exports")
     };

@@ -1438,6 +1438,29 @@ input[type="range"] {
   border-color: var(--color-accent);
 }
 
+.media-tools-status {
+  display: inline-flex;
+  width: fit-content;
+  padding: var(--space-xs) var(--space-md);
+  color: var(--color-text);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
+.media-tools-status.ready {
+  color: var(--color-inverseText);
+  background: var(--color-success);
+  border-color: var(--color-success);
+}
+
+.media-tools-status.needs-setup {
+  color: var(--color-text);
+  background: var(--color-warning);
+  border-color: var(--color-warning);
+}
+
 .export-progress-bar {
   height: calc(var(--space-md) * 1.25);
   overflow: hidden;

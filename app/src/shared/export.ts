@@ -18,6 +18,15 @@ export interface ExportRequest {
   practice?: boolean;
 }
 
+export interface MediaToolsStatus {
+  ready: boolean;
+  message: "Media tools are ready" | "Media tools need setup before export";
+  ffmpegPath?: string;
+  ffprobePath?: string;
+  ffmpegVersion?: string;
+  ffprobeVersion?: string;
+}
+
 export interface ExportJob {
   id: string;
   episodeId: string;
@@ -35,6 +44,7 @@ export interface ExportJob {
 
 export type ExportFriendlyError =
   | "recording-missing"
+  | "media-tools-missing"
   | "not-enough-space"
   | "canceled"
   | "needs-attention";
@@ -81,6 +91,7 @@ export const exportTypeLabels: Record<ExportType, { title: string; description: 
 
 export const exportFriendlyErrorCopy: Record<ExportFriendlyError, string> = {
   "recording-missing": "We couldn't find the recording file",
+  "media-tools-missing": "Media tools need setup before export",
   "not-enough-space": "There isn't enough space",
   canceled: "Export was canceled",
   "needs-attention": "Something needs attention before export"
