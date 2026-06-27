@@ -29,6 +29,9 @@ export interface ThemeTokens {
     bodyFont: string;
     accentFont: string;
     baseSize: string;
+    displaySize: string;
+    headingSize: string;
+    smallSize: string;
     displayWeight: number;
     headingWeight: number;
     bodyWeight: number;
@@ -58,6 +61,7 @@ export interface ThemeTokens {
     wood: string;
     fabric: string;
     metal: string;
+    flat?: string;
     active: "paper" | "leather" | "wood" | "fabric" | "metal" | "flat" | "none";
     intensity: number;
   };

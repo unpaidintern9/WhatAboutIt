@@ -6,20 +6,70 @@
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
-    "build": "tsc && vite build",
+    "build": "npm run clean && npm run build:main && npm run build:renderer",
+    "build:main": "tsc -p tsconfig.main.json",
+    "build:renderer": "vite build",
+    "clean": "node scripts/clean.mjs",
     "electron": "electron .",
     "start": "npm run build && electron .",
-    "typecheck": "tsc --noEmit"
+    "lint": "eslint .",
+    "format": "prettier . --check",
+    "format:write": "prettier . --write",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit",
+    "test": "vitest run",
+    "validate:json": "node scripts/validate-json.mjs",
+    "validate:themes": "node scripts/validate-themes.mjs",
+    "validate:plugins": "node scripts/validate-plugins.mjs",
+    "validate:docs": "node scripts/validate-docs.mjs",
+    "validate:architecture": "node scripts/validate-architecture.mjs",
+    "validate:accessibility": "node scripts/validate-accessibility.mjs",
+    "verify": "npm run lint && npm run typecheck && npm run test && npm run validate:json && npm run validate:themes && npm run validate:plugins && npm run validate:docs && npm run validate:architecture && npm run validate:accessibility",
+    "package": "npm run build && electron-builder --dir"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.0.0",
-    "electron": "^37.0.0",
     "lucide-react": "^0.468.0",
-    "vite": "^7.0.0",
-    "typescript": "^5.5.0",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "vite": "^7.0.0"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.0.1",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "electron": "^42.5.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "jsdom": "^29.1.1",
+    "prettier": "^3.9.0",
+    "typescript": "^5.5.0",
+    "typescript-eslint": "^8.62.0",
+    "vitest": "^4.1.9"
+  },
+  "build": {
+    "appId": "studio.whataboutit.desktop",
+    "productName": "What About It? Studio",
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": ["nsis"],
+      "artifactName": "${productName}-${version}-Windows.${ext}"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "artifactName": "${productName}-${version}-macOS.${ext}"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "artifactName": "${productName}-${version}-Linux.${ext}"
+    }
+  }
 }
-

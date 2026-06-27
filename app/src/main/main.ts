@@ -3,10 +3,13 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
+import { defaultStudioConfiguration } from "../shared/config";
+import { getAppDataRoot, getEpisodesRoot, getSettingsPath } from "./config-service";
+import { logger } from "./logger";
 
-const appDataRoot = path.join(app.getPath("documents"), "WhatAboutItStudioData");
-const episodesRoot = path.join(appDataRoot, "episodes");
-const settingsPath = path.join(appDataRoot, "settings.json");
+const appDataRoot = getAppDataRoot();
+const episodesRoot = getEpisodesRoot();
+const settingsPath = getSettingsPath();
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -92,14 +95,15 @@ async function createEpisode(input: { title: string; guestName?: string; descrip
   };
 
   await fs.writeFile(path.join(folderPath, "metadata.json"), JSON.stringify(metadata, null, 2), "utf8");
+  await logger.info("EpisodeService", "Created local episode metadata.", { episodeId: metadata.id });
   return metadata;
 }
 
 async function getSettings(): Promise<StudioSettings> {
   await fs.mkdir(appDataRoot, { recursive: true });
   return readJsonFile<StudioSettings>(settingsPath, {
-    activeThemeId: "what-about-it",
-    defaultEpisodeFolderName: "episodes",
+    activeThemeId: defaultStudioConfiguration.theme.activeThemeId,
+    defaultEpisodeFolderName: defaultStudioConfiguration.storage.episodeFolderName,
     practiceModeEnabled: false
   });
 }
@@ -112,6 +116,7 @@ async function saveSettings(settings: StudioSettings) {
 
 app.whenReady().then(async () => {
   await ensureBaseFolders();
+  await logger.info("App", "What About It? Studio launched.");
 
   ipcMain.handle("episodes:list", listEpisodes);
   ipcMain.handle("episodes:create", (_event, input) => createEpisode(input));
@@ -128,4 +133,3 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
-

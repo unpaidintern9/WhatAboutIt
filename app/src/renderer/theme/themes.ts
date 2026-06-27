@@ -73,7 +73,11 @@ function buildThemes() {
   });
 }
 
-export const builtInThemes = buildThemes();
+export const builtInThemes = buildThemes().sort((a, b) => {
+  if (a.id === "what-about-it") return -1;
+  if (b.id === "what-about-it") return 1;
+  return a.name.localeCompare(b.name);
+});
 
 export function findTheme(themeId: string) {
   return builtInThemes.find((theme) => theme.id === themeId) ?? builtInThemes[0];
@@ -99,7 +103,7 @@ export function applyTheme(theme: ThemeTokens) {
   root.style.setProperty("--letter-spacing", theme.typography.letterSpacing);
   root.style.setProperty("--line-height", theme.typography.lineHeight);
 
-  const activeTexture = theme.textures.active === "none" ? "none" : theme.textures[theme.textures.active];
+  const activeTexture = theme.textures.active === "none" ? "none" : theme.textures[theme.textures.active] ?? "none";
   root.style.setProperty("--texture-active", activeTexture);
   root.style.setProperty("--texture-intensity", String(theme.textures.intensity));
 
@@ -118,4 +122,3 @@ export function applyTheme(theme: ThemeTokens) {
   root.style.setProperty("--animation-hover-lift", theme.animations.hoverLift);
   root.style.setProperty("--animation-disabled-opacity", String(theme.animations.disabledOpacity));
 }
-

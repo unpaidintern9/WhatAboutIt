@@ -1,21 +1,18 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
 
 export default defineConfig({
   plugins: [react()],
-  root: "src/renderer",
-  base: "./",
-  publicDir: "../../public",
-  build: {
-    outDir: "../../dist/renderer",
-    emptyOutDir: true
+  test: {
+    environment: "jsdom",
+    globals: true,
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"]
   },
   server: {
-    host: "127.0.0.1",
-    port: 5173,
     fs: {
       allow: [path.resolve(__dirname, "..")]
     }
   }
 });
+
