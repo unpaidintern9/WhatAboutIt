@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-label="Empty branded camera preview placeholder">
+  <rect width="960" height="540" fill="#211512"/>
+  <rect x="24" y="24" width="912" height="492" rx="18" fill="#F2E2C4" stroke="#C7953D" stroke-width="8" stroke-dasharray="22 18"/>
+  <circle cx="480" cy="246" r="58" fill="#8F1D1B"/>
+  <rect x="420" y="220" width="120" height="70" rx="10" fill="#FFF4DC"/>
+  <path d="M540 238 L590 211 V299 L540 272 Z" fill="#FFF4DC"/>
+  <text x="480" y="352" text-anchor="middle" font-family="Georgia, serif" font-size="42" font-weight="700" fill="#211512">Camera Preview</text>
+  <text x="480" y="394" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#735C4F">Phase 2 device setup placeholder</text>
+</svg>
+

@@ -1,0 +1,65 @@
+{
+  "id": "midnight-studio",
+  "name": "Midnight Studio",
+  "description": "Dark recording-room theme with brass controls and warm highlights.",
+  "colors": {
+    "primary": "#A8322D",
+    "secondary": "#111111",
+    "accent": "#B98A3E",
+    "success": "#5B8A62",
+    "warning": "#D7A247",
+    "danger": "#D55345",
+    "background": "#080807",
+    "surface": "#181412",
+    "cards": "#221B18",
+    "buttons": "#A8322D",
+    "icons": "#C99A4A",
+    "audioMeters": "#D8B24C",
+    "text": "#F8E8C8",
+    "mutedText": "#B69B78",
+    "inverseText": "#100D0C",
+    "border": "#6D5040"
+  },
+  "typography": {
+    "displayFont": "Georgia, 'Times New Roman', serif",
+    "headingFont": "Rockwell, Georgia, serif",
+    "bodyFont": "Inter, Segoe UI, Arial, sans-serif",
+    "accentFont": "'Segoe Script', cursive",
+    "baseSize": "16px",
+    "displayWeight": 900,
+    "headingWeight": 800,
+    "bodyWeight": 500,
+    "letterSpacing": "0",
+    "lineHeight": "1.45"
+  },
+  "branding": {
+    "applicationName": "What About It? Studio",
+    "logoText": "What About It?",
+    "sidebarLogoText": "WAI Studio",
+    "splashTitle": "Midnight Studio",
+    "loadingText": "Bringing up the room lights...",
+    "exportBranding": "What About It?",
+    "iconStyle": "brass-line"
+  },
+  "textures": {
+    "paper": "linear-gradient(135deg, rgba(255,255,255,0.03), transparent)",
+    "leather": "repeating-linear-gradient(45deg, rgba(255,255,255,0.035) 0 2px, rgba(0,0,0,0.03) 2px 5px)",
+    "wood": "repeating-linear-gradient(90deg, rgba(76,39,23,0.2) 0 14px, rgba(20,13,11,0.12) 14px 28px)",
+    "fabric": "repeating-linear-gradient(0deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 5px)",
+    "metal": "linear-gradient(135deg, rgba(255,255,255,0.12), rgba(0,0,0,0.2))",
+    "active": "leather",
+    "intensity": 0.62
+  },
+  "components": {
+    "buttonShape": "studio-console",
+    "borderRadius": "9px",
+    "cardRadius": "8px",
+    "shadow": "0 20px 48px rgba(0,0,0,0.42)",
+    "borderStyle": "solid",
+    "navStyle": "studio-rail",
+    "hoverAnimation": "glow-lift",
+    "transitionSpeed": "180ms",
+    "iconStyle": "brass-line"
+  }
+}
+

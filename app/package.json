@@ -1,0 +1,25 @@
+{
+  "name": "what-about-it-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Offline-first desktop studio for the What About It? podcast.",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc && vite build",
+    "electron": "electron .",
+    "start": "npm run build && electron .",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.0.0",
+    "electron": "^37.0.0",
+    "lucide-react": "^0.468.0",
+    "vite": "^7.0.0",
+    "typescript": "^5.5.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {}
+}
+

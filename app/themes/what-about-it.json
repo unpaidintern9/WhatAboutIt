@@ -1,0 +1,65 @@
+{
+  "id": "what-about-it",
+  "name": "What About It?",
+  "description": "Vintage Americana podcast studio with deep reds, warm cream, leather black, aged paper, and brass.",
+  "colors": {
+    "primary": "#8F1D1B",
+    "secondary": "#261615",
+    "accent": "#C7953D",
+    "success": "#4D7C52",
+    "warning": "#D69B36",
+    "danger": "#B83B2E",
+    "background": "#1A1110",
+    "surface": "#F2E2C4",
+    "cards": "#FFF1D2",
+    "buttons": "#8F1D1B",
+    "icons": "#C7953D",
+    "audioMeters": "#D9AA45",
+    "text": "#211512",
+    "mutedText": "#735C4F",
+    "inverseText": "#FFF4DC",
+    "border": "#5A3128"
+  },
+  "typography": {
+    "displayFont": "Georgia, 'Times New Roman', serif",
+    "headingFont": "Rockwell, Georgia, serif",
+    "bodyFont": "Inter, Segoe UI, Arial, sans-serif",
+    "accentFont": "'Segoe Script', 'Bradley Hand ITC', cursive",
+    "baseSize": "16px",
+    "displayWeight": 900,
+    "headingWeight": 800,
+    "bodyWeight": 500,
+    "letterSpacing": "0",
+    "lineHeight": "1.45"
+  },
+  "branding": {
+    "applicationName": "What About It? Studio",
+    "logoText": "What About It?",
+    "sidebarLogoText": "WAI Studio",
+    "splashTitle": "What About It? Studio",
+    "loadingText": "Warming up the studio...",
+    "exportBranding": "What About It?",
+    "iconStyle": "brass-line"
+  },
+  "textures": {
+    "paper": "radial-gradient(circle at 25% 20%, rgba(255,255,255,0.34), transparent 22%), linear-gradient(135deg, rgba(81,45,33,0.08), rgba(255,244,220,0.2))",
+    "leather": "linear-gradient(135deg, rgba(255,255,255,0.05), transparent 34%), repeating-linear-gradient(45deg, rgba(255,255,255,0.025) 0 2px, rgba(0,0,0,0.02) 2px 5px)",
+    "wood": "repeating-linear-gradient(90deg, rgba(80,41,24,0.16) 0 12px, rgba(120,68,38,0.08) 12px 24px)",
+    "fabric": "repeating-linear-gradient(0deg, rgba(0,0,0,0.035) 0 1px, transparent 1px 4px)",
+    "metal": "linear-gradient(135deg, rgba(255,255,255,0.18), rgba(0,0,0,0.08))",
+    "active": "paper",
+    "intensity": 0.7
+  },
+  "components": {
+    "buttonShape": "tactile-western",
+    "borderRadius": "10px",
+    "cardRadius": "8px",
+    "shadow": "0 18px 44px rgba(18, 10, 9, 0.28)",
+    "borderStyle": "double",
+    "navStyle": "leather-rail",
+    "hoverAnimation": "lift",
+    "transitionSpeed": "180ms",
+    "iconStyle": "brass-line"
+  }
+}
+

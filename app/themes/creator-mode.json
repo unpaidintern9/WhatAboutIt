@@ -1,0 +1,65 @@
+{
+  "id": "creator-mode",
+  "name": "Creator Mode",
+  "description": "High-clarity control-room theme for focused production days.",
+  "colors": {
+    "primary": "#92302B",
+    "secondary": "#1F2421",
+    "accent": "#B99145",
+    "success": "#4F855D",
+    "warning": "#C79134",
+    "danger": "#BA4439",
+    "background": "#171A17",
+    "surface": "#EAE0C9",
+    "cards": "#F7ECD2",
+    "buttons": "#92302B",
+    "icons": "#9D7634",
+    "audioMeters": "#C99B3F",
+    "text": "#191816",
+    "mutedText": "#625B50",
+    "inverseText": "#FFF3D8",
+    "border": "#A88A58"
+  },
+  "typography": {
+    "displayFont": "Georgia, 'Times New Roman', serif",
+    "headingFont": "Rockwell, Georgia, serif",
+    "bodyFont": "Inter, Segoe UI, Arial, sans-serif",
+    "accentFont": "'Segoe Script', cursive",
+    "baseSize": "16px",
+    "displayWeight": 900,
+    "headingWeight": 800,
+    "bodyWeight": 500,
+    "letterSpacing": "0",
+    "lineHeight": "1.45"
+  },
+  "branding": {
+    "applicationName": "What About It? Studio",
+    "logoText": "What About It?",
+    "sidebarLogoText": "WAI Studio",
+    "splashTitle": "Creator Mode",
+    "loadingText": "Setting up your workspace...",
+    "exportBranding": "What About It?",
+    "iconStyle": "clean-brass"
+  },
+  "textures": {
+    "paper": "linear-gradient(135deg, rgba(255,255,255,0.28), rgba(87,61,36,0.06))",
+    "leather": "linear-gradient(135deg, rgba(0,0,0,0.05), transparent)",
+    "wood": "repeating-linear-gradient(90deg, rgba(99,68,39,0.08) 0 14px, rgba(255,255,255,0.05) 14px 28px)",
+    "fabric": "repeating-linear-gradient(0deg, rgba(0,0,0,0.025) 0 1px, transparent 1px 5px)",
+    "metal": "linear-gradient(135deg, rgba(255,255,255,0.26), rgba(0,0,0,0.08))",
+    "active": "paper",
+    "intensity": 0.42
+  },
+  "components": {
+    "buttonShape": "control-room",
+    "borderRadius": "8px",
+    "cardRadius": "8px",
+    "shadow": "0 14px 34px rgba(24,24,21,0.18)",
+    "borderStyle": "solid",
+    "navStyle": "creator-rail",
+    "hoverAnimation": "lift",
+    "transitionSpeed": "150ms",
+    "iconStyle": "clean-brass"
+  }
+}
+
