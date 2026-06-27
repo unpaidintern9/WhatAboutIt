@@ -33,6 +33,7 @@ describe("app mount", () => {
         createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } } })
       ),
       saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft),
+      runAutoEdit: vi.fn(),
       createExport: vi.fn(),
       cancelExport: vi.fn(),
       openExportFolder: vi.fn()

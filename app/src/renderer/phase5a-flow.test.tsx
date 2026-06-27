@@ -6,6 +6,7 @@ import type { EpisodeMetadata, StudioSettings } from "../shared/types";
 import { createDefaultPodcastToolsState } from "../shared/podcast-tools";
 import { createTimelineDraft } from "../shared/timeline";
 import { defaultExportSettings } from "../shared/export";
+import { runOfflineAutoEdit } from "../shared/auto-edit";
 
 describe("Phase 5C flow", () => {
   it("smoke tests the full MVP flow surfaces from launch to export", async () => {
@@ -15,6 +16,7 @@ describe("Phase 5C flow", () => {
       ["device-setup", "Let's check your studio"],
       ["recording", "Everything is saving locally"],
       ["timeline-review", "Review your episode"],
+      ["auto-edit-review", "Auto Edit"],
       ["export", "Export your episode"]
     ];
 
@@ -76,6 +78,7 @@ describe("Phase 5C flow", () => {
         })
       ),
       saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft),
+      runAutoEdit: vi.fn(async (episodeId, draft, mode) => runOfflineAutoEdit({ episodeId, draft, mode, now: "2026-06-27T10:00:00.000Z" })),
       createExport: vi.fn(async (request) => ({
         id: "job-a",
         episodeId: request.episodeId,
@@ -101,7 +104,8 @@ describe("Phase 5C flow", () => {
     });
 
     expect(host.textContent).toContain("Review your episode");
-    expect(host.textContent).toContain("Your original recording is still safe");
+    expect(host.textContent).toContain("original recording completely safe");
+    expect(host.textContent).toContain("Auto Edit");
     expect(host.textContent).toContain("This only changes the draft");
     expect(host.textContent).toContain("Trim before here");
     expect(host.textContent).toContain("Split here");
@@ -110,7 +114,25 @@ describe("Phase 5C flow", () => {
     expect(host.textContent).toContain("Edit history");
     expect(host.textContent).toContain("Export");
     expect(host.textContent).toContain("Funny");
-    expect(host.textContent).toContain("Big finishing tools are coming next");
+    expect(host.textContent).not.toContain("Auto Edit is still locked");
+  });
+
+  it("renders Auto Edit review with report results", async () => {
+    window.history.replaceState(null, "", "/?view=auto-edit-review&tour=off");
+    Reflect.deleteProperty(window, "studio");
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    expect(host.textContent).toContain("Auto Edit");
+    expect(host.textContent).toContain("Gentle");
+    expect(host.textContent).toContain("Balanced");
+    expect(host.textContent).toContain("Originals stay untouched");
   });
 
   it("renders the Export route with clear local options", async () => {
@@ -147,5 +169,6 @@ describe("Phase 5C flow", () => {
     expect(host.textContent).toContain("Practice Mode");
     expect(host.textContent).toContain("Practice safe trim, split, undo, redo, and restore original");
     expect(host.textContent).toContain("Practice exporting a finished copy without real media");
+    expect(host.textContent).toContain("Practice Auto Edit with sample timeline data");
   });
 });

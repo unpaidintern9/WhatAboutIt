@@ -1,4 +1,4 @@
-import { Clock, Download, History, Lock, Pause, Play, RotateCcw, Save, Scissors, ShieldCheck, SkipForward, Split, Trash2, Undo2, Redo2 } from "lucide-react";
+import { Clock, Download, History, Lock, Pause, Play, RotateCcw, Save, Scissors, ShieldCheck, SkipForward, Sparkles, Split, Trash2, Undo2, Redo2 } from "lucide-react";
 import type { TimelineDraft } from "../../shared/timeline";
 import { applyTimelineEdit, redoTimelineEdit, restoreOriginalTimeline, selectTimelinePoint, undoTimelineEdit } from "../../shared/timeline";
 import { Button } from ".";
@@ -9,9 +9,10 @@ interface TimelineReviewProps {
   onDraftChange: (draft: TimelineDraft) => void;
   onSaveDraft: () => void;
   onExport: () => void;
+  onAutoEdit: () => void;
 }
 
-export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport }: TimelineReviewProps) {
+export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport, onAutoEdit }: TimelineReviewProps) {
   const selectedTimestamp = draft.selection?.timestampMs ?? 0;
 
   function choosePoint(timestampMs: number, markerId?: string) {
@@ -28,7 +29,7 @@ export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport }: 
         <div>
           <p className="signature">Markers help you find the good stuff</p>
           <h2>Review your episode</h2>
-          <p className="soft-copy">Your original recording is still safe. This only changes the draft. You can undo this anytime.</p>
+          <p className="soft-copy">We'll create a polished first draft while keeping your original recording completely safe.</p>
         </div>
         <div className="original-safe-badge">
           <ShieldCheck size={30} />
@@ -37,7 +38,10 @@ export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport }: 
       </div>
 
       <div className="timeline-controls">
-        <Button variant="primary" icon={<Play size={20} />}>Play</Button>
+        <Button variant="primary" icon={<Sparkles size={20} />} onClick={onAutoEdit}>
+          Auto Edit
+        </Button>
+        <Button variant="secondary" icon={<Play size={20} />}>Play</Button>
         <Button variant="secondary" icon={<Pause size={20} />}>Pause</Button>
         <Button variant="secondary" icon={<SkipForward size={20} />} disabled={draft.markers.length === 0}>
           Jump to marker
@@ -45,7 +49,7 @@ export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport }: 
         <Button variant="secondary" icon={<Save size={18} />} onClick={onSaveDraft}>
           Save draft
         </Button>
-        <Button variant="primary" icon={<Download size={20} />} onClick={onExport}>
+        <Button variant="secondary" icon={<Download size={20} />} onClick={onExport}>
           Export
         </Button>
       </div>
@@ -145,19 +149,21 @@ export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport }: 
         )}
       </section>
 
-      <section className="locked-editing-tools">
-        <div>
-          <h3>Big finishing tools are coming next</h3>
-          <p className="soft-copy">Auto Edit is still locked for later. Export is ready when you want a finished local copy.</p>
-        </div>
-        <div className="locked-tool-grid">
-          {draft.lockedTools.map((tool) => (
-            <button type="button" disabled key={tool}>
-              <Lock size={16} /> {tool}
-            </button>
-          ))}
-        </div>
-      </section>
+      {draft.lockedTools.length > 0 && (
+        <section className="locked-editing-tools">
+          <div>
+            <h3>Big finishing tools are coming next</h3>
+            <p className="soft-copy">Anything locked here is staged for a later phase.</p>
+          </div>
+          <div className="locked-tool-grid">
+            {draft.lockedTools.map((tool) => (
+              <button type="button" disabled key={tool}>
+                <Lock size={16} /> {tool}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
     </section>
   );
 }

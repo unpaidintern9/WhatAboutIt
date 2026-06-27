@@ -25,6 +25,7 @@ function installStudioMock() {
     savePodcastTools: vi.fn(),
     loadTimelineDraft: vi.fn(),
     saveTimelineDraft: vi.fn(),
+    runAutoEdit: vi.fn(),
     createExport: vi.fn(),
     cancelExport: vi.fn(),
     openExportFolder: vi.fn()

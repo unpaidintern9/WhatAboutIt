@@ -1186,8 +1186,14 @@ input[type="range"] {
   gap: var(--space-xl);
 }
 
+.auto-edit-screen {
+  display: grid;
+  gap: var(--space-xl);
+}
+
 .timeline-hero,
 .export-hero,
+.auto-edit-hero,
 .visual-timeline,
 .timeline-marker-list,
 .draft-editing-tools,
@@ -1195,6 +1201,10 @@ input[type="range"] {
 .export-option-grid,
 .export-settings-panel,
 .export-progress-panel,
+.auto-edit-mode-grid,
+.auto-edit-progress-panel,
+.auto-edit-summary-grid,
+.auto-edit-review-grid,
 .locked-editing-tools {
   background:
     linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
@@ -1207,12 +1217,146 @@ input[type="range"] {
 
 .timeline-hero,
 .export-hero,
+.auto-edit-hero,
 .locked-editing-tools {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-xl);
   padding: var(--space-xl);
+}
+
+.auto-edit-mode-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+  padding: var(--space-xl);
+}
+
+.auto-edit-mode-grid button {
+  display: grid;
+  gap: var(--space-md);
+  min-height: 180px;
+  padding: var(--space-xl);
+  color: var(--color-text);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-button-shadow);
+  text-align: left;
+  cursor: pointer;
+  transition: transform var(--animation-speed), border-color var(--animation-speed);
+}
+
+.auto-edit-mode-grid button:hover,
+.auto-edit-mode-grid button:focus-visible,
+.auto-edit-mode-grid button.selected {
+  transform: translateY(var(--animation-hoverLift));
+  border-color: var(--color-accent);
+}
+
+.auto-edit-mode-grid svg,
+.auto-edit-summary-grid svg {
+  color: var(--color-primary);
+}
+
+.auto-edit-mode-grid strong,
+.auto-edit-summary-grid strong,
+.auto-edit-list-card h3 {
+  color: var(--color-primary);
+  font-family: var(--font-heading);
+}
+
+.auto-edit-mode-grid span {
+  color: var(--color-mutedText);
+  font-weight: 900;
+}
+
+.auto-edit-progress-panel {
+  display: grid;
+  gap: var(--space-lg);
+  padding: var(--space-xl);
+}
+
+.auto-edit-stage-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+}
+
+.auto-edit-stage-list span {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
+.auto-edit-stage-list i {
+  width: var(--space-md);
+  height: var(--space-md);
+  background: var(--color-mutedText);
+  border-radius: 999px;
+}
+
+.auto-edit-stage-list .running i {
+  background: var(--color-warning);
+}
+
+.auto-edit-stage-list .complete i {
+  background: var(--color-success);
+}
+
+.auto-edit-actions {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.auto-edit-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
+  padding: var(--space-xl);
+}
+
+.auto-edit-summary-grid article {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+}
+
+.auto-edit-summary-grid span {
+  font-weight: 900;
+}
+
+.auto-edit-review-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-md);
+  padding: var(--space-xl);
+}
+
+.auto-edit-list-card {
+  padding: var(--space-lg);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+}
+
+.auto-edit-list-card ul {
+  display: grid;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0 0;
+  padding-left: var(--space-xl);
+  color: var(--color-mutedText);
+  font-weight: 900;
 }
 
 .export-option-grid {
@@ -1541,6 +1685,13 @@ input[type="range"] {
   }
 
   .export-option-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .auto-edit-mode-grid,
+  .auto-edit-summary-grid,
+  .auto-edit-review-grid,
+  .auto-edit-stage-list {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

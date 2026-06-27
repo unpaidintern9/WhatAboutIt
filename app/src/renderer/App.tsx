@@ -30,8 +30,10 @@ import type { TimelineDraft } from "../shared/timeline";
 import { createTimelineDraft, markTimelineSaved, withTimelineDraftDefaults } from "../shared/timeline";
 import type { ExportJob, ExportQualityPreset, ExportType } from "../shared/export";
 import { defaultExportSettings } from "../shared/export";
+import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
+import { runOfflineAutoEdit } from "../shared/auto-edit";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
-import { Button, CameraPreview, DeviceSetupWizard, ExportEpisode, RecordingStudio, TimelineReview } from "./components";
+import { AutoEditReview, Button, CameraPreview, DeviceSetupWizard, ExportEpisode, RecordingStudio, TimelineReview } from "./components";
 import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
 import { BrowserMediaRecorderPlugin } from "./plugins/recording/browser-media-recorder-plugin";
 import type { DeviceDetectionResult } from "./plugins/devices/types";
@@ -39,12 +41,12 @@ import { DeviceService, ExportService, RecordingService, type RecordingServiceSn
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
-type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "export" | "settings" | "learn" | "practice" | "theme-editor";
+type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "auto-edit-review" | "export" | "settings" | "learn" | "practice" | "theme-editor";
 
 function getInitialView(): View {
   if (typeof window === "undefined") return "home";
   const requestedView = new URLSearchParams(window.location.search).get("view");
-  const views: View[] = ["home", "new-episode", "device-setup", "recording", "timeline-review", "export", "settings", "learn", "practice", "theme-editor"];
+  const views: View[] = ["home", "new-episode", "device-setup", "recording", "timeline-review", "auto-edit-review", "export", "settings", "learn", "practice", "theme-editor"];
   return views.includes(requestedView as View) ? (requestedView as View) : "home";
 }
 
@@ -176,6 +178,7 @@ function getStudioBridge(): Window["studio"] {
         now
       }),
     saveTimelineDraft: async (_episodeId, draft) => draft,
+    runAutoEdit: async (episodeId, draft, mode) => runOfflineAutoEdit({ episodeId, draft, mode, now }),
     createExport: async (request) => ({
       id: "review-export",
       episodeId: request.episodeId,
@@ -217,6 +220,9 @@ export default function App() {
   const [selectedExportType, setSelectedExportType] = useState<ExportType>(defaultExportSettings.defaultExportType);
   const [selectedQualityPreset, setSelectedQualityPreset] = useState<ExportQualityPreset>(defaultExportSettings.qualityPreset);
   const [exportJob, setExportJob] = useState<ExportJob | undefined>();
+  const [autoEditMode, setAutoEditMode] = useState<AutoEditMode>("balanced");
+  const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | undefined>();
+  const [autoEditRunning, setAutoEditRunning] = useState(false);
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
   const recordingService = useMemo(() => new RecordingService(new BrowserMediaRecorderPlugin()), []);
@@ -292,6 +298,16 @@ export default function App() {
     if (activeEpisode) {
       setTimelineDraft(await studio.saveTimelineDraft(activeEpisode.id, nextDraft));
     }
+  }
+
+  async function runAutoEditFlow(practice = false) {
+    if (!activeEpisode) return;
+    setAutoEditRunning(true);
+    const result = await studio.runAutoEdit(activeEpisode.id, timelineDraft, autoEditMode, practice);
+    setAutoEditResult(result);
+    setTimelineDraft(result.draft);
+    setAutoEditRunning(false);
+    setView("auto-edit-review");
   }
 
   async function startExport(practice = false) {
@@ -480,6 +496,9 @@ export default function App() {
           <button className={view === "timeline-review" ? "active" : ""} onClick={() => setView("timeline-review")}>
             <ListVideo size={20} /> Review Episode
           </button>
+          <button className={view === "auto-edit-review" ? "active" : ""} onClick={() => setView("auto-edit-review")}>
+            <Sparkles size={20} /> Auto Edit
+          </button>
           <button className={view === "export" ? "active" : ""} onClick={() => setView("export")}>
             <Download size={20} /> Export
           </button>
@@ -499,7 +518,7 @@ export default function App() {
 
         <div className="phase-note">
           <Sparkles size={18} />
-          Phase 5C offline export foundation. Auto Edit stays locked.
+          Phase 6 Smart Auto Edit Platform. Originals stay safe.
         </div>
       </aside>
 
@@ -571,6 +590,17 @@ export default function App() {
             onDraftChange={(nextDraft) => void saveTimelineDraftState(nextDraft)}
             onSaveDraft={() => void saveTimelineDraftState(markTimelineSaved(timelineDraft))}
             onExport={() => setView("export")}
+            onAutoEdit={() => void runAutoEditFlow(reviewMode)}
+          />
+        )}
+        {view === "auto-edit-review" && (
+          <AutoEditReview
+            mode={autoEditMode}
+            result={autoEditResult}
+            running={autoEditRunning}
+            onModeChange={setAutoEditMode}
+            onRun={() => void runAutoEditFlow(reviewMode)}
+            onExport={() => setView("export")}
           />
         )}
         {view === "export" && (
@@ -616,6 +646,7 @@ function JourneyProgress({
     { label: "Studio Setup", complete: studioReady, active: view === "device-setup" },
     { label: "Record", complete: recordingComplete, active: view === "recording" },
     { label: "Review", complete: reviewReady && view !== "recording", active: view === "timeline-review" },
+    { label: "Auto Edit", complete: Boolean(view === "export" || exportComplete), active: view === "auto-edit-review" },
     { label: "Edit", complete: reviewReady, active: view === "timeline-review" },
     { label: "Export", complete: exportComplete, active: view === "export" }
   ];
@@ -886,7 +917,13 @@ function LearnStudioView() {
     "How to export",
     "Which export should I choose?",
     "Where exported files go",
-    "Why originals stay safe during export"
+    "Why originals stay safe during export",
+    "What Auto Edit does",
+    "Which Auto Edit mode should I choose?",
+    "How to review Auto Edit",
+    "Why originals stay safe with Auto Edit",
+    "Understanding chapters",
+    "Understanding clip suggestions"
   ];
 
   return (
@@ -925,6 +962,7 @@ function PracticeModeView() {
         <span><Camera size={20} /> Switch camera layouts safely</span>
         <span><Sparkles size={20} /> Mark funny, highlight, and fix-later moments</span>
         <span><ListVideo size={20} /> Practice timeline review with fake markers</span>
+        <span><Sparkles size={20} /> Practice Auto Edit with sample timeline data</span>
         <span><Scissors size={20} /> Practice safe trim, split, undo, redo, and restore original</span>
         <span><Download size={20} /> Practice exporting a finished copy without real media</span>
         <span><Headphones size={20} /> Learn that everything saves locally</span>
@@ -948,11 +986,17 @@ function getLessonCopy(lesson: string) {
   if (lesson.includes("cut a section")) return "Pick the part that needs to go and choose Cut this section. You can undo it anytime.";
   if (lesson.includes("undo and redo")) return "Undo steps backward through draft edits. Redo brings a change back if you changed your mind.";
   if (lesson.includes("original recordings stay safe")) return "Review and future edits use a draft timeline. Your original recording stays untouched.";
-  if (lesson.includes("editing will do later")) return "Auto Edit stays locked for later. Safe draft edits and local export are ready now.";
+  if (lesson.includes("editing will do later")) return "Advanced editing can grow later. Safe draft edits, Auto Edit, and local export are ready now.";
   if (lesson.includes("How to export")) return "Open Export, choose the finished copy you need, then save it locally.";
   if (lesson.includes("Which export")) return "Full Episode Video is ready for YouTube, Audio Only is for podcast platforms, and Archive Master is the keep-forever copy.";
   if (lesson.includes("Where exported")) return "Finished copies go into the episode's Exports folder, separate from the original recording.";
   if (lesson.includes("originals stay safe during export")) return "Export creates a new finished copy. It never overwrites the original recording.";
+  if (lesson.includes("Auto Edit does")) return "Auto Edit builds a reviewable first draft, suggests chapters and clips, and keeps every change reversible.";
+  if (lesson.includes("Auto Edit mode")) return "Gentle keeps things natural, Balanced is the default, Fast Paced tightens for YouTube, and Clip Hunter looks for highlights.";
+  if (lesson.includes("review Auto Edit")) return "Read the summary, check changes, review flags, chapters, and clips, then export only when it feels right.";
+  if (lesson.includes("safe with Auto Edit")) return "Auto Edit writes a new draft and report. Your original recording is never overwritten.";
+  if (lesson.includes("chapters")) return "Chapters are suggested section markers like Intro, Main Discussion, Sponsor, and Closing.";
+  if (lesson.includes("clip suggestions")) return "Clip suggestions include a start, end, title, reason, and confidence so you can decide what is worth sharing.";
   if (lesson.includes("choose cameras")) return "Open Studio Setup, pick Camera 1 first, then add Camera 2 and Camera 3 if you want more angles.";
   if (lesson.includes("test cameras")) return "Use Test Camera after choosing one. If it needs attention, the card will tell you the next simple step.";
   if (lesson.includes("gear icon")) return "The gear keeps extra camera choices tucked away so the main setup stays calm.";

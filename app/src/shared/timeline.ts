@@ -1,9 +1,10 @@
 import type { DeviceDefaults } from "./types";
 import type { LiveMarker } from "./podcast-tools";
+import type { AutoEditChapter, AutoEditClipSuggestion, AutoEditMode } from "./auto-edit";
 
 export type TimelineTrackKind = "program" | "camera" | "microphone" | "markers";
 export type LockedTimelineTool = "Trim" | "Split" | "Delete" | "Auto Edit" | "Export";
-export type TimelineEditType = "trim-before" | "split" | "delete-section";
+export type TimelineEditType = "trim-before" | "split" | "delete-section" | "auto-edit-suggestion";
 export type TimelineSelectionSource = "timeline" | "marker";
 
 export interface TimelineTrack {
@@ -43,10 +44,17 @@ export interface TimelineDraft {
   undoneEditLog: TimelineEditOperation[];
   hasUnsavedChanges: boolean;
   lastSavedAt?: string;
+  autoEdit?: {
+    mode: AutoEditMode;
+    reportId: string;
+    chapters: AutoEditChapter[];
+    clips: AutoEditClipSuggestion[];
+    reviewFlags: string[];
+  };
   nonDestructive: true;
 }
 
-export const lockedTimelineTools: LockedTimelineTool[] = ["Auto Edit"];
+export const lockedTimelineTools: LockedTimelineTool[] = [];
 
 export function createTimelineDraft(input: {
   episodeId?: string;
@@ -197,7 +205,8 @@ function createEditOperation(type: TimelineEditType, timestampMs: number, now: s
   const labels: Record<TimelineEditType, string> = {
     "trim-before": "Trim before here",
     split: "Split here",
-    "delete-section": "Cut this section"
+    "delete-section": "Cut this section",
+    "auto-edit-suggestion": "Auto Edit suggestion"
   };
 
   return {
