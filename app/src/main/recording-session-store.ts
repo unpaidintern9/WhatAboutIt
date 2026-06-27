@@ -14,6 +14,7 @@ import {
   requiredRecordingSessionFolders,
   type SyncMetadata
 } from "../shared/recording";
+import type { EpisodeMetadata } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
 import { runFfmpeg, validatePlayableMedia } from "./ffmpeg-tools";
 import { logger } from "./logger";
@@ -64,6 +65,15 @@ export async function createRecordingSession(input: RecordingSessionCreateInput)
   const syncMetadata = createSyncMetadata(input.deviceDefaults, now);
 
   await writeJson(path.join(folderPath, "Session", "recording-session.json"), session);
+  await ensureRecordingMetadata(folderPath, {
+    id: episodeId,
+    title: episodeTitle,
+    status: "draft",
+    createdAt: now,
+    updatedAt: now,
+    folderPath,
+    phase: "phase-1-shell"
+  });
   await writeJson(path.join(folderPath, "Session", "device-map.json"), deviceMap);
   await writeJson(path.join(folderPath, "Session", "recording-state.json"), state);
   await writeJson(path.join(folderPath, "Session", "sync-metadata.json"), syncMetadata);
@@ -71,6 +81,15 @@ export async function createRecordingSession(input: RecordingSessionCreateInput)
   await logger.info("RecordingService", "Created local recording session.", { sessionId: session.id, episodeId });
 
   return session;
+}
+
+async function ensureRecordingMetadata(folderPath: string, metadata: EpisodeMetadata) {
+  const metadataPath = path.join(folderPath, "metadata.json");
+  try {
+    await fs.access(metadataPath);
+  } catch {
+    await writeJson(metadataPath, metadata);
+  }
 }
 
 export async function writeRecordingState(folderPath: string, state: RecordingState) {

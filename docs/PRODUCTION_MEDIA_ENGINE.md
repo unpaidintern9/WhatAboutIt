@@ -6,6 +6,8 @@ Phase 7A status: real FFmpeg export integration completed.
 
 Phase 7B status: partial real recording capture integration completed.
 
+Phase 7B.5 status: short physical camera/microphone validation completed.
+
 This pass audited the current media engine against the requirement to replace placeholder or simulated behavior with production-ready integrations. The project is not ready for a Phase 7 production commit because the required real media integrations are not yet implemented or validated.
 
 No new UI features were added. No interface redesign was performed. No Version 2 features were started.
@@ -18,7 +20,7 @@ The requested commit condition was not met:
 
 > Commit only if production integrations replace placeholder implementations.
 
-Because multi-device recording, media-backed timeline playback, Auto Edit, full recovery, and packaging remain unvalidated foundations, the full Phase 7 production gate is still not complete. Phase 7A specifically replaced the export placeholder with a real local FFmpeg render path. Phase 7B hardens the browser MediaRecorder path for one-camera/one-mic capture where supported and validates saved recordings with ffprobe.
+Because long-duration recording, multi-device recording, media-backed timeline playback, Auto Edit, full recovery, and packaging remain unvalidated foundations, the full Phase 7 production gate is still not complete. Phase 7A specifically replaced the export placeholder with a real local FFmpeg render path. Phase 7B hardened the browser MediaRecorder path for one-camera/one-mic capture where supported and validates saved recordings with ffprobe. Phase 7B.5 validated a short physical recording with real connected camera/microphone hardware.
 
 ## Recording
 
@@ -36,6 +38,16 @@ The browser recording plugin uses `navigator.mediaDevices.getUserMedia` and `Med
 
 The recording save path updates `Session/sync-metadata.json` with saved media file paths and validation status.
 
+Phase 7B.5 physical validation:
+
+- Camera: Integrated Camera
+- Microphone: Microphone (Realtek(R) Audio)
+- Program output: VP9 video, Opus mono audio, 640x480
+- Camera mirror: created and ffprobe-valid
+- Audio extraction: AAC mono M4A, 17.039 seconds
+- Final UI state: `Recording Complete`, `STOPPED`, 17-second timer
+- Manual QA report: `docs/manual-qa/PHYSICAL_RECORDING_QA.md`
+
 Friendly capture failure states now include:
 
 - `Camera needs attention`
@@ -51,7 +63,7 @@ Missing production work:
 - Validate long-duration recording stability.
 - Validate audio/video sync.
 - Validate dropped frame and drift reporting from the real backend.
-- Complete a manual hardware recording test from the packaged or launched Electron app.
+- Validate recording from an installable packaged app, not only `npm run electron`.
 
 ## Timeline
 
@@ -184,10 +196,10 @@ Phase 7B completed automated real-media recording-path tests with generated loca
 - `sync-metadata.json` records saved media files and validation state.
 - Export from an existing `Episode/Program/program.webm` file is validated.
 
-The full app launch-to-record-to-review-to-edit-to-export real-media test is still blocked because physical camera/mic hardware capture was not manually validated in this terminal session, media-backed timeline playback remains incomplete, and real Auto Edit remains incomplete.
+Phase 7B.5 completed a real physical camera/mic test and exported the resulting recording through the UI. The full app launch-to-record-to-review-to-edit-to-export real-media test is still blocked because media-backed timeline review/edit remains incomplete and real Auto Edit remains incomplete.
 
 ## Production Gate Decision
 
 The MVP user flow remains useful as a guided prototype and offline product shell. It is not yet a production media engine.
 
-The Phase 7B recording commit may be made as a truthful partial integration because the local recording save/validation pipeline is real and tested with generated media, while physical hardware capture remains unvalidated. The full Phase 7 production gate should remain blocked until at least one real camera/mic recording can be captured, reviewed, edited non-destructively, exported to a playable file, and documented with real test evidence.
+The Phase 7B.5 commit may be made because a real short physical camera/mic recording was captured, validated, and exported to a playable file. The full Phase 7 production gate should remain blocked until a full-length recording can be captured, reviewed with media-backed playback, edited non-destructively, exported to a playable file, and documented with real test evidence.

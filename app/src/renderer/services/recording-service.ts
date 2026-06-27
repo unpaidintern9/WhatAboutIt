@@ -97,6 +97,7 @@ export class RecordingService {
       await window.studio.saveProgramRecording(session.folderPath, result.bytes);
     }
 
+    this.elapsedBeforePause = finalElapsed;
     this.status = "stopped";
     await this.persistState(finalElapsed);
     return this.getSnapshot();

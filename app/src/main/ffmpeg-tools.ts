@@ -105,9 +105,13 @@ export async function runFfprobe(args: string[], tools?: MediaTools): Promise<Ff
 }
 
 export async function validatePlayableMedia(filePath: string, tools?: MediaTools) {
-  const result = await runFfprobe(["-v", "error", "-show_entries", "format=duration", "-of", "json", filePath], tools);
-  const parsed = JSON.parse(result.stdout) as { format?: { duration?: string } };
+  const result = await runFfprobe(
+    ["-v", "error", "-show_entries", "format=duration,size", "-show_streams", "-of", "json", filePath],
+    tools
+  );
+  const parsed = JSON.parse(result.stdout) as { streams?: unknown[]; format?: { duration?: string; size?: string } };
   const duration = Number(parsed.format?.duration ?? 0);
-  return Number.isFinite(duration) && duration > 0;
+  const size = Number(parsed.format?.size ?? 0);
+  const hasStreams = Boolean(parsed.streams?.length);
+  return (Number.isFinite(duration) && duration > 0) || (hasStreams && Number.isFinite(size) && size > 0);
 }
-

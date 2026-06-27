@@ -6,12 +6,12 @@ This document records the current status of production media integrations after 
 
 | Area | Current implementation | Production ready | Missing work |
 | --- | --- | --- | --- |
-| Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save | Partial | Physical hardware validation, multi-camera capture, multi-mic capture, long-duration validation, sync validation |
-| Camera capture | Device selection and browser camera capture path, saved to Program and mirrored to Cameras | Partial | Up to three simultaneous cameras, capture cards, backend error handling, hardware validation |
-| Microphone capture | Browser microphone capture muxed into Program and extracted to Audio with FFmpeg | Partial | Multiple input capture, separate tracks where supported, drift and clipping reporting |
+| Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save | Partial | Multi-camera capture, multi-mic capture, long-duration validation, sync validation |
+| Camera capture | Physical Integrated Camera validated through browser capture, saved to Program and mirrored to Cameras | Partial | Up to three simultaneous cameras, capture cards, backend error handling |
+| Microphone capture | Physical Realtek microphone validated, muxed into Program and extracted to Audio with FFmpeg | Partial | Multiple input capture, separate tracks where supported, drift and clipping reporting |
 | Timeline review | Draft timeline JSON and marker/edit model | No | Real media discovery, stream probing, accurate playback, media-backed timeline tracks |
 | Editing | Non-destructive edit operation log | Partial | Apply edit decisions to renderable media timeline and playback preview |
-| Export | Bundled FFmpeg/ffprobe detection and real local rendering | Partial | Validate all presets from real recorded podcast media and render from a fully media-backed draft timeline |
+| Export | Bundled FFmpeg/ffprobe detection and real local rendering | Partial | Validate all presets from longer real podcast media and render from a fully media-backed draft timeline |
 | Auto Edit | Deterministic offline suggestion generator from draft data | No | Real transcript, audio analysis, speaker/camera analysis, real report evidence |
 | Recovery | Session state foundation | Partial | Real interrupted recording validation and media recovery workflow |
 | Packaging | Electron Builder config | Partial | Installable builds, clean-machine test, bundled media dependencies |
@@ -33,6 +33,7 @@ This document records the current status of production media integrations after 
 - `app/src/main/export-store.ts`: now renders playable MP4, M4A, and MKV export outputs with FFmpeg.
 - `app/src/main/ffmpeg-tools.ts`: detects bundled FFmpeg/ffprobe, runs media tools, and validates playable outputs.
 - `app/src/main/recording-session-store.ts`: saves captured program bytes, validates them with ffprobe, mirrors the camera recording, extracts mic audio, and updates sync metadata.
+- `docs/manual-qa/PHYSICAL_RECORDING_QA.md`: documents the short physical camera/mic validation result.
 - `app/src/renderer/plugins/recording/obs-control-plugin.ts`: all recording methods throw `OBS recording engine is not connected yet.`
 - `app/src/renderer/plugins/recording/browser-media-recorder-plugin.ts`: records one browser media stream where supported and now surfaces friendly camera/mic attention states.
 - `app/src/shared/auto-edit.ts`: computes suggested edits from draft duration and markers, not real media analysis.
@@ -41,4 +42,4 @@ This document records the current status of production media integrations after 
 
 ## Integration Readiness Summary
 
-The project now has two partial real media integrations: offline FFmpeg export rendering and a validated one-camera/one-mic browser recording save path. The remaining production media work is physical hardware recording validation, multi-device recording, media-backed timeline playback, real Auto Edit analysis, recovery validation, and installable packaging.
+The project now has two partial real media integrations: offline FFmpeg export rendering and a physically validated one-camera/one-mic browser recording save path. The remaining production media work is long-duration recording validation, multi-device recording, media-backed timeline playback, real Auto Edit analysis, recovery validation, and installable packaging.

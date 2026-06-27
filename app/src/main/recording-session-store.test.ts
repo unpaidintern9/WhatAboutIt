@@ -47,6 +47,7 @@ describe("recording session store", () => {
     await expect(fs.stat(path.join(session.folderPath, "Session", "recording-session.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(session.folderPath, "Session", "device-map.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(session.folderPath, "Session", "sync-metadata.json"))).resolves.toBeTruthy();
+    await expect(fs.readFile(path.join(session.folderPath, "metadata.json"), "utf8")).resolves.toContain("Full Flow QA");
   });
 
   it("saves and validates real program media with camera and audio outputs", async () => {
