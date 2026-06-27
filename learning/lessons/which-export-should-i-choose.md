@@ -4,4 +4,4 @@
 - **Audio Only** is an audio file for podcast platforms.
 - **Archive Master** is the keep-forever local copy.
 
-Social clips are locked until Phase 6.
+Social clips are saved for Version 2.

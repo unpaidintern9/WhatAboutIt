@@ -772,7 +772,7 @@ function HomeView({
 
         <div className="panel locked-panel">
           <div className="panel-heading">
-            <h3>Coming Later</h3>
+            <h3>Studio Checklist</h3>
             <Wand2 size={22} />
           </div>
           <div className="locked-tools">
@@ -780,7 +780,7 @@ function HomeView({
             <span><Mic2 size={18} /> Mic check is ready</span>
             <span><Circle size={18} /> Recording foundation is ready</span>
           </div>
-          <p>Next best move: check the studio, then record. Editing and export stay locked for Phase 4 and beyond.</p>
+          <p>Next best move: check the studio, record, review, Auto Edit, then export a local finished copy.</p>
           <Button variant="secondary" icon={<ArrowRight size={20} />} onClick={onStudioSetup}>Go to Studio Setup</Button>
         </div>
       </section>
@@ -950,11 +950,11 @@ function PracticeModeView() {
       <p className="signature">Try it without touching real gear</p>
       <h2>Practice Mode</h2>
       <p className="soft-copy">
-        Walk through the recording room tools with branded placeholders. No fake people photos and no real media files.
+        Walk through the recording room tools with branded practice screens. No fake people photos and no real media files.
       </p>
       <div className="practice-steps">
         <span><Plus size={20} /> Practice starting a new episode</span>
-        <span><Camera size={20} /> Practice Studio Setup with safe placeholders</span>
+        <span><Camera size={20} /> Practice Studio Setup with safe sample screens</span>
         <span><Circle size={20} /> Press Practice on the Record screen</span>
         <span><Mic2 size={20} /> Practice pause and resume</span>
         <span><BookOpen size={20} /> Try the teleprompter and sponsor script</span>

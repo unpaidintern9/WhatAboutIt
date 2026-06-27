@@ -17,9 +17,9 @@ describe("TimelineReview", () => {
     expect(markup).toContain("This only changes the draft");
     expect(markup).toContain("You can undo this anytime");
     expect(markup).toContain("Highlight");
-    expect(markup).toContain("Program track placeholder");
-    expect(markup).toContain("Camera track placeholder");
-    expect(markup).toContain("Mic track placeholder");
+    expect(markup).toContain("Finished show track");
+    expect(markup).toContain("Camera angle track");
+    expect(markup).toContain("Voice track");
     expect(markup).toContain("Trim before here");
     expect(markup).toContain("Split here");
     expect(markup).toContain("Cut this section");

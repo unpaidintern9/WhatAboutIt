@@ -17,7 +17,7 @@ describe("timeline draft", () => {
     microphones: { morganMic: "mic-a", guestMic: "mic-b" }
   };
 
-  it("creates a non-destructive draft with placeholder tracks", () => {
+  it("creates a non-destructive draft with review tracks", () => {
     const draft = createTimelineDraft({ episodeId: "episode-a", deviceDefaults, durationMs: 90000 });
 
     expect(draft.nonDestructive).toBe(true);

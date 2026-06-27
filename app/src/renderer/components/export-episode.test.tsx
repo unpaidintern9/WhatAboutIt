@@ -30,8 +30,8 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("Audio Only");
     expect(markup).toContain("Audio file for podcast platforms");
     expect(markup).toContain("Archive Master");
-    expect(markup).toContain("Social Clip Placeholder");
-    expect(markup).toContain("Locked for Phase 6");
+    expect(markup).toContain("Social Clip");
+    expect(markup).toContain("Saved for Version 2");
   });
 
   it("renders progress and complete state", () => {

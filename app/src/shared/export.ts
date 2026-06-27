@@ -73,8 +73,8 @@ export const exportTypeLabels: Record<ExportType, { title: string; description: 
     description: "A keepsake copy for your local archive"
   },
   "social-clip-placeholder": {
-    title: "Social Clip Placeholder",
-    description: "Locked for Phase 6",
+    title: "Social Clip",
+    description: "Saved for Version 2",
     locked: true
   }
 };

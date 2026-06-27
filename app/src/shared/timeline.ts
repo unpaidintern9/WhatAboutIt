@@ -71,7 +71,7 @@ export function createTimelineDraft(input: {
       id: `camera-${slot}`,
       label: `Camera ${index + 1}`,
       kind: "camera" as const,
-      placeholder: "Camera track placeholder"
+      placeholder: "Camera angle track"
     }));
   const micTracks = Object.entries(input.deviceDefaults.microphones)
     .filter(([, deviceId]) => Boolean(deviceId))
@@ -79,7 +79,7 @@ export function createTimelineDraft(input: {
       id: `mic-${slot}`,
       label: slot === "morganMic" ? "Morgan Mic" : slot === "guestMic" ? "Guest Mic" : "Extra Mic",
       kind: "microphone" as const,
-      placeholder: "Mic track placeholder"
+      placeholder: "Voice track"
     }));
 
   return {
@@ -90,10 +90,10 @@ export function createTimelineDraft(input: {
     version: 1,
     durationMs: input.durationMs ?? 0,
     tracks: [
-      { id: "program", label: "Program", kind: "program", placeholder: "Program track placeholder" },
+      { id: "program", label: "Program", kind: "program", placeholder: "Finished show track" },
       ...cameraTracks,
       ...micTracks,
-      { id: "markers", label: "Markers", kind: "markers", placeholder: "Marker row" }
+      { id: "markers", label: "Markers", kind: "markers", placeholder: "Saved moments" }
     ],
     markers: input.markers ?? [],
     lockedTools: lockedTimelineTools,
