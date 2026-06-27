@@ -19,6 +19,7 @@ import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
 import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
 import { cancelExport, createExport, detectMediaTools, openExportFolder } from "./export-store";
 import { runAutoEdit } from "./auto-edit-store";
+import { createDiagnosticsBundle, getStorageStatus } from "./diagnostics-store";
 
 const appDataRoot = getAppDataRoot();
 const episodesRoot = getEpisodesRoot();
@@ -158,6 +159,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("export:media-tools-status", detectMediaTools);
   ipcMain.handle("export:cancel", (_event, input) => cancelExport(input.episodeId, input.job));
   ipcMain.handle("export:open-folder", (_event, episodeId) => openExportFolder(episodeId));
+  ipcMain.handle("diagnostics:create", (_event, input) => createDiagnosticsBundle(input));
+  ipcMain.handle("storage:status", getStorageStatus);
 
   createWindow();
 

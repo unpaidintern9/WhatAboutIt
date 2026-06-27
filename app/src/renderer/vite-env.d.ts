@@ -6,6 +6,7 @@ import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
+import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
 
 declare global {
   interface Window {
@@ -28,6 +29,8 @@ declare global {
       getMediaToolsStatus: () => Promise<MediaToolsStatus>;
       cancelExport: (episodeId: string, job: ExportJob) => Promise<ExportJob>;
       openExportFolder: (episodeId: string) => Promise<string>;
+      createDiagnosticsBundle: (input: DiagnosticsBundleRequest) => Promise<DiagnosticsBundleResult>;
+      getStorageStatus: () => Promise<StorageStatus>;
     };
   }
 }

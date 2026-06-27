@@ -5,6 +5,7 @@ import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
+import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
@@ -33,5 +34,8 @@ contextBridge.exposeInMainWorld("studio", {
   getMediaToolsStatus: (): Promise<MediaToolsStatus> => ipcRenderer.invoke("export:media-tools-status"),
   cancelExport: (episodeId: string, job: ExportJob): Promise<ExportJob> =>
     ipcRenderer.invoke("export:cancel", { episodeId, job }),
-  openExportFolder: (episodeId: string): Promise<string> => ipcRenderer.invoke("export:open-folder", episodeId)
+  openExportFolder: (episodeId: string): Promise<string> => ipcRenderer.invoke("export:open-folder", episodeId),
+  createDiagnosticsBundle: (input: DiagnosticsBundleRequest): Promise<DiagnosticsBundleResult> =>
+    ipcRenderer.invoke("diagnostics:create", input),
+  getStorageStatus: (): Promise<StorageStatus> => ipcRenderer.invoke("storage:status")
 });

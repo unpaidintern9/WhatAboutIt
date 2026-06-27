@@ -37,7 +37,9 @@ describe("app mount", () => {
       createExport: vi.fn(),
       getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })),
       cancelExport: vi.fn(),
-      openExportFolder: vi.fn()
+      openExportFolder: vi.fn(),
+      createDiagnosticsBundle: vi.fn(async () => ({ folderPath: "diagnostics", files: [] })),
+      getStorageStatus: vi.fn(async () => ({ message: "Storage check ready" as const, availableBytes: 1024 }))
     };
 
     const host = document.createElement("div");

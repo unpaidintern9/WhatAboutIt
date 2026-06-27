@@ -16,7 +16,7 @@ This document records the current status of production media integrations after 
 | Recovery | Session state foundation | Partial | Real interrupted recording validation and media recovery workflow |
 | Packaging | Electron Builder config | Partial | Installable builds, clean-machine test, bundled media dependencies |
 | Desktop launcher | Windows shortcut script and installer shortcut config added in Phase 8A | Partial | Shortcut creation and launch validated; final branded `.ico` asset still needed |
-| Real Hardware Test Mode | Guided Camera/Mic/Record/Export/Results flow added in Phase 8A | Partial | One-camera/one-mic 30-second test passed; multi-camera and long-duration tests still needed |
+| Real Hardware Test Mode | Guided Camera/Mic/Record/Export/Results flow plus Phase 8B live readiness dashboard, hot-plug refresh, saved preference handling, and diagnostics | Partial | One-camera/one-mic 30-second test passed in Phase 8B; physical unplug/replug and multi-camera validation still pending |
 
 ## Dependency Integration Audit
 
@@ -46,8 +46,10 @@ This document records the current status of production media integrations after 
 - `app/src/main/timeline-store.ts`: persists draft JSON but does not bind to playable recorded media.
 - `app/scripts/create-shortcut.mjs`: creates the local Windows desktop shortcut for development testing; validated at `C:\Users\mmcga\OneDrive\Desktop\What About It Studio.lnk`.
 - `app/src/shared/hardware-test.ts`: models the real hardware test flow and Ready/Needs Attention result states without simulated success.
+- `app/src/main/diagnostics-store.ts`: creates local diagnostics folders without raw media payloads.
 - `docs/manual-qa/REAL_HARDWARE_TEST_MODE.md`: documents the validated 30.899-second Integrated Camera and Realtek microphone hardware test.
+- `docs/PHASE_8B_HARDWARE_READINESS.md`: documents hot-plug, saved preference, safe stop, and diagnostics behavior.
 
 ## Integration Readiness Summary
 
-The project now has two partial real media integrations: offline FFmpeg export rendering and a physically validated one-camera/one-mic browser recording save path. Phase 7C added a Sony-capable camera connection matrix and stable Camera 1/2/3 assignment logic, but no Sony hardware was detected, so Sony recording and wireless video remain unvalidated. Phase 8A adds and validates a desktop launcher script plus a guided real hardware test mode. The latest test recorded and exported 30.899 seconds from `Integrated Camera (13d3:540a)` and `Default - Microphone (Realtek(R) Audio)`. The remaining production media work is long-duration recording validation, physical Sony/multi-device recording, media-backed timeline playback, real Auto Edit analysis, recovery validation, and installable packaging.
+The project now has two partial real media integrations: offline FFmpeg export rendering and a physically validated one-camera/one-mic browser recording save path. Phase 7C added a Sony-capable camera connection matrix and stable Camera 1/2/3 assignment logic, but no Sony hardware was detected, so Sony recording and wireless video remain unvalidated. Phase 8A added and validated a desktop launcher script plus a guided real hardware test mode. Phase 8B adds live readiness, hot-plug refresh handling, saved preference truthfulness, safe stop handling, and diagnostics export. The latest Phase 8B test recorded and exported 30.340333 seconds from `Integrated Camera (13d3:540a)` and `Default - Microphone (Realtek(R) Audio)`. Physical unplug/replug was not manually performed. The remaining production media work is long-duration recording validation, physical Sony/multi-device recording, media-backed timeline playback, real Auto Edit analysis, recovery validation, and installable packaging.

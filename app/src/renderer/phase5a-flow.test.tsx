@@ -93,7 +93,9 @@ describe("Phase 5C flow", () => {
       })),
       getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })),
       cancelExport: vi.fn(async (_episodeId, job) => job),
-      openExportFolder: vi.fn(async () => "Episode/Exports")
+      openExportFolder: vi.fn(async () => "Episode/Exports"),
+      createDiagnosticsBundle: vi.fn(async () => ({ folderPath: "diagnostics", files: [] })),
+      getStorageStatus: vi.fn(async () => ({ message: "Storage check ready" as const, availableBytes: 1024 }))
     };
 
     const host = document.createElement("div");

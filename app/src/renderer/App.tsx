@@ -12,6 +12,7 @@ import {
   Download,
   FolderOpen,
   Headphones,
+  HardDrive,
   Mic2,
   MonitorPlay,
   Plus,
@@ -37,16 +38,22 @@ import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-conf
 import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
 import {
   createHardwareTestResults,
+  didDeviceDisconnectDuringRecording,
+  getHardwareDeviceReadiness,
   getExportTestStatus,
   getFriendlyHardwareFailureMessage,
   getNextHardwareTestStep,
-  getRecordingTestStatus
+  getRecordingTestStatus,
+  type DiagnosticsBundleResult,
+  type HardwareDeviceSummary
 } from "../shared/hardware-test";
+import type { StorageStatus } from "../shared/diagnostics";
 import { AutoEditReview, Button, CameraPreview, DeviceSetupWizard, ExportEpisode, RecordingStudio, TimelineReview } from "./components";
+import { AudioMeter } from "./components";
 import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
 import { BrowserMediaRecorderPlugin } from "./plugins/recording/browser-media-recorder-plugin";
 import type { DeviceDetectionResult } from "./plugins/devices/types";
-import { DeviceService, ExportService, RecordingService, type RecordingServiceSnapshot } from "./services";
+import { DeviceService, ExportService, RecordingService, formatRecordingTime, type RecordingServiceSnapshot } from "./services";
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
@@ -203,7 +210,9 @@ function getStudioBridge(): Window["studio"] {
     }),
     getMediaToolsStatus: async () => ({ ready: true, message: "Media tools are ready" }),
     cancelExport: async (_episodeId, job) => ({ ...job, status: "canceled", error: "canceled", message: "Export was canceled" }),
-    openExportFolder: async () => "review-only/Exports"
+    openExportFolder: async () => "review-only/Exports",
+    createDiagnosticsBundle: async () => ({ folderPath: "review-only/diagnostics", files: ["app-info.json"] }),
+    getStorageStatus: async () => ({ message: "Storage check ready", availableBytes: 1024 * 1024 * 1024 })
   };
 }
 
@@ -237,6 +246,9 @@ export default function App() {
   const [hardwareTestStep, setHardwareTestStep] = useState<HardwareTestStep>("cameras");
   const [hardwareTestResults, setHardwareTestResults] = useState<HardwareTestResults>(() => createHardwareTestResults());
   const [hardwareTestMessage, setHardwareTestMessage] = useState("Real hardware only. Nothing passes until the studio can actually see it.");
+  const [deviceChangeState, setDeviceChangeState] = useState<"ready" | "disconnected" | "reconnecting" | "needs-attention">("ready");
+  const [diagnosticsBundle, setDiagnosticsBundle] = useState<DiagnosticsBundleResult | undefined>();
+  const [storageStatus, setStorageStatus] = useState<StorageStatus | undefined>();
   const hardwareStopTimerRef = useRef<number | undefined>(undefined);
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
@@ -263,6 +275,7 @@ export default function App() {
 
   useEffect(() => {
     void studio.getMediaToolsStatus().then(setMediaToolsStatus);
+    void studio.getStorageStatus().then(setStorageStatus);
   }, [studio]);
 
   useEffect(() => {
@@ -279,6 +292,37 @@ export default function App() {
       if (hardwareStopTimerRef.current) window.clearTimeout(hardwareStopTimerRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!navigator.mediaDevices?.addEventListener) return undefined;
+
+    const handleDeviceChange = () => {
+      setDeviceChangeState("reconnecting");
+      void refreshDevices().then((detectedDevices) => {
+        const devices = summarizeDevices(detectedDevices);
+        const disconnected = didDeviceDisconnectDuringRecording({
+          status: recordingService.getSnapshot().status,
+          defaults: settings.deviceDefaults,
+          devices
+        });
+        const readiness = getHardwareDeviceReadiness(settings.deviceDefaults, devices);
+        setDeviceChangeState(disconnected ? "disconnected" : readiness.summary === "Everything Ready" ? "ready" : "needs-attention");
+        setHardwareTestResults(createHardwareTestResults({
+          cameraReady: readiness.cameraReady,
+          morganMicReady: readiness.morganMicReady,
+          exportStatus: exportJob?.status
+        }));
+
+        if (disconnected) {
+          setHardwareTestMessage("A device disconnected, so we stopped safely. Check the cable, then try again.");
+          void stopHardwareTestRecording("A device disconnected, so we stopped safely. Check the cable, then try again.");
+        }
+      });
+    };
+
+    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+    return () => navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+  }, [exportJob?.status, recordingService, settings.deviceDefaults]);
 
   async function refreshEpisodes() {
     const nextEpisodes = await studio.listEpisodes();
@@ -440,16 +484,20 @@ export default function App() {
     await deviceService.playTestSound(settings.deviceDefaults.audioOutputId);
   }
 
+  function summarizeDevices(detection = deviceDetection): HardwareDeviceSummary[] {
+    return [...detection.cameras, ...detection.microphones, ...detection.speakers].map((device) => ({
+      id: device.id,
+      label: device.label,
+      kind: device.kind
+    }));
+  }
+
   function updateHardwareResults(exportStatus = exportJob?.status) {
-    const cameraReady: [boolean | undefined, boolean | undefined, boolean | undefined] = [
-      Boolean(settings.deviceDefaults.cameras.camera1 || deviceDetection.cameras[0]),
-      Boolean(settings.deviceDefaults.cameras.camera2 || deviceDetection.cameras[1]),
-      Boolean(settings.deviceDefaults.cameras.camera3 || deviceDetection.cameras[2])
-    ];
+    const readiness = getHardwareDeviceReadiness(settings.deviceDefaults, summarizeDevices());
 
     const nextResults = createHardwareTestResults({
-      cameraReady,
-      morganMicReady: Boolean(settings.deviceDefaults.microphones.morganMic || deviceDetection.microphones[0]),
+      cameraReady: readiness.cameraReady,
+      morganMicReady: readiness.morganMicReady,
       exportStatus
     });
     setHardwareTestResults(nextResults);
@@ -458,19 +506,16 @@ export default function App() {
 
   async function runHardwareCameraCheck() {
     const detectedDevices = await refreshDevices();
-    const cameraReady: [boolean | undefined, boolean | undefined, boolean | undefined] = [
-      Boolean(settings.deviceDefaults.cameras.camera1 || detectedDevices.cameras[0]),
-      Boolean(settings.deviceDefaults.cameras.camera2 || detectedDevices.cameras[1]),
-      Boolean(settings.deviceDefaults.cameras.camera3 || detectedDevices.cameras[2])
-    ];
+    const readiness = getHardwareDeviceReadiness(settings.deviceDefaults, summarizeDevices(detectedDevices));
+    setDeviceChangeState(readiness.summary === "Everything Ready" ? "ready" : "needs-attention");
     setHardwareTestResults(
       createHardwareTestResults({
-        cameraReady,
+        cameraReady: readiness.cameraReady,
         morganMicReady: undefined,
         exportStatus: exportJob?.status
       })
     );
-    setHardwareTestMessage("Camera check finished. Anything marked Needs Attention should be checked before a real episode.");
+    setHardwareTestMessage(readiness.message);
     setHardwareTestStep("microphones");
   }
 
@@ -511,7 +556,7 @@ export default function App() {
     }
   }
 
-  async function stopHardwareTestRecording() {
+  async function stopHardwareTestRecording(message = "Test recording saved safely. Next, export the test.") {
     if (hardwareStopTimerRef.current) window.clearTimeout(hardwareStopTimerRef.current);
     const nextSnapshot = await recordingService.stop();
     setRecordingSnapshot(nextSnapshot);
@@ -532,10 +577,23 @@ export default function App() {
     updateHardwareResults();
     setHardwareTestMessage(
       nextSnapshot.status === "stopped"
-        ? "Test recording saved safely. Next, export the test."
+        ? message
         : getFriendlyHardwareFailureMessage("recording")
     );
     setHardwareTestStep("export");
+  }
+
+  async function createHardwareDiagnostics() {
+    const bundle = await studio.createDiagnosticsBundle({
+      devices: summarizeDevices(),
+      results: hardwareTestResults,
+      appVersion: "0.1.0",
+      activeEpisodeId: recordingSnapshot.session?.episodeId ?? activeEpisode?.id,
+      recordingSessionFolder: recordingSnapshot.session?.folderPath,
+      message: hardwareTestMessage
+    });
+    setDiagnosticsBundle(bundle);
+    setHardwareTestMessage("Diagnostics are saved locally and ready to share with support.");
   }
 
   async function exportHardwareTestRecording() {
@@ -772,15 +830,20 @@ export default function App() {
             step={hardwareTestStep}
             results={hardwareTestResults}
             message={hardwareTestMessage}
+            deviceChangeState={deviceChangeState}
+            microphoneLevel={microphoneLevel}
             recordingSnapshot={recordingSnapshot}
             exportJob={exportJob}
             mediaToolsStatus={mediaToolsStatus}
+            storageStatus={storageStatus}
+            diagnosticsBundle={diagnosticsBundle}
             onStepChange={setHardwareTestStep}
             onCheckCameras={() => void runHardwareCameraCheck()}
             onCheckMicrophones={() => void runHardwareMicrophoneCheck()}
             onStartRecording={() => void startHardwareTestRecording()}
             onStopRecording={() => void stopHardwareTestRecording()}
             onExport={() => void exportHardwareTestRecording()}
+            onCreateDiagnostics={() => void createHardwareDiagnostics()}
           />
         )}
         {view === "theme-editor" && (
@@ -1035,32 +1098,47 @@ function HardwareTestModeView({
   step,
   results,
   message,
+  deviceChangeState,
+  microphoneLevel,
   recordingSnapshot,
   exportJob,
   mediaToolsStatus,
+  storageStatus,
+  diagnosticsBundle,
   onStepChange,
   onCheckCameras,
   onCheckMicrophones,
   onStartRecording,
   onStopRecording,
-  onExport
+  onExport,
+  onCreateDiagnostics
 }: {
   step: HardwareTestStep;
   results: HardwareTestResults;
   message: string;
+  deviceChangeState: "ready" | "disconnected" | "reconnecting" | "needs-attention";
+  microphoneLevel: number;
   recordingSnapshot: RecordingServiceSnapshot;
   exportJob?: ExportJob;
   mediaToolsStatus?: MediaToolsStatus;
+  storageStatus?: StorageStatus;
+  diagnosticsBundle?: DiagnosticsBundleResult;
   onStepChange: (step: HardwareTestStep) => void;
   onCheckCameras: () => void;
   onCheckMicrophones: () => void;
   onStartRecording: () => void;
   onStopRecording: () => void;
   onExport: () => void;
+  onCreateDiagnostics: () => void;
 }) {
   const recordingStatus = getRecordingTestStatus(recordingSnapshot.status);
   const exportStatus = getExportTestStatus(exportJob?.status);
   const isRecording = recordingSnapshot.status === "recording" || recordingSnapshot.status === "paused";
+  const needsAttention = Object.values(results).some((result) => result.status === "needs-attention" || result.status === "disconnected");
+  const summary = needsAttention ? "Needs Attention" : "Everything Ready";
+  const storageCopy = storageStatus?.availableBytes
+    ? `${Math.floor(storageStatus.availableBytes / 1024 / 1024 / 1024)} GB available`
+    : storageStatus?.message ?? "Storage check waiting";
 
   return (
     <section className="hardware-test-screen">
@@ -1073,6 +1151,17 @@ function HardwareTestModeView({
           </p>
         </div>
         <ShieldCheck size={54} aria-hidden="true" />
+      </div>
+
+      <div className={`studio-dashboard-summary ${needsAttention ? "needs-attention" : "ready"}`}>
+        <div>
+          <p className="signature">Live studio dashboard</p>
+          <h3>{summary}</h3>
+          <p>{deviceChangeState === "reconnecting" ? "Reconnecting..." : deviceChangeState === "disconnected" ? "A device disconnected. We stopped safely." : message}</p>
+        </div>
+        <Button variant="secondary" icon={<FolderOpen size={22} />} onClick={onCreateDiagnostics}>
+          Save Diagnostics
+        </Button>
       </div>
 
       <div className="hardware-test-steps" aria-label="Real hardware test steps">
@@ -1092,6 +1181,37 @@ function HardwareTestModeView({
             {label}
           </button>
         ))}
+      </div>
+
+      <div className="studio-dashboard-grid" aria-label="Live studio readiness">
+        {[results.camera1, results.camera2, results.camera3].map((result) => (
+          <article className={`hardware-result-card ${result.status}`} key={result.label}>
+            <Camera size={24} />
+            <h3>{result.label}</h3>
+            <p>{result.message}</p>
+          </article>
+        ))}
+        <article className={`hardware-result-card ${results.morganMic.status}`}>
+          <Mic2 size={24} />
+          <h3>Morgan Mic</h3>
+          <p>{results.morganMic.message}</p>
+          <AudioMeter label="Input level" level={microphoneLevel} />
+        </article>
+        <article className={`hardware-result-card ${recordingStatus}`}>
+          <Circle size={24} />
+          <h3>Recording</h3>
+          <p>{formatRecordingTime(recordingSnapshot.elapsedMs)}</p>
+        </article>
+        <article className={`hardware-result-card ${exportStatus}`}>
+          <Download size={24} />
+          <h3>Export</h3>
+          <p>{exportJob?.message ?? mediaToolsStatus?.message ?? "Waiting for test export"}</p>
+        </article>
+        <article className="hardware-result-card ready">
+          <HardDrive size={24} />
+          <h3>Storage</h3>
+          <p>{storageCopy}</p>
+        </article>
       </div>
 
       <div className="hardware-test-panel">
@@ -1155,6 +1275,9 @@ function HardwareTestModeView({
         )}
 
         <p className="hardware-test-message">{message}</p>
+        {diagnosticsBundle && (
+          <p className="hardware-test-message">Diagnostics saved: {diagnosticsBundle.folderPath}</p>
+        )}
         {step !== "results" && (
           <Button variant="secondary" icon={<ArrowRight size={22} />} onClick={() => onStepChange(getNextHardwareTestStep(step))}>
             Next step

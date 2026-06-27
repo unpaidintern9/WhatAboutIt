@@ -63,3 +63,40 @@ Validated outputs:
 ## Notes
 
 If camera or microphone permission fails, do not mark the test as passed. Record the blocker and keep the user-facing language friendly.
+
+## Phase 8B Retest
+
+Status: Passed for desktop launch, one physical camera, one physical microphone, 30-second recording, local export, dashboard readiness, and diagnostics on June 27, 2026.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Desktop shortcut still launches app | Passed | `What About It Studio.lnk` opened a window titled `What About It? Studio`. |
+| Live Studio Dashboard renders | Passed | Dashboard displayed `Needs Attention`, Camera 1, Camera 2, Camera 3, Morgan Mic, Recording, Export, and Storage cards. |
+| Saved preferences restore | Passed | Existing app settings loaded and hardware checks completed without reselecting devices. |
+| Missing saved/unavailable devices show Needs Attention | Passed | Camera 2 and Camera 3 showed `Needs Attention` because only one physical camera was connected. |
+| Device changes refresh without restart | Automated only | Code listens for `devicechange` and tests cover hot-plug readiness changes. Physical unplug/replug was not performed in this manual pass. |
+| 30-second real recording still completes | Passed | Latest session stopped with real `Program/program.webm`, `Cameras/camera-1.webm`, and `Audio/morgan-mic.m4a`. |
+| Export still validates | Passed | Latest `Exports/what-about-it-full-episode-video.mp4` validated with ffprobe at 30.340333 seconds. |
+| Diagnostics folder exists | Passed | Diagnostics folder was created with app info, device list, hardware results, session files, and logs. |
+| Diagnostics excludes raw media | Passed | No `.webm`, `.mp4`, `.m4a`, `.mov`, or `.mkv` files were found in the diagnostics folder. |
+
+Latest Phase 8B validated episode:
+
+```text
+C:\Users\mmcga\OneDrive\Documents\WhatAboutItStudioData\episodes\2026-06-27-hardware-test-6-27-2026-7-00-48-pm-e25338dc
+```
+
+Latest Phase 8B diagnostics folder:
+
+```text
+C:\Users\mmcga\OneDrive\Documents\WhatAboutItStudioData\diagnostics\2026-06-27-2026-06-27-hardware-test-6-27-2026-7-00-48-pm-e25338dc-1782601298666
+```
+
+Validated outputs:
+
+- `Program/program.webm`: 3,189,931 bytes.
+- `Cameras/camera-1.webm`: 3,189,931 bytes.
+- `Audio/morgan-mic.m4a`: 476,489 bytes, 30.321333 seconds.
+- `Exports/what-about-it-full-episode-video.mp4`: 1,259,054 bytes, 30.340333 seconds.
+- `Session/recording-session.json`: `status: stopped`, `practice: false`.
+- Diagnostics files: `app-info.json`, `device-list.json`, `hardware-test-results.json`, session JSON files, app log, and `errors.log`.

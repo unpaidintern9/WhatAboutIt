@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   createHardwareTestResults,
+  didDeviceDisconnectDuringRecording,
   getExportTestStatus,
   getFriendlyHardwareFailureMessage,
+  getHardwareDeviceReadiness,
   getNextHardwareTestStep,
   getPreviousHardwareTestStep,
   getRecordingTestStatus
@@ -43,5 +45,49 @@ describe("hardware test flow", () => {
   it("uses friendly failure messages", () => {
     expect(getFriendlyHardwareFailureMessage("recording")).toContain("local files are still safe");
     expect(getFriendlyHardwareFailureMessage("export")).not.toContain("FFmpeg");
+  });
+
+  it("keeps saved preferences and marks a missing saved device as needs attention", () => {
+    const readiness = getHardwareDeviceReadiness(
+      {
+        cameras: { camera1: "saved-camera", camera2: "missing-camera" },
+        microphones: { morganMic: "saved-mic" }
+      },
+      [
+        { id: "saved-camera", label: "Camera", kind: "camera" },
+        { id: "saved-mic", label: "Mic", kind: "microphone" }
+      ]
+    );
+
+    expect(readiness.cameraReady).toEqual([true, false, false]);
+    expect(readiness.summary).toBe("Needs Attention");
+    expect(readiness.message).toContain("saved device is missing");
+  });
+
+  it("updates readiness when a hot-plugged camera appears", () => {
+    const before = getHardwareDeviceReadiness(
+      { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+      [{ id: "mic-a", label: "Mic", kind: "microphone" }]
+    );
+    const after = getHardwareDeviceReadiness(
+      { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+      [
+        { id: "camera-a", label: "Camera", kind: "camera" },
+        { id: "mic-a", label: "Mic", kind: "microphone" }
+      ]
+    );
+
+    expect(before.cameraReady[0]).toBe(false);
+    expect(after.summary).toBe("Everything Ready");
+  });
+
+  it("detects a saved device disconnect during recording", () => {
+    expect(
+      didDeviceDisconnectDuringRecording({
+        status: "recording",
+        defaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+        devices: [{ id: "camera-a", label: "Camera", kind: "camera" }]
+      })
+    ).toBe(true);
   });
 });

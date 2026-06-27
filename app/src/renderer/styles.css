@@ -1209,6 +1209,7 @@ input[type="range"] {
 .export-progress-panel,
 .hardware-test-steps,
 .hardware-test-panel,
+.studio-dashboard-summary,
 .hardware-result-card,
 .auto-edit-mode-grid,
 .auto-edit-progress-panel,
@@ -1239,6 +1240,33 @@ input[type="range"] {
 .hardware-test-hero svg,
 .hardware-result-card svg {
   color: var(--color-primary);
+}
+
+.studio-dashboard-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xl);
+  padding: var(--space-xl);
+}
+
+.studio-dashboard-summary.ready {
+  border-color: var(--color-success);
+}
+
+.studio-dashboard-summary.needs-attention {
+  border-color: var(--color-warning);
+}
+
+.studio-dashboard-summary p,
+.hardware-result-card .wai-audio-meter span {
+  color: var(--color-mutedText);
+}
+
+.studio-dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-md);
 }
 
 .hardware-test-steps {
@@ -1314,6 +1342,14 @@ input[type="range"] {
 .hardware-inline-status.needs-attention {
   color: var(--color-text);
   background: var(--color-warning);
+}
+
+.hardware-result-card.disconnected {
+  border-color: var(--color-danger);
+}
+
+.hardware-result-card.reconnecting {
+  border-color: var(--color-accent);
 }
 
 .hardware-results-grid {
@@ -1826,6 +1862,7 @@ input[type="range"] {
   .auto-edit-summary-grid,
   .auto-edit-review-grid,
   .auto-edit-stage-list,
+  .studio-dashboard-grid,
   .hardware-test-steps,
   .hardware-results-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -15,7 +15,8 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 | Can Morgan use multiple Sony cameras? | No | Sony provider slots and Camera 1/2/3 ordering are in place, but no Sony camera was detected for physical validation. |
 | Can Morgan use Sony wireless video? | No | Wireless video is not confirmed. Bluetooth is treated as control-only unless a real video stream is validated. |
 | Can Morgan launch the app from the desktop? | Partial | `What About It Studio.lnk` was created and launched the Electron app. Final installer and branded icon are still pending. |
-| Can Morgan run a guided real hardware test? | Partial | The Phase 8A flow completed with one physical camera, one physical mic, a 30.899-second recording, ffprobe validation, and MP4 export. Multi-camera and long-duration validation remain pending. |
+| Can Morgan run a guided real hardware test? | Partial | Phase 8B completed with one physical camera, one physical mic, dashboard readiness, a 30.340333-second MP4 export, and diagnostics. Multi-camera, physical unplug/replug, and long-duration validation remain pending. |
+| Can Morgan save a diagnostics bundle? | Partial | Phase 8B created a local diagnostics folder with app info, device list, hardware results, session files, and logs. Raw media was not included. |
 
 ## Required Evidence Before Beta
 
@@ -31,6 +32,7 @@ Before any item can move to "Yes," the project needs a recorded test episode tha
 - Sony cameras can be validated by exact model, connection method, and recorded output.
 - The desktop shortcut can be created and used to launch the app from a clean installed build.
 - The real hardware test mode can complete Camera, Microphone, Recording, Export, and Results using all intended production hardware, including multi-camera setups.
+- Diagnostics can be exported after a hardware test and inspected without raw media or secrets.
 
 ## Current Gate Decision
 
