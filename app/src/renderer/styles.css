@@ -280,7 +280,7 @@ h3 {
 
 .journey-progress {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: var(--space-md);
 }
 
@@ -1176,6 +1176,149 @@ input[type="range"] {
   font-weight: 900;
 }
 
+.timeline-review {
+  display: grid;
+  gap: var(--space-xl);
+}
+
+.timeline-hero,
+.visual-timeline,
+.timeline-marker-list,
+.locked-editing-tools {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
+    var(--texture-active),
+    var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+}
+
+.timeline-hero,
+.locked-editing-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xl);
+  padding: var(--space-xl);
+}
+
+.original-safe-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  min-width: 260px;
+  padding: var(--space-lg);
+  color: var(--color-inverseText);
+  background: var(--color-success);
+  border-radius: var(--component-card-radius);
+  font-weight: 900;
+}
+
+.timeline-controls {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.visual-timeline {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+}
+
+.timeline-track {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: var(--space-md);
+  align-items: center;
+}
+
+.timeline-track strong {
+  color: var(--color-primary);
+  font-family: var(--font-heading);
+}
+
+.timeline-track span,
+.timeline-marker-row span {
+  color: var(--color-mutedText);
+  font-weight: 900;
+}
+
+.timeline-track i {
+  grid-column: 2;
+  display: block;
+  min-height: calc(var(--space-controlHeight) * 0.82);
+  background:
+    linear-gradient(90deg, var(--color-primary), color-mix(in srgb, var(--color-accent), var(--color-cards) 35%));
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--color-cards), transparent 80%);
+}
+
+.timeline-track.camera i {
+  background: linear-gradient(90deg, var(--color-accent), var(--color-cards));
+}
+
+.timeline-track.microphone i {
+  background: linear-gradient(90deg, var(--color-audioMeters), var(--color-cards));
+}
+
+.timeline-track.markers i {
+  background: repeating-linear-gradient(90deg, var(--color-warning) 0 18px, var(--color-cards) 18px 36px);
+}
+
+.timeline-marker-row,
+.locked-tool-grid {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.timeline-marker-row button,
+.locked-tool-grid button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-height: var(--space-controlHeight);
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-text);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
+.timeline-marker-list {
+  display: grid;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+}
+
+.marker-review-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-lg);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+}
+
+.marker-review-card h4 {
+  color: var(--color-primary);
+}
+
+.marker-review-card p {
+  margin-bottom: 0;
+  color: var(--color-mutedText);
+}
+
+.locked-tool-grid button {
+  opacity: 0.78;
+}
+
 .mic-status-list {
   display: grid;
   gap: var(--space-md);
@@ -1211,6 +1354,8 @@ input[type="range"] {
   .notes-grid,
   .soundboard-grid,
   .teleprompter-card,
+  .timeline-hero,
+  .locked-editing-tools,
   .recording-hero,
   .recording-status-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));

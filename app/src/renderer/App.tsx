@@ -16,6 +16,7 @@ import {
   Plus,
   Settings,
   Sparkles,
+  ListVideo,
   Wand2,
   X
 } from "lucide-react";
@@ -23,8 +24,10 @@ import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/
 import type { RecordingSession } from "../shared/recording";
 import type { PodcastToolsState } from "../shared/podcast-tools";
 import { createDefaultPodcastToolsState, withPodcastToolDefaults } from "../shared/podcast-tools";
+import type { TimelineDraft } from "../shared/timeline";
+import { createTimelineDraft, withTimelineDraftDefaults } from "../shared/timeline";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
-import { Button, CameraPreview, DeviceSetupWizard, RecordingStudio } from "./components";
+import { Button, CameraPreview, DeviceSetupWizard, RecordingStudio, TimelineReview } from "./components";
 import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
 import { BrowserMediaRecorderPlugin } from "./plugins/recording/browser-media-recorder-plugin";
 import type { DeviceDetectionResult } from "./plugins/devices/types";
@@ -32,12 +35,12 @@ import { DeviceService, RecordingService, type RecordingServiceSnapshot } from "
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
-type View = "home" | "new-episode" | "device-setup" | "recording" | "settings" | "learn" | "practice" | "theme-editor";
+type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "settings" | "learn" | "practice" | "theme-editor";
 
 function getInitialView(): View {
   if (typeof window === "undefined") return "home";
   const requestedView = new URLSearchParams(window.location.search).get("view");
-  const views: View[] = ["home", "new-episode", "device-setup", "recording", "settings", "learn", "practice", "theme-editor"];
+  const views: View[] = ["home", "new-episode", "device-setup", "recording", "timeline-review", "settings", "learn", "practice", "theme-editor"];
   return views.includes(requestedView as View) ? (requestedView as View) : "home";
 }
 
@@ -147,7 +150,20 @@ function getStudioBridge(): Window["studio"] {
         dontForget: "Mark the best clip."
       }
     }),
-    savePodcastTools: async (_episodeId, state) => state
+    savePodcastTools: async (_episodeId, state) => state,
+    loadTimelineDraft: async (episodeId) =>
+      createTimelineDraft({
+        episodeId,
+        recordingSessionId: "review-session",
+        deviceDefaults: demoSettings.deviceDefaults,
+        markers: [
+          { id: "marker-funny", label: "Funny", timestampMs: 18000, createdAt: now, recordingSessionId: "review-session" },
+          { id: "marker-highlight", label: "Highlight", timestampMs: 52000, createdAt: now, recordingSessionId: "review-session" }
+        ],
+        durationMs: 112000,
+        now
+      }),
+    saveTimelineDraft: async (_episodeId, draft) => draft
   };
 }
 
@@ -168,6 +184,9 @@ export default function App() {
   const [description, setDescription] = useState("");
   const [showTour, setShowTour] = useState(false);
   const [podcastTools, setPodcastTools] = useState<PodcastToolsState>(() => createDefaultPodcastToolsState());
+  const [timelineDraft, setTimelineDraft] = useState<TimelineDraft>(() =>
+    createTimelineDraft({ deviceDefaults: defaultDeviceDefaults })
+  );
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
   const recordingService = useMemo(() => new RecordingService(new BrowserMediaRecorderPlugin()), []);
@@ -220,7 +239,27 @@ export default function App() {
     }
 
     void studio.loadPodcastTools(activeEpisode.id).then((state) => setPodcastTools(withPodcastToolDefaults(state, activeEpisode.id)));
+    void loadTimelineForEpisode(activeEpisode.id);
   }, [activeEpisode, studio]);
+
+  async function loadTimelineForEpisode(episodeId: string) {
+    const fallback = createTimelineDraft({
+      episodeId,
+      recordingSessionId: recordingSnapshot.session?.id,
+      deviceDefaults: settings.deviceDefaults,
+      markers: podcastTools.markers,
+      durationMs: recordingSnapshot.elapsedMs
+    });
+    const savedDraft = await studio.loadTimelineDraft(episodeId);
+    setTimelineDraft(withTimelineDraftDefaults(savedDraft, fallback));
+  }
+
+  async function saveTimelineDraftState(nextDraft: TimelineDraft) {
+    setTimelineDraft(nextDraft);
+    if (activeEpisode) {
+      setTimelineDraft(await studio.saveTimelineDraft(activeEpisode.id, nextDraft));
+    }
+  }
 
   async function savePodcastToolsState(nextState: PodcastToolsState) {
     const stateWithEpisode = withPodcastToolDefaults(nextState, activeEpisode?.id);
@@ -305,7 +344,16 @@ export default function App() {
   }
 
   async function stopRecording() {
-    setRecordingSnapshot(await recordingService.stop());
+    const nextSnapshot = await recordingService.stop();
+    setRecordingSnapshot(nextSnapshot);
+    const draft = createTimelineDraft({
+      episodeId: activeEpisode?.id,
+      recordingSessionId: nextSnapshot.session?.id,
+      deviceDefaults: settings.deviceDefaults,
+      markers: podcastTools.markers,
+      durationMs: nextSnapshot.elapsedMs
+    });
+    await saveTimelineDraftState(draft);
     await refreshUnfinishedSessions();
   }
 
@@ -354,6 +402,9 @@ export default function App() {
           <button className={view === "recording" ? "active" : ""} onClick={() => setView("recording")}>
             <Circle size={20} /> Record
           </button>
+          <button className={view === "timeline-review" ? "active" : ""} onClick={() => setView("timeline-review")}>
+            <ListVideo size={20} /> Review Episode
+          </button>
           <button className={view === "theme-editor" ? "active" : ""} onClick={() => setView("theme-editor")}>
             <Brush size={20} /> Theme Editor
           </button>
@@ -370,12 +421,12 @@ export default function App() {
 
         <div className="phase-note">
           <Sparkles size={18} />
-          Phase 3 recording foundation. Auto Edit and timeline stay locked.
+          Phase 5A review foundation. Editing, Auto Edit, and export stay locked.
         </div>
       </aside>
 
       <section className="workspace">
-        <JourneyProgress view={view} hasEpisode={episodes.length > 0} studioReady={studioReady} recordingComplete={recordingSnapshot.status === "stopped"} />
+        <JourneyProgress view={view} hasEpisode={episodes.length > 0} studioReady={studioReady} recordingComplete={recordingSnapshot.status === "stopped"} reviewReady={timelineDraft.tracks.length > 0} />
         {showTour && <GuidedTour onClose={(preference) => void closeTour(preference)} />}
         {view === "home" && <HomeView episodes={episodes} onNewEpisode={() => setView("new-episode")} onStudioSetup={() => setView("device-setup")} />}
         {view === "new-episode" && (
@@ -428,9 +479,18 @@ export default function App() {
             onStop={() => void stopRecording()}
             onPractice={() => void startRecording(true)}
             onDismissRecovery={() => setUnfinishedSessions([])}
-            onNext={() => setView("learn")}
+            onNext={() => {
+              if (activeEpisode) void loadTimelineForEpisode(activeEpisode.id);
+              setView("timeline-review");
+            }}
             onPodcastToolsChange={(nextState) => void savePodcastToolsState(nextState)}
             onPopOutTeleprompter={popOutTeleprompter}
+          />
+        )}
+        {view === "timeline-review" && (
+          <TimelineReview
+            draft={timelineDraft}
+            onJumpToMarker={(timestampMs) => setTimelineDraft({ ...timelineDraft, updatedAt: new Date().toISOString(), durationMs: Math.max(timelineDraft.durationMs, timestampMs) })}
           />
         )}
         {view === "theme-editor" && (
@@ -448,17 +508,20 @@ function JourneyProgress({
   view,
   hasEpisode,
   studioReady,
-  recordingComplete
+  recordingComplete,
+  reviewReady
 }: {
   view: View;
   hasEpisode: boolean;
   studioReady: boolean;
   recordingComplete: boolean;
+  reviewReady: boolean;
 }) {
   const steps = [
     { label: "New Episode", complete: hasEpisode, active: view === "home" || view === "new-episode" },
     { label: "Studio Setup", complete: studioReady, active: view === "device-setup" },
     { label: "Record", complete: recordingComplete, active: view === "recording" },
+    { label: "Review", complete: reviewReady && view !== "recording", active: view === "timeline-review" },
     { label: "Edit", complete: false, active: false, locked: true },
     { label: "Export", complete: false, active: false, locked: true }
   ];
@@ -714,7 +777,11 @@ function LearnStudioView() {
     "How to use sponsor notes",
     "How to use the soundboard",
     "How to mark funny and highlight moments",
-    "How to switch camera layouts"
+    "How to switch camera layouts",
+    "How to review your episode",
+    "What markers mean",
+    "Why original recordings stay safe",
+    "What editing will do later"
   ];
 
   return (
@@ -750,6 +817,7 @@ function PracticeModeView() {
         <span><Clapperboard size={20} /> Tap soundboard buttons without playing real files</span>
         <span><Camera size={20} /> Switch camera layouts safely</span>
         <span><Sparkles size={20} /> Mark funny, highlight, and fix-later moments</span>
+        <span><ListVideo size={20} /> Practice timeline review with fake markers</span>
         <span><Headphones size={20} /> Learn that everything saves locally</span>
         <span><Clapperboard size={20} /> Try the recovery message without risking real media</span>
       </div>
@@ -764,6 +832,10 @@ function getLessonCopy(lesson: string) {
   if (lesson.includes("soundboard")) return "Use local intro, outro, and custom sounds only. Nothing comes from the cloud.";
   if (lesson.includes("funny and highlight")) return "Tap a marker during recording so the moment is saved with a timestamp.";
   if (lesson.includes("camera layouts")) return "Pick Host, Guest, Split, Triple, Picture-in-Picture, Sponsor Card, Intro, or Outro without seeing technical scene names.";
+  if (lesson.includes("review your episode")) return "Open Review Episode after recording to see tracks, markers, and what comes next.";
+  if (lesson.includes("markers mean")) return "Markers are timestamps that help you find funny, highlight, sponsor, and fix-later moments.";
+  if (lesson.includes("original recordings stay safe")) return "Review and future edits use a draft timeline. Your original recording stays untouched.";
+  if (lesson.includes("editing will do later")) return "Editing tools will trim, split, delete, auto-edit, and export later. For now they stay locked.";
   if (lesson.includes("choose cameras")) return "Open Studio Setup, pick Camera 1 first, then add Camera 2 and Camera 3 if you want more angles.";
   if (lesson.includes("test cameras")) return "Use Test Camera after choosing one. If it needs attention, the card will tell you the next simple step.";
   if (lesson.includes("gear icon")) return "The gear keeps extra camera choices tucked away so the main setup stays calm.";

@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import App from "./App";
 import { createDefaultPodcastToolsState } from "../shared/podcast-tools";
+import { createTimelineDraft } from "../shared/timeline";
 
 describe("app mount", () => {
   it("renders the home screen with studio bridge data", async () => {
@@ -25,7 +26,11 @@ describe("app mount", () => {
       appendRecordingError: vi.fn(),
       listUnfinishedRecordingSessions: vi.fn(async () => []),
       loadPodcastTools: vi.fn(async () => createDefaultPodcastToolsState("episode-a", "2026-06-27T10:00:00.000Z")),
-      savePodcastTools: vi.fn(async (_episodeId, state) => state)
+      savePodcastTools: vi.fn(async (_episodeId, state) => state),
+      loadTimelineDraft: vi.fn(async () =>
+        createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } } })
+      ),
+      saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft)
     };
 
     const host = document.createElement("div");

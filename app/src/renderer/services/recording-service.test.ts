@@ -22,7 +22,9 @@ function installStudioMock() {
     appendRecordingError: vi.fn(),
     listUnfinishedRecordingSessions: vi.fn(),
     loadPodcastTools: vi.fn(),
-    savePodcastTools: vi.fn()
+    savePodcastTools: vi.fn(),
+    loadTimelineDraft: vi.fn(),
+    saveTimelineDraft: vi.fn()
   };
 }
 

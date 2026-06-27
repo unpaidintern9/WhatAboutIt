@@ -3,6 +3,7 @@
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
 import type { RecordingSession, RecordingSessionCreateInput, RecordingState } from "../shared/recording";
 import type { PodcastToolsState } from "../shared/podcast-tools";
+import type { TimelineDraft } from "../shared/timeline";
 
 declare global {
   interface Window {
@@ -18,6 +19,8 @@ declare global {
       listUnfinishedRecordingSessions: () => Promise<RecordingSession[]>;
       loadPodcastTools: (episodeId: string) => Promise<PodcastToolsState>;
       savePodcastTools: (episodeId: string, state: PodcastToolsState) => Promise<PodcastToolsState>;
+      loadTimelineDraft: (episodeId: string) => Promise<TimelineDraft | null>;
+      saveTimelineDraft: (episodeId: string, draft: TimelineDraft) => Promise<TimelineDraft>;
     };
   }
 }

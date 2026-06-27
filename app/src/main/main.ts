@@ -15,6 +15,7 @@ import {
   writeRecordingState
 } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
+import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
 
 const appDataRoot = getAppDataRoot();
 const episodesRoot = getEpisodesRoot();
@@ -145,6 +146,8 @@ app.whenReady().then(async () => {
   ipcMain.handle("recording:list-unfinished", listUnfinishedRecordingSessions);
   ipcMain.handle("podcast-tools:load", (_event, episodeId) => loadPodcastTools(episodeId));
   ipcMain.handle("podcast-tools:save", (_event, input) => savePodcastTools(input.episodeId, input.state));
+  ipcMain.handle("timeline:load", (_event, episodeId) => loadTimelineDraft(episodeId));
+  ipcMain.handle("timeline:save", (_event, input) => saveTimelineDraft(input.episodeId, input.draft));
 
   createWindow();
 

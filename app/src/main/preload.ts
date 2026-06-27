@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
 import type { RecordingSession, RecordingSessionCreateInput, RecordingState } from "../shared/recording";
 import type { PodcastToolsState } from "../shared/podcast-tools";
+import type { TimelineDraft } from "../shared/timeline";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
@@ -20,5 +21,8 @@ contextBridge.exposeInMainWorld("studio", {
   listUnfinishedRecordingSessions: (): Promise<RecordingSession[]> => ipcRenderer.invoke("recording:list-unfinished"),
   loadPodcastTools: (episodeId: string): Promise<PodcastToolsState> => ipcRenderer.invoke("podcast-tools:load", episodeId),
   savePodcastTools: (episodeId: string, state: PodcastToolsState): Promise<PodcastToolsState> =>
-    ipcRenderer.invoke("podcast-tools:save", { episodeId, state })
+    ipcRenderer.invoke("podcast-tools:save", { episodeId, state }),
+  loadTimelineDraft: (episodeId: string): Promise<TimelineDraft | null> => ipcRenderer.invoke("timeline:load", episodeId),
+  saveTimelineDraft: (episodeId: string, draft: TimelineDraft): Promise<TimelineDraft> =>
+    ipcRenderer.invoke("timeline:save", { episodeId, draft })
 });

@@ -105,9 +105,9 @@ export function RecordingStudio({
           <CheckCircle2 size={34} />
           <div>
             <h3>Nice work!</h3>
-            <p>Your episode is safely stored. Next step: continue to editing when Phase 4 arrives.</p>
+            <p>Your episode is safely stored. Next step: review your markers and timeline.</p>
           </div>
-          <Button variant="primary" icon={<ArrowRight size={20} />} onClick={onNext}>What's Next?</Button>
+          <Button variant="primary" icon={<ArrowRight size={20} />} onClick={onNext}>Review Episode</Button>
         </div>
       )}
 

@@ -1,0 +1,63 @@
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { describe, expect, it, vi } from "vitest";
+import App from "./App";
+import type { EpisodeMetadata, StudioSettings } from "../shared/types";
+import { createDefaultPodcastToolsState } from "../shared/podcast-tools";
+import { createTimelineDraft } from "../shared/timeline";
+
+describe("Phase 5A flow", () => {
+  it("renders the Review Episode route with original-safe messaging", async () => {
+    window.history.replaceState(null, "", "/?view=timeline-review&tour=off");
+    const episode: EpisodeMetadata = {
+      id: "episode-a",
+      title: "Review Episode",
+      status: "draft",
+      createdAt: "2026-06-27T10:00:00.000Z",
+      updatedAt: "2026-06-27T10:00:00.000Z",
+      folderPath: "episode-a",
+      phase: "phase-1-shell"
+    };
+    const settings: StudioSettings = {
+      activeThemeId: "what-about-it",
+      defaultEpisodeFolderName: "episodes",
+      practiceModeEnabled: false,
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+      onboarding: { guidedTour: "never" }
+    };
+    window.studio = {
+      listEpisodes: vi.fn(async () => [episode]),
+      createEpisode: vi.fn(),
+      getSettings: vi.fn(async () => settings),
+      saveSettings: vi.fn(),
+      createRecordingSession: vi.fn(),
+      writeRecordingState: vi.fn(),
+      saveProgramRecording: vi.fn(),
+      appendRecordingError: vi.fn(),
+      listUnfinishedRecordingSessions: vi.fn(async () => []),
+      loadPodcastTools: vi.fn(async () => createDefaultPodcastToolsState("episode-a")),
+      savePodcastTools: vi.fn(async (_episodeId, state) => state),
+      loadTimelineDraft: vi.fn(async () =>
+        createTimelineDraft({
+          episodeId: "episode-a",
+          deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+          markers: [{ id: "marker-a", label: "Funny", timestampMs: 12000, createdAt: "2026-06-27T10:00:00.000Z" }]
+        })
+      ),
+      saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft)
+    };
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    expect(host.textContent).toContain("Review your episode");
+    expect(host.textContent).toContain("Your original recording is safe");
+    expect(host.textContent).toContain("Funny");
+    expect(host.textContent).toContain("Editing tools are coming next");
+  });
+});
