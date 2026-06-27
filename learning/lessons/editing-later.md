@@ -1,5 +1,5 @@
 # What Editing Will Do Later
 
-Editing tools will add trim, split, delete, Auto Edit, and export controls in later phases.
+Basic draft editing now lets you trim, split, and cut sections safely.
 
-For Phase 5A, those controls stay locked so the review screen stays simple.
+Auto Edit and export stay locked for later phases so Review Episode remains simple and calm.

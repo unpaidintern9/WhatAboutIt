@@ -14,6 +14,7 @@ import {
   Mic2,
   MonitorPlay,
   Plus,
+  Scissors,
   Settings,
   Sparkles,
   ListVideo,
@@ -25,7 +26,7 @@ import type { RecordingSession } from "../shared/recording";
 import type { PodcastToolsState } from "../shared/podcast-tools";
 import { createDefaultPodcastToolsState, withPodcastToolDefaults } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
-import { createTimelineDraft, withTimelineDraftDefaults } from "../shared/timeline";
+import { createTimelineDraft, markTimelineSaved, withTimelineDraftDefaults } from "../shared/timeline";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import { Button, CameraPreview, DeviceSetupWizard, RecordingStudio, TimelineReview } from "./components";
 import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
@@ -421,7 +422,7 @@ export default function App() {
 
         <div className="phase-note">
           <Sparkles size={18} />
-          Phase 5A review foundation. Editing, Auto Edit, and export stay locked.
+          Phase 5B safe draft editing. Auto Edit and export stay locked.
         </div>
       </aside>
 
@@ -490,7 +491,8 @@ export default function App() {
         {view === "timeline-review" && (
           <TimelineReview
             draft={timelineDraft}
-            onJumpToMarker={(timestampMs) => setTimelineDraft({ ...timelineDraft, updatedAt: new Date().toISOString(), durationMs: Math.max(timelineDraft.durationMs, timestampMs) })}
+            onDraftChange={(nextDraft) => void saveTimelineDraftState(nextDraft)}
+            onSaveDraft={() => void saveTimelineDraftState(markTimelineSaved(timelineDraft))}
           />
         )}
         {view === "theme-editor" && (
@@ -780,6 +782,10 @@ function LearnStudioView() {
     "How to switch camera layouts",
     "How to review your episode",
     "What markers mean",
+    "How to trim",
+    "How to split",
+    "How to cut a section",
+    "How undo and redo work",
     "Why original recordings stay safe",
     "What editing will do later"
   ];
@@ -818,6 +824,7 @@ function PracticeModeView() {
         <span><Camera size={20} /> Switch camera layouts safely</span>
         <span><Sparkles size={20} /> Mark funny, highlight, and fix-later moments</span>
         <span><ListVideo size={20} /> Practice timeline review with fake markers</span>
+        <span><Scissors size={20} /> Practice safe trim, split, undo, redo, and restore original</span>
         <span><Headphones size={20} /> Learn that everything saves locally</span>
         <span><Clapperboard size={20} /> Try the recovery message without risking real media</span>
       </div>
@@ -834,6 +841,10 @@ function getLessonCopy(lesson: string) {
   if (lesson.includes("camera layouts")) return "Pick Host, Guest, Split, Triple, Picture-in-Picture, Sponsor Card, Intro, or Outro without seeing technical scene names.";
   if (lesson.includes("review your episode")) return "Open Review Episode after recording to see tracks, markers, and what comes next.";
   if (lesson.includes("markers mean")) return "Markers are timestamps that help you find funny, highlight, sponsor, and fix-later moments.";
+  if (lesson.includes("trim")) return "Pick a spot, choose Trim before here, and the draft starts at the good part while the original stays safe.";
+  if (lesson.includes("split")) return "Pick a spot, choose Split here, and the draft remembers that clean break for later.";
+  if (lesson.includes("cut a section")) return "Pick the part that needs to go and choose Cut this section. You can undo it anytime.";
+  if (lesson.includes("undo and redo")) return "Undo steps backward through draft edits. Redo brings a change back if you changed your mind.";
   if (lesson.includes("original recordings stay safe")) return "Review and future edits use a draft timeline. Your original recording stays untouched.";
   if (lesson.includes("editing will do later")) return "Editing tools will trim, split, delete, auto-edit, and export later. For now they stay locked.";
   if (lesson.includes("choose cameras")) return "Open Studio Setup, pick Camera 1 first, then add Camera 2 and Camera 3 if you want more angles.";

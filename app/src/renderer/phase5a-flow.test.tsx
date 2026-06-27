@@ -6,8 +6,8 @@ import type { EpisodeMetadata, StudioSettings } from "../shared/types";
 import { createDefaultPodcastToolsState } from "../shared/podcast-tools";
 import { createTimelineDraft } from "../shared/timeline";
 
-describe("Phase 5A flow", () => {
-  it("renders the Review Episode route with original-safe messaging", async () => {
+describe("Phase 5B flow", () => {
+  it("renders the Review Episode route with safe draft editing controls", async () => {
     window.history.replaceState(null, "", "/?view=timeline-review&tour=off");
     const episode: EpisodeMetadata = {
       id: "episode-a",
@@ -56,8 +56,30 @@ describe("Phase 5A flow", () => {
     });
 
     expect(host.textContent).toContain("Review your episode");
-    expect(host.textContent).toContain("Your original recording is safe");
+    expect(host.textContent).toContain("Your original recording is still safe");
+    expect(host.textContent).toContain("This only changes the draft");
+    expect(host.textContent).toContain("Trim before here");
+    expect(host.textContent).toContain("Split here");
+    expect(host.textContent).toContain("Cut this section");
+    expect(host.textContent).toContain("Restore original");
+    expect(host.textContent).toContain("Edit history");
     expect(host.textContent).toContain("Funny");
-    expect(host.textContent).toContain("Editing tools are coming next");
+    expect(host.textContent).toContain("Big finishing tools are coming next");
+  });
+
+  it("renders safe editing practice guidance", async () => {
+    window.history.replaceState(null, "", "/?view=practice&tour=off");
+    Reflect.deleteProperty(window, "studio");
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    expect(host.textContent).toContain("Practice Mode");
+    expect(host.textContent).toContain("Practice safe trim, split, undo, redo, and restore original");
   });
 });
