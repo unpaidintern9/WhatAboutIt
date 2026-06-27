@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
   createCameraConnectionState,
+  createStudioReadinessReport,
   createSonyCapabilityAudit,
   createSonyConnectionMatrix,
+  createUniversalCameraCapabilities,
   getCameraAdvancedSettings,
   getOrderedCameraAssignments,
+  preferHealthyCameraConnections,
   saveCameraAdvancedSettings,
+  supportedCameraEcosystems,
   wirelessVideoRecommendations
 } from "./camera-config";
 
@@ -69,5 +73,47 @@ describe("camera configuration", () => {
       userStatus: "Not connected",
       canRecord: false
     });
+  });
+
+  it("supports creator camera ecosystems without brand-specific UI logic", () => {
+    expect(supportedCameraEcosystems).toEqual(
+      expect.arrayContaining(["Sony", "Canon", "Nikon", "Panasonic", "Fujifilm", "GoPro", "DJI", "Blackmagic", "USB webcam", "HDMI capture", "Network camera", "Future provider"])
+    );
+    const camera = createUniversalCameraCapabilities({ cameraName: "Creator Cam", manufacturer: "Canon", usb: "available" });
+
+    expect(camera.wirelessVideo).toBe("not-confirmed");
+    expect(camera.battery).toBe("unavailable");
+    expect(camera.manufacturer).toBe("Canon");
+  });
+
+  it("prefers healthy connections before recording", () => {
+    const sorted = preferHealthyCameraConnections([
+      createUniversalCameraCapabilities({ cameraName: "Weak", healthStatus: "signal-weak" }),
+      createUniversalCameraCapabilities({ cameraName: "Ready", healthStatus: "ready" }),
+      createUniversalCameraCapabilities({ cameraName: "Missing", healthStatus: "not-connected" })
+    ]);
+
+    expect(sorted.map((camera) => camera.cameraName)).toEqual(["Ready", "Weak", "Missing"]);
+  });
+
+  it("creates friendly studio readiness reports", () => {
+    const report = createStudioReadinessReport({
+      cameraAssignments: getOrderedCameraAssignments({ cameras: { camera1: "ready-cam", camera2: "low-battery" }, microphones: {} }),
+      cameraStates: {
+        "ready-cam": createCameraConnectionState({ cameraId: "ready-cam", connected: true }),
+        "low-battery": createCameraConnectionState({ cameraId: "low-battery", connected: true, batteryPercent: 8 })
+      },
+      mics: [
+        { label: "Morgan Mic", ready: true },
+        { label: "Guest Mic", ready: false }
+      ],
+      storageAvailable: true
+    });
+
+    expect(report.headline).toBe("Needs Attention");
+    expect(report.items.map((item) => item.message)).toContain("Camera 1 Ready");
+    expect(report.items.map((item) => item.message)).toContain("Camera 2 Battery Low");
+    expect(report.items.map((item) => item.message)).toContain("Guest Mic Needs Attention");
+    expect(report.items.map((item) => item.message)).toContain("Storage Available");
   });
 });

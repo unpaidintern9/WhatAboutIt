@@ -6,6 +6,7 @@ import {
   sonyUsbCameraProvider,
   sonyWirelessCameraProvider
 } from "./sony-camera-provider";
+import { universalCameraProviders } from "./universal-camera-provider";
 import { wirelessCameraProvider } from "./wireless-camera-provider";
 import type { CameraProvider } from "./types";
 
@@ -16,7 +17,8 @@ export const cameraProviders: CameraProvider[] = [
   wirelessCameraProvider,
   sonyWirelessCameraProvider,
   sonyRemoteControlProvider,
-  futureSonySdkProvider
+  futureSonySdkProvider,
+  ...universalCameraProviders
 ];
 
 export function getCameraProvider(providerId: string) {

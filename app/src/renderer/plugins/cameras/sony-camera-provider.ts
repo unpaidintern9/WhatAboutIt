@@ -1,5 +1,6 @@
 import type { StudioDevice } from "../devices/types";
 import type { CameraProvider, CameraProviderStatus } from "./types";
+import { createUniversalCameraCapabilities } from "../../../shared/camera-config";
 
 function unsupportedWirelessStatus(cameraId: string): CameraProviderStatus {
   return {
@@ -17,14 +18,29 @@ export const sonyUsbCameraProvider: CameraProvider = {
   label: "Sony USB Cameras",
   kind: "usb-uvc",
   capabilities: {
+    manufacturer: "Sony",
     localPreview: true,
     wirelessDiscovery: false,
     batteryStatus: false,
     signalStatus: false,
-    autoReconnect: true
+    autoReconnect: true,
+    remoteControl: false,
+    hdmi: false,
+    usb: true,
+    networkStreaming: false
   },
   async discover(): Promise<StudioDevice[]> {
     return [];
+  },
+  async getCapabilities(cameraId: string) {
+    return createUniversalCameraCapabilities({
+      cameraName: cameraId,
+      manufacturer: "Sony",
+      usb: "available",
+      previewReady: true,
+      recordingReady: true,
+      healthStatus: "ready"
+    });
   },
   async connect(cameraId: string) {
     return {
@@ -53,7 +69,22 @@ export const sonyHdmiCaptureProvider: CameraProvider = {
   ...sonyUsbCameraProvider,
   id: "sony-hdmi-capture-cameras",
   label: "Sony HDMI Capture",
-  kind: "hdmi-capture"
+  kind: "hdmi-capture",
+  capabilities: {
+    ...sonyUsbCameraProvider.capabilities,
+    hdmi: true,
+    usb: false
+  },
+  async getCapabilities(cameraId: string) {
+    return createUniversalCameraCapabilities({
+      cameraName: cameraId,
+      manufacturer: "Sony",
+      hdmi: "available",
+      previewReady: true,
+      recordingReady: true,
+      healthStatus: "ready"
+    });
+  }
 };
 
 export const sonyWirelessCameraProvider: CameraProvider = {
@@ -61,14 +92,30 @@ export const sonyWirelessCameraProvider: CameraProvider = {
   label: "Sony Wireless Cameras",
   kind: "wireless-discovery",
   capabilities: {
+    manufacturer: "Sony",
     localPreview: false,
     wirelessDiscovery: true,
     batteryStatus: true,
     signalStatus: true,
-    autoReconnect: true
+    autoReconnect: true,
+    remoteControl: true,
+    hdmi: false,
+    usb: false,
+    networkStreaming: false
   },
   async discover(): Promise<StudioDevice[]> {
     return [];
+  },
+  async getCapabilities(cameraId: string) {
+    return createUniversalCameraCapabilities({
+      cameraName: cameraId,
+      manufacturer: "Sony",
+      wirelessVideo: "not-confirmed",
+      remoteControl: "not-confirmed",
+      battery: "not-confirmed",
+      signalStrength: "not-confirmed",
+      healthStatus: "needs-attention"
+    });
   },
   async connect(cameraId: string) {
     return unsupportedWirelessStatus(cameraId);
@@ -90,14 +137,30 @@ export const sonyRemoteControlProvider: CameraProvider = {
   label: "Sony Remote Control",
   kind: "sony-remote-control",
   capabilities: {
+    manufacturer: "Sony",
     localPreview: false,
     wirelessDiscovery: false,
     batteryStatus: true,
     signalStatus: false,
-    autoReconnect: false
+    autoReconnect: false,
+    remoteControl: true,
+    hdmi: false,
+    usb: false,
+    networkStreaming: false
   },
   async discover(): Promise<StudioDevice[]> {
     return [];
+  },
+  async getCapabilities(cameraId: string) {
+    return createUniversalCameraCapabilities({
+      cameraName: cameraId,
+      manufacturer: "Sony",
+      remoteControl: "not-confirmed",
+      wirelessVideo: "unavailable",
+      recordingReady: false,
+      previewReady: false,
+      healthStatus: "needs-attention"
+    });
   },
   async connect(cameraId: string) {
     return {

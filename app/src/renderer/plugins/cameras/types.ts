@@ -1,4 +1,5 @@
 import type { CameraConnectionType, CameraSignalStatus, StudioDevice } from "../devices/types";
+import type { CameraManufacturer, UniversalCameraCapabilities } from "../../../shared/camera-config";
 
 export type CameraProviderKind =
   | "local-browser"
@@ -9,11 +10,16 @@ export type CameraProviderKind =
   | "future-plugin";
 
 export interface CameraProviderCapabilities {
+  manufacturer: CameraManufacturer;
   localPreview: boolean;
   wirelessDiscovery: boolean;
   batteryStatus: boolean;
   signalStatus: boolean;
   autoReconnect: boolean;
+  remoteControl: boolean;
+  hdmi: boolean;
+  usb: boolean;
+  networkStreaming: boolean;
 }
 
 export interface CameraProviderStatus {
@@ -32,6 +38,7 @@ export interface CameraProvider {
   kind: CameraProviderKind;
   capabilities: CameraProviderCapabilities;
   discover: () => Promise<StudioDevice[]>;
+  getCapabilities: (cameraId: string) => Promise<UniversalCameraCapabilities>;
   connect: (cameraId: string) => Promise<CameraProviderStatus>;
   reconnect: (cameraId: string) => Promise<CameraProviderStatus>;
   forget: (cameraId: string) => Promise<void>;

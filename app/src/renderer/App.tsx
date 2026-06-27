@@ -895,6 +895,10 @@ function LearnStudioView() {
     "How to connect a camera",
     "How to choose cameras",
     "How to test cameras",
+    "How camera readiness works",
+    "Understanding camera health",
+    "Why a camera says Needs Attention",
+    "How automatic reconnect works",
     "What the gear icon means",
     "What to do if a camera disconnects",
     "How wireless cameras work",
@@ -1006,6 +1010,10 @@ function getLessonCopy(lesson: string) {
   if (lesson.includes("clip suggestions")) return "Clip suggestions include a start, end, title, reason, and confidence so you can decide what is worth sharing.";
   if (lesson.includes("choose cameras")) return "Open Studio Setup, pick Camera 1 first, then add Camera 2 and Camera 3 if you want more angles.";
   if (lesson.includes("test cameras")) return "Use Test Camera after choosing one. If it needs attention, the card will tell you the next simple step.";
+  if (lesson.includes("camera readiness")) return "Ready means the studio can see the camera, keep it in its slot, and use it for recording.";
+  if (lesson.includes("camera health")) return "The studio quietly watches connection, signal, and battery when a camera can share that info.";
+  if (lesson.includes("Needs Attention")) return "Needs Attention means the camera wants one quick check before you record.";
+  if (lesson.includes("automatic reconnect")) return "If a camera drops out, the studio tries to bring it back calmly and keeps saved files safe.";
   if (lesson.includes("gear icon")) return "The gear keeps extra camera choices tucked away so the main setup stays calm.";
   if (lesson.includes("camera disconnects")) return "The studio will say it lost the camera and try to reconnect without deleting anything.";
   if (lesson.includes("wireless cameras")) return "Use Find Cameras, then Connect. Signal can be Good, Weak, or Lost when the camera shares that info.";

@@ -1,16 +1,22 @@
 import type { StudioDevice } from "../devices/types";
 import type { CameraProvider } from "./types";
+import { createUniversalCameraCapabilities } from "../../../shared/camera-config";
 
 export const browserCameraProvider: CameraProvider = {
   id: "local-browser-cameras",
   label: "Computer Cameras",
   kind: "local-browser",
   capabilities: {
+    manufacturer: "USB webcam",
     localPreview: true,
     wirelessDiscovery: false,
     batteryStatus: false,
     signalStatus: false,
-    autoReconnect: true
+    autoReconnect: true,
+    remoteControl: false,
+    hdmi: false,
+    usb: true,
+    networkStreaming: false
   },
 
   async discover(): Promise<StudioDevice[]> {
@@ -32,6 +38,23 @@ export const browserCameraProvider: CameraProvider = {
           maxFps: 30
         }
       }));
+  },
+
+  async getCapabilities(cameraId: string) {
+    return createUniversalCameraCapabilities({
+      cameraName: cameraId,
+      manufacturer: "USB webcam",
+      usb: "available",
+      previewReady: true,
+      recordingReady: true,
+      healthStatus: "ready",
+      wirelessVideo: "unavailable",
+      remoteControl: "unavailable",
+      hdmi: "unavailable",
+      networkStreaming: "unavailable",
+      resolution: "available",
+      frameRate: "available"
+    });
   },
 
   async connect(cameraId: string) {

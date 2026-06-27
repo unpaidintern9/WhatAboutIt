@@ -1,9 +1,24 @@
 import type { DeviceDefaults } from "./types";
 
 export type CameraSlotId = "camera1" | "camera2" | "camera3";
+export type CameraManufacturer =
+  | "Sony"
+  | "Canon"
+  | "Nikon"
+  | "Panasonic"
+  | "Fujifilm"
+  | "GoPro"
+  | "DJI"
+  | "Blackmagic"
+  | "USB webcam"
+  | "HDMI capture"
+  | "Network camera"
+  | "Future provider"
+  | "Unknown";
 export type SonyCameraConnectionMethod = "usb-webcam" | "hdmi-capture" | "wifi-video" | "bluetooth-control" | "remote-control" | "future-sdk";
 export type SonyCapabilityStatus = "supported" | "not-supported" | "not-confirmed";
 export type CameraConnectionHealth = "ready" | "needs-attention" | "signal-weak" | "battery-low" | "not-connected";
+export type CameraCapabilityAvailability = "available" | "unavailable" | "not-confirmed";
 
 export interface CameraAdvancedSettings {
   connectionType: "built-in" | "usb" | "capture-card" | "wireless" | "unknown";
@@ -45,6 +60,39 @@ export interface CameraConnectionState {
   recommendations: CameraFallbackRecommendation[];
 }
 
+export interface UniversalCameraCapabilities {
+  cameraName: string;
+  manufacturer: CameraManufacturer;
+  model?: string;
+  battery: CameraCapabilityAvailability;
+  charging: CameraCapabilityAvailability;
+  temperature: CameraCapabilityAvailability;
+  connectionQuality: CameraCapabilityAvailability;
+  signalStrength: CameraCapabilityAvailability;
+  resolution: CameraCapabilityAvailability;
+  frameRate: CameraCapabilityAvailability;
+  wirelessVideo: CameraCapabilityAvailability;
+  remoteControl: CameraCapabilityAvailability;
+  hdmi: CameraCapabilityAvailability;
+  usb: CameraCapabilityAvailability;
+  networkStreaming: CameraCapabilityAvailability;
+  recordingReady: boolean;
+  previewReady: boolean;
+  healthStatus: CameraConnectionHealth;
+}
+
+export interface StudioReadinessItem {
+  label: string;
+  status: "ready" | "needs-attention" | "warning";
+  message: string;
+}
+
+export interface StudioReadinessReport {
+  ready: boolean;
+  items: StudioReadinessItem[];
+  headline: "Everything Ready!" | "Needs Attention";
+}
+
 export const cameraSlotOrder: CameraSlotId[] = ["camera1", "camera2", "camera3"];
 
 export const defaultCameraAdvancedSettings: CameraAdvancedSettings = {
@@ -54,6 +102,21 @@ export const defaultCameraAdvancedSettings: CameraAdvancedSettings = {
   preferredCamera: false,
   autoReconnect: true
 };
+
+export const supportedCameraEcosystems: CameraManufacturer[] = [
+  "Sony",
+  "Canon",
+  "Nikon",
+  "Panasonic",
+  "Fujifilm",
+  "GoPro",
+  "DJI",
+  "Blackmagic",
+  "USB webcam",
+  "HDMI capture",
+  "Network camera",
+  "Future provider"
+];
 
 export function getOrderedCameraAssignments(defaults: DeviceDefaults): CameraAssignment[] {
   return cameraSlotOrder.map((slot, index) => ({
@@ -166,6 +229,78 @@ export function createCameraConnectionState(input: {
     signal: input.signal ?? "unknown",
     batteryPercent: input.batteryPercent,
     recommendations: []
+  };
+}
+
+export function createUniversalCameraCapabilities(input: Partial<UniversalCameraCapabilities> & { cameraName: string }): UniversalCameraCapabilities {
+  return {
+    cameraName: input.cameraName,
+    manufacturer: input.manufacturer ?? "Unknown",
+    model: input.model,
+    battery: input.battery ?? "unavailable",
+    charging: input.charging ?? "unavailable",
+    temperature: input.temperature ?? "unavailable",
+    connectionQuality: input.connectionQuality ?? "unavailable",
+    signalStrength: input.signalStrength ?? "unavailable",
+    resolution: input.resolution ?? "unavailable",
+    frameRate: input.frameRate ?? "unavailable",
+    wirelessVideo: input.wirelessVideo ?? "not-confirmed",
+    remoteControl: input.remoteControl ?? "not-confirmed",
+    hdmi: input.hdmi ?? "not-confirmed",
+    usb: input.usb ?? "not-confirmed",
+    networkStreaming: input.networkStreaming ?? "not-confirmed",
+    recordingReady: input.recordingReady ?? false,
+    previewReady: input.previewReady ?? false,
+    healthStatus: input.healthStatus ?? "not-connected"
+  };
+}
+
+export function preferHealthyCameraConnections(cameras: UniversalCameraCapabilities[]): UniversalCameraCapabilities[] {
+  const healthRank: Record<CameraConnectionHealth, number> = {
+    ready: 0,
+    "signal-weak": 1,
+    "battery-low": 2,
+    "needs-attention": 3,
+    "not-connected": 4
+  };
+  return [...cameras].sort((a, b) => healthRank[a.healthStatus] - healthRank[b.healthStatus]);
+}
+
+export function createStudioReadinessReport(input: {
+  cameraAssignments: CameraAssignment[];
+  cameraStates: Record<string, CameraConnectionState>;
+  mics: Array<{ label: string; ready: boolean }>;
+  storageAvailable: boolean;
+}): StudioReadinessReport {
+  const cameraItems: StudioReadinessItem[] = input.cameraAssignments
+    .filter((assignment) => Boolean(assignment.deviceId))
+    .map((assignment) => {
+      const state = input.cameraStates[assignment.deviceId ?? ""];
+      if (!state || !state.canRecord) {
+        return { label: assignment.label, status: "needs-attention", message: `${assignment.label} Needs Attention` };
+      }
+      if (state.health === "battery-low") return { label: assignment.label, status: "warning", message: `${assignment.label} Battery Low` };
+      if (state.health === "signal-weak") return { label: assignment.label, status: "warning", message: `${assignment.label} Signal weak` };
+      return { label: assignment.label, status: "ready", message: `${assignment.label} Ready` };
+    });
+
+  const micItems: StudioReadinessItem[] = input.mics.map((mic) => ({
+    label: mic.label,
+    status: mic.ready ? "ready" : "needs-attention",
+    message: `${mic.label} ${mic.ready ? "Ready" : "Needs Attention"}`
+  }));
+
+  const storageItem: StudioReadinessItem = {
+    label: "Storage",
+    status: input.storageAvailable ? "ready" : "needs-attention",
+    message: input.storageAvailable ? "Storage Available" : "Storage Needs Attention"
+  };
+  const items = [...cameraItems, ...micItems, storageItem];
+  const ready = items.every((item) => item.status === "ready");
+  return {
+    ready,
+    items,
+    headline: ready ? "Everything Ready!" : "Needs Attention"
   };
 }
 

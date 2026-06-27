@@ -10,6 +10,20 @@ describe("camera provider registry", () => {
     expect(cameraProviders.map((provider) => provider.id)).toContain("sony-wireless-video-cameras");
     expect(cameraProviders.map((provider) => provider.id)).toContain("sony-remote-control-capabilities");
     expect(cameraProviders.map((provider) => provider.id)).toContain("future-sony-sdk-provider");
+    expect(cameraProviders.map((provider) => provider.id)).toEqual(
+      expect.arrayContaining([
+        "canon-camera-provider",
+        "nikon-camera-provider",
+        "panasonic-camera-provider",
+        "fujifilm-camera-provider",
+        "gopro-camera-provider",
+        "dji-camera-provider",
+        "blackmagic-camera-provider",
+        "generic-hdmi-capture-provider",
+        "generic-network-camera-provider",
+        "future-camera-provider"
+      ])
+    );
     expect(getCameraProvider("wireless-camera-foundation")?.capabilities.wirelessDiscovery).toBe(true);
   });
 
@@ -21,5 +35,19 @@ describe("camera provider registry", () => {
     expect(status?.friendlyMessage).toBe("This camera may only support Bluetooth control, not wireless video");
     expect(status?.fallbackRecommendations).toContain("Try USB");
     expect(status?.fallbackRecommendations).toContain("Try HDMI capture");
+  });
+
+  it("exposes a common capability shape for future ecosystems", async () => {
+    const provider = getCameraProvider("canon-camera-provider");
+    const capabilities = await provider?.getCapabilities("canon-a");
+
+    expect(capabilities).toMatchObject({
+      cameraName: "canon-a",
+      manufacturer: "Canon",
+      usb: "not-confirmed",
+      hdmi: "not-confirmed",
+      wirelessVideo: "not-confirmed",
+      healthStatus: "not-connected"
+    });
   });
 });
