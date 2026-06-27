@@ -14,6 +14,11 @@ export function withDeviceDefaults(settings: StudioSettings): StudioSettings {
         ...defaultDeviceDefaults.cameras,
         ...settings.deviceDefaults?.cameras
       },
+      cameraSettings: settings.deviceDefaults?.cameraSettings
+        ? {
+            ...settings.deviceDefaults.cameraSettings
+          }
+        : undefined,
       microphones: {
         ...defaultDeviceDefaults.microphones,
         ...settings.deviceDefaults?.microphones
@@ -46,4 +51,3 @@ export function saveMicrophoneSlot(
     }
   };
 }
-

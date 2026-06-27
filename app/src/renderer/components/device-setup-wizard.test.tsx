@@ -45,6 +45,8 @@ describe("DeviceSetupWizard", () => {
     expect(markup).toContain("Camera 1");
     expect(markup).toContain("Studio Camera");
     expect(markup).toContain("Use This Camera");
+    expect(markup).toContain("Connect Wirelessly");
+    expect(markup).toContain("Reconnect");
     expect(markup).toContain("Needs attention");
     expect(markup).toContain("Connection type");
     expect(markup).not.toContain("driver stack");

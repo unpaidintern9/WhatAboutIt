@@ -7,7 +7,7 @@ This document records the current status of production media integrations after 
 | Area | Current implementation | Production ready | Missing work |
 | --- | --- | --- | --- |
 | Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save | Partial | Multi-camera capture, multi-mic capture, long-duration validation, sync validation |
-| Camera capture | Physical Integrated Camera validated through browser capture, saved to Program and mirrored to Cameras | Partial | Up to three simultaneous cameras, capture cards, backend error handling |
+| Camera capture | Physical Integrated Camera validated through browser capture, saved to Program and mirrored to Cameras; Sony provider matrix added | Partial | Physical Sony camera validation, up to three simultaneous cameras, capture cards, backend error handling |
 | Microphone capture | Physical Realtek microphone validated, muxed into Program and extracted to Audio with FFmpeg | Partial | Multiple input capture, separate tracks where supported, drift and clipping reporting |
 | Timeline review | Draft timeline JSON and marker/edit model | No | Real media discovery, stream probing, accurate playback, media-backed timeline tracks |
 | Editing | Non-destructive edit operation log | Partial | Apply edit decisions to renderable media timeline and playback preview |
@@ -34,6 +34,9 @@ This document records the current status of production media integrations after 
 - `app/src/main/ffmpeg-tools.ts`: detects bundled FFmpeg/ffprobe, runs media tools, and validates playable outputs.
 - `app/src/main/recording-session-store.ts`: saves captured program bytes, validates them with ffprobe, mirrors the camera recording, extracts mic audio, and updates sync metadata.
 - `docs/manual-qa/PHYSICAL_RECORDING_QA.md`: documents the short physical camera/mic validation result.
+- `app/src/shared/camera-config.ts`: preserves Camera 1/2/3 ordering, stores gear settings, and models Sony wireless support without assuming Bluetooth video.
+- `app/src/renderer/plugins/cameras/sony-camera-provider.ts`: registers Sony USB, HDMI capture, wireless, remote-control, and future SDK provider slots.
+- `docs/manual-qa/SONY_MULTI_CAMERA_QA.md`: documents that no physical Sony camera was detected during Phase 7C.
 - `app/src/renderer/plugins/recording/obs-control-plugin.ts`: all recording methods throw `OBS recording engine is not connected yet.`
 - `app/src/renderer/plugins/recording/browser-media-recorder-plugin.ts`: records one browser media stream where supported and now surfaces friendly camera/mic attention states.
 - `app/src/shared/auto-edit.ts`: computes suggested edits from draft duration and markers, not real media analysis.
@@ -42,4 +45,4 @@ This document records the current status of production media integrations after 
 
 ## Integration Readiness Summary
 
-The project now has two partial real media integrations: offline FFmpeg export rendering and a physically validated one-camera/one-mic browser recording save path. The remaining production media work is long-duration recording validation, multi-device recording, media-backed timeline playback, real Auto Edit analysis, recovery validation, and installable packaging.
+The project now has two partial real media integrations: offline FFmpeg export rendering and a physically validated one-camera/one-mic browser recording save path. Phase 7C added a Sony-capable camera connection matrix and stable Camera 1/2/3 assignment logic, but no Sony hardware was detected, so Sony recording and wireless video remain unvalidated. The remaining production media work is long-duration recording validation, physical Sony/multi-device recording, media-backed timeline playback, real Auto Edit analysis, recovery validation, and installable packaging.

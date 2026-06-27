@@ -251,6 +251,7 @@ function CameraSetupCard({
         <Button variant={selectedDevice ? "secondary" : "primary"} icon={<Camera size={20} />} onClick={() => onChoose(selectedDeviceId ?? firstDevice?.id ?? "")}>
           {buttonLabel}
         </Button>
+        <Button variant="secondary" icon={<Search size={18} />} onClick={onRefresh}>Connect Wirelessly</Button>
         <Button variant="secondary" icon={<RotateCcw size={18} />} onClick={onRefresh}>Reconnect</Button>
       </div>
       <div className="camera-signal-line">

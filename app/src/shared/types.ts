@@ -31,6 +31,7 @@ export interface DeviceDefaults {
     camera2?: string;
     camera3?: string;
   };
+  cameraSettings?: Record<string, import("./camera-config").CameraAdvancedSettings>;
   microphones: {
     morganMic?: string;
     guestMic?: string;

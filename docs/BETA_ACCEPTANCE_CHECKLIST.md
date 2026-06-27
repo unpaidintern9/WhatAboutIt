@@ -12,6 +12,8 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 | Can Morgan run Auto Edit on a real recording? | No | Auto Edit currently generates deterministic suggestions from draft metadata and markers rather than analyzing real media. |
 | Can Morgan export a playable episode? | Partial | A 17-second physical hardware recording exported successfully to a playable MP4. A full-length episode export has not been validated. |
 | Can Morgan recover from an interrupted session? | No | Recovery state exists, but interrupted real recording recovery has not been validated. |
+| Can Morgan use multiple Sony cameras? | No | Sony provider slots and Camera 1/2/3 ordering are in place, but no Sony camera was detected for physical validation. |
+| Can Morgan use Sony wireless video? | No | Wireless video is not confirmed. Bluetooth is treated as control-only unless a real video stream is validated. |
 
 ## Required Evidence Before Beta
 
@@ -24,6 +26,7 @@ Before any item can move to "Yes," the project needs a recorded test episode tha
 - Export produces a playable media file from real recorded podcast media.
 - Auto Edit analysis is derived from the recorded media or is clearly disabled until a real backend is available.
 - An interrupted real recording can be detected and recovered without deleting raw files.
+- Sony cameras can be validated by exact model, connection method, and recorded output.
 
 ## Current Gate Decision
 

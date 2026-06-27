@@ -1,6 +1,12 @@
 import type { CameraConnectionType, CameraSignalStatus, StudioDevice } from "../devices/types";
 
-export type CameraProviderKind = "local-browser" | "wireless-discovery" | "future-plugin";
+export type CameraProviderKind =
+  | "local-browser"
+  | "usb-uvc"
+  | "hdmi-capture"
+  | "wireless-discovery"
+  | "sony-remote-control"
+  | "future-plugin";
 
 export interface CameraProviderCapabilities {
   localPreview: boolean;
@@ -12,10 +18,12 @@ export interface CameraProviderCapabilities {
 
 export interface CameraProviderStatus {
   cameraId: string;
-  status: "ready" | "needs-attention" | "not-connected";
+  status: "ready" | "needs-attention" | "not-connected" | "signal-weak" | "battery-low";
   friendlyMessage: string;
   signal: CameraSignalStatus;
   batteryPercent?: number;
+  canRecord?: boolean;
+  fallbackRecommendations?: string[];
 }
 
 export interface CameraProvider {
