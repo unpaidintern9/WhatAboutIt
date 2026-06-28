@@ -79,8 +79,15 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Live Recording Studio");
     expect(host.textContent).toContain("Camera 1");
     expect(host.textContent).toContain("Live");
+    expect(host.textContent).toContain("1080p");
+    expect(host.textContent).toContain("30 fps");
     expect(host.textContent).toContain("Morgan Mic");
-    expect(host.textContent).toContain("We can't hear you yet");
+    expect(host.textContent).toContain("Quiet");
+    expect(host.textContent).toContain("Cameras Ready");
+    expect(host.textContent).toContain("Microphones Ready");
+    expect(host.textContent).toContain("Recording Healthy");
+    expect(host.textContent).toContain("Episode");
+    expect(host.textContent).toContain("Markers");
   });
 
   it("toggles mic monitoring and plays the test sound", async () => {
@@ -125,6 +132,7 @@ describe("RecordingStudio", () => {
 
     click(host, "Funny");
     expect(onPodcastToolsChange).toHaveBeenLastCalledWith(expect.objectContaining({ markers: [expect.objectContaining({ label: "Funny" })] }));
+    expect(host.textContent).toContain("Funny moment saved.");
 
     const teleprompter = host.querySelector('textarea[aria-label="Teleprompter"]') as HTMLTextAreaElement;
     act(() => {
@@ -137,13 +145,50 @@ describe("RecordingStudio", () => {
     ]);
   });
 
+  it("makes mixer channel controls tactile and local", () => {
+    const { host } = renderStudio();
+
+    click(host, "Mute");
+    expect(host.textContent).toContain("Muted");
+
+    const gain = host.querySelector('input[aria-label="Morgan Mic gain"]') as HTMLInputElement;
+    expect(gain).toBeTruthy();
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      valueSetter?.call(gain, "42");
+      gain.dispatchEvent(new InputEvent("input", { bubbles: true, data: "42", inputType: "insertText" }));
+    });
+    expect(gain.value).toBe("42");
+  });
+
+  it("shows note autosave confidence and teleprompter focus controls", () => {
+    const { host } = renderStudio();
+
+    expect(host.textContent).toContain("Saved");
+
+    const notes = host.querySelector('textarea:not([aria-label="Teleprompter"])') as HTMLTextAreaElement;
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+      valueSetter?.call(notes, "Keep intro tight");
+      notes.dispatchEvent(new InputEvent("input", { bubbles: true, data: "Keep intro tight", inputType: "insertText" }));
+    });
+    expect(host.textContent).toContain("Saving...");
+
+    click(host, "Focus");
+    expect((host.querySelector('textarea[aria-label="Teleprompter"]') as HTMLTextAreaElement).className).toContain("focus-mode");
+
+    click(host, "Hide");
+    expect(host.querySelector('textarea[aria-label="Teleprompter"]')).toBeNull();
+    expect(host.textContent).toContain("Show");
+  });
+
   it("shows truthful setup states for empty soundboard, Auto Edit, and Export", () => {
     const onAutoEdit = vi.fn();
     const onExport = vi.fn();
     const { host } = renderStudio({ onAutoEdit, onExport });
 
     click(host, "Intro");
-    expect(host.textContent).toContain("Add a sound first");
+    expect(host.textContent).toContain("Add a sound");
 
     click(host, "Auto Edit");
     click(host, "Export");

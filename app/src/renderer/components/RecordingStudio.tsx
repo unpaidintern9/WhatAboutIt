@@ -3,9 +3,11 @@ import type { ButtonHTMLAttributes, ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowRight,
+  Battery,
   Camera,
   CheckCircle2,
   Circle,
+  Cable,
   Download,
   FileText,
   Gauge,
@@ -16,8 +18,10 @@ import {
   Radio,
   Save,
   Settings,
+  SlidersHorizontal,
   Sparkles,
   Square,
+  VolumeX,
   Volume2
 } from "lucide-react";
 import type { DeviceDefaults } from "../../shared/types";
@@ -54,6 +58,7 @@ interface RecordingStudioProps {
 type CameraKey = keyof DeviceDefaults["cameras"];
 type MicKey = keyof DeviceDefaults["microphones"];
 type StudioNoticeTone = "ready" | "needs-attention" | "recording";
+type MixerChannelState = Record<string, { gain: number; muted: boolean; solo: boolean; monitor: boolean }>;
 
 const cameraSlots: Array<{ key: CameraKey; label: string }> = [
   { key: "camera1", label: "Camera 1" },
@@ -96,9 +101,25 @@ export function RecordingStudio({
     message: "Use headphones so the mic doesn't echo."
   });
   const [playingSlotId, setPlayingSlotId] = useState<string | undefined>();
+  const [markerNotice, setMarkerNotice] = useState<string | undefined>();
+  const [notesSavedAt, setNotesSavedAt] = useState<string>("Saved");
+  const [teleprompterHidden, setTeleprompterHidden] = useState(false);
+  const [teleprompterFocus, setTeleprompterFocus] = useState(false);
+  const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
+    Object.fromEntries(micSlots.map((slot) => [slot.key, { gain: 75, muted: false, solo: false, monitor: slot.key === "morganMic" }]))
+  );
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const markerTimerRef = useRef<number | undefined>(undefined);
+  const notesTimerRef = useRef<number | undefined>(undefined);
   const warnAboutEcho = useCallback(() => {
     setStudioNotice({ tone: "needs-attention", message: "Use headphones so the mic doesn't echo." });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (markerTimerRef.current) window.clearTimeout(markerTimerRef.current);
+      if (notesTimerRef.current) window.clearTimeout(notesTimerRef.current);
+    };
   }, []);
 
   const isRecording = snapshot.status === "recording";
@@ -106,9 +127,20 @@ export function RecordingStudio({
   const isComplete = snapshot.status === "stopped";
   const hasMedia = Boolean(isComplete || snapshot.session);
   const savingLocation = snapshot.session?.folderPath ?? "Session folder appears after Record starts";
+  const cameraReadyCount = cameraSlots.filter((slot) => findDevice(detection.cameras, defaults.cameras[slot.key])).length;
+  const micReadyCount = ["morganMic", "guestMic", "extraMic"].filter((key) => findDevice(detection.microphones, defaults.microphones[key as MicKey])).length;
+  const storageReady = !storageWarning;
+  const recordingHealthy = !snapshot.friendlyError && snapshot.status !== "error";
 
   function patchTools(nextState: PodcastToolsState) {
     onPodcastToolsChange({ ...nextState, updatedAt: new Date().toISOString() });
+  }
+
+  function patchNotes(nextState: PodcastToolsState) {
+    setNotesSavedAt("Saving...");
+    patchTools(nextState);
+    if (notesTimerRef.current) window.clearTimeout(notesTimerRef.current);
+    notesTimerRef.current = window.setTimeout(() => setNotesSavedAt("Saved"), 700);
   }
 
   function selectLayout(layout: CameraLayout) {
@@ -130,6 +162,9 @@ export function RecordingStudio({
       markers: [marker, ...podcastTools.markers],
       practiceMode: { ...podcastTools.practiceMode, markerTried: true }
     });
+    setMarkerNotice(`${label} ${label.toLowerCase().includes("sponsor") ? "marker added" : "moment saved"}.`);
+    if (markerTimerRef.current) window.clearTimeout(markerTimerRef.current);
+    markerTimerRef.current = window.setTimeout(() => setMarkerNotice(undefined), 2400);
   }
 
   async function playTestSound() {
@@ -167,6 +202,13 @@ export function RecordingStudio({
 
   function setOutput(deviceId: string) {
     onDefaultsChange({ ...defaults, audioOutputId: deviceId || undefined });
+  }
+
+  function patchMixerChannel(key: string, nextState: Partial<MixerChannelState[string]>) {
+    setMixerChannels((current) => ({
+      ...current,
+      [key]: { ...(current[key] ?? { gain: 75, muted: false, solo: false, monitor: false }), ...nextState }
+    }));
   }
 
   function goAutoEdit() {
@@ -229,6 +271,13 @@ export function RecordingStudio({
           </div>
         )}
 
+        <ReadinessStrip
+          cameraReadyCount={cameraReadyCount}
+          micReadyCount={micReadyCount}
+          storageReady={storageReady}
+          recordingHealthy={recordingHealthy}
+        />
+
         <section className="camera-strip" aria-label="Camera previews">
           {cameraSlots.map((slot) => (
             <CameraCard
@@ -236,6 +285,7 @@ export function RecordingStudio({
               label={slot.label}
               device={findDevice(detection.cameras, defaults.cameras[slot.key])}
               deviceId={defaults.cameras[slot.key]}
+              isRecording={isRecording}
               onConfigure={() =>
                 setStudioNotice({
                   tone: "ready",
@@ -287,15 +337,18 @@ export function RecordingStudio({
               {micSlots.map((slot) => {
                 const deviceId = slot.key === "soundboard" || slot.key === "music" ? undefined : defaults.microphones[slot.key];
                 const label = slot.key === "soundboard" && playingSlotId ? "We hear you" : slot.key === "music" ? "Add music first" : undefined;
+                const controls = mixerChannels[slot.key] ?? { gain: 75, muted: false, solo: false, monitor: false };
                 return (
                   <LiveMicMeter
                     key={slot.key}
                     label={slot.label}
                     deviceId={deviceId}
-                    monitoring={monitorOn && slot.key === "morganMic"}
+                    controls={controls}
+                    monitoring={monitorOn && controls.monitor}
                     outputDeviceId={defaults.audioOutputId}
                     fallbackLevel={slot.key === "soundboard" && playingSlotId ? 72 : 0}
                     fallbackLabel={label}
+                    onControlsChange={(nextState) => patchMixerChannel(slot.key, nextState)}
                     onEchoWarning={warnAboutEcho}
                     onOpenMicrophoneStream={onOpenMicrophoneStream}
                   />
@@ -309,7 +362,8 @@ export function RecordingStudio({
               {[podcastTools.soundboard.intro, podcastTools.soundboard.outro, ...podcastTools.soundboard.customSlots].map((slot) => (
                 <button className={playingSlotId === slot.id ? "playing" : ""} type="button" onClick={() => void toggleSound(slot)} key={slot.id}>
                   <strong>{slot.label}</strong>
-                  <span>{slot.filePath ? "Local file ready" : "Add a sound first"}</span>
+                  <span>{slot.filePath ? "Local sound ready" : "Add a sound"}</span>
+                  <i className="sound-wave" aria-hidden="true"><b /><b /><b /><b /><b /></i>
                   <small>{playingSlotId === slot.id ? "Stop" : "Play"}</small>
                 </button>
               ))}
@@ -338,6 +392,7 @@ export function RecordingStudio({
                 <RusticButton onClick={() => mark(marker.label)} key={marker.label}>{marker.label}</RusticButton>
               ))}
             </div>
+            {markerNotice && <p className="marker-toast live" aria-live="polite">{markerNotice}</p>}
             <div className="marker-list live">
               {podcastTools.markers.length === 0 ? (
                 <p>No moments marked yet.</p>
@@ -352,17 +407,19 @@ export function RecordingStudio({
           <VintagePanel title="Episode Notes" icon={<FileText size={20} />} className="notes-panel">
             <NoteBox
               label="Episode notes"
+              savedState={notesSavedAt}
               value={podcastTools.guestNotes.talkingPoints}
-              onChange={(value) => patchTools({ ...podcastTools, guestNotes: { ...podcastTools.guestNotes, talkingPoints: value } })}
+              onChange={(value) => patchNotes({ ...podcastTools, guestNotes: { ...podcastTools.guestNotes, talkingPoints: value } })}
             />
           </VintagePanel>
 
           <VintagePanel title="Guest Notes" icon={<FileText size={20} />} className="guest-panel">
             <NoteBox
               label="Guest notes"
+              savedState={notesSavedAt}
               value={podcastTools.guestNotes.questions}
               onChange={(value) =>
-                patchTools({
+                patchNotes({
                   ...podcastTools,
                   guestNotes: { ...podcastTools.guestNotes, questions: value },
                   practiceMode: { ...podcastTools.practiceMode, notesTried: true }
@@ -372,18 +429,30 @@ export function RecordingStudio({
           </VintagePanel>
 
           <VintagePanel title="Teleprompter" icon={<FileText size={20} />} className="teleprompter-panel">
-            <textarea
-              aria-label="Teleprompter"
-              value={podcastTools.teleprompter.script}
-              onChange={(event) =>
-                patchTools({
-                  ...podcastTools,
-                  teleprompter: { ...podcastTools.teleprompter, script: event.target.value },
-                  practiceMode: { ...podcastTools.practiceMode, teleprompterTried: true }
-                })
-              }
-              placeholder="Drop Morgan's script here."
-            />
+            <div className="teleprompter-actions">
+              <RusticButton className={teleprompterFocus ? "selected" : ""} onClick={() => setTeleprompterFocus((current) => !current)}>
+                Focus
+              </RusticButton>
+              <RusticButton onClick={() => setTeleprompterHidden((current) => !current)}>
+                {teleprompterHidden ? "Show" : "Hide"}
+              </RusticButton>
+              <span>{podcastTools.teleprompter.isScrolling ? "Scrolling" : "Ready"}</span>
+            </div>
+            {!teleprompterHidden && (
+              <textarea
+                className={teleprompterFocus ? "focus-mode" : ""}
+                aria-label="Teleprompter"
+                value={podcastTools.teleprompter.script}
+                onChange={(event) =>
+                  patchTools({
+                    ...podcastTools,
+                    teleprompter: { ...podcastTools.teleprompter, script: event.target.value },
+                    practiceMode: { ...podcastTools.practiceMode, teleprompterTried: true }
+                  })
+                }
+                placeholder="Drop Morgan's script here."
+              />
+            )}
           </VintagePanel>
         </section>
 
@@ -410,7 +479,7 @@ export function RecordingStudio({
 
         <div className="local-save-note live">
           <Save size={20} />
-          <span>{isRecording ? "Everything is saving safely" : snapshot.localSaveMessage}. Saving location: {savingLocation}</span>
+          <span>{isRecording ? "Recording. Saving. Auto Save on." : snapshot.localSaveMessage}. Saving location: {savingLocation}</span>
         </div>
 
         {isComplete && (
@@ -423,6 +492,15 @@ export function RecordingStudio({
             <Button variant="primary" icon={<ArrowRight size={20} />} onClick={onNext}>Review Episode</Button>
           </RippedPaperCard>
         )}
+
+        <StudioFooter
+          episodeTitle={snapshot.session?.episodeTitle ?? podcastTools.episodeId ?? "Episode waiting"}
+          layout={podcastTools.cameraLayout}
+          markerCount={podcastTools.markers.length}
+          durationMs={snapshot.elapsedMs}
+          exportReady={hasMedia}
+          autoEditReady={hasMedia}
+        />
       </main>
     </section>
   );
@@ -432,38 +510,81 @@ function findDevice(devices: StudioDevice[], deviceId?: string) {
   return devices.find((device) => device.id === deviceId);
 }
 
+function ReadinessStrip({
+  cameraReadyCount,
+  micReadyCount,
+  storageReady,
+  recordingHealthy
+}: {
+  cameraReadyCount: number;
+  micReadyCount: number;
+  storageReady: boolean;
+  recordingHealthy: boolean;
+}) {
+  const items = [
+    { label: cameraReadyCount > 0 ? "Cameras Ready" : "Cameras Need Attention", ready: cameraReadyCount > 0 },
+    { label: micReadyCount > 0 ? "Microphones Ready" : "Microphones Need Attention", ready: micReadyCount > 0 },
+    { label: storageReady ? "Storage Available" : "Storage Needs Attention", ready: storageReady },
+    { label: recordingHealthy ? "Recording Healthy" : "Recording Needs Attention", ready: recordingHealthy }
+  ];
+
+  return (
+    <section className="studio-readiness-strip" aria-label="Studio readiness">
+      {items.map((item) => (
+        <span className={item.ready ? "ready" : "needs-attention"} key={item.label}>
+          {item.ready ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+          {item.label}
+        </span>
+      ))}
+    </section>
+  );
+}
+
 function CameraCard({
   label,
   device,
   deviceId,
+  isRecording,
   onConfigure,
   onOpenCameraPreview
 }: {
   label: string;
   device?: StudioDevice;
   deviceId?: string;
+  isRecording: boolean;
   onConfigure: () => void;
   onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
 }) {
   const [previewState, setPreviewState] = useState<"starting" | "live" | "needs-attention">("starting");
   const status = previewState === "live" ? "Live" : device ? "Ready" : deviceId ? "Needs Attention" : "Not Connected";
   const cardState = previewState === "live" ? "live" : device || deviceId ? "needs-attention" : "not-connected";
-  const detail = device?.camera ? `${device.camera.maxResolution ?? "Auto"} / ${device.camera.maxFps ?? 30} fps` : "Pick this camera in Studio Setup";
+  const resolution = device?.camera?.maxResolution ?? "Auto";
+  const fps = device?.camera?.maxFps ?? 30;
+  const connection = device?.camera?.connectionType ?? "unknown";
+  const battery = device?.camera?.batteryPercent;
 
   return (
     <RippedPaperCard className={`camera-live-card ${cardState}`}>
       <div className="camera-live-top">
         <div>
           <h3>{label}</h3>
-          <span>{status}</span>
+          <span className={previewState === "live" ? "live-badge" : ""}>{status}</span>
         </div>
         <button type="button" aria-label={`${label} advanced settings`} title="Advanced settings" onClick={onConfigure}>
           <Settings size={18} />
         </button>
       </div>
       <CameraFeed label={label} deviceId={deviceId} onOpenCameraPreview={onOpenCameraPreview} onPreviewState={setPreviewState} />
-      <p>{device?.label ?? "Camera needs attention"}</p>
-      <small>{detail}</small>
+      <div className="camera-identity-row">
+        <p>{device?.label ?? "Camera needs attention"}</p>
+        <span className={`recording-dot ${isRecording && previewState === "live" ? "on" : ""}`}>{isRecording && previewState === "live" ? "Recording" : "Standby"}</span>
+      </div>
+      <div className="camera-meta-grid">
+        <small><Cable size={14} /> {connection}</small>
+        <small>{resolution}</small>
+        <small>{fps} fps</small>
+        <small><Battery size={14} /> {battery === undefined ? "Power OK" : `${battery}%`}</small>
+      </div>
     </RippedPaperCard>
   );
 }
@@ -534,19 +655,23 @@ function CameraFeed({
 function LiveMicMeter({
   label,
   deviceId,
+  controls,
   monitoring,
   outputDeviceId,
   fallbackLevel,
   fallbackLabel,
+  onControlsChange,
   onEchoWarning,
   onOpenMicrophoneStream
 }: {
   label: string;
   deviceId?: string;
+  controls: { gain: number; muted: boolean; solo: boolean; monitor: boolean };
   monitoring: boolean;
   outputDeviceId?: string;
   fallbackLevel?: number;
   fallbackLabel?: string;
+  onControlsChange: (nextState: Partial<{ gain: number; muted: boolean; solo: boolean; monitor: boolean }>) => void;
   onEchoWarning: () => void;
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
 }) {
@@ -587,7 +712,7 @@ function LiveMicMeter({
           if (canceled) return;
           analyser.getByteTimeDomainData(samples);
           const volume = samples.reduce((total, sample) => total + Math.abs(sample - 128), 0) / Math.max(samples.length, 1);
-          const nextLevel = Math.min(100, Math.round(volume * 4));
+          const nextLevel = controls.muted ? 0 : Math.min(100, Math.round(volume * 4 * (controls.gain / 75)));
           setLevel(nextLevel);
           setHeard(nextLevel > 8);
           frame = window.requestAnimationFrame(tick);
@@ -608,28 +733,81 @@ function LiveMicMeter({
       stream?.getTracks().forEach((track) => track.stop());
       void audioContext?.close();
     };
-  }, [deviceId, fallbackLevel, monitoring, onEchoWarning, onOpenMicrophoneStream, outputDeviceId]);
+  }, [controls.gain, controls.muted, deviceId, fallbackLevel, monitoring, onEchoWarning, onOpenMicrophoneStream, outputDeviceId]);
 
-  const copy = fallbackLabel ?? (heard ? "We hear you" : "We can't hear you yet");
+  const visibleLevel = controls.muted ? 0 : level;
+  const copy = controls.muted ? "Muted" : fallbackLabel ?? (heard ? "Healthy" : "Quiet");
 
   return (
-    <article className={`live-meter-card ${heard ? "heard" : "quiet"}`}>
-      <div>
+    <article className={`live-meter-card ${heard && !controls.muted ? "heard" : "quiet"}`}>
+      <div className="channel-topline">
         <strong>{label}</strong>
         <span>{copy}</span>
       </div>
-      <DistressedMeter level={level} label={label} />
+      <DistressedMeter level={visibleLevel} label={label} />
+      <div className="channel-console">
+        <label>
+          Gain
+          <input
+            aria-label={`${label} gain`}
+            type="range"
+            min="0"
+            max="100"
+            value={controls.gain}
+            onChange={(event) => onControlsChange({ gain: Number(event.target.value) })}
+          />
+        </label>
+        <div className="channel-buttons">
+          <button className={controls.muted ? "selected" : ""} type="button" onClick={() => onControlsChange({ muted: !controls.muted })}>
+            <VolumeX size={14} /> Mute
+          </button>
+          <button className={controls.solo ? "selected" : ""} type="button" onClick={() => onControlsChange({ solo: !controls.solo })}>
+            <SlidersHorizontal size={14} /> Solo
+          </button>
+          <button className={controls.monitor ? "selected" : ""} type="button" onClick={() => onControlsChange({ monitor: !controls.monitor })}>
+            <Headphones size={14} /> Monitor
+          </button>
+        </div>
+        <small className={visibleLevel > 82 ? "peak hot" : "peak"}>Peak {visibleLevel}%</small>
+      </div>
       <audio ref={audioRef} muted={!monitoring} />
     </article>
   );
 }
 
-function NoteBox({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function NoteBox({ label, value, savedState, onChange }: { label: string; value: string; savedState: string; onChange: (value: string) => void }) {
   return (
     <label>
-      {label}
+      <span className="note-label-row">{label}<small>{savedState}</small></span>
       <textarea value={value} onChange={(event) => onChange(event.target.value)} />
     </label>
+  );
+}
+
+function StudioFooter({
+  episodeTitle,
+  layout,
+  markerCount,
+  durationMs,
+  exportReady,
+  autoEditReady
+}: {
+  episodeTitle: string;
+  layout: CameraLayout;
+  markerCount: number;
+  durationMs: number;
+  exportReady: boolean;
+  autoEditReady: boolean;
+}) {
+  return (
+    <footer className="studio-command-footer" aria-label="Studio command footer">
+      <span><strong>Episode</strong>{episodeTitle}</span>
+      <span><strong>Layout</strong>{layout}</span>
+      <span><strong>Markers</strong>{markerCount}</span>
+      <span><strong>Duration</strong>{formatRecordingTime(durationMs)}</span>
+      <span><strong>Export</strong>{exportReady ? "Ready" : "Waiting"}</span>
+      <span><strong>Auto Edit</strong>{autoEditReady ? "Ready" : "Waiting"}</span>
+    </footer>
   );
 }
 
