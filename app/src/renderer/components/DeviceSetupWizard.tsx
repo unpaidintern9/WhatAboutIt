@@ -40,6 +40,14 @@ const microphoneSlots = [
   { key: "extraMic", label: "Extra Mic" }
 ] as const;
 
+function setupDebugEnabled() {
+  try {
+    return window.localStorage.getItem("waiDeviceDebug") === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function DeviceSetupWizard({
   detection,
   defaults,
@@ -55,6 +63,18 @@ export function DeviceSetupWizard({
   onOpenMicrophoneStream
 }: DeviceSetupWizardProps) {
   const readyState = getDeviceReadiness(detection, defaults);
+
+  useEffect(() => {
+    if (!setupDebugEnabled()) return;
+    console.info("[DeviceDiscovery] Studio Setup received options", {
+      permissionNeeded: detection.permissionNeeded,
+      cameras: detection.cameras.map((camera) => ({ id: camera.id ? "present" : "missing", label: camera.label })),
+      microphones: detection.microphones.map((microphone) => ({ id: microphone.id ? "present" : "missing", label: microphone.label })),
+      speakers: detection.speakers.map((speaker) => ({ id: speaker.id ? "present" : "missing", label: speaker.label })),
+      selectedCameras: defaults.cameras,
+      selectedMicrophones: defaults.microphones
+    });
+  }, [defaults, detection]);
 
   return (
     <section className="device-wizard">

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, session } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
@@ -140,6 +140,10 @@ async function saveSettings(settings: StudioSettings) {
 app.whenReady().then(async () => {
   await ensureBaseFolders();
   await logger.info("App", "What About It Studio launched.");
+
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(permission === "media");
+  });
 
   ipcMain.handle("episodes:list", listEpisodes);
   ipcMain.handle("episodes:create", (_event, input) => createEpisode(input));

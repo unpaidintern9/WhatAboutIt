@@ -99,3 +99,12 @@ The project now has two partial real media integrations: offline FFmpeg export r
 - Studio Setup built-app smoke remained blocked: camera dropdowns did not populate after `Check again`, so Sony setup live preview was not validated.
 - Navigation is simplified to primary Studio, Setup, Record, Review, Export routes with secondary tools lower in the sidebar.
 - Sidebar collapsed state is saved in settings and covered by automated tests.
+
+## Phase 9C Built-App Camera Discovery Addendum
+
+- Built Electron renderer diagnostics confirmed `navigator.mediaDevices.enumerateDevices()` returned `Sony Camera (Imaging Edge)` and `Integrated Camera (13d3:540a)`.
+- The main process now grants local `media` permission requests so built-app camera/mic discovery matches the validated recording path.
+- The active device plugin now merges camera provider registry discovery into Studio Setup detection.
+- Studio Setup dropdowns populated with Sony and Integrated cameras for Camera 1, Camera 2, and Camera 3.
+- Selecting `Sony Camera (Imaging Edge)` in Camera 1 started a live setup preview and reached `Live`.
+- Microphone dropdowns still populated with Realtek microphone options.

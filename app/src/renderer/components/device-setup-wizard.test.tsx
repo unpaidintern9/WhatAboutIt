@@ -56,6 +56,65 @@ describe("DeviceSetupWizard", () => {
     expect(markup).not.toContain("backend provider");
   });
 
+  it("keeps available cameras visible when a saved camera is missing", () => {
+    const markup = renderToStaticMarkup(
+      <DeviceSetupWizard
+        {...baseProps}
+        defaults={{ cameras: { camera1: "missing-camera" }, microphones: {} }}
+        detection={{
+          cameras: [{ id: "sony-camera", label: "Sony Camera (Imaging Edge)", kind: "camera" }],
+          microphones: [],
+          speakers: [],
+          permissionNeeded: false
+        }}
+      />
+    );
+
+    expect(markup).toContain("Sony Camera (Imaging Edge)");
+    expect(markup).toContain("Needs attention");
+    expect(markup).toContain("Use This Camera");
+  });
+
+  it("renders unlabeled camera fallback options before permission", () => {
+    const markup = renderToStaticMarkup(
+      <DeviceSetupWizard
+        {...baseProps}
+        detection={{
+          cameras: [{ id: "hidden-camera", label: "Camera 1", kind: "camera" }],
+          microphones: [],
+          speakers: [],
+          permissionNeeded: true
+        }}
+      />
+    );
+
+    expect(markup).toContain("Camera 1");
+    expect(markup).toContain("Let the studio look and listen");
+  });
+
+  it("renders refreshed camera options from updated detection", () => {
+    const before = renderToStaticMarkup(
+      <DeviceSetupWizard
+        {...baseProps}
+        detection={{ cameras: [], microphones: [], speakers: [], permissionNeeded: false }}
+      />
+    );
+    const after = renderToStaticMarkup(
+      <DeviceSetupWizard
+        {...baseProps}
+        detection={{
+          cameras: [{ id: "integrated-camera", label: "Integrated Camera", kind: "camera" }],
+          microphones: [],
+          speakers: [],
+          permissionNeeded: false
+        }}
+      />
+    );
+
+    expect(before).toContain("No camera found");
+    expect(after).toContain("Integrated Camera");
+  });
+
   it("shows ready status for a selected camera", () => {
     const markup = renderToStaticMarkup(
       <DeviceSetupWizard

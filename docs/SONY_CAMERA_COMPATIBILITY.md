@@ -2,7 +2,7 @@
 
 Phase: 7C Sony Multi-Camera + Wireless Video Validation, updated in Phase 9B
 
-Status: Sony Imaging Edge camera is detected by Windows and Electron; Studio Setup live preview is not fully validated.
+Status: Sony Imaging Edge camera is detected by Windows, Electron, and Studio Setup; built-app live preview passed in Phase 9C.
 
 ## Phase 9B Update
 
@@ -17,7 +17,7 @@ Electron enumeration detected:
 
 Sony Remote and Imaging Edge Desktop were running during the audit. If the app reports that the Sony camera is busy, close those Sony apps and refresh cameras.
 
-The built What About It Studio smoke did not populate Studio Setup camera dropdowns after refresh, so Sony live preview from the setup card is still blocked. Do not claim Studio Setup Sony preview support until that pass succeeds.
+The Phase 9C built What About It Studio smoke populated Studio Setup camera dropdowns with Sony and Integrated cameras. Selecting `Sony Camera (Imaging Edge)` in Camera 1 started live preview and reached `Live`.
 
 ## Detection Result
 

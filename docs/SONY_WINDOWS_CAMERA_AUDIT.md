@@ -4,7 +4,7 @@ Phase: 9B Sony Live Preview + Simplify Studio Flow
 
 Date: 2026-06-28
 
-Status: Windows and Electron can see the Sony camera; Studio Setup live preview is not fully validated.
+Status: Windows, Electron, and Studio Setup can see the Sony camera; built-app live preview validated in Phase 9C.
 
 ## Installed Sony Software
 
@@ -36,10 +36,22 @@ Electron media enumeration with Sony software still running reported:
 - Audio input: `Microphone (Realtek(R) Audio)`
 - Audio output: `Speakers (Realtek(R) Audio)`
 
+## Phase 9C Built-App Evidence
+
+Built Electron renderer diagnostics reported:
+
+- `Sony Camera (Imaging Edge)`
+- `Integrated Camera (13d3:540a)`
+- `Default - Microphone (Realtek(R) Audio)`
+- `Microphone (Realtek(R) Audio)`
+- `Speakers (Realtek(R) Audio)`
+
+Studio Setup camera dropdowns populated with both `Sony Camera (Imaging Edge)` and `Integrated Camera (13d3:540a)` for Camera 1, Camera 2, and Camera 3. Selecting `Sony Camera (Imaging Edge)` in Camera 1 started a live preview and the card reached `Live`.
+
 ## Conclusions
 
 - Sony Imaging Edge exposes the camera as a normal Windows camera device.
 - Bluetooth is not a video source and was not treated as one.
 - No separate Sony wireless video device was detected.
 - No multiple Sony cameras were detected.
-- Studio Setup still needs a follow-up pass because the built app did not populate the camera list during the Phase 9B smoke.
+- Studio Setup built-app dropdown population and Sony live preview passed in Phase 9C.

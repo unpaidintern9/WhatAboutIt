@@ -2,7 +2,7 @@
 
 Phase: 9B Sony Live Preview + Simplify Studio Flow
 
-Status: implemented with truthful states; Sony live preview not fully validated in built-app smoke.
+Status: implemented and validated in built-app Phase 9C smoke.
 
 ## Behavior
 
@@ -18,6 +18,12 @@ Status: implemented with truthful states; Sony live preview not fully validated 
 - Camera and microphone permission requests are attempted independently so one busy device does not hide the other device list.
 - The Studio Ready banner now requires the selected camera and microphone to be present in current detection, not only saved in settings.
 
-## Current Limitation
+## Phase 9C Fixes
 
-During the compiled Electron smoke on 2026-06-28, Studio Setup continued to show empty camera cards after `Check again`. The operating system and a separate Electron enumeration pass detected `Sony Camera (Imaging Edge)` and `Integrated Camera`, so the remaining issue is specific to the app setup refresh/runtime path.
+- The main Electron process now grants only local media permission requests for the app.
+- The active device plugin merges camera provider registry output into Studio Setup detection.
+- Device discovery diagnostics can be enabled locally with `localStorage.waiDeviceDebug = "1"`.
+
+## Phase 9C Built-App Result
+
+The compiled Electron app showed `Sony Camera (Imaging Edge)` and `Integrated Camera (13d3:540a)` in Studio Setup camera dropdowns. Selecting Sony in Camera 1 started live preview and the preview class reached `setup-live-preview live`.
