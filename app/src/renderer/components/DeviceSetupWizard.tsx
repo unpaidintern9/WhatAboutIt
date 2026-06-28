@@ -1,4 +1,4 @@
-import { AlertTriangle, Camera, CheckCircle2, Headphones, HelpCircle, Mic2, RotateCcw, Search, Settings, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Headphones, HelpCircle, Mic2, RotateCcw, Search, Settings, ShieldCheck, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DeviceDefaults } from "../../shared/types";
 import { saveCameraSlot, saveMicrophoneSlot } from "../../shared/device-config";
@@ -19,6 +19,7 @@ interface DeviceSetupWizardProps {
   onPlayTestSound: () => void;
   onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
+  onGoRecord: () => void;
 }
 
 const steps = [
@@ -60,9 +61,18 @@ export function DeviceSetupWizard({
   onTestMicrophone,
   onPlayTestSound,
   onOpenCameraPreview,
-  onOpenMicrophoneStream
+  onOpenMicrophoneStream,
+  onGoRecord
 }: DeviceSetupWizardProps) {
   const readyState = getDeviceReadiness(detection, defaults);
+  const setupItems = [
+    { label: "Pick Camera 1", ready: Boolean(defaults.cameras.camera1) },
+    { label: "Pick Camera 2", ready: Boolean(defaults.cameras.camera2) },
+    { label: "Pick Camera 3", ready: Boolean(defaults.cameras.camera3) },
+    { label: "Pick Morgan Mic", ready: Boolean(defaults.microphones.morganMic) },
+    { label: "Test Mic", ready: microphoneLevel > 0 },
+    { label: "Go Record", ready: readyState === "ready" }
+  ];
 
   useEffect(() => {
     if (!setupDebugEnabled()) return;
@@ -109,6 +119,15 @@ export function DeviceSetupWizard({
           );
         })}
       </nav>
+
+      <section className="setup-guide-card" aria-label="Studio Setup guide">
+        {setupItems.map((item) => (
+          <span className={item.ready ? "ready" : ""} key={item.label}>
+            {item.ready ? <CheckCircle2 size={16} /> : <CircleMarker />}
+            {item.label}
+          </span>
+        ))}
+      </section>
 
       {currentStep === 0 && (
         <div className="wizard-panel">
@@ -199,8 +218,16 @@ export function DeviceSetupWizard({
           </div>
         </div>
       )}
+
+      <footer className="setup-next-action">
+        <Button variant="primary" icon={<ArrowRight size={20} />} onClick={onGoRecord}>Go to Record</Button>
+      </footer>
     </section>
   );
+}
+
+function CircleMarker() {
+  return <span className="setup-step-dot" aria-hidden="true" />;
 }
 
 function WizardHeading({ title, message }: { title: string; message: string }) {
@@ -476,18 +503,18 @@ function getPreviewErrorState(error: unknown): "needs-attention" | "busy" | "per
 
 function getPreviewStatusCopy(status: "idle" | "starting" | "live" | "ready" | "needs-attention" | "busy" | "permission") {
   if (status === "starting") return "Starting live preview";
-  if (status === "busy") return "Used by another app";
-  if (status === "permission") return "Permission needed";
+  if (status === "busy") return "Camera is being used by another app";
+  if (status === "permission") return "We need permission";
   if (status === "needs-attention") return "Needs Attention";
   if (status === "ready") return "Released";
   return "Pick a camera";
 }
 
 function getCameraCardSubcopy(device: StudioDevice | undefined, previewStatus: "idle" | "starting" | "live" | "ready" | "needs-attention" | "busy" | "permission", label: string) {
-  if (!device) return "Pick a camera when you are ready";
+  if (!device) return "Pick a camera first";
   if (previewStatus === "live") return `${label} is showing live`;
-  if (previewStatus === "busy") return "Close other camera apps, then refresh.";
-  if (previewStatus === "permission") return "Allow camera access, then refresh.";
+  if (previewStatus === "busy") return "Camera is being used by another app. Close the other app, then refresh.";
+  if (previewStatus === "permission") return "We need permission before this camera can go live.";
   if (previewStatus === "ready") return `${label} is released`;
   return `${label} is ready`;
 }

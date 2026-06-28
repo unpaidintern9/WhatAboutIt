@@ -786,6 +786,7 @@ export default function App() {
               onPlayTestSound={() => void playTestSound()}
               onOpenCameraPreview={openCameraPreview}
               onOpenMicrophoneStream={openMicrophoneStream}
+              onGoRecord={() => setView("recording")}
             />
           </div>
         )}

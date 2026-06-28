@@ -104,6 +104,7 @@ export function RecordingStudio({
   const [notesSavedAt, setNotesSavedAt] = useState<string>("Saved");
   const [teleprompterHidden, setTeleprompterHidden] = useState(false);
   const [teleprompterFocus, setTeleprompterFocus] = useState(false);
+  const [toolsOpen, setToolsOpen] = useState(false);
   const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
     Object.fromEntries(micSlots.map((slot) => [slot.key, { gain: 75, muted: false, solo: false, monitor: slot.key === "morganMic" }]))
   );
@@ -130,6 +131,7 @@ export function RecordingStudio({
   const micReadyCount = ["morganMic", "guestMic", "extraMic"].filter((key) => findDevice(detection.microphones, defaults.microphones[key as MicKey])).length;
   const storageReady = !storageWarning;
   const recordingHealthy = !snapshot.friendlyError && snapshot.status !== "error";
+  const studioReady = cameraReadyCount > 0 && micReadyCount > 0 && storageReady && recordingHealthy;
 
   function patchTools(nextState: PodcastToolsState) {
     onPodcastToolsChange({ ...nextState, updatedAt: new Date().toISOString() });
@@ -281,8 +283,9 @@ export function RecordingStudio({
           <VintagePanel title="Microphone Mixer" icon={<Mic2 size={20} />} className="mixer-panel">
             <div className="monitor-row">
               <RusticButton className={monitorOn ? "selected" : ""} onClick={() => setMonitorOn((current) => !current)}>
-                <Headphones size={16} /> {monitorOn ? "Monitor On" : "Monitor Off"}
+                <Headphones size={16} /> Hear My Mic <strong>{monitorOn ? "On" : "Off"}</strong>
               </RusticButton>
+              <span className="headphone-warning">Use headphones to hear yourself safely.</span>
               <RusticButton onClick={() => void playTestSound()}>
                 <Volume2 size={16} /> Play Test Sound
               </RusticButton>
@@ -296,7 +299,7 @@ export function RecordingStudio({
                 </select>
               </label>
             </div>
-            <p className="studio-warning">Use headphones so the mic doesn't echo.</p>
+            <p className="studio-warning">Use headphones to hear yourself safely.</p>
             <div className="meter-list">
               {micSlots.map((slot) => {
                 const deviceId = slot.key === "soundboard" || slot.key === "music" ? undefined : defaults.microphones[slot.key];
@@ -329,6 +332,14 @@ export function RecordingStudio({
           recordingHealthy={recordingHealthy}
         />
 
+        <section className={`studio-ready-summary ${studioReady ? "ready" : "needs-attention"}`} aria-label="Studio Ready summary">
+          <strong>{studioReady ? "Studio Ready" : "Almost Ready"}</strong>
+          <span>{cameraReadyCount > 0 ? "Cameras ready" : "Pick a camera first"}</span>
+          <span>{micReadyCount > 0 ? "Mics ready" : "Pick Morgan Mic"}</span>
+          <span>{storageReady ? "Storage good" : "Storage needs attention"}</span>
+          <span>{studioReady ? "Ready to record" : "Check the items above"}</span>
+        </section>
+
         <section className="giant-control-row" aria-label="Recording controls">
           <StudioControlButton tone="record" disabled={isRecording || isPaused} onClick={() => void onStart()}>
             <Circle size={28} /> Record
@@ -350,7 +361,7 @@ export function RecordingStudio({
           </StudioControlButton>
         </section>
 
-        <section className="layout-row" aria-label="Camera layouts">
+        <section className="layout-row secondary-tools" aria-label="Camera layouts">
           {cameraLayouts.map((layout) => (
             <RusticButton
               className={podcastTools.cameraLayout === layout.id ? "selected" : ""}
@@ -366,8 +377,10 @@ export function RecordingStudio({
           </RusticButton>
         </section>
 
-        <section className="live-studio-grid" aria-label="Studio tools">
-          <VintagePanel title="Soundboard" icon={<Radio size={20} />} className="soundboard-panel">
+        <details className="secondary-studio-tools" open={toolsOpen} onToggle={(event) => setToolsOpen(event.currentTarget.open)}>
+          <summary>{toolsOpen ? "Hide studio tools" : "Show notes, markers, teleprompter, and soundboard"}</summary>
+          <section className="live-studio-grid" aria-label="Studio tools">
+            <VintagePanel title="Soundboard" icon={<Radio size={20} />} className="soundboard-panel">
             <div className="soundboard-grid live">
               {[podcastTools.soundboard.intro, podcastTools.soundboard.outro, ...podcastTools.soundboard.customSlots].map((slot) => (
                 <button className={playingSlotId === slot.id ? "playing" : ""} type="button" onClick={() => void toggleSound(slot)} key={slot.id}>
@@ -394,9 +407,9 @@ export function RecordingStudio({
                 }
               />
             </label>
-          </VintagePanel>
+            </VintagePanel>
 
-          <VintagePanel title="Markers" icon={<Sparkles size={20} />} className="markers-panel">
+            <VintagePanel title="Markers" icon={<Sparkles size={20} />} className="markers-panel">
             <div className="marker-button-grid live">
               {markerButtons.map((marker) => (
                 <RusticButton onClick={() => mark(marker.label)} key={marker.label}>{marker.label}</RusticButton>
@@ -412,18 +425,18 @@ export function RecordingStudio({
                 ))
               )}
             </div>
-          </VintagePanel>
+            </VintagePanel>
 
-          <VintagePanel title="Episode Notes" icon={<FileText size={20} />} className="notes-panel">
+            <VintagePanel title="Episode Notes" icon={<FileText size={20} />} className="notes-panel">
             <NoteBox
               label="Episode notes"
               savedState={notesSavedAt}
               value={podcastTools.guestNotes.talkingPoints}
               onChange={(value) => patchNotes({ ...podcastTools, guestNotes: { ...podcastTools.guestNotes, talkingPoints: value } })}
             />
-          </VintagePanel>
+            </VintagePanel>
 
-          <VintagePanel title="Guest Notes" icon={<FileText size={20} />} className="guest-panel">
+            <VintagePanel title="Guest Notes" icon={<FileText size={20} />} className="guest-panel">
             <NoteBox
               label="Guest notes"
               savedState={notesSavedAt}
@@ -436,9 +449,9 @@ export function RecordingStudio({
                 })
               }
             />
-          </VintagePanel>
+            </VintagePanel>
 
-          <VintagePanel title="Teleprompter" icon={<FileText size={20} />} className="teleprompter-panel">
+            <VintagePanel title="Teleprompter" icon={<FileText size={20} />} className="teleprompter-panel">
             <div className="teleprompter-actions">
               <RusticButton className={teleprompterFocus ? "selected" : ""} onClick={() => setTeleprompterFocus((current) => !current)}>
                 Focus
@@ -463,8 +476,9 @@ export function RecordingStudio({
                 placeholder="Drop Morgan's script here."
               />
             )}
-          </VintagePanel>
-        </section>
+            </VintagePanel>
+          </section>
+        </details>
 
         <div className="local-save-note live">
           <Save size={20} />
@@ -544,8 +558,12 @@ function CameraCard({
   onConfigure: () => void;
   onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
 }) {
-  const [previewState, setPreviewState] = useState<"starting" | "live" | "needs-attention">("starting");
-  const status = previewState === "live" ? "Live" : device ? "Ready" : deviceId ? "Needs Attention" : "Not Connected";
+  const [previewState, setPreviewState] = useState<"starting" | "live" | "needs-attention" | "busy" | "permission">("starting");
+  const status =
+    previewState === "live" ? "Live" :
+      previewState === "busy" ? "Camera is being used by another app" :
+        previewState === "permission" ? "We need permission" :
+          device ? "Ready" : deviceId ? "Needs Attention" : "Not Connected";
   const cardState = previewState === "live" ? "live" : device || deviceId ? "needs-attention" : "not-connected";
   const resolution = device?.camera?.maxResolution ?? "Auto";
   const fps = device?.camera?.maxFps ?? 30;
@@ -565,7 +583,7 @@ function CameraCard({
       </div>
       <CameraFeed label={label} deviceId={deviceId} onOpenCameraPreview={onOpenCameraPreview} onPreviewState={setPreviewState} />
       <div className="camera-identity-row">
-        <p>{device?.label ?? "Camera needs attention"}</p>
+        <p>{device?.label ?? "Pick a camera first"}</p>
         <span className={`recording-dot ${isRecording && previewState === "live" ? "on" : ""}`}>{isRecording && previewState === "live" ? "Recording" : "Standby"}</span>
       </div>
       <div className="camera-meta-grid">
@@ -587,10 +605,10 @@ function CameraFeed({
   label: string;
   deviceId?: string;
   onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
-  onPreviewState: (state: "starting" | "live" | "needs-attention") => void;
+  onPreviewState: (state: "starting" | "live" | "needs-attention" | "busy" | "permission") => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const [state, setState] = useState<"starting" | "live" | "needs-attention">("starting");
+  const [state, setState] = useState<"starting" | "live" | "needs-attention" | "busy" | "permission">("starting");
 
   useEffect(() => {
     let stream: MediaStream | undefined;
@@ -614,9 +632,10 @@ function CameraFeed({
         }
         setState("live");
         onPreviewState("live");
-      } catch {
-        setState("needs-attention");
-        onPreviewState("needs-attention");
+      } catch (error) {
+        const nextState = getLivePreviewIssue(error);
+        setState(nextState);
+        onPreviewState(nextState);
       }
     }
 
@@ -634,11 +653,26 @@ function CameraFeed({
       {state !== "live" && (
         <div>
           <Camera size={26} />
-          <strong>{state === "starting" ? "Starting preview" : "Needs Attention"}</strong>
+          <strong>{getLivePreviewCopy(state, deviceId)}</strong>
         </div>
       )}
     </div>
   );
+}
+
+function getLivePreviewIssue(error: unknown): "busy" | "permission" | "needs-attention" {
+  const message = String(error);
+  if (message.includes("NotAllowedError") || message.includes("Permission")) return "permission";
+  if (message.includes("NotReadableError") || message.includes("TrackStartError")) return "busy";
+  return "busy";
+}
+
+function getLivePreviewCopy(state: "starting" | "live" | "needs-attention" | "busy" | "permission", deviceId?: string) {
+  if (state === "starting") return "Starting preview";
+  if (!deviceId) return "Pick a camera first";
+  if (state === "permission") return "We need permission";
+  if (state === "busy") return "Camera is being used by another app";
+  return "Needs attention";
 }
 
 function LiveMicMeter({
@@ -725,7 +759,7 @@ function LiveMicMeter({
   }, [controls.gain, controls.muted, deviceId, fallbackLevel, monitoring, onEchoWarning, onOpenMicrophoneStream, outputDeviceId]);
 
   const visibleLevel = controls.muted ? 0 : level;
-  const copy = controls.muted ? "Muted" : fallbackLabel ?? (heard ? "Healthy" : "Quiet");
+  const copy = controls.muted ? "Muted" : fallbackLabel ?? (heard ? "Healthy" : "We can't hear you yet");
 
   return (
     <article className={`live-meter-card ${heard && !controls.muted ? "heard" : "quiet"}`}>
@@ -734,7 +768,8 @@ function LiveMicMeter({
         <span>{copy}</span>
       </div>
       <DistressedMeter level={visibleLevel} label={label} />
-      <div className="channel-console">
+      <details className="channel-console">
+        <summary>More</summary>
         <label>
           Gain
           <input
@@ -758,7 +793,7 @@ function LiveMicMeter({
           </button>
         </div>
         <small className={visibleLevel > 82 ? "peak hot" : "peak"}>Peak {visibleLevel}%</small>
-      </div>
+      </details>
       <audio ref={audioRef} muted={!monitoring} />
     </article>
   );

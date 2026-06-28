@@ -82,7 +82,7 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("1080p");
     expect(host.textContent).toContain("30 fps");
     expect(host.textContent).toContain("Morgan Mic");
-    expect(host.textContent).toContain("Quiet");
+    expect(host.textContent).toContain("We can't hear you yet");
     expect(host.textContent).toContain("Cameras Ready");
     expect(host.textContent).toContain("Microphones Ready");
     expect(host.textContent).toContain("Recording Healthy");
@@ -97,13 +97,15 @@ describe("RecordingStudio", () => {
     const audioDeck = host.querySelector(".live-audio-deck");
     const readiness = host.querySelector(".studio-readiness-strip");
     const controls = host.querySelector(".giant-control-row");
-    const tools = host.querySelector(".live-studio-grid");
+    const tools = host.querySelector(".secondary-studio-tools");
 
     expect(cameraStrip?.querySelectorAll(".camera-live-card")).toHaveLength(3);
     expect(audioDeck?.textContent).toContain("Morgan Mic");
     expect(readiness?.textContent).toContain("Cameras Ready");
     expect(controls?.textContent).toContain("Record");
     expect(controls?.textContent).toContain("Stop");
+    expect(host.textContent).toContain("Studio Ready");
+    expect(host.textContent).toContain("Ready to record");
 
     const stack = Array.from(board?.children ?? []);
     expect(stack.indexOf(cameraStrip as Element)).toBeLessThan(stack.indexOf(audioDeck as Element));
@@ -116,8 +118,12 @@ describe("RecordingStudio", () => {
     const onPlayTestSound = vi.fn(async () => undefined);
     const { host } = renderStudio({ onPlayTestSound });
 
-    click(host, "Monitor Off");
-    expect(host.textContent).toContain("Monitor On");
+    expect(host.textContent).toContain("Hear My Mic");
+    expect(host.textContent).toContain("Off");
+    expect(host.textContent).toContain("Use headphones to hear yourself safely");
+
+    click(host, "Hear My Mic");
+    expect(host.textContent).toContain("On");
 
     await act(async () => {
       click(host, "Play Test Sound");
@@ -217,6 +223,31 @@ describe("RecordingStudio", () => {
     expect(onAutoEdit).not.toHaveBeenCalled();
     expect(onExport).not.toHaveBeenCalled();
     expect(host.textContent).toContain("Record something first");
+  });
+
+  it("renders helpful unavailable states", () => {
+    const { host } = renderStudio({
+      defaults: { cameras: {}, microphones: {}, audioOutputId: "speaker-a" },
+      detection: {
+        cameras: [],
+        microphones: [],
+        speakers: [{ id: "speaker-a", label: "Studio Headphones", kind: "speaker" }],
+        permissionNeeded: false
+      }
+    });
+
+    expect(host.textContent).toContain("Pick a camera first");
+    expect(host.textContent).toContain("Pick Morgan Mic");
+    expect(host.textContent).toContain("Check the items above");
+  });
+
+  it("keeps advanced studio tools secondary and collapsed", () => {
+    const { host } = renderStudio();
+    const tools = host.querySelector(".secondary-studio-tools") as HTMLDetailsElement;
+
+    expect(tools).toBeTruthy();
+    expect(tools.open).toBe(false);
+    expect(tools.querySelector("summary")?.textContent).toContain("Show notes, markers, teleprompter, and soundboard");
   });
 
   it("explains camera settings instead of leaving the gear button dead", () => {

@@ -1,3 +1,5 @@
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { defaultDeviceDefaults } from "../../shared/device-config";
@@ -14,7 +16,8 @@ const baseProps = {
   onTestMicrophone: vi.fn(),
   onPlayTestSound: vi.fn(),
   onOpenCameraPreview: vi.fn(),
-  onOpenMicrophoneStream: vi.fn()
+  onOpenMicrophoneStream: vi.fn(),
+  onGoRecord: vi.fn()
 };
 
 describe("DeviceSetupWizard", () => {
@@ -46,6 +49,9 @@ describe("DeviceSetupWizard", () => {
 
     expect(markup).toContain("Camera 1");
     expect(markup).toContain("Studio Camera");
+    expect(markup).toContain("Pick Camera 1");
+    expect(markup).toContain("Pick Morgan Mic");
+    expect(markup).toContain("Go to Record");
     expect(markup).toContain("Use This Camera");
     expect(markup).toContain("Refresh Cameras");
     expect(markup).toContain("Release Camera");
@@ -73,6 +79,26 @@ describe("DeviceSetupWizard", () => {
     expect(markup).toContain("Sony Camera (Imaging Edge)");
     expect(markup).toContain("Needs attention");
     expect(markup).toContain("Use This Camera");
+  });
+
+  it("keeps Sony camera options visible in Studio Setup", () => {
+    const markup = renderToStaticMarkup(
+      <DeviceSetupWizard
+        {...baseProps}
+        detection={{
+          cameras: [
+            { id: "sony-camera", label: "Sony Camera (Imaging Edge)", kind: "camera" },
+            { id: "integrated-camera", label: "Integrated Camera (13d3:540a)", kind: "camera" }
+          ],
+          microphones: [],
+          speakers: [],
+          permissionNeeded: false
+        }}
+      />
+    );
+
+    expect(markup).toContain("Sony Camera (Imaging Edge)");
+    expect(markup).toContain("Integrated Camera (13d3:540a)");
   });
 
   it("renders unlabeled camera fallback options before permission", () => {
@@ -177,5 +203,31 @@ describe("DeviceSetupWizard", () => {
     expect(permissionMarkup).toContain("Let the studio look and listen");
     expect(permissionMarkup).not.toContain("NotAllowedError");
     expect(permissionMarkup).not.toContain("MediaStream");
+  });
+
+  it("calls Go to Record from the primary setup action", () => {
+    const onGoRecord = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    act(() => {
+      root.render(
+        <DeviceSetupWizard
+          {...baseProps}
+          onGoRecord={onGoRecord}
+          detection={{ cameras: [], microphones: [], speakers: [], permissionNeeded: false }}
+        />
+      );
+    });
+
+    const goRecord = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Go to Record"));
+    expect(goRecord).toBeTruthy();
+
+    act(() => {
+      goRecord?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onGoRecord).toHaveBeenCalledTimes(1);
   });
 });
