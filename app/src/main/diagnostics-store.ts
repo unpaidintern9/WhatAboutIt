@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { app } from "electron";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
-import { getAppDataRoot, getLogsRoot } from "./config-service";
+import { getAppDataRoot, getAppPathSummary, getDiagnosticsRoot, getLogsRoot } from "./config-service";
 import { logger } from "./logger";
 
 function safeName(input: string) {
@@ -35,12 +35,12 @@ export async function getStorageStatus(): Promise<StorageStatus> {
 export async function createDiagnosticsBundle(input: DiagnosticsBundleRequest): Promise<DiagnosticsBundleResult> {
   const now = new Date().toISOString();
   const folderName = `${now.slice(0, 10)}-${safeName(input.activeEpisodeId ?? "hardware-test")}-${Date.now()}`;
-  const folderPath = path.join(getAppDataRoot(), "diagnostics", folderName);
+  const folderPath = path.join(getDiagnosticsRoot(), folderName);
   await fs.mkdir(folderPath, { recursive: true });
 
   const files: string[] = [];
   const appInfo = {
-    appName: "What About It? Studio",
+    appName: "What About It Studio",
     appVersion: app.getVersion(),
     reportedAppVersion: input.appVersion,
     createdAt: now,
@@ -48,7 +48,8 @@ export async function createDiagnosticsBundle(input: DiagnosticsBundleRequest): 
       platform: os.platform(),
       release: os.release(),
       arch: os.arch()
-    }
+    },
+    paths: getAppPathSummary()
   };
 
   const write = async (name: string, value: unknown) => {

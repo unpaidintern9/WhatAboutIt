@@ -13,6 +13,9 @@
     "test": "cd app && npm run test",
     "verify": "cd app && npm run verify",
     "package": "cd app && npm run package",
+    "package:win": "cd app && npm run package:win",
+    "installer:win": "cd app && npm run installer:win",
+    "beta:win": "cd app && npm run beta:win",
     "create-shortcut": "cd app && npm run create-shortcut"
   }
 }

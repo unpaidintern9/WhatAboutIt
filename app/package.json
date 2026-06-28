@@ -25,6 +25,9 @@
     "validate:accessibility": "node scripts/validate-accessibility.mjs",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run validate:json && npm run validate:themes && npm run validate:plugins && npm run validate:docs && npm run validate:architecture && npm run validate:accessibility",
     "package": "npm run build && electron-builder --dir",
+    "package:win": "npm run build && electron-builder --win --dir",
+    "installer:win": "npm run build && electron-builder --win nsis",
+    "beta:win": "npm run verify && npm run installer:win",
     "create-shortcut": "node scripts/create-shortcut.mjs"
   },
   "dependencies": {
@@ -54,9 +57,10 @@
   },
   "build": {
     "appId": "studio.whataboutit.desktop",
-    "productName": "What About It? Studio",
+    "productName": "What About It Studio",
     "files": [
       "dist/**/*",
+      "node_modules/**/*",
       "package.json"
     ],
     "directories": {

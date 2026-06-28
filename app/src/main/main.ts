@@ -21,6 +21,8 @@ import { cancelExport, createExport, detectMediaTools, openExportFolder } from "
 import { runAutoEdit } from "./auto-edit-store";
 import { createDiagnosticsBundle, getStorageStatus } from "./diagnostics-store";
 
+app.setName("What About It Studio");
+
 const appDataRoot = getAppDataRoot();
 const episodesRoot = getEpisodesRoot();
 const settingsPath = getSettingsPath();
@@ -31,7 +33,7 @@ function createWindow() {
     height: 860,
     minWidth: 980,
     minHeight: 720,
-    title: "What About It? Studio",
+    title: "What About It Studio",
     backgroundColor: "#1a1110",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -137,7 +139,7 @@ async function saveSettings(settings: StudioSettings) {
 
 app.whenReady().then(async () => {
   await ensureBaseFolders();
-  await logger.info("App", "What About It? Studio launched.");
+  await logger.info("App", "What About It Studio launched.");
 
   ipcMain.handle("episodes:list", listEpisodes);
   ipcMain.handle("episodes:create", (_event, input) => createEpisode(input));

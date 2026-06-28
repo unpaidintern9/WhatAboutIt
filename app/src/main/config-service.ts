@@ -7,7 +7,7 @@ export function getStudioConfiguration(): StudioConfiguration {
 }
 
 export function getAppDataRoot(configuration = getStudioConfiguration()) {
-  return path.join(app.getPath("documents"), configuration.storage.appDataFolderName);
+  return app.isPackaged ? app.getPath("userData") : path.join(app.getPath("documents"), configuration.storage.appDataFolderName);
 }
 
 export function getEpisodesRoot(configuration = getStudioConfiguration()) {
@@ -22,3 +22,18 @@ export function getLogsRoot(configuration = getStudioConfiguration()) {
   return path.join(getAppDataRoot(configuration), "logs");
 }
 
+export function getDiagnosticsRoot(configuration = getStudioConfiguration()) {
+  return path.join(getAppDataRoot(configuration), "diagnostics");
+}
+
+export function getAppPathSummary(configuration = getStudioConfiguration()) {
+  const appDataRoot = getAppDataRoot(configuration);
+  return {
+    mode: app.isPackaged ? "packaged" : "development",
+    appDataRoot,
+    episodesRoot: getEpisodesRoot(configuration),
+    logsRoot: getLogsRoot(configuration),
+    diagnosticsRoot: getDiagnosticsRoot(configuration),
+    settingsPath: getSettingsPath(configuration)
+  };
+}

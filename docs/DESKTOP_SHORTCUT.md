@@ -32,7 +32,14 @@ Validated Phase 8A path:
 C:\Users\mmcga\OneDrive\Desktop\What About It Studio.lnk
 ```
 
-Manual validation on June 27, 2026 confirmed this shortcut opens the Electron app window titled `What About It? Studio`.
+Manual validation on June 27, 2026 confirmed this shortcut opens the Electron app window. Phase 8C updates the beta app window title to `What About It Studio`.
+
+Phase 8C also validated installer-created shortcuts:
+
+- Desktop shortcut: `C:\Users\mmcga\OneDrive\Desktop\What About It Studio.lnk`
+- Start Menu shortcut: `C:\Users\mmcga\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\What About It Studio.lnk`
+
+Both shortcuts launched the installed beta app.
 
 ## Icon
 
@@ -51,4 +58,14 @@ The future installer shortcut name is:
 What About It Studio
 ```
 
-This phase does not require packaging. It only prepares the installer config and creates the development desktop launcher.
+Phase 8C adds Windows beta installer scripts. The development shortcut script remains available and does not replace installer-created shortcuts.
+
+Phase 8C validation confirmed the NSIS installer created both shortcuts and both opened the installed app from:
+
+```text
+C:\Users\mmcga\AppData\Local\Programs\what-about-it-studio\What About It Studio.exe
+```
+
+## Icon Status
+
+A final branded Windows `.ico` file is not yet available. The development shortcut uses the local Electron executable icon. The beta installer also needs an approved `.ico` before public beta.

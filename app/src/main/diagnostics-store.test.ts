@@ -5,7 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockPaths = vi.hoisted(() => ({
   appDataRoot: "",
-  logsRoot: ""
+  logsRoot: "",
+  diagnosticsRoot: "",
+  pathSummary: {}
 }));
 
 vi.mock("electron", () => ({
@@ -16,7 +18,9 @@ vi.mock("electron", () => ({
 
 vi.mock("./config-service", () => ({
   getAppDataRoot: () => mockPaths.appDataRoot,
-  getLogsRoot: () => mockPaths.logsRoot
+  getLogsRoot: () => mockPaths.logsRoot,
+  getDiagnosticsRoot: () => mockPaths.diagnosticsRoot,
+  getAppPathSummary: () => mockPaths.pathSummary
 }));
 
 vi.mock("./logger", () => ({
@@ -33,6 +37,15 @@ describe("diagnostics bundle", () => {
     vi.resetModules();
     mockPaths.appDataRoot = await fs.mkdtemp(path.join(os.tmpdir(), "wai-diagnostics-"));
     mockPaths.logsRoot = path.join(mockPaths.appDataRoot, "logs");
+    mockPaths.diagnosticsRoot = path.join(mockPaths.appDataRoot, "diagnostics");
+    mockPaths.pathSummary = {
+      mode: "packaged",
+      appDataRoot: mockPaths.appDataRoot,
+      episodesRoot: path.join(mockPaths.appDataRoot, "episodes"),
+      logsRoot: mockPaths.logsRoot,
+      diagnosticsRoot: mockPaths.diagnosticsRoot,
+      settingsPath: path.join(mockPaths.appDataRoot, "settings.json")
+    };
     await fs.mkdir(mockPaths.logsRoot, { recursive: true });
     await fs.writeFile(path.join(mockPaths.logsRoot, "today.log"), "friendly log", "utf8");
   });
@@ -69,5 +82,7 @@ describe("diagnostics bundle", () => {
     await expect(fs.stat(path.join(bundle.folderPath, "hardware-test-results.json"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(bundle.folderPath, "session", "recording-session.json"))).resolves.toBeTruthy();
     expect(bundle.files.some((file) => file.endsWith(".webm"))).toBe(false);
+    const appInfo = await fs.readFile(path.join(bundle.folderPath, "app-info.json"), "utf8");
+    expect(appInfo).not.toContain("OneDrive\\\\Documents\\\\WhatAboutItStudio");
   });
 });

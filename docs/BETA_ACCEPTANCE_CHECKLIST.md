@@ -17,6 +17,7 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 | Can Morgan launch the app from the desktop? | Partial | `What About It Studio.lnk` was created and launched the Electron app. Final installer and branded icon are still pending. |
 | Can Morgan run a guided real hardware test? | Partial | Phase 8B completed with one physical camera, one physical mic, dashboard readiness, a 30.340333-second MP4 export, and diagnostics. Multi-camera, physical unplug/replug, and long-duration validation remain pending. |
 | Can Morgan save a diagnostics bundle? | Partial | Phase 8B created a local diagnostics folder with app info, device list, hardware results, session files, and logs. Raw media was not included. |
+| Can Morgan install the Windows beta app? | Partial | Phase 8C built `What About It Studio-0.1.0-Windows.exe`, installed it, launched from Desktop and Start Menu shortcuts, ran Hardware Test Mode, exported MP4, exported diagnostics, uninstalled, and reinstalled. Final branded icon, author metadata, and clean-machine QA remain pending. |
 
 ## Required Evidence Before Beta
 
@@ -33,6 +34,7 @@ Before any item can move to "Yes," the project needs a recorded test episode tha
 - The desktop shortcut can be created and used to launch the app from a clean installed build.
 - The real hardware test mode can complete Camera, Microphone, Recording, Export, and Results using all intended production hardware, including multi-camera setups.
 - Diagnostics can be exported after a hardware test and inspected without raw media or secrets.
+- Windows installer can be validated on a separate clean Windows machine with final icon/metadata.
 
 ## Current Gate Decision
 

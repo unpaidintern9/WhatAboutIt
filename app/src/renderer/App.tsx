@@ -733,7 +733,15 @@ export default function App() {
 
       <section className="workspace">
         <JourneyProgress view={view} hasEpisode={episodes.length > 0} studioReady={studioReady} recordingComplete={recordingSnapshot.status === "stopped"} reviewReady={timelineDraft.tracks.length > 0} exportComplete={exportJob?.status === "complete"} />
-        {showTour && <GuidedTour onClose={(preference) => void closeTour(preference)} />}
+        {showTour && (
+          <FirstRunSetup
+            onClose={(preference) => void closeTour(preference)}
+            onHardwareTest={() => {
+              setShowTour(false);
+              setView("hardware-test");
+            }}
+          />
+        )}
         {view === "home" && <HomeView episodes={episodes} onNewEpisode={() => setView("new-episode")} onStudioSetup={() => setView("device-setup")} />}
         {view === "new-episode" && (
           <NewEpisodeView
@@ -894,24 +902,32 @@ function JourneyProgress({
   );
 }
 
-function GuidedTour({ onClose }: { onClose: (preference: "skip" | "remind-later" | "never") => void }) {
+function FirstRunSetup({
+  onClose,
+  onHardwareTest
+}: {
+  onClose: (preference: "skip" | "remind-later" | "never") => void;
+  onHardwareTest: () => void;
+}) {
   const topics = [
-    "Navigation keeps the whole studio one click away.",
-    "Studio Setup walks through cameras, mics, and headphones.",
-    "Recording saves everything safely on this computer.",
-    "Practice Mode lets you rehearse without touching real gear.",
-    "Learn Studio is always there when you want a hand."
+    "Check cameras and microphones before the first episode.",
+    "Run a 30-second recording test with real gear.",
+    "Export a local MP4 test copy.",
+    "Save diagnostics locally if anything needs attention.",
+    "Everything stays on this computer."
   ];
 
   return (
-    <section className="tour-card" role="dialog" aria-label="Guided tour">
-      <button className="tour-close" type="button" aria-label="Skip guided tour" onClick={() => onClose("skip")}>
+    <section className="tour-card" role="dialog" aria-label="First run setup">
+      <button className="tour-close" type="button" aria-label="Skip first run setup" onClick={() => onClose("skip")}>
         <X size={18} />
       </button>
       <div>
-        <p className="signature">Need help? I'll walk you through it.</p>
-        <h2>Let's make something great.</h2>
-        <p className="soft-copy">Five quick stops, no tech lecture. You can come back to Learn Studio anytime.</p>
+        <p className="signature">Welcome to beta</p>
+        <h2>Let's check the studio first.</h2>
+        <p className="soft-copy">
+          Start with Hardware Test Mode so the app can confirm your camera, microphone, export, and diagnostics are ready.
+        </p>
       </div>
       <div className="tour-topic-grid">
         {topics.map((topic) => (
@@ -919,7 +935,8 @@ function GuidedTour({ onClose }: { onClose: (preference: "skip" | "remind-later"
         ))}
       </div>
       <div className="tour-actions">
-        <Button variant="primary" icon={<ArrowRight size={20} />} onClick={() => onClose("skip")}>Start with Home</Button>
+        <Button variant="primary" icon={<ShieldCheck size={20} />} onClick={onHardwareTest}>Run Hardware Test</Button>
+        <Button variant="secondary" icon={<ArrowRight size={20} />} onClick={() => onClose("skip")}>Start with Home</Button>
         <Button variant="secondary" onClick={() => onClose("remind-later")}>Remind Me Later</Button>
         <Button variant="secondary" onClick={() => onClose("never")}>Never Show Again</Button>
       </div>
