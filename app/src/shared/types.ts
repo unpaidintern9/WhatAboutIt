@@ -1,4 +1,5 @@
 import type { ExportSettings } from "./export";
+import type { StudioWorkspaceSettings } from "./studio-workspace";
 
 export type EpisodeStatus = "draft" | "ready" | "recorded" | "exported";
 
@@ -26,6 +27,7 @@ export interface StudioSettings {
   ui?: {
     sidebarCollapsed?: boolean;
   };
+  studioWorkspace?: StudioWorkspaceSettings;
 }
 
 export interface DeviceDefaults {

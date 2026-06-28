@@ -9,12 +9,10 @@ import {
   Circle,
   Cable,
   Download,
-  FileText,
   Headphones,
   Mic2,
   Pause,
   Play,
-  Radio,
   Save,
   Settings,
   SlidersHorizontal,
@@ -26,11 +24,13 @@ import {
 import type { DeviceDefaults } from "../../shared/types";
 import type { RecordingSession } from "../../shared/recording";
 import type { CameraLayout, PodcastToolsState, SoundSlot } from "../../shared/podcast-tools";
-import { cameraLayouts, createLiveMarker, markerButtons } from "../../shared/podcast-tools";
+import { cameraLayouts, createLiveMarker } from "../../shared/podcast-tools";
+import type { StudioDisplayInfo, StudioPanelId } from "../../shared/studio-workspace";
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import type { RecordingServiceSnapshot } from "../services";
 import { formatRecordingTime } from "../services";
 import { Button } from ".";
+import { StudioToolPanels } from "./StudioToolPanels";
 
 interface RecordingStudioProps {
   defaults: DeviceDefaults;
@@ -52,6 +52,10 @@ interface RecordingStudioProps {
   onPlayTestSound: () => Promise<void> | void;
   onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
+  displays?: StudioDisplayInfo[];
+  poppedOutPanels?: Partial<Record<StudioPanelId, boolean>>;
+  onPopOutPanel?: (panelId: StudioPanelId, displayId?: number, fullscreen?: boolean) => void;
+  onReturnPanel?: (panelId: StudioPanelId) => void;
 }
 
 type CameraKey = keyof DeviceDefaults["cameras"];
@@ -92,7 +96,11 @@ export function RecordingStudio({
   onPodcastToolsChange,
   onPlayTestSound,
   onOpenCameraPreview,
-  onOpenMicrophoneStream
+  onOpenMicrophoneStream,
+  displays,
+  poppedOutPanels,
+  onPopOutPanel,
+  onReturnPanel
 }: RecordingStudioProps) {
   const [studioNotice, setStudioNotice] = useState<{ tone: StudioNoticeTone; message: string }>({
     tone: "ready",
@@ -101,8 +109,6 @@ export function RecordingStudio({
   const [playingSlotId, setPlayingSlotId] = useState<string | undefined>();
   const [markerNotice, setMarkerNotice] = useState<string | undefined>();
   const [notesSavedAt, setNotesSavedAt] = useState<string>("Saved");
-  const [teleprompterHidden, setTeleprompterHidden] = useState(false);
-  const [teleprompterFocus, setTeleprompterFocus] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
     Object.fromEntries(micSlots.map((slot) => [slot.key, { gain: 75, muted: false, solo: false, monitor: false }]))
@@ -382,103 +388,23 @@ export function RecordingStudio({
         <details className="secondary-studio-tools" open={toolsOpen} onToggle={(event) => setToolsOpen(event.currentTarget.open)}>
           <summary>{toolsOpen ? "Hide studio tools" : "Show notes, markers, teleprompter, and soundboard"}</summary>
           <section className="live-studio-grid" aria-label="Studio tools">
-            <VintagePanel title="Soundboard" icon={<Radio size={20} />} className="soundboard-panel">
-            <div className="soundboard-grid live">
-              {[podcastTools.soundboard.intro, podcastTools.soundboard.outro, ...podcastTools.soundboard.customSlots].map((slot) => (
-                <button className={playingSlotId === slot.id ? "playing" : ""} type="button" onClick={() => void toggleSound(slot)} key={slot.id}>
-                  <strong>{slot.label}</strong>
-                  <span>{slot.filePath ? "Local sound ready" : "Add a sound"}</span>
-                  <i className="sound-wave" aria-hidden="true"><b /><b /><b /><b /><b /></i>
-                  <small>{playingSlotId === slot.id ? "Stop" : "Play"}</small>
-                </button>
-              ))}
-            </div>
-            <label>
-              Volume
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={podcastTools.soundboard.masterVolume}
-                onChange={(event) =>
-                  patchTools({
-                    ...podcastTools,
-                    soundboard: { ...podcastTools.soundboard, masterVolume: Number(event.target.value) },
-                    practiceMode: { ...podcastTools.practiceMode, soundboardTried: true }
-                  })
-                }
-              />
-            </label>
-            </VintagePanel>
-
-            <VintagePanel title="Markers" icon={<Sparkles size={20} />} className="markers-panel">
-            <div className="marker-button-grid live">
-              {markerButtons.map((marker) => (
-                <RusticButton onClick={() => mark(marker.label)} key={marker.label}>{marker.label}</RusticButton>
-              ))}
-            </div>
-            {markerNotice && <p className="marker-toast live" aria-live="polite">{markerNotice}</p>}
-            <div className="marker-list live">
-              {podcastTools.markers.length === 0 ? (
-                <p>No moments marked yet.</p>
-              ) : (
-                podcastTools.markers.slice(0, 6).map((marker) => (
-                  <span key={marker.id}>{marker.label} at {formatRecordingTime(marker.timestampMs)}</span>
-                ))
-              )}
-            </div>
-            </VintagePanel>
-
-            <VintagePanel title="Episode Notes" icon={<FileText size={20} />} className="notes-panel">
-            <NoteBox
-              label="Episode notes"
-              savedState={notesSavedAt}
-              value={podcastTools.guestNotes.talkingPoints}
-              onChange={(value) => patchNotes({ ...podcastTools, guestNotes: { ...podcastTools.guestNotes, talkingPoints: value } })}
+            <StudioToolPanels
+              podcastTools={podcastTools}
+              displays={displays}
+              poppedOutPanels={poppedOutPanels}
+              playingSlotId={playingSlotId}
+              markerNotice={markerNotice}
+              notesSavedAt={notesSavedAt}
+              elapsedMs={snapshot.elapsedMs}
+              recordingStatus={snapshot.status}
+              diagnosticsMessage="Main Studio continues recording while tools float."
+              onPatchTools={patchTools}
+              onPatchNotes={patchNotes}
+              onPlaySound={(slot) => void toggleSound(slot)}
+              onMark={mark}
+              onPopOut={onPopOutPanel}
+              onReturnToStudio={onReturnPanel}
             />
-            </VintagePanel>
-
-            <VintagePanel title="Guest Notes" icon={<FileText size={20} />} className="guest-panel">
-            <NoteBox
-              label="Guest notes"
-              savedState={notesSavedAt}
-              value={podcastTools.guestNotes.questions}
-              onChange={(value) =>
-                patchNotes({
-                  ...podcastTools,
-                  guestNotes: { ...podcastTools.guestNotes, questions: value },
-                  practiceMode: { ...podcastTools.practiceMode, notesTried: true }
-                })
-              }
-            />
-            </VintagePanel>
-
-            <VintagePanel title="Teleprompter" icon={<FileText size={20} />} className="teleprompter-panel">
-            <div className="teleprompter-actions">
-              <RusticButton className={teleprompterFocus ? "selected" : ""} onClick={() => setTeleprompterFocus((current) => !current)}>
-                Focus
-              </RusticButton>
-              <RusticButton onClick={() => setTeleprompterHidden((current) => !current)}>
-                {teleprompterHidden ? "Show" : "Hide"}
-              </RusticButton>
-              <span>{podcastTools.teleprompter.isScrolling ? "Scrolling" : "Ready"}</span>
-            </div>
-            {!teleprompterHidden && (
-              <textarea
-                className={teleprompterFocus ? "focus-mode" : ""}
-                aria-label="Teleprompter"
-                value={podcastTools.teleprompter.script}
-                onChange={(event) =>
-                  patchTools({
-                    ...podcastTools,
-                    teleprompter: { ...podcastTools.teleprompter, script: event.target.value },
-                    practiceMode: { ...podcastTools.practiceMode, teleprompterTried: true }
-                  })
-                }
-                placeholder="Drop Morgan's script here."
-              />
-            )}
-            </VintagePanel>
           </section>
         </details>
 
@@ -807,15 +733,6 @@ function LiveMicMeter({
       </details>
       <audio ref={audioRef} muted={!monitoring} />
     </article>
-  );
-}
-
-function NoteBox({ label, value, savedState, onChange }: { label: string; value: string; savedState: string; onChange: (value: string) => void }) {
-  return (
-    <label>
-      <span className="note-label-row">{label}<small>{savedState}</small></span>
-      <textarea value={value} onChange={(event) => onChange(event.target.value)} />
-    </label>
   );
 }
 

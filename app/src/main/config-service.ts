@@ -18,6 +18,10 @@ export function getSettingsPath(configuration = getStudioConfiguration()) {
   return path.join(getAppDataRoot(configuration), "settings.json");
 }
 
+export function getWorkspaceStatePath(configuration = getStudioConfiguration()) {
+  return path.join(getAppDataRoot(configuration), "studio-workspace.json");
+}
+
 export function getLogsRoot(configuration = getStudioConfiguration()) {
   return path.join(getAppDataRoot(configuration), "logs");
 }

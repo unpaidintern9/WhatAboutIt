@@ -8,6 +8,7 @@ import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/expor
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
 import type { ReviewMediaInventory } from "../shared/review-media";
+import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
 
 declare global {
   interface Window {
@@ -33,6 +34,14 @@ declare global {
       openExportFolder: (episodeId: string) => Promise<string>;
       createDiagnosticsBundle: (input: DiagnosticsBundleRequest) => Promise<DiagnosticsBundleResult>;
       getStorageStatus: () => Promise<StorageStatus>;
+      getWorkspaceState?: () => Promise<StudioWorkspaceState>;
+      saveWorkspaceState?: (state: StudioWorkspaceState) => Promise<StudioWorkspaceState>;
+      getDisplays?: () => Promise<StudioDisplayInfo[]>;
+      openWorkspacePanel?: (panelId: StudioPanelId, input?: { episodeId?: string; displayId?: number; fullscreen?: boolean }) => Promise<StudioWindowState>;
+      closeWorkspacePanel?: (panelId: StudioPanelId) => Promise<StudioWindowState>;
+      moveWorkspacePanel?: (panelId: StudioPanelId, displayId: number) => Promise<StudioWindowState>;
+      applyWorkspaceLayout?: (layoutId: StudioLayoutProfileId, episodeId?: string) => Promise<StudioWorkspaceState>;
+      resetWorkspaceLayout?: () => Promise<StudioWorkspaceState>;
     };
   }
 }

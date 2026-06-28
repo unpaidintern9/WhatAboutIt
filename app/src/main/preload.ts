@@ -7,6 +7,7 @@ import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/expor
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
 import type { ReviewMediaInventory } from "../shared/review-media";
+import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
@@ -39,5 +40,16 @@ contextBridge.exposeInMainWorld("studio", {
   openExportFolder: (episodeId: string): Promise<string> => ipcRenderer.invoke("export:open-folder", episodeId),
   createDiagnosticsBundle: (input: DiagnosticsBundleRequest): Promise<DiagnosticsBundleResult> =>
     ipcRenderer.invoke("diagnostics:create", input),
-  getStorageStatus: (): Promise<StorageStatus> => ipcRenderer.invoke("storage:status")
+  getStorageStatus: (): Promise<StorageStatus> => ipcRenderer.invoke("storage:status"),
+  getWorkspaceState: (): Promise<StudioWorkspaceState> => ipcRenderer.invoke("workspace:get-state"),
+  saveWorkspaceState: (state: StudioWorkspaceState): Promise<StudioWorkspaceState> => ipcRenderer.invoke("workspace:save-state", state),
+  getDisplays: (): Promise<StudioDisplayInfo[]> => ipcRenderer.invoke("workspace:get-displays"),
+  openWorkspacePanel: (panelId: StudioPanelId, input?: { episodeId?: string; displayId?: number; fullscreen?: boolean }): Promise<StudioWindowState> =>
+    ipcRenderer.invoke("workspace:open-panel", { panelId, ...input }),
+  closeWorkspacePanel: (panelId: StudioPanelId): Promise<StudioWindowState> => ipcRenderer.invoke("workspace:close-panel", panelId),
+  moveWorkspacePanel: (panelId: StudioPanelId, displayId: number): Promise<StudioWindowState> =>
+    ipcRenderer.invoke("workspace:move-panel", { panelId, displayId }),
+  applyWorkspaceLayout: (layoutId: StudioLayoutProfileId, episodeId?: string): Promise<StudioWorkspaceState> =>
+    ipcRenderer.invoke("workspace:apply-layout", { layoutId, episodeId }),
+  resetWorkspaceLayout: (): Promise<StudioWorkspaceState> => ipcRenderer.invoke("workspace:reset-layout")
 });

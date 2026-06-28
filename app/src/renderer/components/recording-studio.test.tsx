@@ -190,8 +190,8 @@ describe("RecordingStudio", () => {
     expect(gain.value).toBe("42");
   });
 
-  it("shows note autosave confidence and teleprompter focus controls", () => {
-    const { host } = renderStudio();
+  it("shows note autosave confidence and teleprompter display controls", () => {
+    const { host, onPodcastToolsChange } = renderStudio();
 
     expect(host.textContent).toContain("Saved");
 
@@ -203,8 +203,12 @@ describe("RecordingStudio", () => {
     });
     expect(host.textContent).toContain("Saving...");
 
-    click(host, "Focus");
-    expect((host.querySelector('textarea[aria-label="Teleprompter"]') as HTMLTextAreaElement).className).toContain("focus-mode");
+    expect((host.querySelector('textarea[aria-label="Teleprompter"]') as HTMLTextAreaElement).className).toContain("dark-mode");
+
+    click(host, "Remote resume");
+    expect(onPodcastToolsChange.mock.calls).toContainEqual([
+      expect.objectContaining({ teleprompter: expect.objectContaining({ isScrolling: true }) })
+    ]);
 
     click(host, "Hide");
     expect(host.querySelector('textarea[aria-label="Teleprompter"]')).toBeNull();
@@ -249,6 +253,32 @@ describe("RecordingStudio", () => {
     expect(tools).toBeTruthy();
     expect(tools.open).toBe(false);
     expect(tools.querySelector("summary")?.textContent).toContain("Show notes, markers, teleprompter, and soundboard");
+  });
+
+  it("offers pop-out and monitor assignment for major studio panels", () => {
+    const onPopOutPanel = vi.fn();
+    const { host } = renderStudio({
+      displays: [
+        { id: 1, label: "Primary monitor", primary: true, bounds: { x: 0, y: 0, width: 1280, height: 720 }, workArea: { x: 0, y: 0, width: 1280, height: 680 }, scaleFactor: 1 },
+        { id: 2, label: "Monitor 2", primary: false, bounds: { x: 1280, y: 0, width: 1920, height: 1080 }, workArea: { x: 1280, y: 0, width: 1920, height: 1040 }, scaleFactor: 1 }
+      ],
+      onPopOutPanel
+    });
+
+    click(host, "Move Teleprompter to Monitor 2");
+    expect(onPopOutPanel).toHaveBeenCalledWith("teleprompter", 2);
+  });
+
+  it("shows pop-out state and returns panels to Studio", () => {
+    const onReturnPanel = vi.fn();
+    const { host } = renderStudio({
+      poppedOutPanels: { soundboard: true },
+      onReturnPanel
+    });
+
+    expect(host.textContent).toContain("Popped Out");
+    click(host, "Return to Studio");
+    expect(onReturnPanel).toHaveBeenCalledWith("soundboard");
   });
 
   it("explains camera settings instead of leaving the gear button dead", () => {

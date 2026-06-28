@@ -25,8 +25,8 @@ import {
 } from "lucide-react";
 import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
 import type { RecordingSession } from "../shared/recording";
-import type { PodcastToolsState } from "../shared/podcast-tools";
-import { createDefaultPodcastToolsState, withPodcastToolDefaults } from "../shared/podcast-tools";
+import type { PodcastToolsState, SoundSlot } from "../shared/podcast-tools";
+import { createDefaultPodcastToolsState, createLiveMarker, withPodcastToolDefaults } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import { createTimelineDraft, markTimelineSaved, withTimelineDraftDefaults } from "../shared/timeline";
 import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
@@ -34,6 +34,8 @@ import { defaultExportSettings } from "../shared/export";
 import type { ReviewMediaInventory } from "../shared/review-media";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import { runOfflineAutoEdit } from "../shared/auto-edit";
+import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWorkspaceState } from "../shared/studio-workspace";
+import { defaultStudioWorkspaceState, studioPanelLabels, withStudioWorkspaceDefaults } from "../shared/studio-workspace";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
 import {
@@ -50,6 +52,7 @@ import {
 import type { StorageStatus } from "../shared/diagnostics";
 import { AutoEditReview, Button, CameraPreview, DeviceSetupWizard, ExportEpisode, RecordingStudio, TimelineReview } from "./components";
 import { AudioMeter } from "./components";
+import { StudioPopOutPanel } from "./components/StudioToolPanels";
 import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
 import { BrowserMediaRecorderPlugin } from "./plugins/recording/browser-media-recorder-plugin";
 import type { DeviceDetectionResult } from "./plugins/devices/types";
@@ -58,6 +61,20 @@ import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
 type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "auto-edit-review" | "export" | "hardware-test" | "settings" | "learn" | "practice" | "theme-editor";
+type WorkspaceBridge = Required<
+  Pick<
+    Window["studio"],
+    | "getWorkspaceState"
+    | "saveWorkspaceState"
+    | "getDisplays"
+    | "openWorkspacePanel"
+    | "closeWorkspacePanel"
+    | "moveWorkspacePanel"
+    | "applyWorkspaceLayout"
+    | "resetWorkspaceLayout"
+  >
+>;
+type StudioBridge = Window["studio"] & WorkspaceBridge;
 
 function getInitialView(): View {
   if (typeof window === "undefined") return "home";
@@ -73,7 +90,8 @@ const fallbackSettings: StudioSettings = {
   deviceDefaults: defaultDeviceDefaults,
   exportSettings: defaultExportSettings,
   onboarding: { guidedTour: "show" },
-  ui: { sidebarCollapsed: true }
+  ui: { sidebarCollapsed: true },
+  studioWorkspace: defaultStudioWorkspaceState.settings
 };
 
 function withExportSettings(settings: StudioSettings): StudioSettings {
@@ -107,8 +125,24 @@ function getInitialRecordingSnapshot(): RecordingServiceSnapshot {
   return idleRecordingSnapshot;
 }
 
-function getStudioBridge(): Window["studio"] {
-  if (window.studio) return window.studio;
+function createWorkspaceBridgeFallback(): WorkspaceBridge {
+  return {
+    getWorkspaceState: async () => defaultStudioWorkspaceState,
+    saveWorkspaceState: async (state) => state,
+    getDisplays: async () => [
+      { id: 1, label: "Primary monitor", primary: true, bounds: { x: 0, y: 0, width: 1440, height: 900 }, workArea: { x: 0, y: 0, width: 1440, height: 860 }, scaleFactor: 1 },
+      { id: 2, label: "Monitor 2", primary: false, bounds: { x: 1440, y: 0, width: 1920, height: 1080 }, workArea: { x: 1440, y: 0, width: 1920, height: 1040 }, scaleFactor: 1 }
+    ],
+    openWorkspacePanel: async (panelId, input) => ({ panelId, isPoppedOut: true, displayId: input?.displayId, collapsed: false, fullscreen: Boolean(input?.fullscreen) }),
+    closeWorkspacePanel: async (panelId) => ({ panelId, isPoppedOut: false, collapsed: false, fullscreen: false }),
+    moveWorkspacePanel: async (panelId, displayId) => ({ panelId, isPoppedOut: true, displayId, collapsed: false, fullscreen: false }),
+    applyWorkspaceLayout: async (layoutId) => ({ ...defaultStudioWorkspaceState, settings: { ...defaultStudioWorkspaceState.settings, activeLayoutId: layoutId } }),
+    resetWorkspaceLayout: async () => defaultStudioWorkspaceState
+  };
+}
+
+function getStudioBridge(): StudioBridge {
+  if (window.studio) return { ...createWorkspaceBridgeFallback(), ...window.studio };
 
   const now = new Date().toISOString();
   const searchParams = new URLSearchParams(window.location.search);
@@ -124,6 +158,7 @@ function getStudioBridge(): Window["studio"] {
   };
 
   return {
+    ...createWorkspaceBridgeFallback(),
     listEpisodes: async () =>
       isWelcomeReview
         ? []
@@ -236,11 +271,17 @@ function getStudioBridge(): Window["studio"] {
 
 export default function App() {
   const reviewMode = typeof window !== "undefined" && !window.studio;
+  const searchParams = typeof window === "undefined" ? new URLSearchParams() : new URLSearchParams(window.location.search);
+  const popOutPanelId = searchParams.get("popout") as StudioPanelId | null;
+  const popOutEpisodeId = searchParams.get("episodeId") ?? undefined;
   const studio = useMemo(() => getStudioBridge(), []);
   const [view, setView] = useState<View>(getInitialView);
   const [episodes, setEpisodes] = useState<EpisodeMetadata[]>([]);
   const [activeEpisode, setActiveEpisode] = useState<EpisodeMetadata | undefined>();
   const [settings, setSettings] = useState<StudioSettings>(fallbackSettings);
+  const [workspaceState, setWorkspaceState] = useState<StudioWorkspaceState>(defaultStudioWorkspaceState);
+  const [displays, setDisplays] = useState<StudioDisplayInfo[]>([]);
+  const [workspaceMessage, setWorkspaceMessage] = useState("Window positions restore on launch.");
   const [deviceDetection, setDeviceDetection] = useState<DeviceDetectionResult>(emptyDetection);
   const [recordingSnapshot, setRecordingSnapshot] = useState<RecordingServiceSnapshot>(getInitialRecordingSnapshot);
   const [unfinishedSessions, setUnfinishedSessions] = useState<RecordingSession[]>([]);
@@ -269,6 +310,12 @@ export default function App() {
   const [diagnosticsBundle, setDiagnosticsBundle] = useState<DiagnosticsBundleResult | undefined>();
   const [storageStatus, setStorageStatus] = useState<StorageStatus | undefined>();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [popOutPlayingSlotId, setPopOutPlayingSlotId] = useState<string | undefined>();
+  const [popOutMarkerNotice, setPopOutMarkerNotice] = useState<string | undefined>();
+  const [popOutNotesSavedAt, setPopOutNotesSavedAt] = useState("Saved");
+  const popOutAudioRef = useRef<HTMLAudioElement | null>(null);
+  const popOutMarkerTimerRef = useRef<number | undefined>(undefined);
+  const popOutNotesTimerRef = useRef<number | undefined>(undefined);
   const hardwareStopTimerRef = useRef<number | undefined>(undefined);
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
@@ -291,6 +338,14 @@ export default function App() {
       const tourParam = new URLSearchParams(window.location.search).get("tour");
       setShowTour(tourParam === "on" || (tourParam !== "off" && hydratedSettings.onboarding?.guidedTour !== "never"));
     });
+    void studio.getWorkspaceState().then((state) => {
+      const hydratedWorkspace = withStudioWorkspaceDefaults(state);
+      setWorkspaceState(hydratedWorkspace);
+      if (hydratedWorkspace.settings.launchWithSavedLayout) {
+        void studio.applyWorkspaceLayout(hydratedWorkspace.settings.activeLayoutId).then(setWorkspaceState);
+      }
+    });
+    void studio.getDisplays().then(setDisplays);
     void refreshEpisodes();
     void refreshDevices();
     void refreshUnfinishedSessions();
@@ -300,6 +355,11 @@ export default function App() {
     void studio.getMediaToolsStatus().then(setMediaToolsStatus);
     void studio.getStorageStatus().then(setStorageStatus);
   }, [studio]);
+
+  useEffect(() => {
+    if (!popOutEpisodeId) return;
+    void studio.loadPodcastTools(popOutEpisodeId).then((state) => setPodcastTools(withPodcastToolDefaults(state, popOutEpisodeId)));
+  }, [popOutEpisodeId, studio]);
 
   useEffect(() => {
     if (reviewMode && new URLSearchParams(window.location.search).get("recording") === "complete") return undefined;
@@ -313,10 +373,12 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (hardwareStopTimerRef.current) window.clearTimeout(hardwareStopTimerRef.current);
+      if (popOutMarkerTimerRef.current) window.clearTimeout(popOutMarkerTimerRef.current);
+      if (popOutNotesTimerRef.current) window.clearTimeout(popOutNotesTimerRef.current);
       deviceService.releaseAll();
       void recordingService.shutdown();
     };
-  }, [deviceService, recordingService]);
+  }, [deviceService, popOutMarkerTimerRef, popOutNotesTimerRef, recordingService]);
 
   useEffect(() => {
     const cleanup = () => {
@@ -480,11 +542,110 @@ export default function App() {
   }
 
   async function savePodcastToolsState(nextState: PodcastToolsState) {
-    const stateWithEpisode = withPodcastToolDefaults(nextState, activeEpisode?.id);
+    const episodeId = activeEpisode?.id ?? popOutEpisodeId;
+    const stateWithEpisode = withPodcastToolDefaults(nextState, episodeId);
     setPodcastTools(stateWithEpisode);
-    if (activeEpisode) {
-      setPodcastTools(await studio.savePodcastTools(activeEpisode.id, stateWithEpisode));
+    if (episodeId) {
+      setPodcastTools(await studio.savePodcastTools(episodeId, stateWithEpisode));
     }
+  }
+
+  function patchPopOutNotes(nextState: PodcastToolsState) {
+    setPopOutNotesSavedAt("Saving...");
+    void savePodcastToolsState(nextState);
+    if (popOutNotesTimerRef.current) window.clearTimeout(popOutNotesTimerRef.current);
+    popOutNotesTimerRef.current = window.setTimeout(() => setPopOutNotesSavedAt("Saved"), 700);
+  }
+
+  async function togglePopOutSound(slot: SoundSlot) {
+    popOutAudioRef.current?.pause();
+    popOutAudioRef.current = null;
+
+    if (popOutPlayingSlotId === slot.id) {
+      setPopOutPlayingSlotId(undefined);
+      return;
+    }
+
+    if (!slot.filePath) {
+      setWorkspaceMessage("Add a sound first.");
+      setPopOutPlayingSlotId(undefined);
+      return;
+    }
+
+    try {
+      const audio = new Audio(slot.filePath);
+      audio.volume = Math.max(0, Math.min(1, podcastTools.soundboard.masterVolume / 100));
+      audio.onended = () => setPopOutPlayingSlotId(undefined);
+      popOutAudioRef.current = audio;
+      setPopOutPlayingSlotId(slot.id);
+      await audio.play();
+    } catch {
+      setWorkspaceMessage("That sound needs setup before it can play.");
+      setPopOutPlayingSlotId(undefined);
+    }
+  }
+
+  function markFromPopOut(label: string) {
+    const marker = createLiveMarker({
+      label,
+      timestampMs: recordingSnapshot.elapsedMs,
+      recordingSessionId: recordingSnapshot.session?.id
+    });
+    void savePodcastToolsState({
+      ...podcastTools,
+      markers: [marker, ...podcastTools.markers],
+      practiceMode: { ...podcastTools.practiceMode, markerTried: true }
+    });
+    setPopOutMarkerNotice(`${label} marker added.`);
+    if (popOutMarkerTimerRef.current) window.clearTimeout(popOutMarkerTimerRef.current);
+    popOutMarkerTimerRef.current = window.setTimeout(() => setPopOutMarkerNotice(undefined), 2400);
+  }
+
+  async function openWorkspacePanel(panelId: StudioPanelId, displayId?: number, fullscreen = false) {
+    const state = await studio.openWorkspacePanel(panelId, {
+      episodeId: activeEpisode?.id ?? podcastTools.episodeId,
+      displayId,
+      fullscreen
+    });
+    setWorkspaceState((current) =>
+      withStudioWorkspaceDefaults({
+        ...current,
+        windows: { ...current.windows, [panelId]: state }
+      })
+    );
+    setWorkspaceMessage(`${studioPanelLabels[panelId]} is popped out${displayId ? " on another monitor" : ""}.`);
+  }
+
+  async function returnWorkspacePanel(panelId: StudioPanelId) {
+    const state = await studio.closeWorkspacePanel(panelId);
+    setWorkspaceState((current) =>
+      withStudioWorkspaceDefaults({
+        ...current,
+        windows: { ...current.windows, [panelId]: state }
+      })
+    );
+    setWorkspaceMessage(`${studioPanelLabels[panelId]} returned to Studio.`);
+  }
+
+  async function applyWorkspaceLayout(layoutId: StudioLayoutProfileId) {
+    const nextState = await studio.applyWorkspaceLayout(layoutId, activeEpisode?.id ?? podcastTools.episodeId);
+    setWorkspaceState(withStudioWorkspaceDefaults(nextState));
+    setWorkspaceMessage("Studio layout restored.");
+  }
+
+  async function saveWorkspaceSettings(patch: Partial<NonNullable<StudioSettings["studioWorkspace"]>>) {
+    const nextSettings = {
+      ...settings,
+      studioWorkspace: { ...defaultStudioWorkspaceState.settings, ...settings.studioWorkspace, ...patch }
+    };
+    setSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
+  }
+
+  async function resetWorkspaceLayout() {
+    const nextState = await studio.resetWorkspaceLayout();
+    setWorkspaceState(withStudioWorkspaceDefaults(nextState));
+    setWorkspaceMessage("Studio layout reset.");
   }
 
   async function changeTheme(themeId: string) {
@@ -733,6 +894,29 @@ export default function App() {
   const selectedMicReady = deviceDetection.microphones.some((microphone) => microphone.id === settings.deviceDefaults.microphones.morganMic);
   const studioReady = selectedCameraReady && selectedMicReady;
 
+  if (popOutPanelId) {
+    return (
+      <StudioPopOutPanel
+        panelId={popOutPanelId}
+        podcastTools={podcastTools}
+        displays={displays}
+        poppedOutPanels={{ [popOutPanelId]: true }}
+        playingSlotId={popOutPlayingSlotId}
+        markerNotice={popOutMarkerNotice}
+        notesSavedAt={popOutNotesSavedAt}
+        elapsedMs={recordingSnapshot.elapsedMs}
+        recordingStatus={recordingSnapshot.status}
+        diagnosticsMessage={workspaceMessage}
+        onPatchTools={(nextState) => void savePodcastToolsState(nextState)}
+        onPatchNotes={patchPopOutNotes}
+        onPlaySound={(slot) => void togglePopOutSound(slot)}
+        onMark={markFromPopOut}
+        onPopOut={(panelId, displayId, fullscreen) => void openWorkspacePanel(panelId, displayId, fullscreen)}
+        onReturnToStudio={(panelId) => void returnWorkspacePanel(panelId)}
+      />
+    );
+  }
+
   return (
     <main className={`studio-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
@@ -863,6 +1047,12 @@ export default function App() {
             onPlayTestSound={() => void playTestSound()}
             onOpenCameraPreview={openCameraPreview}
             onOpenMicrophoneStream={openMicrophoneStream}
+            displays={displays}
+            poppedOutPanels={Object.fromEntries(
+              Object.entries(workspaceState.windows).map(([panelId, state]) => [panelId, Boolean(state?.isPoppedOut)])
+            ) as Partial<Record<StudioPanelId, boolean>>}
+            onPopOutPanel={(panelId, displayId, fullscreen) => void openWorkspacePanel(panelId, displayId, fullscreen)}
+            onReturnPanel={(panelId) => void returnWorkspacePanel(panelId)}
           />
         )}
         {view === "timeline-review" && (
@@ -924,7 +1114,18 @@ export default function App() {
         )}
         {view === "learn" && <LearnStudioView />}
         {view === "practice" && <PracticeModeView />}
-        {view === "settings" && <SettingsView settings={settings} activeThemeName={activeTheme.name} />}
+        {view === "settings" && (
+          <SettingsView
+            settings={settings}
+            activeThemeName={activeTheme.name}
+            displays={displays}
+            workspaceState={workspaceState}
+            workspaceMessage={workspaceMessage}
+            onWorkspaceSettingsChange={(patch) => void saveWorkspaceSettings(patch)}
+            onApplyLayout={(layoutId) => void applyWorkspaceLayout(layoutId)}
+            onResetLayout={() => void resetWorkspaceLayout()}
+          />
+        )}
       </section>
     </main>
   );
@@ -1404,7 +1605,27 @@ function HardwareTestModeView({
   );
 }
 
-function SettingsView({ settings, activeThemeName }: { settings: StudioSettings; activeThemeName: string }) {
+function SettingsView({
+  settings,
+  activeThemeName,
+  displays,
+  workspaceState,
+  workspaceMessage,
+  onWorkspaceSettingsChange,
+  onApplyLayout,
+  onResetLayout
+}: {
+  settings: StudioSettings;
+  activeThemeName: string;
+  displays: StudioDisplayInfo[];
+  workspaceState: StudioWorkspaceState;
+  workspaceMessage: string;
+  onWorkspaceSettingsChange: (patch: Partial<NonNullable<StudioSettings["studioWorkspace"]>>) => void;
+  onApplyLayout: (layoutId: StudioLayoutProfileId) => void;
+  onResetLayout: () => void;
+}) {
+  const workspaceSettings = { ...defaultStudioWorkspaceState.settings, ...settings.studioWorkspace };
+  const secondaryDisplays = displays.filter((display) => !display.primary);
   return (
     <section className="panel settings-panel">
       <p className="signature">Local by default</p>
@@ -1419,7 +1640,59 @@ function SettingsView({ settings, activeThemeName }: { settings: StudioSettings;
         <div><dt>Default export folder</dt><dd>{settings.exportSettings.defaultExportFolder}</dd></div>
         <div><dt>Default export type</dt><dd>{settings.exportSettings.defaultExportType}</dd></div>
         <div><dt>Export quality</dt><dd>{settings.exportSettings.qualityPreset}</dd></div>
+        <div><dt>Monitors</dt><dd>{displays.length || 1} detected</dd></div>
       </dl>
+      <div className="workspace-settings-panel">
+        <p className="signature">Studio Workspace</p>
+        <h3>Multi-monitor workspace</h3>
+        <p className="soft-copy">{workspaceMessage}</p>
+        <div className="workspace-toggle-grid">
+          <label>
+            <input
+              type="checkbox"
+              checked={workspaceSettings.rememberWindowPositions}
+              onChange={(event) => onWorkspaceSettingsChange({ rememberWindowPositions: event.target.checked })}
+            />
+            Remember window positions
+          </label>
+          <label>
+            <input
+              type="checkbox"
+              checked={workspaceSettings.launchWithSavedLayout}
+              onChange={(event) => onWorkspaceSettingsChange({ launchWithSavedLayout: event.target.checked })}
+            />
+            Launch with saved layout
+          </label>
+          <label>
+            Default monitor
+            <select
+              value={workspaceSettings.defaultMonitorId ?? ""}
+              onChange={(event) => onWorkspaceSettingsChange({ defaultMonitorId: event.target.value ? Number(event.target.value) : undefined })}
+            >
+              <option value="">Primary monitor</option>
+              {secondaryDisplays.map((display, index) => (
+                <option value={display.id} key={display.id}>Monitor {index + 2}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="monitor-list">
+          {displays.map((display, index) => (
+            <span key={display.id}>
+              <strong>{display.primary ? "Primary display" : `Monitor ${index + 1}`}</strong>
+              {display.bounds.width} x {display.bounds.height}, {display.scaleFactor}x scaling
+            </span>
+          ))}
+        </div>
+        <div className="layout-profile-grid">
+          {workspaceState.layouts.map((layout) => (
+            <button className={workspaceSettings.activeLayoutId === layout.id ? "active" : ""} type="button" key={layout.id} onClick={() => onApplyLayout(layout.id)}>
+              {layout.name}
+            </button>
+          ))}
+          <button type="button" onClick={onResetLayout}>Reset layout</button>
+        </div>
+      </div>
     </section>
   );
 }
@@ -1446,6 +1719,10 @@ function LearnStudioView() {
     "What to do if recording stops",
     "How recovery works",
     "How to use the teleprompter",
+    "Using multiple monitors",
+    "Moving the teleprompter",
+    "Moving the soundboard",
+    "Saving studio layouts",
     "How to add guest notes",
     "How to use sponsor notes",
     "How to use the soundboard",
@@ -1518,6 +1795,10 @@ function PracticeModeView() {
 }
 
 function getLessonCopy(lesson: string) {
+  if (lesson.includes("multiple monitors")) return "Open Studio Workspace, check detected monitors, then pop out tools to the display that fits the show.";
+  if (lesson.includes("Moving the teleprompter")) return "Use Pop Out, then choose Move Teleprompter to Monitor 2 or fullscreen for a clean reading screen.";
+  if (lesson.includes("Moving the soundboard")) return "Pop out Soundboard and move it to a touchscreen or second monitor for large, easy buttons.";
+  if (lesson.includes("Saving studio layouts")) return "Pick Podcast, Interview, Solo Creator, Dual Monitor, Triple Monitor, or Custom to restore windows with one click.";
   if (lesson.includes("teleprompter")) return "Paste a script, pick a comfortable size, then start or pause scrolling whenever you need.";
   if (lesson.includes("guest notes")) return "Keep questions, talking points, research, links, and don't-forget notes beside the recording controls.";
   if (lesson.includes("sponsor notes")) return "Store the read script, talking points, and required disclaimer, then mark the sponsor moment live.";

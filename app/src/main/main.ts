@@ -3,10 +3,12 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
+import type { StudioLayoutProfileId, StudioPanelId, StudioWorkspaceState } from "../shared/studio-workspace";
+import { defaultStudioWorkspaceState } from "../shared/studio-workspace";
 import { defaultStudioConfiguration } from "../shared/config";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import { defaultExportSettings } from "../shared/export";
-import { getAppDataRoot, getEpisodesRoot, getSettingsPath } from "./config-service";
+import { getAppDataRoot, getEpisodesRoot, getSettingsPath, getWorkspaceStatePath } from "./config-service";
 import { logger } from "./logger";
 import {
   appendRecordingError,
@@ -21,12 +23,15 @@ import { cancelExport, createExport, detectMediaTools, openExportFolder } from "
 import { runAutoEdit } from "./auto-edit-store";
 import { createDiagnosticsBundle, getStorageStatus } from "./diagnostics-store";
 import { loadReviewMedia } from "./review-media-store";
+import { StudioWindowManager } from "./studio-window-manager";
 
 app.setName("What About It Studio");
 
 const appDataRoot = getAppDataRoot();
 const episodesRoot = getEpisodesRoot();
 const settingsPath = getSettingsPath();
+const workspaceStatePath = getWorkspaceStatePath();
+let studioWindowManager: StudioWindowManager;
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -125,22 +130,42 @@ async function getSettings(): Promise<StudioSettings> {
     practiceModeEnabled: false,
     deviceDefaults: defaultDeviceDefaults,
     exportSettings: defaultExportSettings,
-    onboarding: { guidedTour: "show" }
+    onboarding: { guidedTour: "show" },
+    studioWorkspace: defaultStudioWorkspaceState.settings
   });
-  return { ...withDeviceDefaults(settings), exportSettings: { ...defaultExportSettings, ...settings.exportSettings } };
+  return {
+    ...withDeviceDefaults(settings),
+    exportSettings: { ...defaultExportSettings, ...settings.exportSettings },
+    studioWorkspace: { ...defaultStudioWorkspaceState.settings, ...settings.studioWorkspace }
+  };
 }
 
 async function saveSettings(settings: StudioSettings) {
   await fs.mkdir(appDataRoot, { recursive: true });
-  const nextSettings = { ...withDeviceDefaults(settings), exportSettings: { ...defaultExportSettings, ...settings.exportSettings } };
+  const nextSettings = {
+    ...withDeviceDefaults(settings),
+    exportSettings: { ...defaultExportSettings, ...settings.exportSettings },
+    studioWorkspace: { ...defaultStudioWorkspaceState.settings, ...settings.studioWorkspace }
+  };
   await fs.writeFile(settingsPath, JSON.stringify(nextSettings, null, 2), "utf8");
   await logger.info("SettingsService", "Saved local studio settings.");
   return nextSettings;
 }
 
+async function saveWorkspaceState(state: StudioWorkspaceState) {
+  return studioWindowManager.saveState(state);
+}
+
 app.whenReady().then(async () => {
   await ensureBaseFolders();
   await logger.info("App", "What About It Studio launched.");
+  studioWindowManager = new StudioWindowManager({
+    preloadPath: path.join(__dirname, "preload.js"),
+    rendererPath: path.join(__dirname, "../renderer/index.html"),
+    devServerUrl: process.env.VITE_DEV_SERVER_URL,
+    statePath: workspaceStatePath
+  });
+  await studioWindowManager.load();
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === "media");
@@ -150,6 +175,20 @@ app.whenReady().then(async () => {
   ipcMain.handle("episodes:create", (_event, input) => createEpisode(input));
   ipcMain.handle("settings:get", getSettings);
   ipcMain.handle("settings:save", (_event, settings) => saveSettings(settings));
+  ipcMain.handle("workspace:get-state", () => studioWindowManager.getState());
+  ipcMain.handle("workspace:save-state", (_event, state) => saveWorkspaceState(state));
+  ipcMain.handle("workspace:get-displays", () => studioWindowManager.getDisplays());
+  ipcMain.handle("workspace:open-panel", (_event, input: { panelId: StudioPanelId; episodeId?: string; displayId?: number; fullscreen?: boolean }) =>
+    studioWindowManager.openPanel(input.panelId, input)
+  );
+  ipcMain.handle("workspace:close-panel", (_event, panelId: StudioPanelId) => studioWindowManager.closePanel(panelId));
+  ipcMain.handle("workspace:move-panel", (_event, input: { panelId: StudioPanelId; displayId: number }) =>
+    studioWindowManager.movePanel(input.panelId, input.displayId)
+  );
+  ipcMain.handle("workspace:apply-layout", (_event, input: { layoutId: StudioLayoutProfileId; episodeId?: string }) =>
+    studioWindowManager.applyLayout(input.layoutId, input.episodeId)
+  );
+  ipcMain.handle("workspace:reset-layout", () => studioWindowManager.resetLayout());
   ipcMain.handle("recording:create-session", (_event, input) => createRecordingSession(input));
   ipcMain.handle("recording:write-state", (_event, input) => writeRecordingState(input.folderPath, input.state));
   ipcMain.handle("recording:save-program", (_event, input) => saveProgramRecording(input.folderPath, input.bytes));

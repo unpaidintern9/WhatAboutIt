@@ -9,6 +9,7 @@ export * from "./Panel";
 export * from "./PodcastToolsPanel";
 export * from "./RecordingStudio";
 export * from "./Sidebar";
+export * from "./StudioToolPanels";
 export * from "./TimelineMarker";
 export * from "./TimelineReview";
 export * from "./ExportEpisode";

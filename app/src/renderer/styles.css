@@ -2550,7 +2550,8 @@ input[type="range"] {
   grid-template-columns: repeat(3, minmax(240px, 1fr));
   grid-template-areas:
     "sound markers notes"
-    "guest tele tele";
+    "guest tele tele"
+    "diag diag diag";
   gap: var(--space-md);
 }
 
@@ -2590,6 +2591,22 @@ input[type="range"] {
   color: var(--color-primary);
 }
 
+.popout-actions,
+.teleprompter-actions,
+.soundboard-toolbar,
+.workspace-toggle-grid,
+.layout-profile-grid {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.popout-actions {
+  padding-bottom: var(--space-xs);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border), transparent 35%);
+}
+
 .mixer-panel {
   grid-area: auto;
 }
@@ -2617,6 +2634,132 @@ input[type="range"] {
 
 .teleprompter-panel {
   grid-area: tele;
+}
+
+.diagnostics-panel {
+  grid-area: diag;
+}
+
+.teleprompter-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(160px, 1fr));
+  gap: var(--space-sm);
+}
+
+.mirror-mode {
+  transform: scaleX(-1);
+}
+
+.dark-mode {
+  color: var(--color-inverseText);
+  background: color-mix(in srgb, #000, var(--color-background) 25%);
+}
+
+.popout-teleprompter {
+  min-height: 48vh;
+  line-height: 1.35;
+}
+
+.soundboard-toolbar label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.soundboard-grid.touch button {
+  min-height: 150px;
+  font-size: 1.15rem;
+}
+
+.diagnostics-list,
+.monitor-list {
+  display: grid;
+  gap: var(--space-xs);
+}
+
+.diagnostics-list span,
+.monitor-list span {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: color-mix(in srgb, var(--color-cards), transparent 12%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.popout-studio-window {
+  min-height: 100vh;
+  padding: var(--space-md);
+  color: var(--color-text);
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--color-background), #000 12%), var(--color-surface)),
+    var(--texture-active);
+}
+
+.popout-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
+  background: var(--color-cards);
+  border: var(--component-border-width) solid var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+}
+
+.popout-titlebar h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  color: var(--color-primary);
+}
+
+.popout-panel-frame .vintage-panel {
+  min-height: calc(100vh - 180px);
+}
+
+.workspace-settings-panel {
+  display: grid;
+  gap: var(--space-md);
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
+  background: var(--color-cards);
+  border: var(--component-border-width) solid var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+}
+
+.workspace-toggle-grid {
+  align-items: stretch;
+}
+
+.workspace-toggle-grid label {
+  display: grid;
+  gap: var(--space-xs);
+  min-width: 220px;
+  padding: var(--space-sm);
+  background: color-mix(in srgb, var(--color-background), transparent 30%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.layout-profile-grid button {
+  min-height: 44px;
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: var(--component-border-width) solid var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-family: var(--font-heading);
+}
+
+.layout-profile-grid button.active,
+.layout-profile-grid button:hover {
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+  border-color: var(--color-accent);
 }
 
 .meter-list {
