@@ -7,12 +7,12 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 | Question | Answer | Evidence |
 | --- | --- | --- |
 | Can Morgan record a full episode? | Partial | Phase 8D validated a real 30-minute live-studio recording/export after fixing long-run stop/save defects. A clean post-fix 60-minute pass is still needed. |
-| Can Morgan review the recording? | Partial | Phase 9F Review now loads real Program, Camera, and Audio files, probes durations with ffprobe, and renders browser video/audio playback controls. A fresh physical Sony/mic QA run is still required. |
+| Can Morgan review the recording? | Partial | Phase 9G opened Review after a real Sony/Morgan mic recording, rendered Program video and Morgan audio controls, and now falls back to recording-state duration when WebM probe metadata has no duration. Multi-camera/multi-mic review remains incomplete. |
 | Can Morgan edit the recording? | No | Edit operations are non-destructive draft entries, but they are not yet applied to playable media in preview or render. |
 | Can Morgan run Auto Edit on a real recording? | No | Auto Edit currently generates deterministic suggestions from draft metadata and markers rather than analyzing real media. |
-| Can Morgan export a playable episode? | Partial | Phase 9F requires `Program/program.webm`, rejects stray media, and validates output with ffprobe before success. All presets and a fresh physical QA run remain unvalidated. |
+| Can Morgan export a playable episode? | Partial | Phase 9G exported a fresh MP4 from real recorded media and ffprobe validated H.264/AAC, 1024x576, 30 fps, duration `54.724000`. All presets and full-length production media remain unvalidated. |
 | Can Morgan recover from an interrupted session? | No | Recovery state exists, but interrupted real recording recovery has not been validated. |
-| Can Morgan use multiple Sony cameras? | No | Phase 8C detected and previewed `Sony Camera (Imaging Edge)` plus the integrated camera, but recording still captures one camera stream and no multi-Sony setup was validated. |
+| Can Morgan use multiple Sony cameras? | No | Phase 9G previewed Sony plus Integrated cameras live, but the saved recording produced only `Cameras\camera-1.webm`; simultaneous multi-camera recording is still not implemented. |
 | Can Morgan use Sony wireless video? | No | Wireless video is not confirmed. Bluetooth is treated as control-only unless a real video stream is validated. |
 | Can Morgan launch the app from the desktop? | Partial | `What About It Studio.lnk` was created and launched the Electron app. Final installer and branded icon are still pending. |
 | Can Morgan run a guided real hardware test? | Partial | Phase 8C live-studio QA validated two live camera previews, Realtek mic meters, 30-second recording, 5-minute recording, Review handoff, and playable MP4 export. Physical unplug/replug and full guided Hardware Test Mode rerun remain pending. |
@@ -90,3 +90,15 @@ Phase 9F removes several false-success risks, but beta remains blocked:
 - Pass in automated tests: Export fails when `Program/program.webm` is missing and succeeds from a real generated `Program/program.webm`.
 - Partial: Draft edits are saved non-destructively, but render-applied editing is not implemented.
 - Not run: focused physical Sony/mic media-flow QA after these fixes.
+
+## Phase 9G Focused Media Flow Gate
+
+Phase 9G validates the core real-media loop after the lifecycle fixes, but beta remains blocked:
+
+- Pass: Installed app detected and previewed Sony Camera (Imaging Edge) and Integrated Camera after stale app processes were cleaned up.
+- Pass: Live Studio recorded a real 44-second take and opened Review after Stop.
+- Pass: Saved Program WebM, Camera 1 WebM, and Morgan Mic M4A files validated with ffprobe.
+- Pass: Export completed from the recorded file and produced a valid MP4, H.264/AAC, 1024x576, 30 fps, duration `54.724000`; ffmpeg decode smoke passed.
+- Fixed: Review now uses recording-state elapsed time when WebM duration metadata is missing, avoiding `00:00:00` duration for valid browser recordings.
+- Partial: Per-mic monitoring controls toggled and defaulted Off, but audible headphone monitoring was not independently confirmable through automation.
+- Partial: Camera 2 and Guest/Extra mic cards showed truthful missing states in Review, but separate files were not recorded.

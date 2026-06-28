@@ -21,6 +21,10 @@ interface MediaProbeResult {
   }>;
 }
 
+interface RecordingStateFile {
+  elapsedMs?: number;
+}
+
 const expectedAssets: Array<Omit<ReviewMediaAsset, "status" | "message">> = [
   { id: "program", label: "Program video", kind: "program", relativePath: path.join("Program", "program.webm") },
   { id: "camera-1", label: "Camera 1", kind: "camera", relativePath: path.join("Cameras", "camera-1.webm") },
@@ -33,7 +37,8 @@ const expectedAssets: Array<Omit<ReviewMediaAsset, "status" | "message">> = [
 
 export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInventory> {
   const episodeFolder = path.join(getEpisodesRoot(), episodeId);
-  const assets = await Promise.all(expectedAssets.map((asset) => inspectAsset(episodeFolder, asset)));
+  const fallbackDurationMs = await loadRecordingDuration(episodeFolder);
+  const assets = await Promise.all(expectedAssets.map((asset) => inspectAsset(episodeFolder, asset, fallbackDurationMs)));
   const program = assets.find((asset) => asset.kind === "program") ?? missingAsset(episodeFolder, expectedAssets[0]);
   const cameras = assets.filter((asset) => asset.kind === "camera");
   const audio = assets.filter((asset) => asset.kind === "audio");
@@ -53,7 +58,8 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
 
 async function inspectAsset(
   episodeFolder: string,
-  asset: Omit<ReviewMediaAsset, "status" | "message">
+  asset: Omit<ReviewMediaAsset, "status" | "message">,
+  fallbackDurationMs?: number
 ): Promise<ReviewMediaAsset> {
   const filePath = path.join(episodeFolder, asset.relativePath);
 
@@ -61,13 +67,14 @@ async function inspectAsset(
     const stat = await fs.stat(filePath);
     const probe = await probeMedia(filePath);
     const duration = Number(probe.format?.duration ?? 0);
+    const probedDurationMs = Number.isFinite(duration) && duration > 0 ? Math.round(duration * 1000) : undefined;
 
     return {
       ...asset,
       filePath,
       playbackUrl: pathToPlaybackUrl(filePath),
       status: "ready",
-      durationMs: Number.isFinite(duration) && duration > 0 ? Math.round(duration * 1000) : undefined,
+      durationMs: probedDurationMs ?? fallbackDurationMs,
       sizeBytes: stat.size,
       codecSummary: summarizeCodecs(probe, asset.kind),
       message: "Ready to review"
@@ -86,6 +93,18 @@ async function inspectAsset(
     } catch {
       return missingAsset(episodeFolder, asset);
     }
+  }
+}
+
+async function loadRecordingDuration(episodeFolder: string) {
+  try {
+    const statePath = path.join(episodeFolder, "Session", "recording-state.json");
+    const state = JSON.parse(await fs.readFile(statePath, "utf8")) as RecordingStateFile;
+    return typeof state.elapsedMs === "number" && Number.isFinite(state.elapsedMs) && state.elapsedMs > 0
+      ? Math.round(state.elapsedMs)
+      : undefined;
+  } catch {
+    return undefined;
   }
 }
 

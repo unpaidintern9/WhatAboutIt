@@ -73,4 +73,32 @@ describe("review media store", () => {
     expect(inventory.audio.find((asset) => asset.id === "guest-mic")?.status).toBe("missing");
     expect(inventory.program.playbackUrl).toMatch(/^file:\/\//);
   }, 20000);
+
+  it("uses recording state duration when a WebM file has no embedded duration", async () => {
+    const { loadReviewMedia } = await import("./review-media-store");
+    const episodeId = "episode-webm-durationless";
+    const episodeFolder = path.join(mockPaths.episodesRoot, episodeId);
+    const programPath = path.join(episodeFolder, "Program", "program.webm");
+    const statePath = path.join(episodeFolder, "Session", "recording-state.json");
+    await fs.mkdir(path.dirname(programPath), { recursive: true });
+    await fs.mkdir(path.dirname(statePath), { recursive: true });
+    await fs.writeFile(programPath, "not an actual webm");
+    await fs.writeFile(statePath, JSON.stringify({ elapsedMs: 54749 }));
+
+    const ffmpegTools = await import("./ffmpeg-tools");
+    const probeSpy = vi.spyOn(ffmpegTools, "runFfprobe").mockResolvedValue({
+      stdout: JSON.stringify({
+        streams: [{ codec_type: "video", codec_name: "vp9", width: 1024, height: 576 }],
+        format: { size: "12345" }
+      }),
+      stderr: ""
+    });
+
+    const inventory = await loadReviewMedia(episodeId);
+
+    expect(inventory.program.status).toBe("ready");
+    expect(inventory.program.durationMs).toBe(54749);
+
+    probeSpy.mockRestore();
+  });
 });

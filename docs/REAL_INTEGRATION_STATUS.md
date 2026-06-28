@@ -9,7 +9,7 @@ This document records the current status of production media integrations after 
 | Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save; Phase 9F adds explicit stream shutdown cleanup | Partial | Multi-camera capture, multi-mic capture, clean 60-minute pass, sync validation |
 | Camera capture | Physical Sony Camera via Imaging Edge and Integrated Camera previews validated; Camera 1 recording saved to Program and mirrored to Cameras | Partial | Simultaneous multi-camera recording, capture cards, backend error handling, physical unplug/replug validation |
 | Microphone capture | Physical Realtek microphone validated, muxed into Program and extracted to Audio with FFmpeg | Partial | Multiple input capture, separate tracks where supported, drift and clipping reporting |
-| Timeline review | Draft timeline JSON plus real Review media inventory for Program, Cameras, and Audio files with ffprobe durations and browser playback controls | Partial | Review proxy generation for non-browser-playable files and render-accurate edit preview |
+| Timeline review | Draft timeline JSON plus real Review media inventory for Program, Cameras, and Audio files with ffprobe durations, recording-state duration fallback, and browser playback controls | Partial | Review proxy generation for non-browser-playable files and render-accurate edit preview |
 | Editing | Non-destructive edit operation log | Partial | Apply edit decisions to renderable media timeline and playback preview |
 | Export | Bundled FFmpeg/ffprobe detection and real local rendering; Phase 9F requires `Program/program.webm` and validates output before success | Partial | Validate all presets from full-length real podcast media and render draft edit decisions into output |
 | Auto Edit | Deterministic offline suggestion generator from draft data | No | Real transcript, audio analysis, speaker/camera analysis, real report evidence |
@@ -120,3 +120,18 @@ The project now has two partial real media integrations: offline FFmpeg export r
 - Draft edit operations remain non-destructive metadata. The UI now says `Draft saved. Preview rendering comes next.` when edits exist.
 - Export now requires `Program/program.webm` for real exports, rejects stray Program-folder media, and does not report success until ffprobe validates output.
 - Manual Sony/mic hardware QA was not rerun during this code pass; `docs/manual-qa/MEDIA_FLOW_QA.md` tracks the focused physical checklist.
+
+## Phase 9G Focused Media Flow Hardware Addendum
+
+- Installed app was updated and launched from `C:\Users\mmcga\AppData\Local\Programs\what-about-it-studio\What About It Studio.exe`.
+- Studio Setup detected and previewed `Sony Camera (Imaging Edge)` as Camera 1 and `Integrated Camera (13d3:540a)` as Camera 2.
+- A stale/busy launch state showed cameras as used by another app until previous installed-app processes were stopped; after cleanup, both cameras returned to `Live`.
+- Live Studio showed Sony and Integrated previews, Morgan/Guest/Extra meter cards, readiness strip, and sticky Record/Pause/Stop controls.
+- Per-mic monitoring controls for Morgan and Guest toggled and monitoring defaulted Off after leaving/reopening. Headphone audibility/no-echo was not independently confirmable through automation.
+- Real recording reached `00:00:44` and saved to `%APPDATA%\What About It Studio\episodes\2026-06-28-studio-recording-94ac2f9c`.
+- Fresh files saved: `Program\program.webm`, `Cameras\camera-1.webm`, and `Audio\morgan-mic.m4a`.
+- `Cameras\camera-2.webm`, `Audio\guest-mic.m4a`, and `Audio\extra-mic.m4a` were not produced; simultaneous multi-camera/multi-mic recording remains incomplete.
+- Review opened after Stop, rendered Program video and Morgan audio controls, and truthfully marked missing secondary camera/mic files.
+- Phase 9G found and fixed a Review duration display bug for durationless WebM files by falling back to `Session\recording-state.json` elapsed time.
+- ffprobe validated Program/Camera 1 as VP9+Opus WebM and Morgan Mic as AAC M4A duration `54.724000`.
+- Standard Full Episode Video export completed and produced `what-about-it-full-episode-video.mp4`, H.264/AAC, 1024x576, 30 fps, duration `54.724000`; ffmpeg decode smoke passed.
