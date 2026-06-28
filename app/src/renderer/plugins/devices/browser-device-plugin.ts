@@ -118,5 +118,21 @@ export const browserDevicePlugin: DevicePlugin = {
 
     await new Promise((resolve) => window.setTimeout(resolve, 320));
     await audioContext.close();
+  },
+
+  async openCameraPreview(deviceId?: string) {
+    if (!navigator.mediaDevices?.getUserMedia || !deviceId) throw new Error("Camera needs attention");
+    return navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: deviceId } },
+      audio: false
+    });
+  },
+
+  async openMicrophoneStream(deviceId?: string) {
+    if (!navigator.mediaDevices?.getUserMedia || !deviceId) throw new Error("Mic needs attention");
+    return navigator.mediaDevices.getUserMedia({
+      audio: { deviceId: { exact: deviceId } },
+      video: false
+    });
   }
 };

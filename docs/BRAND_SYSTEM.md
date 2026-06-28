@@ -70,3 +70,14 @@ Every new screen must:
 - Feel approachable.
 - Be easy enough for a first-time user.
 - Avoid generic admin dashboard or boilerplate Electron styling.
+
+## Phase 8B Live Studio Typography
+
+The live studio uses locally bundled or system-safe font stacks only:
+
+- Bold western/block display font: `Georgia, 'Times New Roman', serif` through `--font-display`.
+- Condensed label/heading feel: `Rockwell, Georgia, serif` through `--font-heading`.
+- Handwritten accent font: `'Segoe Script', 'Bradley Hand ITC', cursive` through `--font-accent`.
+- Readable body font: `Inter, Segoe UI, Arial, sans-serif` through `--font-body`.
+
+The Record screen must use theme tokens for rustic paper, red rail, leather panels, brass borders, tactile controls, and audio meter colors. Hardcoded production colors are not allowed for this surface.

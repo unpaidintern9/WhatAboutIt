@@ -41,3 +41,15 @@ Before any item can move to "Yes," the project needs a recorded test episode tha
 Morgan should not rely on this build to record a production episode today.
 
 The correct next engineering task is to connect and validate the real media backend, starting with export/runtime availability and one reliable recording path before broadening to multi-camera and Auto Edit.
+
+## Phase 8B Live Studio Gate
+
+The live Record screen is more functional and closer to the reference UI, but beta acceptance is still blocked until real hardware QA confirms:
+
+- All intended cameras preview live on the Record screen.
+- Mic meters move while speaking.
+- Monitor Mic works through headphones without echo.
+- Record, Pause, Resume, and Stop save a usable recording.
+- Stop lands in Review Episode with the recorded session draft.
+- Export works from that recorded file.
+- ffprobe validation passes for the saved recording/export where available.

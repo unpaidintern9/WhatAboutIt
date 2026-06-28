@@ -55,3 +55,14 @@ This document records the current status of production media integrations after 
 ## Integration Readiness Summary
 
 The project now has two partial real media integrations: offline FFmpeg export rendering and a physically validated one-camera/one-mic browser recording save path. Phase 7C added a Sony-capable camera connection matrix and stable Camera 1/2/3 assignment logic, but no Sony hardware was detected, so Sony recording and wireless video remain unvalidated. Phase 8A added and validated a desktop launcher script plus a guided real hardware test mode. Phase 8B adds live readiness, hot-plug refresh handling, saved preference truthfulness, safe stop handling, and diagnostics export. Phase 8C built a Windows NSIS beta installer, validated installed Desktop and Start Menu shortcuts, confirmed first-run Hardware Test routing, confirmed packaged app data under `%APPDATA%\What About It Studio`, exported diagnostics from the installed app, and completed uninstall/reinstall smoke testing. The latest packaged-app test recorded and exported 29.999 seconds from available local camera/mic hardware. Physical unplug/replug was not manually performed. The remaining production media work is long-duration recording validation, physical Sony/multi-device recording, media-backed timeline playback, real Auto Edit analysis, recovery validation, clean-machine installer QA, final branded app icon, and final package author metadata.
+
+## Phase 8B Live Studio Addendum
+
+- `app/src/renderer/components/RecordingStudio.tsx` now attempts live camera previews from selected device ids with truthful Live, Needs Attention, and Not Connected states.
+- The same screen now performs live Web Audio mic metering for selected microphone ids and keeps monitoring off by default.
+- The big Record/Pause/Resume/Stop controls call the existing `RecordingService` and browser `MediaRecorder` path.
+- Stop saves through the existing session path, creates a timeline draft, and routes to Review Episode.
+- Auto Edit was not enhanced; the live studio only routes there after a recording exists.
+- Export was not enhanced; the live studio only routes there after a recording/session exists.
+- Soundboard slots do not fake playback. Empty slots show `Add a sound first`; local file playback is attempted only when a slot has a file path.
+- Manual hardware QA for this exact UI pass is still required and is tracked in `docs/manual-qa/LIVE_STUDIO_HARDWARE_QA.md`.

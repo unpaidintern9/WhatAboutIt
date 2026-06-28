@@ -46,5 +46,12 @@ export class DeviceService {
   playTestSound(deviceId?: string) {
     return this.plugin.playTestSound(deviceId);
   }
-}
 
+  openCameraPreview(deviceId?: string) {
+    return this.plugin.openCameraPreview(deviceId);
+  }
+
+  openMicrophoneStream(deviceId?: string) {
+    return this.plugin.openMicrophoneStream(deviceId);
+  }
+}

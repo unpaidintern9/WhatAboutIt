@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
@@ -254,6 +254,8 @@ export default function App() {
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
   const recordingService = useMemo(() => new RecordingService(new BrowserMediaRecorderPlugin()), []);
   const exportService = useMemo(() => new ExportService(studio), [studio]);
+  const openCameraPreview = useCallback((deviceId?: string) => deviceService.openCameraPreview(deviceId), [deviceService]);
+  const openMicrophoneStream = useCallback((deviceId?: string) => deviceService.openMicrophoneStream(deviceId), [deviceService]);
 
   useEffect(() => {
     applyTheme(activeTheme);
@@ -654,25 +656,6 @@ export default function App() {
     await refreshUnfinishedSessions();
   }
 
-  function popOutTeleprompter() {
-    const promptWindow = window.open("", "what-about-it-teleprompter", "width=900,height=700");
-    if (!promptWindow) return;
-    const mode = podcastTools.teleprompter.mode;
-    const text = `${podcastTools.teleprompter.script}\n\n${podcastTools.teleprompter.sponsorScript}`.trim() || "Teleprompter is ready when you are.";
-    promptWindow.document.write(`
-      <html>
-        <head>
-          <title>Teleprompter</title>
-          <style>
-            body { margin: 0; padding: 48px; font-family: Georgia, serif; font-size: ${podcastTools.teleprompter.fontSize}px; line-height: 1.5; color: ${mode === "dark" ? "#fff4dc" : "#211513"}; background: ${mode === "dark" ? "#211513" : "#fff4dc"}; }
-          </style>
-        </head>
-        <body>${text.replace(/[&<>]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[character] ?? character).replace(/\n/g, "<br />")}</body>
-      </html>
-    `);
-    promptWindow.document.close();
-  }
-
   const studioReady = Boolean(settings.deviceDefaults.cameras.camera1 && settings.deviceDefaults.microphones.morganMic);
 
   return (
@@ -783,6 +766,7 @@ export default function App() {
         {view === "recording" && (
           <RecordingStudio
             defaults={settings.deviceDefaults}
+            detection={deviceDetection}
             snapshot={recordingSnapshot}
             unfinishedSessions={unfinishedSessions}
             podcastTools={podcastTools}
@@ -790,15 +774,22 @@ export default function App() {
             onStart={() => void startRecording(false)}
             onPause={() => void pauseRecording()}
             onResume={() => void resumeRecording()}
-            onStop={() => void stopRecording()}
-            onPractice={() => void startRecording(true)}
+            onStop={async () => {
+              await stopRecording();
+              setView("timeline-review");
+            }}
+            onAutoEdit={() => void runAutoEditFlow(reviewMode)}
+            onExport={() => setView("export")}
             onDismissRecovery={() => setUnfinishedSessions([])}
             onNext={() => {
               if (activeEpisode) void loadTimelineForEpisode(activeEpisode.id);
               setView("timeline-review");
             }}
+            onDefaultsChange={(defaults) => void saveDeviceDefaults(defaults)}
             onPodcastToolsChange={(nextState) => void savePodcastToolsState(nextState)}
-            onPopOutTeleprompter={popOutTeleprompter}
+            onPlayTestSound={() => void playTestSound()}
+            onOpenCameraPreview={openCameraPreview}
+            onOpenMicrophoneStream={openMicrophoneStream}
           />
         )}
         {view === "timeline-review" && (

@@ -31,4 +31,6 @@ export interface DevicePlugin {
   requestStudioPermissions: () => Promise<DeviceDetectionResult>;
   sampleMicrophoneLevel: (deviceId?: string) => Promise<number>;
   playTestSound: (deviceId?: string) => Promise<void>;
+  openCameraPreview: (deviceId?: string) => Promise<MediaStream>;
+  openMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
 }
