@@ -152,6 +152,19 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Record something first");
   });
 
+  it("explains camera settings instead of leaving the gear button dead", () => {
+    const { host } = renderStudio();
+
+    const gearButton = host.querySelector('button[aria-label="Camera 1 advanced settings"]');
+    expect(gearButton).toBeTruthy();
+
+    act(() => {
+      gearButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(host.textContent).toContain("Camera 1 settings live in Studio Setup");
+  });
+
   it("routes Auto Edit and Export when a session exists", () => {
     const onAutoEdit = vi.fn();
     const onExport = vi.fn();

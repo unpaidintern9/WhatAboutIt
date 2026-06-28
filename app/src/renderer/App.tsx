@@ -1076,21 +1076,49 @@ function NewEpisodeView(props: {
   );
 }
 
+const themeEditorActions = [
+  {
+    label: "Create custom theme",
+    message: "Start from a built-in theme first. Custom theme controls will unlock after the token editor is ready."
+  },
+  {
+    label: "Export theme",
+    message: "Pick a built-in theme to preview. Export will be available when custom themes can be saved."
+  },
+  {
+    label: "Import theme",
+    message: "Imports are paused until custom theme files have validation."
+  },
+  {
+    label: "Share theme",
+    message: "Sharing comes after custom themes can be checked, saved, and exported safely."
+  }
+];
+
 function ThemeEditorView({ activeThemeId, changeTheme }: { activeThemeId: string; changeTheme: (themeId: string) => Promise<void> }) {
+  const [editorMessage, setEditorMessage] = useState("Choose a built-in theme and the whole studio updates immediately.");
+
   return (
     <section className="view-stack">
       <div className="panel">
         <p className="signature">Make the whole room yours</p>
         <h2>Theme Editor</h2>
         <p className="soft-copy">
-          Phase 1 ships the theme engine and built-in themes. Custom create, export, import, and share controls are staged here for the full editor.
+          Pick a finished look now. Custom controls will arrive only when they can protect the studio's theme files.
         </p>
+        <div className="theme-editor-status" aria-live="polite">
+          <Brush size={20} />
+          <span>{editorMessage}</span>
+        </div>
         <div className="theme-grid">
           {builtInThemes.map((theme) => (
             <button
               className={`theme-tile ${activeThemeId === theme.id ? "selected" : ""}`}
               key={theme.id}
-              onClick={() => void changeTheme(theme.id)}
+              onClick={() => {
+                setEditorMessage(`${theme.name} is active. The studio look is saved locally.`);
+                void changeTheme(theme.id);
+              }}
               style={{
                 background: `linear-gradient(135deg, ${theme.colors.cards}, ${theme.colors.surface})`,
                 color: theme.colors.text,
@@ -1103,11 +1131,12 @@ function ThemeEditorView({ activeThemeId, changeTheme }: { activeThemeId: string
             </button>
           ))}
         </div>
-        <div className="editor-actions" aria-label="Future custom theme actions">
-          <button disabled>Create custom theme</button>
-          <button disabled>Export theme</button>
-          <button disabled>Import theme</button>
-          <button disabled>Share theme</button>
+        <div className="editor-actions" aria-label="Custom theme actions">
+          {themeEditorActions.map((action) => (
+            <button type="button" key={action.label} onClick={() => setEditorMessage(action.message)}>
+              {action.label}
+            </button>
+          ))}
         </div>
       </div>
     </section>

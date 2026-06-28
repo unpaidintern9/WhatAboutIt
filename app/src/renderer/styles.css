@@ -528,6 +528,14 @@ select:focus {
   border: 2px solid;
   border-radius: var(--component-card-radius);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
+  transition: transform var(--component-transition-speed), box-shadow var(--component-transition-speed), filter var(--component-transition-speed);
+}
+
+.theme-tile:hover,
+.theme-tile:focus-visible {
+  transform: var(--animation-hover-lift);
+  filter: saturate(1.06);
+  box-shadow: var(--component-button-shadow);
 }
 
 .theme-tile span {
@@ -553,6 +561,39 @@ select:focus {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-md);
+}
+
+.theme-editor-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: fit-content;
+  max-width: 100%;
+  padding: var(--space-md) var(--space-lg);
+  color: var(--color-primary);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-border-radius);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent), transparent 70%);
+  font-weight: 900;
+}
+
+.theme-editor-status svg {
+  flex: 0 0 auto;
+  color: var(--color-accent);
+}
+
+.editor-actions button {
+  color: var(--color-text);
+  text-align: left;
+}
+
+.editor-actions button:hover,
+.editor-actions button:focus-visible {
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+  border-color: var(--color-accent);
+  transform: var(--animation-hover-lift);
 }
 
 .settings-panel dl {
@@ -2033,6 +2074,15 @@ input[type="range"] {
   background: var(--color-cards);
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-border-radius);
+  transition: transform var(--component-transition-speed), background var(--component-transition-speed), border-color var(--component-transition-speed);
+}
+
+.camera-live-top button:hover,
+.camera-live-top button:focus-visible {
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+  border-color: var(--color-accent);
+  transform: var(--animation-hover-lift);
 }
 
 .live-video-frame {

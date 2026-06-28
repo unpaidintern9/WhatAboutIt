@@ -236,6 +236,12 @@ export function RecordingStudio({
               label={slot.label}
               device={findDevice(detection.cameras, defaults.cameras[slot.key])}
               deviceId={defaults.cameras[slot.key]}
+              onConfigure={() =>
+                setStudioNotice({
+                  tone: "ready",
+                  message: `${slot.label} settings live in Studio Setup. Keep recording controls clean here.`
+                })
+              }
               onOpenCameraPreview={onOpenCameraPreview}
             />
           ))}
@@ -430,11 +436,13 @@ function CameraCard({
   label,
   device,
   deviceId,
+  onConfigure,
   onOpenCameraPreview
 }: {
   label: string;
   device?: StudioDevice;
   deviceId?: string;
+  onConfigure: () => void;
   onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
 }) {
   const [previewState, setPreviewState] = useState<"starting" | "live" | "needs-attention">("starting");
@@ -449,7 +457,7 @@ function CameraCard({
           <h3>{label}</h3>
           <span>{status}</span>
         </div>
-        <button type="button" aria-label={`${label} advanced settings`} title="Advanced settings">
+        <button type="button" aria-label={`${label} advanced settings`} title="Advanced settings" onClick={onConfigure}>
           <Settings size={18} />
         </button>
       </div>
