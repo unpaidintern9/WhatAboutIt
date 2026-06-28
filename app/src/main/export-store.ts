@@ -68,11 +68,11 @@ function qualityArgs(type: ExportRequest["type"], preset: ExportRequest["quality
   }
 
   if (type === "archive-master") {
-    return ["-c:v", "libx264", "-preset", "slow", "-crf", "18", "-c:a", "aac", "-b:a", "256k"];
+    return ["-vf", "fps=30", "-r", "30", "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-c:a", "aac", "-b:a", "256k"];
   }
 
   const crf = preset === "high" ? "20" : preset === "archive" ? "18" : "23";
-  return ["-c:v", "libx264", "-preset", "veryfast", "-crf", crf, "-c:a", "aac", "-b:a", preset === "high" ? "192k" : "160k"];
+  return ["-vf", "fps=30", "-r", "30", "-c:v", "libx264", "-preset", "veryfast", "-crf", crf, "-c:a", "aac", "-b:a", preset === "high" ? "192k" : "160k"];
 }
 
 async function createPracticeSource(episodeId: string) {

@@ -6,12 +6,12 @@ This document records the current status of production media integrations after 
 
 | Area | Current implementation | Production ready | Missing work |
 | --- | --- | --- | --- |
-| Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save | Partial | Multi-camera capture, multi-mic capture, long-duration validation, sync validation |
-| Camera capture | Physical Integrated Camera validated through browser capture, saved to Program and mirrored to Cameras; Sony provider matrix added | Partial | Physical Sony camera validation, up to three simultaneous cameras, capture cards, backend error handling |
+| Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save; Phase 8C validated 30-second and 5-minute live-studio recordings | Partial | Multi-camera capture, multi-mic capture, full-episode duration validation, sync validation |
+| Camera capture | Physical Sony Camera via Imaging Edge and Integrated Camera previews validated; Camera 1 recording saved to Program and mirrored to Cameras | Partial | Simultaneous multi-camera recording, capture cards, backend error handling, physical unplug/replug validation |
 | Microphone capture | Physical Realtek microphone validated, muxed into Program and extracted to Audio with FFmpeg | Partial | Multiple input capture, separate tracks where supported, drift and clipping reporting |
 | Timeline review | Draft timeline JSON and marker/edit model | No | Real media discovery, stream probing, accurate playback, media-backed timeline tracks |
 | Editing | Non-destructive edit operation log | Partial | Apply edit decisions to renderable media timeline and playback preview |
-| Export | Bundled FFmpeg/ffprobe detection and real local rendering | Partial | Validate all presets from longer real podcast media and render from a fully media-backed draft timeline |
+| Export | Bundled FFmpeg/ffprobe detection and real local rendering; video exports cap hardware WebM sources to 30 fps | Partial | Validate all presets from full-length real podcast media and render from a fully media-backed draft timeline |
 | Auto Edit | Deterministic offline suggestion generator from draft data | No | Real transcript, audio analysis, speaker/camera analysis, real report evidence |
 | Recovery | Session state foundation | Partial | Real interrupted recording validation and media recovery workflow |
 | Packaging | Electron Builder config | Partial | Installable builds, clean-machine test, bundled media dependencies |
@@ -66,3 +66,14 @@ The project now has two partial real media integrations: offline FFmpeg export r
 - Export was not enhanced; the live studio only routes there after a recording/session exists.
 - Soundboard slots do not fake playback. Empty slots show `Add a sound first`; local file playback is attempted only when a slot has a file path.
 - Manual hardware QA for this exact UI pass is still required and is tracked in `docs/manual-qa/LIVE_STUDIO_HARDWARE_QA.md`.
+
+## Phase 8C Live Studio Hardware QA Addendum
+
+- Built Electron app was launched with real camera/mic permission.
+- Detected live hardware: `Sony Camera (Imaging Edge)`, `Integrated Camera (13d3:540a)`, `Default - Microphone (Realtek(R) Audio)`, and `Default - Speakers (Realtek(R) Audio)`.
+- Record screen showed Camera 1 and Camera 2 live previews. Camera 3 truthfully showed `Not Connected` / `Needs Attention`.
+- 30-second real recording passed with Pause/Resume, Stop, Review Episode handoff, saved `Program\program.webm`, extracted `Audio\morgan-mic.m4a`, and playable MP4 export.
+- 5-minute real recording passed with Stop, Review Episode handoff, saved `Program\program.webm`, extracted `Audio\morgan-mic.m4a`, and playable MP4 export.
+- 5-minute export initially exposed a 1000 fps WebM metadata issue. `app/src/main/export-store.ts` now caps video exports to 30 fps; corrected 5-minute MP4 validates at 1024x576, 30 fps, H.264/AAC, duration `315.674000`.
+- Test sound and monitoring controls executed and displayed correct warnings, but audible headphone confirmation was not independently captured by automation.
+- Physical unplug/replug was not performed. Recovery and full-episode duration remain pending.

@@ -6,16 +6,16 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 
 | Question | Answer | Evidence |
 | --- | --- | --- |
-| Can Morgan record a full episode? | No | A 17-second physical one-camera/one-mic recording was validated, but full-episode long-duration stability has not been validated. |
-| Can Morgan review the recording? | No | The review screen uses draft timeline data and placeholders, not a validated real media playback timeline. |
+| Can Morgan record a full episode? | No | Phase 8C validated 30-second and 5-minute live-studio recordings with real hardware, but full-episode long-duration stability has not been validated. |
+| Can Morgan review the recording? | Partial | Phase 8C Stop routed both real recordings to Review Episode and saved draft timelines, but the review screen is still not a validated real media playback timeline. |
 | Can Morgan edit the recording? | No | Edit operations are non-destructive draft entries, but they are not yet applied to playable media in preview or render. |
 | Can Morgan run Auto Edit on a real recording? | No | Auto Edit currently generates deterministic suggestions from draft metadata and markers rather than analyzing real media. |
-| Can Morgan export a playable episode? | Partial | A 17-second physical hardware recording exported successfully to a playable MP4. A full-length episode export has not been validated. |
+| Can Morgan export a playable episode? | Partial | Phase 8C exported playable 30-second and 5-minute MP4s from real recorded hardware media. Full-length episode export and all presets remain unvalidated. |
 | Can Morgan recover from an interrupted session? | No | Recovery state exists, but interrupted real recording recovery has not been validated. |
-| Can Morgan use multiple Sony cameras? | No | Sony provider slots and Camera 1/2/3 ordering are in place, but no Sony camera was detected for physical validation. |
+| Can Morgan use multiple Sony cameras? | No | Phase 8C detected and previewed `Sony Camera (Imaging Edge)` plus the integrated camera, but recording still captures one camera stream and no multi-Sony setup was validated. |
 | Can Morgan use Sony wireless video? | No | Wireless video is not confirmed. Bluetooth is treated as control-only unless a real video stream is validated. |
 | Can Morgan launch the app from the desktop? | Partial | `What About It Studio.lnk` was created and launched the Electron app. Final installer and branded icon are still pending. |
-| Can Morgan run a guided real hardware test? | Partial | Phase 8B completed with one physical camera, one physical mic, dashboard readiness, a 30.340333-second MP4 export, and diagnostics. Multi-camera, physical unplug/replug, and long-duration validation remain pending. |
+| Can Morgan run a guided real hardware test? | Partial | Phase 8C live-studio QA validated two live camera previews, Realtek mic meters, 30-second recording, 5-minute recording, Review handoff, and playable MP4 export. Physical unplug/replug and full guided Hardware Test Mode rerun remain pending. |
 | Can Morgan save a diagnostics bundle? | Partial | Phase 8B created a local diagnostics folder with app info, device list, hardware results, session files, and logs. Raw media was not included. |
 | Can Morgan install the Windows beta app? | Partial | Phase 8C built `What About It Studio-0.1.0-Windows.exe`, installed it, launched from Desktop and Start Menu shortcuts, ran Hardware Test Mode, exported MP4, exported diagnostics, uninstalled, and reinstalled. Final branded icon, author metadata, and clean-machine QA remain pending. |
 
@@ -53,3 +53,15 @@ The live Record screen is more functional and closer to the reference UI, but be
 - Stop lands in Review Episode with the recorded session draft.
 - Export works from that recorded file.
 - ffprobe validation passes for the saved recording/export where available.
+
+## Phase 8C Live Studio Gate
+
+Phase 8C moved several items from untested to partially validated:
+
+- Pass: Camera 1 and Camera 2 live previews appeared with real hardware.
+- Pass: Realtek mic meter showed `We hear you` during the 30-second pass and `We can't hear you yet` during quiet-room sections.
+- Pass: Record, Pause, Resume, Stop, Review Episode handoff, and local save worked for the 30-second test.
+- Pass: Record, Stop, Review Episode handoff, and local save worked for the 5-minute test.
+- Pass: ffprobe validated playable exports for both tests after capping video export to 30 fps.
+- Partial: Test sound action and Monitor Mic toggle executed, but audible/headphone confirmation was not independently captured.
+- Partial: Camera 3 not-connected state appeared, but physical disconnect/reconnect was not performed.

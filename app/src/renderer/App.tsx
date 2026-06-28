@@ -382,9 +382,19 @@ export default function App() {
   }
 
   async function startExport(practice = false) {
-    if (!activeEpisode) return;
+    let episodeId = activeEpisode?.id ?? timelineDraft.episodeId;
+    if (!episodeId) {
+      const latestEpisodes = await studio.listEpisodes();
+      const latestEpisode = latestEpisodes[0];
+      if (latestEpisode) {
+        setEpisodes(latestEpisodes);
+        setActiveEpisode(latestEpisode);
+        episodeId = latestEpisode.id;
+      }
+    }
+    if (!episodeId) return;
     const job = await exportService.start({
-      episodeId: activeEpisode.id,
+      episodeId,
       type: selectedExportType,
       qualityPreset: selectedQualityPreset,
       draft: timelineDraft,
@@ -394,13 +404,15 @@ export default function App() {
   }
 
   async function cancelExport() {
-    if (!activeEpisode || !exportJob) return;
-    setExportJob(await exportService.cancel(activeEpisode.id, exportJob));
+    const episodeId = activeEpisode?.id ?? timelineDraft.episodeId;
+    if (!episodeId || !exportJob) return;
+    setExportJob(await exportService.cancel(episodeId, exportJob));
   }
 
   async function openExportFolder() {
-    if (!activeEpisode) return;
-    await exportService.openFolder(activeEpisode.id);
+    const episodeId = activeEpisode?.id ?? timelineDraft.episodeId;
+    if (!episodeId) return;
+    await exportService.openFolder(episodeId);
   }
 
   async function changeExportType(type: ExportType) {
