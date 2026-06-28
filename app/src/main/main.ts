@@ -147,9 +147,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("settings:save", (_event, settings) => saveSettings(settings));
   ipcMain.handle("recording:create-session", (_event, input) => createRecordingSession(input));
   ipcMain.handle("recording:write-state", (_event, input) => writeRecordingState(input.folderPath, input.state));
-  ipcMain.handle("recording:save-program", (_event, input) =>
-    saveProgramRecording(input.folderPath, Uint8Array.from(input.bytes))
-  );
+  ipcMain.handle("recording:save-program", (_event, input) => saveProgramRecording(input.folderPath, input.bytes));
   ipcMain.handle("recording:append-error", (_event, input) => appendRecordingError(input.folderPath, input.message));
   ipcMain.handle("recording:list-unfinished", listUnfinishedRecordingSessions);
   ipcMain.handle("podcast-tools:load", (_event, episodeId) => loadPodcastTools(episodeId));

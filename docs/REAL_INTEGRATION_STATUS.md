@@ -6,12 +6,12 @@ This document records the current status of production media integrations after 
 
 | Area | Current implementation | Production ready | Missing work |
 | --- | --- | --- | --- |
-| Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save; Phase 8C validated 30-second and 5-minute live-studio recordings | Partial | Multi-camera capture, multi-mic capture, full-episode duration validation, sync validation |
+| Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save; Phase 8D validated a recovered 30-minute live-studio recording and fixed long-run stop/save issues | Partial | Multi-camera capture, multi-mic capture, clean 60-minute pass, sync validation |
 | Camera capture | Physical Sony Camera via Imaging Edge and Integrated Camera previews validated; Camera 1 recording saved to Program and mirrored to Cameras | Partial | Simultaneous multi-camera recording, capture cards, backend error handling, physical unplug/replug validation |
 | Microphone capture | Physical Realtek microphone validated, muxed into Program and extracted to Audio with FFmpeg | Partial | Multiple input capture, separate tracks where supported, drift and clipping reporting |
 | Timeline review | Draft timeline JSON and marker/edit model | No | Real media discovery, stream probing, accurate playback, media-backed timeline tracks |
 | Editing | Non-destructive edit operation log | Partial | Apply edit decisions to renderable media timeline and playback preview |
-| Export | Bundled FFmpeg/ffprobe detection and real local rendering; video exports cap hardware WebM sources to 30 fps | Partial | Validate all presets from full-length real podcast media and render from a fully media-backed draft timeline |
+| Export | Bundled FFmpeg/ffprobe detection and real local rendering; video exports cap hardware WebM sources to 30 fps; Phase 8D exported a 30-minute recovered real recording | Partial | Validate all presets from full-length real podcast media and render from a fully media-backed draft timeline |
 | Auto Edit | Deterministic offline suggestion generator from draft data | No | Real transcript, audio analysis, speaker/camera analysis, real report evidence |
 | Recovery | Session state foundation | Partial | Real interrupted recording validation and media recovery workflow |
 | Packaging | Electron Builder config | Partial | Installable builds, clean-machine test, bundled media dependencies |
@@ -54,7 +54,7 @@ This document records the current status of production media integrations after 
 
 ## Integration Readiness Summary
 
-The project now has two partial real media integrations: offline FFmpeg export rendering and a physically validated one-camera/one-mic browser recording save path. Phase 7C added a Sony-capable camera connection matrix and stable Camera 1/2/3 assignment logic, but no Sony hardware was detected, so Sony recording and wireless video remain unvalidated. Phase 8A added and validated a desktop launcher script plus a guided real hardware test mode. Phase 8B adds live readiness, hot-plug refresh handling, saved preference truthfulness, safe stop handling, and diagnostics export. Phase 8C built a Windows NSIS beta installer, validated installed Desktop and Start Menu shortcuts, confirmed first-run Hardware Test routing, confirmed packaged app data under `%APPDATA%\What About It Studio`, exported diagnostics from the installed app, and completed uninstall/reinstall smoke testing. The latest packaged-app test recorded and exported 29.999 seconds from available local camera/mic hardware. Physical unplug/replug was not manually performed. The remaining production media work is long-duration recording validation, physical Sony/multi-device recording, media-backed timeline playback, real Auto Edit analysis, recovery validation, clean-machine installer QA, final branded app icon, and final package author metadata.
+The project now has two partial real media integrations: offline FFmpeg export rendering and a physically validated one-camera/one-mic browser recording save path. Phase 7C added a Sony-capable camera connection matrix and stable Camera 1/2/3 assignment logic, but no Sony wireless video was validated. Phase 8A added and validated a desktop launcher script plus a guided real hardware test mode. Phase 8B adds live readiness, hot-plug refresh handling, saved preference truthfulness, safe stop handling, and diagnostics export. Phase 8C built a Windows NSIS beta installer, validated installed Desktop and Start Menu shortcuts, confirmed first-run Hardware Test routing, confirmed packaged app data under `%APPDATA%\What About It Studio`, exported diagnostics from the installed app, and completed uninstall/reinstall smoke testing. Phase 8D validated a 30-minute real live-studio recording/export after finding and fixing long-run stop/save and Export button defects. Physical unplug/replug was not manually performed. The remaining production media work is a clean long-run rerun after fixes, 60-minute stability, physical Sony/multi-device recording, media-backed timeline playback, real Auto Edit analysis, recovery validation, clean-machine installer QA, final branded app icon, and final package author metadata.
 
 ## Phase 8B Live Studio Addendum
 
@@ -77,3 +77,14 @@ The project now has two partial real media integrations: offline FFmpeg export r
 - 5-minute export initially exposed a 1000 fps WebM metadata issue. `app/src/main/export-store.ts` now caps video exports to 30 fps; corrected 5-minute MP4 validates at 1024x576, 30 fps, H.264/AAC, duration `315.674000`.
 - Test sound and monitoring controls executed and displayed correct warnings, but audible headphone confirmation was not independently captured by automation.
 - Physical unplug/replug was not performed. Recovery and full-episode duration remain pending.
+
+## Phase 8D Audio Monitoring and Long Recording Addendum
+
+- `Play Test Sound` now uses selected output routing when `HTMLAudioElement.setSinkId` is available. Automation could not independently confirm audibility.
+- `Monitor Mic` toggled and showed the no-feedback headphone warning. Automation could not independently confirm headphone monitoring audio/no-echo.
+- 30-minute live-studio run reached `00:30:33` with Sony and Integrated camera previews still live.
+- The real long recording validated with ffprobe: `Program\program.webm` is 257,607,059 bytes with VP9 video and Opus mono audio; extracted mic audio is AAC mono duration `1828.869000`.
+- The long run found a real stop/save hang when `MediaRecorder` was already `inactive`; recording bytes are now returned as `Uint8Array` and inactive recorders resolve instead of waiting forever.
+- Export button handling was fixed after the long recording exposed a dead primary Export button.
+- Patched app exported `what-about-it-full-episode-video.mp4`, 33,013,463 bytes, H.264/AAC, 1024x576, 30 fps, duration `1828.869000`.
+- 60-minute stability was not run after the 30-minute pass found defects requiring fixes.

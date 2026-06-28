@@ -6,7 +6,7 @@ export interface RecordingStartRequest {
 }
 
 export interface RecordingEngineResult {
-  bytes?: number[];
+  bytes?: Uint8Array;
   mimeType?: string;
   warning?: string;
 }
@@ -17,4 +17,3 @@ export interface RecordingEnginePlugin {
   resume: () => Promise<void>;
   stop: () => Promise<RecordingEngineResult>;
 }
-

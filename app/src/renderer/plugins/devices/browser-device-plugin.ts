@@ -104,19 +104,27 @@ export const browserDevicePlugin: DevicePlugin = {
     return Math.min(100, Math.round(level * 3));
   },
 
-  async playTestSound(_deviceId?: string) {
+  async playTestSound(deviceId?: string) {
     const audioContext = new AudioContext();
     const oscillator = audioContext.createOscillator();
     const gain = audioContext.createGain();
+    const destination = audioContext.createMediaStreamDestination();
+    const audio = new Audio();
+    const sinkableAudio = audio as HTMLAudioElement & { setSinkId?: (sinkId: string) => Promise<void> };
 
     oscillator.frequency.value = 440;
     gain.gain.value = 0.08;
     oscillator.connect(gain);
-    gain.connect(audioContext.destination);
+    gain.connect(destination);
+    audio.srcObject = destination.stream;
+    if (deviceId && sinkableAudio.setSinkId) await sinkableAudio.setSinkId(deviceId);
+    await audio.play();
     oscillator.start();
     oscillator.stop(audioContext.currentTime + 0.25);
 
     await new Promise((resolve) => window.setTimeout(resolve, 320));
+    audio.pause();
+    destination.stream.getTracks().forEach((track) => track.stop());
     await audioContext.close();
   },
 

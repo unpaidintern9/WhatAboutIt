@@ -6,11 +6,11 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 
 | Question | Answer | Evidence |
 | --- | --- | --- |
-| Can Morgan record a full episode? | No | Phase 8C validated 30-second and 5-minute live-studio recordings with real hardware, but full-episode long-duration stability has not been validated. |
+| Can Morgan record a full episode? | Partial | Phase 8D validated a real 30-minute live-studio recording/export after fixing long-run stop/save defects. A clean post-fix 60-minute pass is still needed. |
 | Can Morgan review the recording? | Partial | Phase 8C Stop routed both real recordings to Review Episode and saved draft timelines, but the review screen is still not a validated real media playback timeline. |
 | Can Morgan edit the recording? | No | Edit operations are non-destructive draft entries, but they are not yet applied to playable media in preview or render. |
 | Can Morgan run Auto Edit on a real recording? | No | Auto Edit currently generates deterministic suggestions from draft metadata and markers rather than analyzing real media. |
-| Can Morgan export a playable episode? | Partial | Phase 8C exported playable 30-second and 5-minute MP4s from real recorded hardware media. Full-length episode export and all presets remain unvalidated. |
+| Can Morgan export a playable episode? | Partial | Phase 8D exported a playable 30-minute MP4 from real recorded hardware media after fixing the Export button. All presets and a clean 60-minute pass remain unvalidated. |
 | Can Morgan recover from an interrupted session? | No | Recovery state exists, but interrupted real recording recovery has not been validated. |
 | Can Morgan use multiple Sony cameras? | No | Phase 8C detected and previewed `Sony Camera (Imaging Edge)` plus the integrated camera, but recording still captures one camera stream and no multi-Sony setup was validated. |
 | Can Morgan use Sony wireless video? | No | Wireless video is not confirmed. Bluetooth is treated as control-only unless a real video stream is validated. |
@@ -65,3 +65,16 @@ Phase 8C moved several items from untested to partially validated:
 - Pass: ffprobe validated playable exports for both tests after capping video export to 30 fps.
 - Partial: Test sound action and Monitor Mic toggle executed, but audible/headphone confirmation was not independently captured.
 - Partial: Camera 3 not-connected state appeared, but physical disconnect/reconnect was not performed.
+
+## Phase 8D Audio Monitoring and Long Recording Gate
+
+Phase 8D moved long-recording stability forward, but beta remains blocked:
+
+- Pass after fix: 30-minute real recording output was recovered from actual buffered browser recorder chunks and validated with ffprobe.
+- Pass after fix: Export produced a playable 30-minute MP4, H.264/AAC, 1024x576, 30 fps, duration `1828.869000`.
+- Pass: Camera 1 and Camera 2 stayed live through the 30-minute checkpoint.
+- Pass: Feedback warning appeared for monitoring: `Use headphones so the mic doesn't echo.`
+- Partial: Play Test Sound now routes to the selected output, but audible confirmation is still pending human confirmation.
+- Partial: Monitor Mic toggled, but headphone audibility/no-echo is still pending human confirmation.
+- Not run: 60-minute stability test.
+- Fixed: Long-run stop/save hang and dead Export button exposed during this pass.

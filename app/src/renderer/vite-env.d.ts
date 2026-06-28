@@ -17,7 +17,7 @@ declare global {
       saveSettings: (settings: StudioSettings) => Promise<StudioSettings>;
       createRecordingSession: (input: RecordingSessionCreateInput) => Promise<RecordingSession>;
       writeRecordingState: (folderPath: string, state: RecordingState) => Promise<RecordingState>;
-      saveProgramRecording: (folderPath: string, bytes: number[]) => Promise<string>;
+      saveProgramRecording: (folderPath: string, bytes: Uint8Array) => Promise<string>;
       appendRecordingError: (folderPath: string, message: string) => Promise<void>;
       listUnfinishedRecordingSessions: () => Promise<RecordingSession[]>;
       loadPodcastTools: (episodeId: string) => Promise<PodcastToolsState>;

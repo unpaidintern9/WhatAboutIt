@@ -17,7 +17,7 @@ contextBridge.exposeInMainWorld("studio", {
     ipcRenderer.invoke("recording:create-session", input),
   writeRecordingState: (folderPath: string, state: RecordingState): Promise<RecordingState> =>
     ipcRenderer.invoke("recording:write-state", { folderPath, state }),
-  saveProgramRecording: (folderPath: string, bytes: number[]): Promise<string> =>
+  saveProgramRecording: (folderPath: string, bytes: Uint8Array): Promise<string> =>
     ipcRenderer.invoke("recording:save-program", { folderPath, bytes }),
   appendRecordingError: (folderPath: string, message: string): Promise<void> =>
     ipcRenderer.invoke("recording:append-error", { folderPath, message }),

@@ -87,3 +87,17 @@ Phase 8C hardware QA was run on June 28, 2026 from the built Electron app with r
 ## Fix Applied During QA
 
 The first 5-minute export attempt exposed a real issue: browser-recorded WebM reported a 1000 fps video rate, which made FFmpeg duplicate hundreds of thousands of frames and run too long. `app/src/main/export-store.ts` now caps video exports to 30 fps for full-episode and archive video outputs. The corrected 5-minute export completed and validated with ffprobe.
+
+## Phase 8D Long Recording Addendum
+
+Phase 8D was run on June 28, 2026 against the built Electron app.
+
+- 30-minute run reached `00:30:33` with Camera 1 `Sony Camera (Imaging Edge)` and Camera 2 `Integrated Camera (13d3:540a)` still showing `Live`.
+- Camera 3 remained truthful as `Not Connected` / `Needs Attention`.
+- The long recording produced a real 257,607,059-byte WebM with VP9 video and Opus mono audio. Extracted audio duration was `1828.869000`.
+- Export completed from the recovered recording after the Export button click handler was fixed. Exported MP4 validates as H.264/AAC, 1024x576, 30 fps, duration `1828.869000`.
+- Stop exposed a long-run browser recorder edge case: the recorder had become `inactive` with chunks buffered, but `stop()` waited forever for another stop event. The recording was recovered from the real buffered chunks, and the source now resolves inactive recorders.
+- Large recording save also exposed that converting a 257 MB `Uint8Array` to `number[]` is not viable. Recording bytes now stay as `Uint8Array` through IPC.
+- Play Test Sound routes to the selected output after this pass, but audible speaker/headphone confirmation remains pending human confirmation.
+- Monitor Mic toggled and the feedback warning appeared, but headphone audibility/no-echo remains pending human confirmation.
+- 60-minute recording was not run after defects were found in the 30-minute pass.

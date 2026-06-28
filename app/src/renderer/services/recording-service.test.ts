@@ -40,7 +40,7 @@ function createPlugin(): RecordingEnginePlugin {
     start: vi.fn(),
     pause: vi.fn(),
     resume: vi.fn(),
-    stop: vi.fn(async () => ({ bytes: [1, 2, 3], mimeType: "video/webm" }))
+    stop: vi.fn(async () => ({ bytes: new Uint8Array([1, 2, 3]), mimeType: "video/webm" }))
   };
 }
 

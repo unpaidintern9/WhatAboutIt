@@ -51,17 +51,19 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
 
     const recorder = this.recorder;
-    const stopped = new Promise<void>((resolve) => {
-      recorder.onstop = () => resolve();
-    });
+    const stopped = recorder.state === "inactive"
+      ? Promise.resolve()
+      : new Promise<void>((resolve) => {
+          recorder.addEventListener("stop", () => resolve(), { once: true });
+          recorder.stop();
+        });
 
-    if (recorder.state !== "inactive") recorder.stop();
     await stopped;
     this.stream?.getTracks().forEach((track) => track.stop());
 
     const blob = new Blob(this.chunks, { type: recorder.mimeType || "video/webm" });
     const buffer = await blob.arrayBuffer();
-    const bytes = Array.from(new Uint8Array(buffer));
+    const bytes = new Uint8Array(buffer);
 
     this.recorder = null;
     this.stream = null;

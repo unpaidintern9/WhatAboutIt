@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactElement } from "react";
+import { type ReactElement } from "react";
 import { CheckCircle2, ExternalLink, FileArchive, FileAudio, Lock, Play, ShieldCheck, Square, Video } from "lucide-react";
 import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../../shared/export";
 import { exportFriendlyErrorCopy, exportTypeLabels } from "../../shared/export";
@@ -37,17 +37,6 @@ export function ExportEpisode({
   const isRunning = job?.status === "running" || job?.status === "queued";
   const isComplete = job?.status === "complete";
   const isError = job?.status === "error" || job?.status === "canceled";
-  const exportButtonRef = useRef<HTMLButtonElement | null>(null);
-
-  useEffect(() => {
-    const exportButton = exportButtonRef.current;
-    if (!exportButton) return undefined;
-    const handleStartExport = () => {
-      if (!exportButton.disabled) onStartExport();
-    };
-    exportButton.addEventListener("click", handleStartExport);
-    return () => exportButton.removeEventListener("click", handleStartExport);
-  }, [onStartExport]);
 
   return (
     <section className="export-screen">
@@ -118,7 +107,7 @@ export function ExportEpisode({
           {job?.error ? exportFriendlyErrorCopy[job.error] : job?.message ?? "Save a finished copy"}
         </p>
         <div className="export-actions">
-          <Button ref={exportButtonRef} variant="primary" icon={<Play size={20} />} disabled={isRunning || selectedType === "social-clip-placeholder"}>
+          <Button variant="primary" icon={<Play size={20} />} disabled={isRunning || selectedType === "social-clip-placeholder"} onClick={onStartExport}>
             Export
           </Button>
           <Button variant="secondary" icon={<Square size={18} />} disabled={!isRunning} onClick={onCancelExport}>
