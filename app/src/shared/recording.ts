@@ -1,6 +1,26 @@
 import type { DeviceDefaults } from "./types";
 
 export type RecordingStatus = "idle" | "recording" | "paused" | "stopped" | "interrupted" | "error";
+export type RecordingTrackKind = "camera" | "audio";
+export type RecordingTrackSlot = "camera1" | "camera2" | "camera3" | "morganMic" | "guestMic" | "extraMic";
+export type RecordingTrackSaveStatus = "saved" | "preview-only" | "needs-attention";
+
+export interface RecordingTrackSaveInput {
+  slot: RecordingTrackSlot;
+  kind: RecordingTrackKind;
+  bytes?: Uint8Array;
+  mimeType?: string;
+  status?: RecordingTrackSaveStatus;
+  message?: string;
+}
+
+export interface RecordingTrackSaveResult {
+  slot: RecordingTrackSlot;
+  kind: RecordingTrackKind;
+  status: RecordingTrackSaveStatus;
+  filePath?: string;
+  message: string;
+}
 
 export interface RecordingSession {
   id: string;
@@ -39,7 +59,19 @@ export interface SyncMetadata {
   savedMediaFiles?: {
     program?: string;
     camera1?: string;
+    camera2?: string;
+    camera3?: string;
     morganMic?: string;
+    guestMic?: string;
+    extraMic?: string;
+  };
+  trackStates?: {
+    camera1?: RecordingTrackSaveResult;
+    camera2?: RecordingTrackSaveResult;
+    camera3?: RecordingTrackSaveResult;
+    morganMic?: RecordingTrackSaveResult;
+    guestMic?: RecordingTrackSaveResult;
+    extraMic?: RecordingTrackSaveResult;
   };
   validation?: {
     programPlayable: boolean;

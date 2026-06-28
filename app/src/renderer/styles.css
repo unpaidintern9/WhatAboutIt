@@ -2402,6 +2402,30 @@ input[type="range"] {
   animation: livePulse 1.2s ease-in-out infinite;
 }
 
+.track-save-pill {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  padding: 3px var(--space-xs);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+  background: var(--color-cards);
+  color: var(--color-mutedText);
+  font-size: var(--font-small-size);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.track-save-pill.saved {
+  border-color: var(--color-success);
+  color: var(--color-success);
+}
+
+.track-save-pill.needs-attention {
+  border-color: var(--color-warning);
+  color: var(--color-warning);
+}
+
 .camera-meta-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

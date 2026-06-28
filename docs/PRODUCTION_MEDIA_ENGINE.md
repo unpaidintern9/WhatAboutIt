@@ -20,7 +20,7 @@ The requested commit condition was not met:
 
 > Commit only if production integrations replace placeholder implementations.
 
-Because long-duration recording, multi-device recording, media-backed timeline playback, Auto Edit, full recovery, and packaging remain unvalidated foundations, the full Phase 7 production gate is still not complete. Phase 7A specifically replaced the export placeholder with a real local FFmpeg render path. Phase 7B hardened the browser MediaRecorder path for one-camera/one-mic capture where supported and validates saved recordings with ffprobe. Phase 7B.5 validated a short physical recording with real connected camera/microphone hardware.
+Because full-length multi-track stability, media-backed timeline playback, Auto Edit, full recovery, and packaging remain unvalidated foundations, the full production gate is still not complete. Phase 7A specifically replaced the export placeholder with a real local FFmpeg render path. Phase 7B hardened the browser MediaRecorder path for one-camera/one-mic capture where supported and validates saved recordings with ffprobe. Phase 7B.5 validated a short physical recording with real connected camera/microphone hardware. Phase 9I added sidecar camera/mic recording outputs where Electron/browser capture supports them.
 
 ## Recording
 
@@ -34,9 +34,9 @@ Evidence:
 - `app/src/main/recording-session-store.test.ts`
 - `app/src/renderer/services/recording-service.test.ts`
 
-The browser recording plugin uses `navigator.mediaDevices.getUserMedia` and `MediaRecorder` with one selected camera and one selected microphone. The main process now saves the captured bytes to `Episode/Program/program.webm`, validates that file with ffprobe, mirrors the program recording to `Episode/Cameras/camera-1.webm`, and extracts microphone audio to `Episode/Audio/morgan-mic.m4a` when the recording contains audio.
+The browser recording plugin uses `navigator.mediaDevices.getUserMedia` and `MediaRecorder` for the main Program recording, then attempts separate sidecar recorders for selected Camera 1/2/3 and Morgan/Guest/Extra mic slots. The main process saves the Program bytes to `Episode/Program/program.webm`, validates that file with ffprobe, saves camera sidecars to `Episode/Cameras`, transcodes mic sidecars to `Episode/Audio/*.m4a`, and validates every saved sidecar before marking it saved.
 
-The recording save path updates `Session/sync-metadata.json` with saved media file paths and validation status.
+The recording save path updates `Session/sync-metadata.json` with saved media file paths, validation status, and truthful sidecar states such as `Saved`, `Preview only`, and `Needs Attention`.
 
 Phase 7B.5 physical validation:
 
@@ -57,9 +57,9 @@ The OBS control plugin still throws `OBS recording engine is not connected yet.`
 
 Missing production work:
 
-- Validate up to three cameras with supported hardware.
-- Validate multiple microphone input capture.
-- Validate separate tracks where supported.
+- Validate Camera 3 with supported hardware.
+- Validate Extra Mic with supported hardware.
+- Confirm exact physical identity for each separate microphone source.
 - Validate long-duration recording stability.
 - Validate audio/video sync.
 - Validate dropped frame and drift reporting from the real backend.

@@ -1,5 +1,5 @@
 import type { DeviceDefaults } from "../../shared/types";
-import type { RecordingSession, RecordingState, RecordingStatus } from "../../shared/recording";
+import type { RecordingSession, RecordingState, RecordingStatus, RecordingTrackSaveResult } from "../../shared/recording";
 import { createInitialRecordingState, friendlyRecordingError } from "../../shared/recording";
 import type { RecordingEnginePlugin } from "../plugins/recording/types";
 
@@ -9,6 +9,7 @@ export interface RecordingServiceSnapshot {
   session?: RecordingSession;
   friendlyError?: string;
   localSaveMessage: string;
+  trackStatuses: RecordingTrackSaveResult[];
 }
 
 export interface RecordingStartOptions {
@@ -24,6 +25,7 @@ export class RecordingService {
   private elapsedBeforePause = 0;
   private stateTimer?: number;
   private friendlyError?: string;
+  private trackStatuses: RecordingTrackSaveResult[] = [];
 
   constructor(private readonly plugin: RecordingEnginePlugin) {}
 
@@ -33,7 +35,8 @@ export class RecordingService {
       elapsedMs: this.elapsedMs(),
       session: this.session,
       friendlyError: this.friendlyError,
-      localSaveMessage: "Everything is saving locally"
+      localSaveMessage: "Everything is saving locally",
+      trackStatuses: this.trackStatuses
     };
   }
 
@@ -52,6 +55,7 @@ export class RecordingService {
       this.startedAt = Date.now();
       this.elapsedBeforePause = 0;
       this.friendlyError = undefined;
+      this.trackStatuses = [];
       await this.persistState();
       this.startStateTimer();
     } catch (error) {
@@ -95,6 +99,9 @@ export class RecordingService {
 
     if (result.bytes && result.bytes.length > 0) {
       await window.studio.saveProgramRecording(session.folderPath, result.bytes);
+    }
+    if (result.tracks?.length) {
+      this.trackStatuses = await window.studio.saveRecordedTracks(session.folderPath, result.tracks);
     }
 
     this.elapsedBeforePause = finalElapsed;

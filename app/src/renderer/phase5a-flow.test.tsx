@@ -66,6 +66,7 @@ describe("Phase 5C flow", () => {
       createRecordingSession: vi.fn(),
       writeRecordingState: vi.fn(),
       saveProgramRecording: vi.fn(),
+      saveRecordedTracks: vi.fn(async () => []),
       appendRecordingError: vi.fn(),
       listUnfinishedRecordingSessions: vi.fn(async () => []),
       loadPodcastTools: vi.fn(async () => createDefaultPodcastToolsState("episode-a")),

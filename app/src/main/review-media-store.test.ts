@@ -36,7 +36,11 @@ describe("review media store", () => {
     const episodeId = "episode-a";
     const programPath = path.join(mockPaths.episodesRoot, episodeId, "Program", "program.webm");
     const cameraPath = path.join(mockPaths.episodesRoot, episodeId, "Cameras", "camera-1.webm");
+    const camera2Path = path.join(mockPaths.episodesRoot, episodeId, "Cameras", "camera-2.webm");
+    const camera3Path = path.join(mockPaths.episodesRoot, episodeId, "Cameras", "camera-3.webm");
     const audioPath = path.join(mockPaths.episodesRoot, episodeId, "Audio", "morgan-mic.m4a");
+    const guestAudioPath = path.join(mockPaths.episodesRoot, episodeId, "Audio", "guest-mic.m4a");
+    const extraAudioPath = path.join(mockPaths.episodesRoot, episodeId, "Audio", "extra-mic.m4a");
     await fs.mkdir(path.dirname(programPath), { recursive: true });
     await fs.mkdir(path.dirname(cameraPath), { recursive: true });
     await fs.mkdir(path.dirname(audioPath), { recursive: true });
@@ -61,7 +65,11 @@ describe("review media store", () => {
       programPath
     ]);
     await fs.copyFile(programPath, cameraPath);
+    await fs.copyFile(programPath, camera2Path);
+    await fs.copyFile(programPath, camera3Path);
     await runFfmpeg(["-y", "-i", programPath, "-vn", "-c:a", "aac", audioPath]);
+    await fs.copyFile(audioPath, guestAudioPath);
+    await fs.copyFile(audioPath, extraAudioPath);
 
     const inventory = await loadReviewMedia(episodeId);
 
@@ -69,8 +77,11 @@ describe("review media store", () => {
     expect(inventory.program.status).toBe("ready");
     expect(inventory.program.durationMs).toBeGreaterThan(0);
     expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.status).toBe("ready");
+    expect(inventory.cameras.find((asset) => asset.id === "camera-2")?.status).toBe("ready");
+    expect(inventory.cameras.find((asset) => asset.id === "camera-3")?.status).toBe("ready");
     expect(inventory.audio.find((asset) => asset.id === "morgan-mic")?.status).toBe("ready");
-    expect(inventory.audio.find((asset) => asset.id === "guest-mic")?.status).toBe("missing");
+    expect(inventory.audio.find((asset) => asset.id === "guest-mic")?.status).toBe("ready");
+    expect(inventory.audio.find((asset) => asset.id === "extra-mic")?.status).toBe("ready");
     expect(inventory.program.playbackUrl).toMatch(/^file:\/\//);
   }, 20000);
 

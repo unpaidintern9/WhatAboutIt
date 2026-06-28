@@ -4,7 +4,11 @@ import crypto from "node:crypto";
 import type {
   RecordingSession,
   RecordingSessionCreateInput,
-  RecordingState
+  RecordingState,
+  RecordingTrackSaveInput,
+  RecordingTrackSaveResult,
+  RecordingTrackSaveStatus,
+  RecordingTrackSlot
 } from "../shared/recording";
 import {
   createDeviceMap,
@@ -118,25 +122,11 @@ async function syncRecordingSessionStatus(folderPath: string, state: RecordingSt
 
 export async function saveProgramRecording(folderPath: string, bytes: Uint8Array) {
   const filePath = path.join(folderPath, "Program", "program.webm");
-  const cameraFilePath = path.join(folderPath, "Cameras", "camera-1.webm");
-  const audioFilePath = path.join(folderPath, "Audio", "morgan-mic.m4a");
   await fs.writeFile(filePath, bytes);
   const programPlayable = await isPlayableRecording(filePath);
   if (!programPlayable) {
     await appendRecordingError(folderPath, "Program recording could not be validated.");
     throw new Error("Saved recording could not be validated.");
-  }
-
-  await fs.copyFile(filePath, cameraFilePath);
-
-  try {
-    await runFfmpeg(["-y", "-i", filePath, "-vn", "-c:a", "aac", "-b:a", "160k", audioFilePath]);
-  } catch (error) {
-    await appendRecordingError(folderPath, "Mic needs attention");
-    await logger.warning("RecordingService", "Could not extract recording audio track.", {
-      filePath,
-      error: String(error)
-    });
   }
 
   const syncMetadataPath = path.join(folderPath, "Session", "sync-metadata.json");
@@ -145,9 +135,7 @@ export async function saveProgramRecording(folderPath: string, bytes: Uint8Array
     ...syncMetadata,
     savedMediaFiles: {
       ...syncMetadata.savedMediaFiles,
-      program: filePath,
-      camera1: cameraFilePath,
-      morganMic: await fileExists(audioFilePath) ? audioFilePath : syncMetadata.savedMediaFiles?.morganMic
+      program: filePath
     },
     validation: {
       programPlayable,
@@ -155,17 +143,98 @@ export async function saveProgramRecording(folderPath: string, bytes: Uint8Array
     }
   };
   await writeJson(syncMetadataPath, nextSyncMetadata);
-  await logger.info("RecordingService", "Saved and validated local program recording.", { filePath, cameraFilePath });
+  await logger.info("RecordingService", "Saved and validated local program recording.", { filePath });
   return filePath;
 }
 
-async function fileExists(filePath: string) {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
+export async function saveRecordedTracks(folderPath: string, tracks: RecordingTrackSaveInput[]) {
+  const results: RecordingTrackSaveResult[] = [];
+
+  for (const track of tracks) {
+    results.push(await saveRecordedTrack(folderPath, track));
   }
+
+  const syncMetadataPath = path.join(folderPath, "Session", "sync-metadata.json");
+  const syncMetadata = (await readJsonFile<SyncMetadata>(syncMetadataPath)) ?? createSyncMetadata({ cameras: {}, microphones: {} });
+  const savedMediaFiles = { ...syncMetadata.savedMediaFiles };
+  const trackStates = { ...syncMetadata.trackStates };
+
+  for (const result of results) {
+    trackStates[result.slot] = result;
+    if (result.status === "saved" && result.filePath) savedMediaFiles[result.slot] = result.filePath;
+  }
+
+  await writeJson(syncMetadataPath, {
+    ...syncMetadata,
+    savedMediaFiles,
+    trackStates
+  });
+
+  return results;
+}
+
+async function saveRecordedTrack(folderPath: string, track: RecordingTrackSaveInput): Promise<RecordingTrackSaveResult> {
+  if (!track.bytes?.length) {
+    const status = track.status ?? "preview-only";
+    return {
+      slot: track.slot,
+      kind: track.kind,
+      status,
+      message: track.message ?? defaultTrackMessage(status)
+    };
+  }
+
+  try {
+    const filePath = track.kind === "camera"
+      ? await saveCameraTrack(folderPath, track.slot, track.bytes)
+      : await saveAudioTrack(folderPath, track.slot, track.bytes, track.mimeType);
+
+    return {
+      slot: track.slot,
+      kind: track.kind,
+      status: "saved",
+      filePath,
+      message: "Saved"
+    };
+  } catch (error) {
+    await appendRecordingError(folderPath, `${track.slot} could not be saved separately.`);
+    await logger.warning("RecordingService", "Track could not be saved separately.", {
+      slot: track.slot,
+      kind: track.kind,
+      error: String(error)
+    });
+    return {
+      slot: track.slot,
+      kind: track.kind,
+      status: "needs-attention",
+      message: "This device can preview but could not save separately"
+    };
+  }
+}
+
+async function saveCameraTrack(folderPath: string, slot: RecordingTrackSlot, bytes: Uint8Array) {
+  const filePath = path.join(folderPath, "Cameras", `${slot.replace("camera", "camera-")}.webm`);
+  await fs.writeFile(filePath, bytes);
+  if (!(await isPlayableRecording(filePath))) throw new Error("Camera track failed ffprobe validation.");
+  return filePath;
+}
+
+async function saveAudioTrack(folderPath: string, slot: RecordingTrackSlot, bytes: Uint8Array, mimeType?: string) {
+  const fileName = slot === "morganMic" ? "morgan-mic" : slot === "guestMic" ? "guest-mic" : "extra-mic";
+  const tempExtension = mimeType?.includes("mp4") || mimeType?.includes("m4a") ? "m4a" : "webm";
+  const tempPath = path.join(folderPath, "Audio", `${fileName}.source.${tempExtension}`);
+  const filePath = path.join(folderPath, "Audio", `${fileName}.m4a`);
+  await fs.writeFile(tempPath, bytes);
+  await runFfmpeg(["-y", "-i", tempPath, "-vn", "-c:a", "aac", "-b:a", "160k", filePath]);
+  await fs.rm(tempPath, { force: true });
+  if (!(await isPlayableRecording(filePath))) throw new Error("Audio track failed ffprobe validation.");
+  return filePath;
+}
+
+function defaultTrackMessage(status: RecordingTrackSaveStatus) {
+  if (status === "saved") return "Saved";
+  if (status === "needs-attention") return "Needs Attention";
+  return "Preview only";
 }
 
 async function isPlayableRecording(filePath: string) {

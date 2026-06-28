@@ -114,4 +114,48 @@ Result: Pass.
 
 ## Current Status
 
-The focused Phase 9G real hardware loop passed for Sony/Integrated live preview, Morgan mic capture, real recording, Review handoff, and MP4 export validation. Beta remains blocked for simultaneous multi-camera/multi-mic recording and human-confirmed audio monitoring.
+The focused Phase 9G real hardware loop passed for Sony/Integrated live preview, Morgan mic capture, real recording, Review handoff, and MP4 export validation. Phase 9I added and validated separate sidecar outputs for available Camera 1, Camera 2, Morgan Mic, and Guest Mic sources. Beta remains blocked for Camera 3, Extra Mic, exact second-mic identity confirmation, full-length multi-track stability, and human-confirmed audio monitoring.
+
+## Phase 9I Multi-Track Real Hardware QA
+
+Run date: 2026-06-28
+App build: current source build launched with `npm start`
+
+Session folder:
+
+`C:\Users\mmcga\OneDrive\Documents\WhatAboutItStudioData\episodes\2026-06-28-long-recording-qa-30-minute-2026-06-28t17-15-30--ef95424d`
+
+Hardware selected:
+
+- Camera 1: `Sony Camera (Imaging Edge)`
+- Camera 2: `Integrated Camera (13d3:540a)`
+- Camera 3: not selected
+- Morgan Mic: selected local microphone channel
+- Guest Mic: selected local microphone channel detected by the app
+- Extra Mic: not physically validated
+
+Recording result:
+
+- Camera 1 and Camera 2 were live on the Record screen.
+- Timer reached `00:00:52`.
+- Stop completed and Review opened.
+- Review displayed Program video, Camera 1, Camera 2, Morgan Mic, and Guest Mic as ready.
+- Camera 3 and Extra Mic showed friendly `Not recorded in this episode` states.
+- Export completed from `Program\program.webm`.
+
+Fresh files saved and validated:
+
+- `Program\program.webm`, 2,191,260 bytes, VP9 1024x576 video plus Opus mono 48 kHz audio.
+- `Cameras\camera-1.webm`, 993,162 bytes, VP9 1024x576 video.
+- `Cameras\camera-2.webm`, 22,795,850 bytes, VP9 640x480 video.
+- `Audio\morgan-mic.m4a`, 176,369 bytes, AAC mono 48 kHz, duration `74.335000`.
+- `Audio\guest-mic.m4a`, 176,332 bytes, AAC mono 48 kHz, duration `74.095000`.
+- `Exports\what-about-it-full-episode-video.mp4`, 373,291 bytes, H.264/AAC, 1024x576, 30 fps, duration `74.359833`.
+
+Not physically validated in this pass:
+
+- `Cameras\camera-3.webm`
+- `Audio\extra-mic.m4a`
+- Exact physical identity of the Guest Mic source
+- Audible Play Test Sound output
+- Headphone monitoring/no-feedback confirmation

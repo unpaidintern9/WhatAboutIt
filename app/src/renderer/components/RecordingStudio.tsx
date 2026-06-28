@@ -22,7 +22,7 @@ import {
   Volume2
 } from "lucide-react";
 import type { DeviceDefaults } from "../../shared/types";
-import type { RecordingSession } from "../../shared/recording";
+import type { RecordingSession, RecordingTrackSaveResult, RecordingTrackSlot } from "../../shared/recording";
 import type { CameraLayout, PodcastToolsState, SoundSlot } from "../../shared/podcast-tools";
 import { cameraLayouts, createLiveMarker } from "../../shared/podcast-tools";
 import type { StudioDisplayInfo, StudioPanelId } from "../../shared/studio-workspace";
@@ -137,6 +137,7 @@ export function RecordingStudio({
   const storageReady = !storageWarning;
   const recordingHealthy = !snapshot.friendlyError && snapshot.status !== "error";
   const studioReady = cameraReadyCount > 0 && micReadyCount > 0 && storageReady && recordingHealthy;
+  const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
 
   function patchTools(nextState: PodcastToolsState) {
     onPodcastToolsChange({ ...nextState, updatedAt: new Date().toISOString() });
@@ -277,6 +278,7 @@ export function RecordingStudio({
               device={findDevice(detection.cameras, defaults.cameras[slot.key])}
               deviceId={defaults.cameras[slot.key]}
               isRecording={isRecording}
+              trackStatus={trackStatusBySlot[slot.key]}
               onConfigure={() =>
                 setStudioNotice({
                   tone: "ready",
@@ -323,6 +325,7 @@ export function RecordingStudio({
                     outputDeviceId={defaults.audioOutputId}
                     fallbackLevel={slot.key === "soundboard" && playingSlotId ? 72 : 0}
                     fallbackLabel={label}
+                    trackStatus={trackStatusBySlot[slot.key as RecordingTrackSlot]}
                     onControlsChange={(nextState) => patchMixerChannel(slot.key, nextState)}
                     onEchoWarning={warnAboutEcho}
                     onOpenMicrophoneStream={onOpenMicrophoneStream}
@@ -483,6 +486,7 @@ function CameraCard({
   device,
   deviceId,
   isRecording,
+  trackStatus,
   onConfigure,
   onOpenCameraPreview
 }: {
@@ -490,6 +494,7 @@ function CameraCard({
   device?: StudioDevice;
   deviceId?: string;
   isRecording: boolean;
+  trackStatus?: RecordingTrackSaveResult;
   onConfigure: () => void;
   onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
 }) {
@@ -521,6 +526,7 @@ function CameraCard({
         <p>{device?.label ?? "Pick a camera first"}</p>
         <span className={`recording-dot ${isRecording && previewState === "live" ? "on" : ""}`}>{isRecording && previewState === "live" ? "Recording" : "Standby"}</span>
       </div>
+      {trackStatus && <TrackSavePill status={trackStatus} />}
       <div className="camera-meta-grid">
         <small><Cable size={14} /> {connection}</small>
         <small>{resolution}</small>
@@ -619,6 +625,7 @@ function LiveMicMeter({
   outputDeviceId,
   fallbackLevel,
   fallbackLabel,
+  trackStatus,
   onControlsChange,
   onEchoWarning,
   onOpenMicrophoneStream
@@ -631,6 +638,7 @@ function LiveMicMeter({
   outputDeviceId?: string;
   fallbackLevel?: number;
   fallbackLabel?: string;
+  trackStatus?: RecordingTrackSaveResult;
   onControlsChange: (nextState: Partial<{ gain: number; muted: boolean; solo: boolean; monitor: boolean }>) => void;
   onEchoWarning: () => void;
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
@@ -704,6 +712,7 @@ function LiveMicMeter({
         <strong>{label}</strong>
         <span>{copy}</span>
       </div>
+      {trackStatus && <TrackSavePill status={trackStatus} />}
       <DistressedMeter level={visibleLevel} label={label} />
       <details className="channel-console">
         <summary>More</summary>
@@ -734,6 +743,11 @@ function LiveMicMeter({
       <audio ref={audioRef} muted={!monitoring} />
     </article>
   );
+}
+
+function TrackSavePill({ status }: { status: RecordingTrackSaveResult }) {
+  const label = status.status === "saved" ? "Saved" : status.status === "needs-attention" ? "Needs Attention" : "Preview only";
+  return <span className={`track-save-pill ${status.status}`}>{label}</span>;
 }
 
 function StudioFooter({

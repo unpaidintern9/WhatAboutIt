@@ -29,7 +29,8 @@ function renderStudio(overrides: Partial<ComponentProps<typeof RecordingStudio>>
     snapshot: {
       status: "idle",
       elapsedMs: 0,
-      localSaveMessage: "Everything is saving locally"
+      localSaveMessage: "Everything is saving locally",
+      trackStatuses: []
     },
     unfinishedSessions: [],
     podcastTools: createDefaultPodcastToolsState("episode-a", "2026-06-28T12:00:00.000Z"),
@@ -142,13 +143,13 @@ describe("RecordingStudio", () => {
     click(idleHost, "Record");
     expect(onStart).toHaveBeenCalledTimes(1);
 
-    const { host: recordingHost } = renderStudio({ snapshot: { status: "recording", elapsedMs: 1000, localSaveMessage: "Everything is saving locally" }, onPause, onStop });
+    const { host: recordingHost } = renderStudio({ snapshot: { status: "recording", elapsedMs: 1000, localSaveMessage: "Everything is saving locally", trackStatuses: [] }, onPause, onStop });
     click(recordingHost, "Pause");
     click(recordingHost, "Stop");
     expect(onPause).toHaveBeenCalledTimes(1);
     expect(onStop).toHaveBeenCalledTimes(1);
 
-    const { host: pausedHost } = renderStudio({ snapshot: { status: "paused", elapsedMs: 1000, localSaveMessage: "Everything is saving locally" }, onResume });
+    const { host: pausedHost } = renderStudio({ snapshot: { status: "paused", elapsedMs: 1000, localSaveMessage: "Everything is saving locally", trackStatuses: [] }, onResume });
     click(pausedHost, "Resume");
     expect(onResume).toHaveBeenCalledTimes(1);
   });
@@ -246,6 +247,42 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Check the items above");
   });
 
+  it("shows truthful sidecar save states for recorded tracks", () => {
+    const { host } = renderStudio({
+      defaults: {
+        cameras: { camera1: "camera-a", camera2: "camera-b" },
+        microphones: { morganMic: "mic-a", guestMic: "mic-b" },
+        audioOutputId: "speaker-a"
+      },
+      detection: {
+        cameras: [
+          { id: "camera-a", label: "Main Camera", kind: "camera", camera: { connectionType: "usb", signal: "good", maxResolution: "1080p", maxFps: 30 } },
+          { id: "camera-b", label: "Guest Camera", kind: "camera", camera: { connectionType: "usb", signal: "good", maxResolution: "1080p", maxFps: 30 } }
+        ],
+        microphones: [
+          { id: "mic-a", label: "Morgan Mic", kind: "microphone" },
+          { id: "mic-b", label: "Guest Mic", kind: "microphone" }
+        ],
+        speakers: [{ id: "speaker-a", label: "Studio Headphones", kind: "speaker" }],
+        permissionNeeded: false
+      },
+      snapshot: {
+        status: "stopped",
+        elapsedMs: 30000,
+        localSaveMessage: "Everything is saving locally",
+        trackStatuses: [
+          { slot: "camera1", kind: "camera", status: "saved", filePath: "C:/episode/Cameras/camera-1.webm", message: "Saved" },
+          { slot: "camera2", kind: "camera", status: "preview-only", message: "This device can preview but could not save separately" },
+          { slot: "guestMic", kind: "audio", status: "needs-attention", message: "This device can preview but could not save separately" }
+        ]
+      }
+    });
+
+    expect(host.textContent).toContain("Saved");
+    expect(host.textContent).toContain("Preview only");
+    expect(host.textContent).toContain("Needs Attention");
+  });
+
   it("keeps advanced studio tools secondary and collapsed", () => {
     const { host } = renderStudio();
     const tools = host.querySelector(".secondary-studio-tools") as HTMLDetailsElement;
@@ -302,6 +339,7 @@ describe("RecordingStudio", () => {
         status: "stopped",
         elapsedMs: 2000,
         localSaveMessage: "Everything is saving locally",
+        trackStatuses: [],
         session: {
           id: "session-a",
           episodeId: "episode-a",

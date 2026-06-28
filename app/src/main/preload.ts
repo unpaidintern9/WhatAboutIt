@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
-import type { RecordingSession, RecordingSessionCreateInput, RecordingState } from "../shared/recording";
+import type { RecordingSession, RecordingSessionCreateInput, RecordingState, RecordingTrackSaveInput, RecordingTrackSaveResult } from "../shared/recording";
 import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
@@ -21,6 +21,8 @@ contextBridge.exposeInMainWorld("studio", {
     ipcRenderer.invoke("recording:write-state", { folderPath, state }),
   saveProgramRecording: (folderPath: string, bytes: Uint8Array): Promise<string> =>
     ipcRenderer.invoke("recording:save-program", { folderPath, bytes }),
+  saveRecordedTracks: (folderPath: string, tracks: RecordingTrackSaveInput[]): Promise<RecordingTrackSaveResult[]> =>
+    ipcRenderer.invoke("recording:save-tracks", { folderPath, tracks }),
   appendRecordingError: (folderPath: string, message: string): Promise<void> =>
     ipcRenderer.invoke("recording:append-error", { folderPath, message }),
   listUnfinishedRecordingSessions: (): Promise<RecordingSession[]> => ipcRenderer.invoke("recording:list-unfinished"),

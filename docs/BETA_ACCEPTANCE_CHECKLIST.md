@@ -7,12 +7,12 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 | Question | Answer | Evidence |
 | --- | --- | --- |
 | Can Morgan record a full episode? | Partial | Phase 8D validated a real 30-minute live-studio recording/export after fixing long-run stop/save defects. A clean post-fix 60-minute pass is still needed. |
-| Can Morgan review the recording? | Partial | Phase 9G opened Review after a real Sony/Morgan mic recording, rendered Program video and Morgan audio controls, and now falls back to recording-state duration when WebM probe metadata has no duration. Multi-camera/multi-mic review remains incomplete. |
+| Can Morgan review the recording? | Partial | Phase 9I Review displayed saved Camera 1, Camera 2, Morgan Mic, and Guest Mic files from a real current-build recording. Camera 3 and Extra Mic physical validation remain incomplete. |
 | Can Morgan edit the recording? | No | Edit operations are non-destructive draft entries, but they are not yet applied to playable media in preview or render. |
 | Can Morgan run Auto Edit on a real recording? | No | Auto Edit currently generates deterministic suggestions from draft metadata and markers rather than analyzing real media. |
 | Can Morgan export a playable episode? | Partial | Phase 9G exported a fresh MP4 from real recorded media and ffprobe validated H.264/AAC, 1024x576, 30 fps, duration `54.724000`. All presets and full-length production media remain unvalidated. |
 | Can Morgan recover from an interrupted session? | No | Recovery state exists, but interrupted real recording recovery has not been validated. |
-| Can Morgan use multiple Sony cameras? | No | Phase 9G previewed Sony plus Integrated cameras live, but the saved recording produced only `Cameras\camera-1.webm`; simultaneous multi-camera recording is still not implemented. |
+| Can Morgan use multiple Sony cameras? | Partial | Phase 9I saved separate Camera 1 Sony and Camera 2 Integrated files. Multiple Sony bodies and Camera 3 remain unvalidated. |
 | Can Morgan use Sony wireless video? | No | Wireless video is not confirmed. Bluetooth is treated as control-only unless a real video stream is validated. |
 | Can Morgan launch the app from the desktop? | Partial | `What About It Studio.lnk` was created and launched the Electron app. Final installer and branded icon are still pending. |
 | Can Morgan run a guided real hardware test? | Partial | Phase 8C live-studio QA validated two live camera previews, Realtek mic meters, 30-second recording, 5-minute recording, Review handoff, and playable MP4 export. Physical unplug/replug and full guided Hardware Test Mode rerun remain pending. |
@@ -102,3 +102,18 @@ Phase 9G validates the core real-media loop after the lifecycle fixes, but beta 
 - Fixed: Review now uses recording-state elapsed time when WebM duration metadata is missing, avoiding `00:00:00` duration for valid browser recordings.
 - Partial: Per-mic monitoring controls toggled and defaulted Off, but audible headphone monitoring was not independently confirmable through automation.
 - Partial: Camera 2 and Guest/Extra mic cards showed truthful missing states in Review, but separate files were not recorded.
+
+## Phase 9I Multi-Track Recording Gate
+
+Phase 9I moves multi-track recording from missing to partially validated:
+
+- Pass: Program recording still saves and exports successfully.
+- Pass: Current-source Electron QA saved `Cameras\camera-1.webm` from Sony Camera and `Cameras\camera-2.webm` from Integrated Camera.
+- Pass: Current-source Electron QA saved `Audio\morgan-mic.m4a` and `Audio\guest-mic.m4a` from app-selected mic channels.
+- Pass: Review displayed Camera 1, Camera 2, Morgan Mic, and Guest Mic as ready.
+- Pass: ffprobe validated Program, Camera 1, Camera 2, Morgan Mic, Guest Mic, and exported MP4.
+- Pass in automated tests: Camera 2, Camera 3, Guest Mic, and Extra Mic output paths are created when recorder sidecars succeed.
+- Pass in automated tests: Preview-only devices keep truthful states instead of fake files.
+- Partial: Camera 3 and Extra Mic were not physically validated in this run.
+- Partial: The exact physical identity of the Guest Mic source was not independently confirmed.
+- Partial: Human ear confirmation is still required for test sound and headphone monitoring.

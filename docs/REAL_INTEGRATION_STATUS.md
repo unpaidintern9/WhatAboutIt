@@ -6,9 +6,9 @@ This document records the current status of production media integrations after 
 
 | Area | Current implementation | Production ready | Missing work |
 | --- | --- | --- | --- |
-| Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save; Phase 9F adds explicit stream shutdown cleanup | Partial | Multi-camera capture, multi-mic capture, clean 60-minute pass, sync validation |
-| Camera capture | Physical Sony Camera via Imaging Edge and Integrated Camera previews validated; Camera 1 recording saved to Program and mirrored to Cameras | Partial | Simultaneous multi-camera recording, capture cards, backend error handling, physical unplug/replug validation |
-| Microphone capture | Physical Realtek microphone validated, muxed into Program and extracted to Audio with FFmpeg | Partial | Multiple input capture, separate tracks where supported, drift and clipping reporting |
+| Recording | Browser `MediaRecorder` Program path plus Phase 9I sidecar camera/mic recorders with ffprobe validation after save | Partial | Camera 3/Extra Mic physical validation, clean 60-minute pass, sync/drift validation |
+| Camera capture | Physical Sony Camera via Imaging Edge and Integrated Camera previews validated; Phase 9I saved separate Camera 1 and Camera 2 WebM files | Partial | Camera 3 physical validation, capture cards, backend error handling, physical unplug/replug validation |
+| Microphone capture | Physical microphone capture validated; Phase 9I saved separate Morgan and Guest M4A files from app-selected mic channels | Partial | Exact second-mic hardware identity confirmation, Extra Mic physical validation, drift and clipping reporting |
 | Timeline review | Draft timeline JSON plus real Review media inventory for Program, Cameras, and Audio files with ffprobe durations, recording-state duration fallback, and browser playback controls | Partial | Review proxy generation for non-browser-playable files and render-accurate edit preview |
 | Editing | Non-destructive edit operation log | Partial | Apply edit decisions to renderable media timeline and playback preview |
 | Export | Bundled FFmpeg/ffprobe detection and real local rendering; Phase 9F requires `Program/program.webm` and validates output before success | Partial | Validate all presets from full-length real podcast media and render draft edit decisions into output |
@@ -35,7 +35,7 @@ This document records the current status of production media integrations after 
 
 - `app/src/main/export-store.ts`: renders playable MP4, M4A, and MKV export outputs with FFmpeg and now requires `Program/program.webm` for non-practice exports.
 - `app/src/main/ffmpeg-tools.ts`: detects bundled FFmpeg/ffprobe, runs media tools, and validates playable outputs.
-- `app/src/main/recording-session-store.ts`: saves captured program bytes, validates them with ffprobe, mirrors the camera recording, extracts mic audio, and updates sync metadata.
+- `app/src/main/recording-session-store.ts`: saves captured Program bytes, validates sidecar camera/audio tracks, transcodes mic sidecars to M4A, and updates sync metadata.
 - `docs/manual-qa/PHYSICAL_RECORDING_QA.md`: documents the short physical camera/mic validation result.
 - `app/src/shared/camera-config.ts`: preserves Camera 1/2/3 ordering, stores gear settings, and models Sony wireless support without assuming Bluetooth video.
 - `app/src/renderer/plugins/cameras/sony-camera-provider.ts`: registers Sony USB, HDMI capture, wireless, remote-control, and future SDK provider slots.
@@ -55,7 +55,7 @@ This document records the current status of production media integrations after 
 
 ## Integration Readiness Summary
 
-The project now has two partial real media integrations: offline FFmpeg export rendering and a physically validated one-camera/one-mic browser recording save path. Phase 7C added a Sony-capable camera connection matrix and stable Camera 1/2/3 assignment logic, but no Sony wireless video was validated. Phase 8A added and validated a desktop launcher script plus a guided real hardware test mode. Phase 8B adds live readiness, hot-plug refresh handling, saved preference truthfulness, safe stop handling, and diagnostics export. Phase 8C built a Windows NSIS beta installer, validated installed Desktop and Start Menu shortcuts, confirmed first-run Hardware Test routing, confirmed packaged app data under `%APPDATA%\What About It Studio`, exported diagnostics from the installed app, and completed uninstall/reinstall smoke testing. Phase 8D validated a 30-minute real live-studio recording/export after finding and fixing long-run stop/save and Export button defects. Physical unplug/replug was not manually performed. The remaining production media work is a clean long-run rerun after fixes, 60-minute stability, physical Sony/multi-device recording, media-backed timeline playback, real Auto Edit analysis, recovery validation, clean-machine installer QA, final branded app icon, and final package author metadata.
+The project now has partial real media integrations for offline FFmpeg export rendering, physically validated Program recording, and Phase 9I sidecar recording for available Camera 1/2 and Morgan/Guest mic channels. Phase 7C added a Sony-capable camera connection matrix and stable Camera 1/2/3 assignment logic, but no Sony wireless video was validated. Phase 8A added and validated a desktop launcher script plus a guided real hardware test mode. Phase 8B adds live readiness, hot-plug refresh handling, saved preference truthfulness, safe stop handling, and diagnostics export. Phase 8C built a Windows NSIS beta installer, validated installed Desktop and Start Menu shortcuts, confirmed first-run Hardware Test routing, confirmed packaged app data under `%APPDATA%\What About It Studio`, exported diagnostics from the installed app, and completed uninstall/reinstall smoke testing. Phase 8D validated a 30-minute real live-studio recording/export after finding and fixing long-run stop/save and Export button defects. Physical unplug/replug was not manually performed. The remaining production media work is clean long-run multi-track stability, Camera 3 and Extra Mic physical validation, exact mic identity confirmation, media-backed timeline playback, real Auto Edit analysis, recovery validation, clean-machine installer QA, final branded app icon, and final package author metadata.
 
 ## Phase 8B Live Studio Addendum
 
@@ -135,3 +135,16 @@ The project now has two partial real media integrations: offline FFmpeg export r
 - Phase 9G found and fixed a Review duration display bug for durationless WebM files by falling back to `Session\recording-state.json` elapsed time.
 - ffprobe validated Program/Camera 1 as VP9+Opus WebM and Morgan Mic as AAC M4A duration `54.724000`.
 - Standard Full Episode Video export completed and produced `what-about-it-full-episode-video.mp4`, H.264/AAC, 1024x576, 30 fps, duration `54.724000`; ffmpeg decode smoke passed.
+
+## Phase 9I Multi-Track Recording Addendum
+
+- Browser recording still creates `Program\program.webm` for Review and Export.
+- Separate sidecar recorders now attempt selected Camera 1/2/3 and Morgan/Guest/Extra mic outputs where Electron/browser capture supports them.
+- Saved camera sidecars are written to `Cameras\camera-1.webm`, `Cameras\camera-2.webm`, and `Cameras\camera-3.webm`.
+- Saved mic sidecars are transcoded to `Audio\morgan-mic.m4a`, `Audio\guest-mic.m4a`, and `Audio\extra-mic.m4a`.
+- Track states are persisted as `Saved`, `Preview only`, or `Needs Attention`; the app no longer fabricates Camera 2/3 or Guest/Extra files when capture is unavailable.
+- Current-source Electron QA selected `Sony Camera (Imaging Edge)` as Camera 1 and `Integrated Camera (13d3:540a)` as Camera 2, then recorded past 30 seconds.
+- ffprobe validated fresh files: Program VP9/Opus WebM, Camera 1 VP9 1024x576 WebM, Camera 2 VP9 640x480 WebM, Morgan Mic AAC M4A duration `74.335000`, and Guest Mic AAC M4A duration `74.095000`.
+- Review displayed Camera 1, Camera 2, Morgan Mic, and Guest Mic as ready; Camera 3 and Extra Mic showed truthful `Not recorded in this episode` states.
+- Export continued to use `Program\program.webm` and produced H.264/AAC MP4, 1024x576, 30 fps, duration `74.359833`.
+- Camera 3, Extra Mic, exact physical second-mic identity, and audible monitoring/test sound remain pending human/hardware validation.

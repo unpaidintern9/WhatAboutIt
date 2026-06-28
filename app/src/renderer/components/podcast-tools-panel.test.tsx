@@ -8,7 +8,8 @@ import { PodcastToolsPanel } from "./PodcastToolsPanel";
 const snapshot = {
   status: "idle" as const,
   elapsedMs: 42000,
-  localSaveMessage: "Everything is saving locally"
+  localSaveMessage: "Everything is saving locally",
+  trackStatuses: []
 };
 
 describe("PodcastToolsPanel", () => {

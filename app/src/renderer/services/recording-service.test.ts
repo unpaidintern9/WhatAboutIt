@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { RecordingTrackSaveInput } from "../../shared/recording";
 import type { RecordingEnginePlugin } from "../plugins/recording/types";
 import { RecordingService } from "./recording-service";
 
@@ -19,6 +20,9 @@ function installStudioMock() {
     })),
     writeRecordingState: vi.fn(async (_folderPath, state) => state),
     saveProgramRecording: vi.fn(async () => "C:/recording/episode-a/Program/program.webm"),
+    saveRecordedTracks: vi.fn(async (_folderPath, tracks: RecordingTrackSaveInput[]) =>
+      tracks.map((track) => ({ slot: track.slot, kind: track.kind, status: "saved" as const, filePath: `C:/recording/episode-a/${track.slot}`, message: "Saved" }))
+    ),
     appendRecordingError: vi.fn(),
     listUnfinishedRecordingSessions: vi.fn(),
     loadPodcastTools: vi.fn(),
@@ -57,6 +61,37 @@ describe("RecordingService", () => {
     expect((await service.resume()).status).toBe("recording");
     expect((await service.stop()).status).toBe("stopped");
     expect(window.studio.saveProgramRecording).toHaveBeenCalled();
+  });
+
+  it("saves separate recorder tracks after the Program recording", async () => {
+    installStudioMock();
+    const plugin: RecordingEnginePlugin = {
+      start: vi.fn(),
+      pause: vi.fn(),
+      resume: vi.fn(),
+      stop: vi.fn(async () => ({
+        bytes: new Uint8Array([1, 2, 3]),
+        mimeType: "video/webm",
+        tracks: [
+          { slot: "camera2", kind: "camera", bytes: new Uint8Array([4, 5]), mimeType: "video/webm" },
+          { slot: "guestMic", kind: "audio", bytes: new Uint8Array([6, 7]), mimeType: "audio/webm" }
+        ] satisfies RecordingTrackSaveInput[]
+      }))
+    };
+    const service = new RecordingService(plugin);
+
+    await service.start({ cameras: { camera1: "camera-a", camera2: "camera-b" }, microphones: { morganMic: "mic-a", guestMic: "mic-b" } });
+    const snapshot = await service.stop();
+
+    expect(window.studio.saveProgramRecording).toHaveBeenCalledTimes(1);
+    expect(window.studio.saveRecordedTracks).toHaveBeenCalledWith("C:/recording/episode-a", [
+      { slot: "camera2", kind: "camera", bytes: new Uint8Array([4, 5]), mimeType: "video/webm" },
+      { slot: "guestMic", kind: "audio", bytes: new Uint8Array([6, 7]), mimeType: "audio/webm" }
+    ]);
+    expect(snapshot.trackStatuses).toEqual([
+      { slot: "camera2", kind: "camera", status: "saved", filePath: "C:/recording/episode-a/camera2", message: "Saved" },
+      { slot: "guestMic", kind: "audio", status: "saved", filePath: "C:/recording/episode-a/guestMic", message: "Saved" }
+    ]);
   });
 
   it("simulates practice mode without media bytes", async () => {

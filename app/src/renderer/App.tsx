@@ -111,7 +111,8 @@ const emptyDetection: DeviceDetectionResult = {
 const idleRecordingSnapshot: RecordingServiceSnapshot = {
   status: "idle",
   elapsedMs: 0,
-  localSaveMessage: "Everything is saving locally"
+  localSaveMessage: "Everything is saving locally",
+  trackStatuses: []
 };
 
 function getInitialRecordingSnapshot(): RecordingServiceSnapshot {
@@ -119,7 +120,8 @@ function getInitialRecordingSnapshot(): RecordingServiceSnapshot {
     return {
       status: "stopped",
       elapsedMs: 112000,
-      localSaveMessage: "Everything is saving locally"
+      localSaveMessage: "Everything is saving locally",
+      trackStatuses: []
     };
   }
   return idleRecordingSnapshot;
@@ -199,6 +201,7 @@ function getStudioBridge(): StudioBridge {
     }),
     writeRecordingState: async (_folderPath, state) => state,
     saveProgramRecording: async () => "review-only/program.webm",
+    saveRecordedTracks: async () => [],
     appendRecordingError: async () => undefined,
     listUnfinishedRecordingSessions: async () => [],
     loadPodcastTools: async (episodeId) => ({

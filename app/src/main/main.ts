@@ -15,6 +15,7 @@ import {
   createRecordingSession,
   listUnfinishedRecordingSessions,
   saveProgramRecording,
+  saveRecordedTracks,
   writeRecordingState
 } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
@@ -192,6 +193,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("recording:create-session", (_event, input) => createRecordingSession(input));
   ipcMain.handle("recording:write-state", (_event, input) => writeRecordingState(input.folderPath, input.state));
   ipcMain.handle("recording:save-program", (_event, input) => saveProgramRecording(input.folderPath, input.bytes));
+  ipcMain.handle("recording:save-tracks", (_event, input) => saveRecordedTracks(input.folderPath, input.tracks));
   ipcMain.handle("recording:append-error", (_event, input) => appendRecordingError(input.folderPath, input.message));
   ipcMain.handle("recording:list-unfinished", listUnfinishedRecordingSessions);
   ipcMain.handle("podcast-tools:load", (_event, episodeId) => loadPodcastTools(episodeId));

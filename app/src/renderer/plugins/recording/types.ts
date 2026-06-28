@@ -1,4 +1,5 @@
 import type { DeviceDefaults } from "../../../shared/types";
+import type { RecordingTrackSaveInput } from "../../../shared/recording";
 
 export interface RecordingStartRequest {
   deviceDefaults: DeviceDefaults;
@@ -8,6 +9,7 @@ export interface RecordingStartRequest {
 export interface RecordingEngineResult {
   bytes?: Uint8Array;
   mimeType?: string;
+  tracks?: RecordingTrackSaveInput[];
   warning?: string;
 }
 
