@@ -65,10 +65,26 @@ export const browserDevicePlugin: DevicePlugin = {
   async requestStudioPermissions() {
     if (!navigator.mediaDevices?.getUserMedia) return enumerateStudioDevices();
 
+    const streams: MediaStream[] = [];
+    let grantedAny = false;
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
-      await stopStream(stream);
+      streams.push(await navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
+      grantedAny = true;
     } catch {
+      // Keep going. A busy camera should not hide microphones or already enumerated devices.
+    }
+
+    try {
+      streams.push(await navigator.mediaDevices.getUserMedia({ audio: true, video: false }));
+      grantedAny = true;
+    } catch {
+      // Keep going. A missing or muted mic should not hide cameras from setup.
+    }
+
+    await Promise.all(streams.map((stream) => stopStream(stream)));
+
+    if (!grantedAny) {
       return {
         ...(await enumerateStudioDevices()),
         permissionNeeded: true,

@@ -23,6 +23,9 @@ export interface StudioSettings {
   onboarding?: {
     guidedTour: "show" | "remind-later" | "never";
   };
+  ui?: {
+    sidebarCollapsed?: boolean;
+  };
 }
 
 export interface DeviceDefaults {

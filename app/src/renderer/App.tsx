@@ -72,7 +72,8 @@ const fallbackSettings: StudioSettings = {
   practiceModeEnabled: false,
   deviceDefaults: defaultDeviceDefaults,
   exportSettings: defaultExportSettings,
-  onboarding: { guidedTour: "show" }
+  onboarding: { guidedTour: "show" },
+  ui: { sidebarCollapsed: false }
 };
 
 function withExportSettings(settings: StudioSettings): StudioSettings {
@@ -249,6 +250,7 @@ export default function App() {
   const [deviceChangeState, setDeviceChangeState] = useState<"ready" | "disconnected" | "reconnecting" | "needs-attention">("ready");
   const [diagnosticsBundle, setDiagnosticsBundle] = useState<DiagnosticsBundleResult | undefined>();
   const [storageStatus, setStorageStatus] = useState<StorageStatus | undefined>();
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const hardwareStopTimerRef = useRef<number | undefined>(undefined);
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
@@ -267,6 +269,7 @@ export default function App() {
       setSettings(hydratedSettings);
       setSelectedExportType(hydratedSettings.exportSettings?.defaultExportType ?? defaultExportSettings.defaultExportType);
       setSelectedQualityPreset(hydratedSettings.exportSettings?.qualityPreset ?? defaultExportSettings.qualityPreset);
+      setSidebarCollapsed(Boolean(hydratedSettings.ui?.sidebarCollapsed));
       const tourParam = new URLSearchParams(window.location.search).get("tour");
       setShowTour(tourParam === "on" || (tourParam !== "off" && hydratedSettings.onboarding?.guidedTour !== "never"));
     });
@@ -449,6 +452,14 @@ export default function App() {
     await studio.saveSettings(nextSettings);
   }
 
+  async function toggleSidebarCollapsed() {
+    const nextCollapsed = !sidebarCollapsed;
+    setSidebarCollapsed(nextCollapsed);
+    const nextSettings = { ...settings, ui: { ...settings.ui, sidebarCollapsed: nextCollapsed } };
+    setSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
+  }
+
   async function closeTour(preference: "skip" | "remind-later" | "never") {
     setShowTour(false);
     if (preference === "skip") return;
@@ -493,6 +504,14 @@ export default function App() {
     const level = await deviceService.sampleMicrophoneLevel(settings.deviceDefaults.microphones.morganMic);
     setMicrophoneLevel(level);
   }
+
+  useEffect(() => {
+    if (view !== "device-setup" && view !== "recording") return undefined;
+    const timer = window.setInterval(() => {
+      void testMicrophone();
+    }, 900);
+    return () => window.clearInterval(timer);
+  }, [settings.deviceDefaults.microphones.morganMic, view]);
 
   async function playTestSound() {
     await deviceService.playTestSound(settings.deviceDefaults.audioOutputId);
@@ -668,10 +687,12 @@ export default function App() {
     await refreshUnfinishedSessions();
   }
 
-  const studioReady = Boolean(settings.deviceDefaults.cameras.camera1 && settings.deviceDefaults.microphones.morganMic);
+  const selectedCameraReady = deviceDetection.cameras.some((camera) => camera.id === settings.deviceDefaults.cameras.camera1);
+  const selectedMicReady = deviceDetection.microphones.some((microphone) => microphone.id === settings.deviceDefaults.microphones.morganMic);
+  const studioReady = selectedCameraReady && selectedMicReady;
 
   return (
-    <main className="studio-shell">
+    <main className={`studio-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
         <div className="brand-lockup">
           <div className="brand-badge">WAI</div>
@@ -680,43 +701,50 @@ export default function App() {
             <h1>{activeTheme.branding.logoText}</h1>
           </div>
         </div>
+        <button className="sidebar-toggle" type="button" onClick={() => void toggleSidebarCollapsed()} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+          {sidebarCollapsed ? <ArrowRight size={18} /> : <ArrowLeft size={18} />}
+          <span>{sidebarCollapsed ? "Expand" : "Collapse"}</span>
+        </button>
 
         <nav className="nav-stack" aria-label="Studio sections">
           <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}>
-            <MonitorPlay size={20} /> Home
-          </button>
-          <button className={view === "new-episode" ? "active" : ""} onClick={() => setView("new-episode")}>
-            <Plus size={20} /> New Episode
+            <MonitorPlay size={20} /> <span>Studio</span>
           </button>
           <button className={view === "device-setup" ? "active" : ""} onClick={() => setView("device-setup")}>
-            <Camera size={20} /> Studio Setup
+            <Camera size={20} /> <span>Setup</span>
           </button>
           <button className={view === "recording" ? "active" : ""} onClick={() => setView("recording")}>
-            <Circle size={20} /> Record
+            <Circle size={20} /> <span>Record</span>
           </button>
           <button className={view === "timeline-review" ? "active" : ""} onClick={() => setView("timeline-review")}>
-            <ListVideo size={20} /> Review Episode
-          </button>
-          <button className={view === "auto-edit-review" ? "active" : ""} onClick={() => setView("auto-edit-review")}>
-            <Sparkles size={20} /> Auto Edit
+            <ListVideo size={20} /> <span>Review</span>
           </button>
           <button className={view === "export" ? "active" : ""} onClick={() => setView("export")}>
-            <Download size={20} /> Export
+            <Download size={20} /> <span>Export</span>
+          </button>
+        </nav>
+
+        <nav className="nav-stack secondary" aria-label="More studio tools">
+          <button className={view === "new-episode" ? "active" : ""} onClick={() => setView("new-episode")}>
+            <Plus size={20} /> <span>New Episode</span>
+          </button>
+          <button className={view === "auto-edit-review" ? "active" : ""} onClick={() => setView("auto-edit-review")}>
+            <Sparkles size={20} /> <span>Auto Edit</span>
           </button>
           <button className={view === "hardware-test" ? "active" : ""} onClick={() => setView("hardware-test")}>
-            <ShieldCheck size={20} /> Hardware Test
+            <ShieldCheck size={20} /> <span>Hardware Test</span>
           </button>
           <button className={view === "theme-editor" ? "active" : ""} onClick={() => setView("theme-editor")}>
-            <Brush size={20} /> Theme Editor
+            <Brush size={20} /> <span>Theme Editor</span>
           </button>
           <button className={view === "learn" ? "active" : ""} onClick={() => setView("learn")}>
-            <BookOpen size={20} /> Learn Studio
+            <BookOpen size={20} /> <span>Learn</span>
           </button>
           <button className={view === "practice" ? "active" : ""} onClick={() => setView("practice")}>
-            <Clapperboard size={20} /> Practice Mode
+            <Clapperboard size={20} /> <span>Practice</span>
           </button>
           <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
-            <Settings size={20} /> Settings
+            <Settings size={20} /> <span>Settings</span>
           </button>
         </nav>
 
@@ -767,11 +795,13 @@ export default function App() {
               microphoneLevel={microphoneLevel}
               currentStep={wizardStep}
               onStepChange={setWizardStep}
-              onRefresh={() => void refreshDevices()}
+              onRefresh={() => void requestStudioPermissions()}
               onRequestPermission={() => void requestStudioPermissions()}
               onDefaultsChange={(defaults) => void saveDeviceDefaults(defaults)}
               onTestMicrophone={() => void testMicrophone()}
               onPlayTestSound={() => void playTestSound()}
+              onOpenCameraPreview={openCameraPreview}
+              onOpenMicrophoneStream={openMicrophoneStream}
             />
           </div>
         )}

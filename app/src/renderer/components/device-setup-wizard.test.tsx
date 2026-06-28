@@ -12,7 +12,9 @@ const baseProps = {
   onRequestPermission: vi.fn(),
   onDefaultsChange: vi.fn(),
   onTestMicrophone: vi.fn(),
-  onPlayTestSound: vi.fn()
+  onPlayTestSound: vi.fn(),
+  onOpenCameraPreview: vi.fn(),
+  onOpenMicrophoneStream: vi.fn()
 };
 
 describe("DeviceSetupWizard", () => {
@@ -45,8 +47,9 @@ describe("DeviceSetupWizard", () => {
     expect(markup).toContain("Camera 1");
     expect(markup).toContain("Studio Camera");
     expect(markup).toContain("Use This Camera");
-    expect(markup).toContain("Connect Wirelessly");
-    expect(markup).toContain("Reconnect");
+    expect(markup).toContain("Refresh Cameras");
+    expect(markup).toContain("Release Camera");
+    expect(markup).toContain("Open Camera Help");
     expect(markup).toContain("Needs attention");
     expect(markup).toContain("Connection type");
     expect(markup).not.toContain("driver stack");
@@ -71,6 +74,7 @@ describe("DeviceSetupWizard", () => {
     expect(markup).toContain("Camera 1 is ready");
     expect(markup).toContain("Signal: Good");
     expect(markup).toContain("Test Camera");
+    expect(markup).toContain("Camera 1 setup live preview");
   });
 
   it("renders microphone, headphone, and ready steps", () => {
@@ -98,7 +102,21 @@ describe("DeviceSetupWizard", () => {
 
     expect(microphoneMarkup).toContain("Morgan Mic");
     expect(microphoneMarkup).toContain("Say something!");
+    expect(microphoneMarkup).toContain("We can&#x27;t hear you yet");
     expect(headphoneMarkup).toContain("Play Test Sound");
     expect(readyMarkup).toContain("Everything looks good");
+  });
+
+  it("renders permission and busy camera preview language without technical terms", () => {
+    const permissionMarkup = renderToStaticMarkup(
+      <DeviceSetupWizard
+        {...baseProps}
+        detection={{ cameras: [], microphones: [], speakers: [], permissionNeeded: true }}
+      />
+    );
+
+    expect(permissionMarkup).toContain("Let the studio look and listen");
+    expect(permissionMarkup).not.toContain("NotAllowedError");
+    expect(permissionMarkup).not.toContain("MediaStream");
   });
 });

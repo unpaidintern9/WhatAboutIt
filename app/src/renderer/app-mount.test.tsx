@@ -8,6 +8,7 @@ import { defaultExportSettings } from "../shared/export";
 
 describe("app mount", () => {
   it("renders the home screen with studio bridge data", async () => {
+    const saveSettings = vi.fn(async (settings) => settings);
     window.studio = {
       listEpisodes: vi.fn(async () => []),
       createEpisode: vi.fn(),
@@ -21,7 +22,7 @@ describe("app mount", () => {
           microphones: {}
         }
       })),
-      saveSettings: vi.fn(),
+      saveSettings,
       createRecordingSession: vi.fn(),
       writeRecordingState: vi.fn(),
       saveProgramRecording: vi.fn(),
@@ -53,5 +54,61 @@ describe("app mount", () => {
     expect(host.textContent).toContain("Ready when you are.");
     expect(host.textContent).toContain("New Episode");
     expect(host.textContent).toContain("Camera 1");
+  });
+
+  it("collapses the sidebar and saves the preference", async () => {
+    const saveSettings = vi.fn(async (settings) => settings);
+    window.studio = {
+      listEpisodes: vi.fn(async () => []),
+      createEpisode: vi.fn(),
+      getSettings: vi.fn(async () => ({
+        activeThemeId: "what-about-it",
+        defaultEpisodeFolderName: "episodes",
+        practiceModeEnabled: false,
+        exportSettings: defaultExportSettings,
+        deviceDefaults: {
+          cameras: {},
+          microphones: {}
+        },
+        ui: { sidebarCollapsed: false }
+      })),
+      saveSettings,
+      createRecordingSession: vi.fn(),
+      writeRecordingState: vi.fn(),
+      saveProgramRecording: vi.fn(),
+      appendRecordingError: vi.fn(),
+      listUnfinishedRecordingSessions: vi.fn(async () => []),
+      loadPodcastTools: vi.fn(async () => createDefaultPodcastToolsState("episode-a", "2026-06-27T10:00:00.000Z")),
+      savePodcastTools: vi.fn(async (_episodeId, state) => state),
+      loadTimelineDraft: vi.fn(async () =>
+        createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } } })
+      ),
+      saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft),
+      runAutoEdit: vi.fn(),
+      createExport: vi.fn(),
+      getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })),
+      cancelExport: vi.fn(),
+      openExportFolder: vi.fn(),
+      createDiagnosticsBundle: vi.fn(async () => ({ folderPath: "diagnostics", files: [] })),
+      getStorageStatus: vi.fn(async () => ({ message: "Storage check ready" as const, availableBytes: 1024 }))
+    };
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(<App />);
+    });
+
+    const collapse = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Collapse"));
+    expect(collapse).toBeTruthy();
+
+    await act(async () => {
+      collapse?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(host.querySelector(".studio-shell")?.className).toContain("sidebar-collapsed");
+    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ ui: { sidebarCollapsed: true } }));
   });
 });

@@ -88,3 +88,14 @@ The project now has two partial real media integrations: offline FFmpeg export r
 - Export button handling was fixed after the long recording exposed a dead primary Export button.
 - Patched app exported `what-about-it-full-episode-video.mp4`, 33,013,463 bytes, H.264/AAC, 1024x576, 30 fps, duration `1828.869000`.
 - 60-minute stability was not run after the 30-minute pass found defects requiring fixes.
+
+## Phase 9B Sony Live Preview and Studio Flow Addendum
+
+- Windows detected `Sony Camera (Imaging Edge)` and Electron enumeration detected both Sony and Integrated camera inputs.
+- Studio Setup camera cards now have real preview video elements, `Live`/`Ready`/`Needs attention`/`Used by another app`/`Permission needed` states, `Refresh Cameras`, `Release Camera`, and `Open Camera Help`.
+- `Refresh Cameras` now uses the permission-aware media request path.
+- Camera and microphone permission requests are independent, so one busy device should not hide all setup feedback.
+- The Studio Ready banner now requires the selected camera and microphone to be present in current detection.
+- Studio Setup built-app smoke remained blocked: camera dropdowns did not populate after `Check again`, so Sony setup live preview was not validated.
+- Navigation is simplified to primary Studio, Setup, Record, Review, Export routes with secondary tools lower in the sidebar.
+- Sidebar collapsed state is saved in settings and covered by automated tests.

@@ -41,6 +41,11 @@ button:disabled {
   display: grid;
   grid-template-columns: 300px minmax(0, 1fr);
   min-height: 100vh;
+  transition: grid-template-columns var(--component-transition-speed);
+}
+
+.studio-shell.sidebar-collapsed {
+  grid-template-columns: 92px minmax(0, 1fr);
 }
 
 .sidebar {
@@ -163,6 +168,42 @@ h3 {
   background: rgba(255, 244, 220, 0.09);
   border: 1px solid rgba(255, 244, 220, 0.18);
   border-radius: var(--component-card-radius);
+}
+
+.sidebar-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  min-height: var(--space-controlHeight);
+  color: var(--color-inverseText);
+  background: rgba(255, 244, 220, 0.1);
+  border: 1px solid rgba(255, 244, 220, 0.2);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
+.studio-shell.sidebar-collapsed .brand-lockup {
+  grid-template-columns: 1fr;
+}
+
+.studio-shell.sidebar-collapsed .brand-lockup > div:last-child,
+.studio-shell.sidebar-collapsed .nav-stack button span,
+.studio-shell.sidebar-collapsed .sidebar-toggle span,
+.studio-shell.sidebar-collapsed .phase-note {
+  display: none;
+}
+
+.studio-shell.sidebar-collapsed .brand-badge,
+.studio-shell.sidebar-collapsed .nav-stack button,
+.studio-shell.sidebar-collapsed .sidebar-toggle {
+  justify-content: center;
+}
+
+.nav-stack.secondary {
+  margin-top: auto;
+  padding-top: var(--space-md);
+  border-top: 1px solid rgba(255, 244, 220, 0.18);
 }
 
 .workspace {
@@ -802,7 +843,8 @@ dd {
   position: relative;
 }
 
-.camera-setup-card.ready {
+.camera-setup-card.ready,
+.camera-setup-card.live {
   border-color: var(--color-success);
 }
 
@@ -877,6 +919,66 @@ dd {
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-border-radius);
   font-weight: 900;
+}
+
+.setup-live-preview {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 16 / 9;
+  min-height: 180px;
+  overflow: hidden;
+  color: var(--color-inverseText);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28)),
+    var(--texture-active),
+    var(--color-secondary);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+}
+
+.setup-live-preview.live {
+  border-color: var(--color-success);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success), transparent 72%);
+}
+
+.setup-live-preview.busy,
+.setup-live-preview.permission,
+.setup-live-preview.needs-attention {
+  border-color: var(--color-warning);
+}
+
+.setup-live-preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.setup-live-preview > div {
+  position: absolute;
+  display: grid;
+  gap: var(--space-sm);
+  place-items: center;
+  text-align: center;
+}
+
+.setup-mic-feedback {
+  display: grid;
+  gap: var(--space-sm);
+  min-width: 220px;
+}
+
+.setup-mic-feedback p {
+  margin: 0;
+  font-weight: 900;
+}
+
+.setup-mic-feedback.heard p {
+  color: var(--color-success);
+}
+
+.setup-mic-feedback.quiet p {
+  color: var(--color-warning);
 }
 
 .camera-card-status {
@@ -1883,7 +1985,7 @@ input[type="range"] {
 
 .live-studio {
   display: grid;
-  grid-template-columns: 230px minmax(0, 1fr);
+  grid-template-columns: 180px minmax(0, 1fr);
   gap: var(--space-xl);
   min-height: calc(100vh - var(--space-xxl) * 2);
 }
@@ -1906,7 +2008,7 @@ input[type="range"] {
 .live-logo-card {
   display: grid;
   place-items: center;
-  min-height: 180px;
+  min-height: 140px;
   padding: var(--space-lg);
   text-align: center;
   background:
@@ -2233,6 +2335,20 @@ input[type="range"] {
   gap: var(--space-md);
   flex-wrap: wrap;
   align-items: center;
+}
+
+.giant-control-row {
+  position: sticky;
+  bottom: calc(var(--space-md) + 84px);
+  z-index: 5;
+  padding: var(--space-sm);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.48)),
+    var(--texture-active),
+    var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
 }
 
 .rustic-button,
@@ -2617,6 +2733,10 @@ input[type="range"] {
 @media (max-width: 1100px) {
   .studio-shell {
     grid-template-columns: 260px minmax(0, 1fr);
+  }
+
+  .studio-shell.sidebar-collapsed {
+    grid-template-columns: 84px minmax(0, 1fr);
   }
 
   .hero-panel,

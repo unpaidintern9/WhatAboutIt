@@ -1,8 +1,8 @@
-import { Camera, CheckCircle2, Headphones, Mic2, RotateCcw, Search, Settings, ShieldCheck } from "lucide-react";
-import type { ReactNode } from "react";
+import { AlertTriangle, Camera, CheckCircle2, Headphones, HelpCircle, Mic2, RotateCcw, Search, Settings, ShieldCheck, X } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DeviceDefaults } from "../../shared/types";
 import { saveCameraSlot, saveMicrophoneSlot } from "../../shared/device-config";
-import { AudioMeter, Button, CameraPreview } from ".";
+import { AudioMeter, Button } from ".";
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import { findDeviceLabel, getDeviceReadiness, getEmptyStateMessage } from "../services";
 
@@ -17,6 +17,8 @@ interface DeviceSetupWizardProps {
   onDefaultsChange: (defaults: DeviceDefaults) => void;
   onTestMicrophone: () => void;
   onPlayTestSound: () => void;
+  onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
+  onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
 }
 
 const steps = [
@@ -48,7 +50,9 @@ export function DeviceSetupWizard({
   onRequestPermission,
   onDefaultsChange,
   onTestMicrophone,
-  onPlayTestSound
+  onPlayTestSound,
+  onOpenCameraPreview,
+  onOpenMicrophoneStream
 }: DeviceSetupWizardProps) {
   const readyState = getDeviceReadiness(detection, defaults);
 
@@ -101,6 +105,7 @@ export function DeviceSetupWizard({
                   devices={detection.cameras}
                   onChoose={(deviceId) => onDefaultsChange(saveCameraSlot(defaults, slot.key, deviceId))}
                   onRefresh={onRefresh}
+                  onOpenCameraPreview={onOpenCameraPreview}
                 />
               ))}
             </div>
@@ -133,7 +138,7 @@ export function DeviceSetupWizard({
               <div className="device-test-card">
                 <Button variant="primary" icon={<Mic2 size={20} />} onClick={onTestMicrophone}>Say something!</Button>
                 <AudioMeter label="Mic check" level={microphoneLevel} />
-                {microphoneLevel === 0 && <p>{getEmptyStateMessage("quiet")}</p>}
+                <SetupMicFeedback deviceId={defaults.microphones.morganMic} onOpenMicrophoneStream={onOpenMicrophoneStream} fallbackLevel={microphoneLevel} />
               </div>
             </div>
           )}
@@ -201,18 +206,71 @@ function CameraSetupCard({
   selectedDeviceId,
   devices,
   onChoose,
-  onRefresh
+  onRefresh,
+  onOpenCameraPreview
 }: {
   label: string;
   selectedDeviceId?: string;
   devices: StudioDevice[];
   onChoose: (deviceId: string) => void;
   onRefresh: () => void;
+  onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
 }) {
   const selectedDevice = devices.find((device) => device.id === selectedDeviceId);
   const firstDevice = devices[0];
-  const status = getCameraCardStatus(selectedDevice, devices.length);
+  const [previewStatus, setPreviewStatus] = useState<"idle" | "starting" | "live" | "ready" | "needs-attention" | "busy" | "permission">("idle");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | undefined>(undefined);
+  const status = getCameraCardStatus(selectedDevice, devices.length, previewStatus);
   const buttonLabel = selectedDevice ? "Test Camera" : firstDevice ? "Use This Camera" : "Choose Camera";
+
+  useEffect(() => {
+    let canceled = false;
+
+    async function startPreview() {
+      releaseCamera();
+      if (!selectedDeviceId) {
+        setPreviewStatus("idle");
+        return;
+      }
+
+      setPreviewStatus("starting");
+      try {
+        const stream = await onOpenCameraPreview(selectedDeviceId);
+        if (canceled) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+        setPreviewStatus("live");
+      } catch (error) {
+        setPreviewStatus(getPreviewErrorState(error));
+      }
+    }
+
+    void startPreview();
+
+    return () => {
+      canceled = true;
+      releaseCamera();
+    };
+  }, [onOpenCameraPreview, selectedDeviceId]);
+
+  function releaseCamera() {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = undefined;
+    if (videoRef.current) videoRef.current.srcObject = null;
+  }
+
+  function releaseCameraToReady() {
+    releaseCamera();
+    setPreviewStatus(selectedDevice ? "ready" : "idle");
+  }
 
   return (
     <article className={`camera-setup-card ${status.className}`}>
@@ -234,10 +292,18 @@ function CameraSetupCard({
           </div>
         </details>
       </div>
-      <CameraPreview label={label} />
+      <div className={`setup-live-preview ${previewStatus}`}>
+        <video ref={videoRef} muted playsInline aria-label={`${label} setup live preview`} />
+        {previewStatus !== "live" && (
+          <div>
+            {previewStatus === "busy" || previewStatus === "permission" ? <AlertTriangle size={24} /> : <Camera size={24} />}
+            <strong>{getPreviewStatusCopy(previewStatus)}</strong>
+          </div>
+        )}
+      </div>
       <div className="camera-card-status">
         <strong>{status.text}</strong>
-        <span>{selectedDevice ? `${label} is ready` : "Pick a camera when you are ready"}</span>
+        <span>{getCameraCardSubcopy(selectedDevice, previewStatus, label)}</span>
       </div>
       <p className="camera-name">{selectedDevice?.label ?? "No camera picked yet"}</p>
       <DeviceSelect
@@ -251,14 +317,86 @@ function CameraSetupCard({
         <Button variant={selectedDevice ? "secondary" : "primary"} icon={<Camera size={20} />} onClick={() => onChoose(selectedDeviceId ?? firstDevice?.id ?? "")}>
           {buttonLabel}
         </Button>
-        <Button variant="secondary" icon={<Search size={18} />} onClick={onRefresh}>Connect Wirelessly</Button>
-        <Button variant="secondary" icon={<RotateCcw size={18} />} onClick={onRefresh}>Reconnect</Button>
+        <Button variant="secondary" icon={<RotateCcw size={18} />} onClick={onRefresh}>Refresh Cameras</Button>
+        <Button variant="secondary" icon={<X size={18} />} onClick={releaseCameraToReady}>Release Camera</Button>
+        <Button variant="secondary" icon={<HelpCircle size={18} />} onClick={() => setHelpOpen((current) => !current)}>Open Camera Help</Button>
       </div>
+      {helpOpen && (
+        <FriendlyState
+          title="Camera help"
+          message="Close other camera apps, pick the camera again, then watch for Live in this card."
+        />
+      )}
       <div className="camera-signal-line">
         <span>Signal: {formatSignal(selectedDevice?.camera?.signal)}</span>
         {selectedDevice?.camera?.batteryPercent !== undefined && <span>Battery: {formatBattery(selectedDevice.camera.batteryPercent)}</span>}
       </div>
     </article>
+  );
+}
+
+function SetupMicFeedback({
+  deviceId,
+  fallbackLevel,
+  onOpenMicrophoneStream
+}: {
+  deviceId?: string;
+  fallbackLevel: number;
+  onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
+}) {
+  const [level, setLevel] = useState(fallbackLevel);
+
+  useEffect(() => {
+    if (!deviceId || !window.AudioContext) {
+      setLevel(fallbackLevel);
+      return undefined;
+    }
+
+    let canceled = false;
+    let frame = 0;
+    let audioContext: AudioContext | undefined;
+    let stream: MediaStream | undefined;
+
+    async function startMeter() {
+      try {
+        stream = await onOpenMicrophoneStream(deviceId);
+        audioContext = new AudioContext();
+        const analyser = audioContext.createAnalyser();
+        const source = audioContext.createMediaStreamSource(stream);
+        const samples = new Uint8Array(analyser.frequencyBinCount);
+        source.connect(analyser);
+
+        const tick = () => {
+          if (canceled) return;
+          analyser.getByteTimeDomainData(samples);
+          const volume = samples.reduce((total, sample) => total + Math.abs(sample - 128), 0) / Math.max(samples.length, 1);
+          setLevel(Math.min(100, Math.round(volume * 4)));
+          frame = window.requestAnimationFrame(tick);
+        };
+
+        tick();
+      } catch {
+        setLevel(0);
+      }
+    }
+
+    void startMeter();
+
+    return () => {
+      canceled = true;
+      if (frame) window.cancelAnimationFrame(frame);
+      stream?.getTracks().forEach((track) => track.stop());
+      void audioContext?.close();
+    };
+  }, [deviceId, fallbackLevel, onOpenMicrophoneStream]);
+
+  const copy = level > 12 ? "We hear you" : level > 0 ? "Try speaking closer" : "We can't hear you yet";
+
+  return (
+    <div className={`setup-mic-feedback ${level > 12 ? "heard" : level > 0 ? "quiet" : "muted"}`} aria-live="polite">
+      <AudioMeter label="Live mic level" level={level} />
+      <p>{copy}</p>
+    </div>
   );
 }
 
@@ -299,10 +437,39 @@ function FriendlyState({ title, message }: { title: string; message: string }) {
   );
 }
 
-function getCameraCardStatus(device: StudioDevice | undefined, availableCount: number) {
+function getCameraCardStatus(device: StudioDevice | undefined, availableCount: number, previewStatus: "idle" | "starting" | "live" | "ready" | "needs-attention" | "busy" | "permission") {
   if (!device) return { text: availableCount > 0 ? "Needs attention" : "Not connected", className: "needs-attention" };
+  if (previewStatus === "live") return { text: "Live", className: "ready live" };
+  if (previewStatus === "busy") return { text: "Used by another app", className: "needs-attention" };
+  if (previewStatus === "permission") return { text: "Permission needed", className: "needs-attention" };
+  if (previewStatus === "needs-attention") return { text: "Needs attention", className: "needs-attention" };
   if (device.camera?.signal === "lost") return { text: "Needs attention", className: "needs-attention" };
   return { text: "Ready", className: "ready" };
+}
+
+function getPreviewErrorState(error: unknown): "needs-attention" | "busy" | "permission" {
+  const message = String(error);
+  if (message.includes("NotReadableError") || message.includes("TrackStartError")) return "busy";
+  if (message.includes("NotAllowedError") || message.includes("Permission")) return "permission";
+  return "needs-attention";
+}
+
+function getPreviewStatusCopy(status: "idle" | "starting" | "live" | "ready" | "needs-attention" | "busy" | "permission") {
+  if (status === "starting") return "Starting live preview";
+  if (status === "busy") return "Used by another app";
+  if (status === "permission") return "Permission needed";
+  if (status === "needs-attention") return "Needs Attention";
+  if (status === "ready") return "Released";
+  return "Pick a camera";
+}
+
+function getCameraCardSubcopy(device: StudioDevice | undefined, previewStatus: "idle" | "starting" | "live" | "ready" | "needs-attention" | "busy" | "permission", label: string) {
+  if (!device) return "Pick a camera when you are ready";
+  if (previewStatus === "live") return `${label} is showing live`;
+  if (previewStatus === "busy") return "Close other camera apps, then refresh.";
+  if (previewStatus === "permission") return "Allow camera access, then refresh.";
+  if (previewStatus === "ready") return `${label} is released`;
+  return `${label} is ready`;
 }
 
 function formatConnectionType(value?: StudioDevice["camera"] extends infer CameraMeta ? CameraMeta extends { connectionType: infer Type } ? Type : never : never) {
