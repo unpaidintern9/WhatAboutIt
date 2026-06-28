@@ -14,7 +14,6 @@ import {
   Headphones,
   HardDrive,
   Mic2,
-  MonitorPlay,
   Plus,
   Scissors,
   Settings,
@@ -73,7 +72,7 @@ const fallbackSettings: StudioSettings = {
   deviceDefaults: defaultDeviceDefaults,
   exportSettings: defaultExportSettings,
   onboarding: { guidedTour: "show" },
-  ui: { sidebarCollapsed: false }
+  ui: { sidebarCollapsed: true }
 };
 
 function withExportSettings(settings: StudioSettings): StudioSettings {
@@ -250,7 +249,7 @@ export default function App() {
   const [deviceChangeState, setDeviceChangeState] = useState<"ready" | "disconnected" | "reconnecting" | "needs-attention">("ready");
   const [diagnosticsBundle, setDiagnosticsBundle] = useState<DiagnosticsBundleResult | undefined>();
   const [storageStatus, setStorageStatus] = useState<StorageStatus | undefined>();
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const hardwareStopTimerRef = useRef<number | undefined>(undefined);
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
@@ -269,7 +268,7 @@ export default function App() {
       setSettings(hydratedSettings);
       setSelectedExportType(hydratedSettings.exportSettings?.defaultExportType ?? defaultExportSettings.defaultExportType);
       setSelectedQualityPreset(hydratedSettings.exportSettings?.qualityPreset ?? defaultExportSettings.qualityPreset);
-      setSidebarCollapsed(Boolean(hydratedSettings.ui?.sidebarCollapsed));
+      setSidebarCollapsed(hydratedSettings.ui?.sidebarCollapsed ?? true);
       const tourParam = new URLSearchParams(window.location.search).get("tour");
       setShowTour(tourParam === "on" || (tourParam !== "off" && hydratedSettings.onboarding?.guidedTour !== "never"));
     });
@@ -706,12 +705,9 @@ export default function App() {
           <span>{sidebarCollapsed ? "Expand" : "Collapse"}</span>
         </button>
 
-        <nav className="nav-stack" aria-label="Studio sections">
-          <button className={view === "home" ? "active" : ""} onClick={() => setView("home")}>
-            <MonitorPlay size={20} /> <span>Studio</span>
-          </button>
+        <nav className="nav-stack" aria-label="Studio workflow">
           <button className={view === "device-setup" ? "active" : ""} onClick={() => setView("device-setup")}>
-            <Camera size={20} /> <span>Setup</span>
+            <Camera size={20} /> <span>Studio Setup</span>
           </button>
           <button className={view === "recording" ? "active" : ""} onClick={() => setView("recording")}>
             <Circle size={20} /> <span>Record</span>
@@ -725,26 +721,14 @@ export default function App() {
         </nav>
 
         <nav className="nav-stack secondary" aria-label="More studio tools">
-          <button className={view === "new-episode" ? "active" : ""} onClick={() => setView("new-episode")}>
-            <Plus size={20} /> <span>New Episode</span>
-          </button>
-          <button className={view === "auto-edit-review" ? "active" : ""} onClick={() => setView("auto-edit-review")}>
-            <Sparkles size={20} /> <span>Auto Edit</span>
-          </button>
-          <button className={view === "hardware-test" ? "active" : ""} onClick={() => setView("hardware-test")}>
-            <ShieldCheck size={20} /> <span>Hardware Test</span>
-          </button>
-          <button className={view === "theme-editor" ? "active" : ""} onClick={() => setView("theme-editor")}>
-            <Brush size={20} /> <span>Theme Editor</span>
-          </button>
           <button className={view === "learn" ? "active" : ""} onClick={() => setView("learn")}>
             <BookOpen size={20} /> <span>Learn</span>
           </button>
-          <button className={view === "practice" ? "active" : ""} onClick={() => setView("practice")}>
-            <Clapperboard size={20} /> <span>Practice</span>
-          </button>
           <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
             <Settings size={20} /> <span>Settings</span>
+          </button>
+          <button className={view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "active" : ""} onClick={() => setView("practice")}>
+            <Sparkles size={20} /> <span>More</span>
           </button>
         </nav>
 
@@ -755,7 +739,7 @@ export default function App() {
       </aside>
 
       <section className="workspace">
-        <JourneyProgress view={view} hasEpisode={episodes.length > 0} studioReady={studioReady} recordingComplete={recordingSnapshot.status === "stopped"} reviewReady={timelineDraft.tracks.length > 0} exportComplete={exportJob?.status === "complete"} />
+        <JourneyProgress view={view} studioReady={studioReady} recordingComplete={recordingSnapshot.status === "stopped"} reviewReady={timelineDraft.tracks.length > 0} exportComplete={exportJob?.status === "complete"} />
         {showTour && (
           <FirstRunSetup
             onClose={(preference) => void closeTour(preference)}
@@ -900,26 +884,21 @@ export default function App() {
 
 function JourneyProgress({
   view,
-  hasEpisode,
   studioReady,
   recordingComplete,
   reviewReady,
   exportComplete
 }: {
   view: View;
-  hasEpisode: boolean;
   studioReady: boolean;
   recordingComplete: boolean;
   reviewReady: boolean;
   exportComplete: boolean;
 }) {
   const steps: Array<{ label: string; complete: boolean; active: boolean; locked?: boolean }> = [
-    { label: "New Episode", complete: hasEpisode, active: view === "home" || view === "new-episode" },
-    { label: "Studio Setup", complete: studioReady, active: view === "device-setup" },
+    { label: "Studio Setup", complete: studioReady, active: view === "home" || view === "new-episode" || view === "device-setup" },
     { label: "Record", complete: recordingComplete, active: view === "recording" },
     { label: "Review", complete: reviewReady && view !== "recording", active: view === "timeline-review" },
-    { label: "Auto Edit", complete: Boolean(view === "export" || exportComplete), active: view === "auto-edit-review" },
-    { label: "Edit", complete: reviewReady, active: view === "timeline-review" },
     { label: "Export", complete: exportComplete, active: view === "export" }
   ];
 

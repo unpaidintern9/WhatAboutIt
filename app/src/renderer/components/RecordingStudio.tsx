@@ -10,7 +10,6 @@ import {
   Cable,
   Download,
   FileText,
-  Gauge,
   Headphones,
   Mic2,
   Pause,
@@ -240,18 +239,6 @@ export function RecordingStudio({
         </RippedPaperCard>
       )}
 
-      <aside className="live-studio-rail">
-        <div className="live-logo-card">
-          <span>What About It?</span>
-          <strong>Studio</strong>
-        </div>
-        <StudioStatusBadge snapshot={snapshot} />
-        <div className="live-rail-meter">
-          <Gauge size={20} />
-          <span>{podcastTools.cameraLayout}</span>
-        </div>
-      </aside>
-
       <main className="live-studio-board">
         <TornEdgeHeader
           title="Live Recording Studio"
@@ -270,13 +257,6 @@ export function RecordingStudio({
             <span>{snapshot.friendlyError ?? storageWarning ?? "Live checks are ready when your gear is."}</span>
           </div>
         )}
-
-        <ReadinessStrip
-          cameraReadyCount={cameraReadyCount}
-          micReadyCount={micReadyCount}
-          storageReady={storageReady}
-          recordingHealthy={recordingHealthy}
-        />
 
         <section className="camera-strip" aria-label="Camera previews">
           {cameraSlots.map((slot) => (
@@ -297,23 +277,7 @@ export function RecordingStudio({
           ))}
         </section>
 
-        <section className="layout-row" aria-label="Camera layouts">
-          {cameraLayouts.map((layout) => (
-            <RusticButton
-              className={podcastTools.cameraLayout === layout.id ? "selected" : ""}
-              key={layout.id}
-              onClick={() => selectLayout(layout.id)}
-            >
-              {layout.label}
-            </RusticButton>
-          ))}
-          <RusticButton onClick={() => selectLayout("sponsor-card")}>Topic Card</RusticButton>
-          <RusticButton onClick={() => setStudioNotice({ tone: "needs-attention", message: "Advanced camera settings are ready after device setup." })}>
-            <Settings size={16} /> Gear
-          </RusticButton>
-        </section>
-
-        <section className="live-studio-grid">
+        <section className="live-audio-deck" aria-label="Live audio feedback">
           <VintagePanel title="Microphone Mixer" icon={<Mic2 size={20} />} className="mixer-panel">
             <div className="monitor-row">
               <RusticButton className={monitorOn ? "selected" : ""} onClick={() => setMonitorOn((current) => !current)}>
@@ -356,7 +320,53 @@ export function RecordingStudio({
               })}
             </div>
           </VintagePanel>
+        </section>
 
+        <ReadinessStrip
+          cameraReadyCount={cameraReadyCount}
+          micReadyCount={micReadyCount}
+          storageReady={storageReady}
+          recordingHealthy={recordingHealthy}
+        />
+
+        <section className="giant-control-row" aria-label="Recording controls">
+          <StudioControlButton tone="record" disabled={isRecording || isPaused} onClick={() => void onStart()}>
+            <Circle size={28} /> Record
+          </StudioControlButton>
+          <StudioControlButton disabled={!isRecording} onClick={() => void onPause()}>
+            <Pause size={28} /> Pause
+          </StudioControlButton>
+          <StudioControlButton disabled={!isRecording && !isPaused} onClick={() => void onStop()}>
+            <Square size={28} /> Stop
+          </StudioControlButton>
+          <StudioControlButton disabled={!isPaused} onClick={() => void onResume()}>
+            <Play size={28} /> Resume
+          </StudioControlButton>
+          <StudioControlButton onClick={goAutoEdit}>
+            <Sparkles size={28} /> Auto Edit
+          </StudioControlButton>
+          <StudioControlButton onClick={goExport}>
+            <Download size={28} /> Export
+          </StudioControlButton>
+        </section>
+
+        <section className="layout-row" aria-label="Camera layouts">
+          {cameraLayouts.map((layout) => (
+            <RusticButton
+              className={podcastTools.cameraLayout === layout.id ? "selected" : ""}
+              key={layout.id}
+              onClick={() => selectLayout(layout.id)}
+            >
+              {layout.label}
+            </RusticButton>
+          ))}
+          <RusticButton onClick={() => selectLayout("sponsor-card")}>Topic Card</RusticButton>
+          <RusticButton onClick={() => setStudioNotice({ tone: "needs-attention", message: "Advanced camera settings are ready after device setup." })}>
+            <Settings size={16} /> Gear
+          </RusticButton>
+        </section>
+
+        <section className="live-studio-grid" aria-label="Studio tools">
           <VintagePanel title="Soundboard" icon={<Radio size={20} />} className="soundboard-panel">
             <div className="soundboard-grid live">
               {[podcastTools.soundboard.intro, podcastTools.soundboard.outro, ...podcastTools.soundboard.customSlots].map((slot) => (
@@ -454,27 +464,6 @@ export function RecordingStudio({
               />
             )}
           </VintagePanel>
-        </section>
-
-        <section className="giant-control-row" aria-label="Recording controls">
-          <StudioControlButton tone="record" disabled={isRecording || isPaused} onClick={() => void onStart()}>
-            <Circle size={28} /> Record
-          </StudioControlButton>
-          <StudioControlButton disabled={!isRecording} onClick={() => void onPause()}>
-            <Pause size={28} /> Pause
-          </StudioControlButton>
-          <StudioControlButton disabled={!isRecording && !isPaused} onClick={() => void onStop()}>
-            <Square size={28} /> Stop
-          </StudioControlButton>
-          <StudioControlButton disabled={!isPaused} onClick={() => void onResume()}>
-            <Play size={28} /> Resume
-          </StudioControlButton>
-          <StudioControlButton onClick={goAutoEdit}>
-            <Sparkles size={28} /> Auto Edit
-          </StudioControlButton>
-          <StudioControlButton onClick={goExport}>
-            <Download size={28} /> Export
-          </StudioControlButton>
         </section>
 
         <div className="local-save-note live">
@@ -808,16 +797,6 @@ function StudioFooter({
       <span><strong>Export</strong>{exportReady ? "Ready" : "Waiting"}</span>
       <span><strong>Auto Edit</strong>{autoEditReady ? "Ready" : "Waiting"}</span>
     </footer>
-  );
-}
-
-function StudioStatusBadge({ snapshot }: { snapshot: RecordingServiceSnapshot }) {
-  const label = snapshot.status === "recording" ? "Recording Live" : snapshot.status === "paused" ? "Paused" : "Standby";
-  return (
-    <div className={`studio-status-badge ${snapshot.status}`}>
-      <span>{label}</span>
-      <strong>{formatRecordingTime(snapshot.elapsedMs)}</strong>
-    </div>
   );
 }
 
