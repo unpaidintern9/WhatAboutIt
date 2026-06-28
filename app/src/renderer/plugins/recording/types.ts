@@ -16,4 +16,5 @@ export interface RecordingEnginePlugin {
   pause: () => Promise<void>;
   resume: () => Promise<void>;
   stop: () => Promise<RecordingEngineResult>;
+  shutdown?: () => Promise<void>;
 }

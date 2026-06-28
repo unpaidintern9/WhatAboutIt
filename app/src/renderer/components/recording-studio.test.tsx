@@ -114,15 +114,16 @@ describe("RecordingStudio", () => {
     expect(stack.indexOf(controls as Element)).toBeLessThan(stack.indexOf(tools as Element));
   });
 
-  it("toggles mic monitoring and plays the test sound", async () => {
+  it("toggles per-mic monitoring and plays the test sound", async () => {
     const onPlayTestSound = vi.fn(async () => undefined);
     const { host } = renderStudio({ onPlayTestSound });
 
-    expect(host.textContent).toContain("Hear My Mic");
+    expect(host.textContent).toContain("Monitoring starts Off");
+    expect(host.textContent).toContain("Hear Morgan");
     expect(host.textContent).toContain("Off");
-    expect(host.textContent).toContain("Use headphones to hear yourself safely");
+    expect(host.textContent).toContain("Use headphones to avoid echo");
 
-    click(host, "Hear My Mic");
+    click(host, "Hear Morgan");
     expect(host.textContent).toContain("On");
 
     await act(async () => {

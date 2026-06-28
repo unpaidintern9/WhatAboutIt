@@ -34,6 +34,7 @@ describe("app mount", () => {
         createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } } })
       ),
       saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft),
+      loadReviewMedia: vi.fn(async (episodeId) => createReviewMediaFixture(episodeId)),
       runAutoEdit: vi.fn(),
       createExport: vi.fn(),
       getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })),
@@ -82,6 +83,7 @@ describe("app mount", () => {
         createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } } })
       ),
       saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft),
+      loadReviewMedia: vi.fn(async (episodeId) => createReviewMediaFixture(episodeId)),
       runAutoEdit: vi.fn(),
       createExport: vi.fn(),
       getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })),
@@ -142,6 +144,7 @@ describe("app mount", () => {
         createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } } })
       ),
       saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft),
+      loadReviewMedia: vi.fn(async (episodeId) => createReviewMediaFixture(episodeId)),
       runAutoEdit: vi.fn(),
       createExport: vi.fn(),
       getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })),
@@ -170,3 +173,23 @@ describe("app mount", () => {
     expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ ui: { sidebarCollapsed: true } }));
   });
 });
+
+function createReviewMediaFixture(episodeId: string) {
+  return {
+    episodeId,
+    episodeFolder: `C:/episodes/${episodeId}`,
+    loadedAt: "2026-06-28T12:00:00.000Z",
+    hasPlayableProgram: false,
+    message: "No program video found yet",
+    program: {
+      id: "program",
+      label: "Program video",
+      kind: "program" as const,
+      relativePath: "Program/program.webm",
+      status: "missing" as const,
+      message: "No program video found yet"
+    },
+    cameras: [],
+    audio: []
+  };
+}

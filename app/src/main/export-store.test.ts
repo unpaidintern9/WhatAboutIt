@@ -143,6 +143,84 @@ describe("export store", () => {
     expect(job.message).toBe("We couldn't find the recording file");
   });
 
+  it("does not export from stray program-folder media when Program/program.webm is missing", async () => {
+    const { createExport } = await import("./export-store");
+    const { runFfmpeg } = await import("./ffmpeg-tools");
+    const programFolder = path.join(mockPaths.episodesRoot, "episode-stray", "Program");
+    await fs.mkdir(programFolder, { recursive: true });
+    await runFfmpeg([
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=550:sample_rate=48000",
+      "-t",
+      "1",
+      path.join(programFolder, "stray-source.m4a")
+    ]);
+
+    const job = await createExport({
+      episodeId: "episode-stray",
+      type: "audio-only",
+      qualityPreset: "standard",
+      draft: createTimelineDraft({ episodeId: "episode-stray", deviceDefaults: { cameras: {}, microphones: {} } })
+    });
+
+    expect(job.status).toBe("error");
+    expect(job.error).toBe("recording-missing");
+  }, 20000);
+
+  it("truthfully says draft rendering is not applied yet when exporting an edited draft", async () => {
+    const { createExport } = await import("./export-store");
+    const { runFfmpeg } = await import("./ffmpeg-tools");
+    const programFolder = path.join(mockPaths.episodesRoot, "episode-edited", "Program");
+    const sourcePath = path.join(programFolder, "program.webm");
+    await fs.mkdir(programFolder, { recursive: true });
+    await runFfmpeg([
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc=size=320x180:rate=24",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=550:sample_rate=48000",
+      "-t",
+      "1",
+      "-c:v",
+      "libvpx",
+      "-c:a",
+      "libopus",
+      "-shortest",
+      sourcePath
+    ]);
+
+    const draft = createTimelineDraft({ episodeId: "episode-edited", deviceDefaults: { cameras: {}, microphones: {} } });
+    const job = await createExport({
+      episodeId: "episode-edited",
+      type: "full-episode-video",
+      qualityPreset: "standard",
+      draft: {
+        ...draft,
+        editLog: [
+          {
+            id: "edit-a",
+            type: "split",
+            label: "Split here",
+            timestampMs: 500,
+            createdAt: "2026-06-28T12:00:00.000Z"
+          }
+        ]
+      }
+    });
+    const summary = JSON.parse(await fs.readFile(path.join(mockPaths.episodesRoot, "episode-edited", "Exports", "export-summary.json"), "utf8")) as { message: string };
+
+    expect(job.status).toBe("complete");
+    expect(job.message).toContain("Draft rendering comes next");
+    expect(summary.message).toContain("Draft rendering comes next");
+  }, 20000);
+
   it("returns a friendly media tools setup state when FFmpeg is unavailable", async () => {
     process.env.WHAT_ABOUT_IT_DISABLE_BUNDLED_MEDIA_TOOLS = "1";
     vi.resetModules();

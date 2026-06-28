@@ -15,7 +15,7 @@ describe("Phase 5C flow", () => {
       ["new-episode", "New Episode"],
       ["device-setup", "Let's check your studio"],
       ["recording", "Everything is saving locally"],
-      ["timeline-review", "Review your episode"],
+      ["timeline-review", "Review your recording"],
       ["auto-edit-review", "Auto Edit"],
       ["export", "Export your episode"]
     ];
@@ -78,6 +78,23 @@ describe("Phase 5C flow", () => {
         })
       ),
       saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft),
+      loadReviewMedia: vi.fn(async (episodeId) => ({
+        episodeId,
+        episodeFolder: `C:/episodes/${episodeId}`,
+        loadedAt: "2026-06-28T12:00:00.000Z",
+        hasPlayableProgram: false,
+        message: "No program video found yet",
+        program: {
+          id: "program",
+          label: "Program video",
+          kind: "program" as const,
+          relativePath: "Program/program.webm",
+          status: "missing" as const,
+          message: "No program video found yet"
+        },
+        cameras: [],
+        audio: []
+      })),
       runAutoEdit: vi.fn(async (episodeId, draft, mode) => runOfflineAutoEdit({ episodeId, draft, mode, now: "2026-06-27T10:00:00.000Z" })),
       createExport: vi.fn(async (request) => ({
         id: "job-a",
@@ -106,7 +123,7 @@ describe("Phase 5C flow", () => {
       root.render(<App />);
     });
 
-    expect(host.textContent).toContain("Review your episode");
+    expect(host.textContent).toContain("Review your recording");
     expect(host.textContent).toContain("original recording completely safe");
     expect(host.textContent).toContain("Auto Edit");
     expect(host.textContent).toContain("This only changes the draft");

@@ -1,4 +1,5 @@
 import { Clock, Download, History, Lock, Pause, Play, RotateCcw, Save, Scissors, ShieldCheck, SkipForward, Sparkles, Split, Trash2, Undo2, Redo2 } from "lucide-react";
+import type { ReviewMediaAsset, ReviewMediaInventory } from "../../shared/review-media";
 import type { TimelineDraft } from "../../shared/timeline";
 import { applyTimelineEdit, redoTimelineEdit, restoreOriginalTimeline, selectTimelinePoint, undoTimelineEdit } from "../../shared/timeline";
 import { Button } from ".";
@@ -6,13 +7,14 @@ import { formatRecordingTime } from "../services";
 
 interface TimelineReviewProps {
   draft: TimelineDraft;
+  media?: ReviewMediaInventory;
   onDraftChange: (draft: TimelineDraft) => void;
   onSaveDraft: () => void;
   onExport: () => void;
   onAutoEdit: () => void;
 }
 
-export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport, onAutoEdit }: TimelineReviewProps) {
+export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExport, onAutoEdit }: TimelineReviewProps) {
   const selectedTimestamp = draft.selection?.timestampMs ?? 0;
 
   function choosePoint(timestampMs: number, markerId?: string) {
@@ -28,7 +30,7 @@ export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport, on
       <div className="timeline-hero">
         <div>
           <p className="signature">Markers help you find the good stuff</p>
-          <h2>Review your episode</h2>
+          <h2>Review your recording</h2>
           <p className="soft-copy">We'll create a polished first draft while keeping your original recording completely safe.</p>
         </div>
         <div className="original-safe-badge">
@@ -54,11 +56,33 @@ export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport, on
         </Button>
       </div>
 
+      <section className="review-media-board" aria-label="Recorded media">
+        <div className="program-player-panel">
+          <div className="panel-heading">
+            <h3>Program video</h3>
+            <ShieldCheck size={22} />
+          </div>
+          {media?.program.status === "ready" && media.program.playbackUrl ? (
+            <video controls src={media.program.playbackUrl} aria-label="Program video playback" />
+          ) : (
+            <div className="missing-media-state">
+              <strong>{media ? media.program.message : "No program video found yet"}</strong>
+              <span>{media?.program.relativePath ?? "Program/program.webm"}</span>
+            </div>
+          )}
+          <p className="soft-copy">Original files are safe. Draft edits stay non-destructive.</p>
+        </div>
+
+        <TrackList title="Camera files" assets={media?.cameras ?? []} />
+        <TrackList title="Audio files" assets={media?.audio ?? []} previewAudio />
+      </section>
+
       <div className="visual-timeline" aria-label="Draft timeline">
         <div className="timeline-selection-summary">
           <Clock size={18} />
           <span>Selected spot: {formatRecordingTime(selectedTimestamp)}</span>
           <em>{draft.hasUnsavedChanges ? "Auto-saving your draft" : "Draft saved locally"}</em>
+          {draft.editLog.length > 0 && <em>Draft saved. Preview rendering comes next.</em>}
         </div>
         {draft.tracks.map((track) => (
           <button
@@ -163,6 +187,35 @@ export function TimelineReview({ draft, onDraftChange, onSaveDraft, onExport, on
             ))}
           </div>
         </section>
+      )}
+    </section>
+  );
+}
+
+function TrackList({ title, assets, previewAudio = false }: { title: string; assets: ReviewMediaAsset[]; previewAudio?: boolean }) {
+  return (
+    <section className="review-track-list">
+      <div className="panel-heading">
+        <h3>{title}</h3>
+        <Clock size={22} />
+      </div>
+      {assets.length === 0 ? (
+        <p className="empty-copy">No files found yet.</p>
+      ) : (
+        assets.map((asset) => (
+          <article className={`review-track-card ${asset.status}`} key={asset.id}>
+            <div>
+              <strong>{asset.label}</strong>
+              <span>{asset.relativePath}</span>
+              <small>{asset.status === "ready" ? `${formatRecordingTime(asset.durationMs ?? 0)} ${asset.codecSummary ?? ""}`.trim() : asset.message}</small>
+            </div>
+            {previewAudio && asset.status === "ready" && asset.playbackUrl ? (
+              <audio controls src={asset.playbackUrl} aria-label={`${asset.label} audio preview`} />
+            ) : (
+              <span className="track-status">{asset.status === "ready" ? "Ready" : asset.message}</span>
+            )}
+          </article>
+        ))
       )}
     </section>
   );

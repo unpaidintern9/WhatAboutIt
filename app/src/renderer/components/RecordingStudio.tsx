@@ -68,7 +68,7 @@ const cameraSlots: Array<{ key: CameraKey; label: string }> = [
 const micSlots: Array<{ key: MicKey | "soundboard" | "music"; label: string }> = [
   { key: "morganMic", label: "Morgan Mic" },
   { key: "guestMic", label: "Guest Mic" },
-  { key: "extraMic", label: "Headset Mic" },
+  { key: "extraMic", label: "Extra Mic" },
   { key: "soundboard", label: "Soundboard" },
   { key: "music", label: "Music" }
 ];
@@ -94,10 +94,9 @@ export function RecordingStudio({
   onOpenCameraPreview,
   onOpenMicrophoneStream
 }: RecordingStudioProps) {
-  const [monitorOn, setMonitorOn] = useState(false);
   const [studioNotice, setStudioNotice] = useState<{ tone: StudioNoticeTone; message: string }>({
     tone: "ready",
-    message: "Use headphones so the mic doesn't echo."
+    message: "Use headphones to avoid echo."
   });
   const [playingSlotId, setPlayingSlotId] = useState<string | undefined>();
   const [markerNotice, setMarkerNotice] = useState<string | undefined>();
@@ -106,13 +105,13 @@ export function RecordingStudio({
   const [teleprompterFocus, setTeleprompterFocus] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
-    Object.fromEntries(micSlots.map((slot) => [slot.key, { gain: 75, muted: false, solo: false, monitor: slot.key === "morganMic" }]))
+    Object.fromEntries(micSlots.map((slot) => [slot.key, { gain: 75, muted: false, solo: false, monitor: false }]))
   );
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const markerTimerRef = useRef<number | undefined>(undefined);
   const notesTimerRef = useRef<number | undefined>(undefined);
   const warnAboutEcho = useCallback(() => {
-    setStudioNotice({ tone: "needs-attention", message: "Use headphones so the mic doesn't echo." });
+    setStudioNotice({ tone: "needs-attention", message: "Use headphones to avoid echo." });
   }, []);
 
   useEffect(() => {
@@ -212,6 +211,10 @@ export function RecordingStudio({
     }));
   }
 
+  const soloedChannels = Object.entries(mixerChannels)
+    .filter(([, controls]) => controls.solo)
+    .map(([key]) => key);
+
   function goAutoEdit() {
     if (!hasMedia) {
       setStudioNotice({ tone: "needs-attention", message: "Record something first, then Auto Edit can help." });
@@ -282,10 +285,8 @@ export function RecordingStudio({
         <section className="live-audio-deck" aria-label="Live audio feedback">
           <VintagePanel title="Microphone Mixer" icon={<Mic2 size={20} />} className="mixer-panel">
             <div className="monitor-row">
-              <RusticButton className={monitorOn ? "selected" : ""} onClick={() => setMonitorOn((current) => !current)}>
-                <Headphones size={16} /> Hear My Mic <strong>{monitorOn ? "On" : "Off"}</strong>
-              </RusticButton>
-              <span className="headphone-warning">Use headphones to hear yourself safely.</span>
+              <span className="monitor-status"><Headphones size={16} /> Monitoring starts Off</span>
+              <span className="headphone-warning">Use headphones to avoid echo.</span>
               <RusticButton onClick={() => void playTestSound()}>
                 <Volume2 size={16} /> Play Test Sound
               </RusticButton>
@@ -299,7 +300,7 @@ export function RecordingStudio({
                 </select>
               </label>
             </div>
-            <p className="studio-warning">Use headphones to hear yourself safely.</p>
+            <p className="studio-warning">Use headphones to avoid echo.</p>
             <div className="meter-list">
               {micSlots.map((slot) => {
                 const deviceId = slot.key === "soundboard" || slot.key === "music" ? undefined : defaults.microphones[slot.key];
@@ -311,7 +312,8 @@ export function RecordingStudio({
                     label={slot.label}
                     deviceId={deviceId}
                     controls={controls}
-                    monitoring={monitorOn && controls.monitor}
+                    monitorLabel={getMonitorLabel(slot.label)}
+                    monitoring={controls.monitor && !controls.muted && (soloedChannels.length === 0 || soloedChannels.includes(slot.key))}
                     outputDeviceId={defaults.audioOutputId}
                     fallbackLevel={slot.key === "soundboard" && playingSlotId ? 72 : 0}
                     fallbackLabel={label}
@@ -513,6 +515,13 @@ function findDevice(devices: StudioDevice[], deviceId?: string) {
   return devices.find((device) => device.id === deviceId);
 }
 
+function getMonitorLabel(label: string) {
+  if (label.includes("Morgan")) return "Hear Morgan";
+  if (label.includes("Guest")) return "Hear Guest";
+  if (label.includes("Headset") || label.includes("Extra")) return "Hear Extra";
+  return `Hear ${label}`;
+}
+
 function ReadinessStrip({
   cameraReadyCount,
   micReadyCount,
@@ -679,6 +688,7 @@ function LiveMicMeter({
   label,
   deviceId,
   controls,
+  monitorLabel,
   monitoring,
   outputDeviceId,
   fallbackLevel,
@@ -690,6 +700,7 @@ function LiveMicMeter({
   label: string;
   deviceId?: string;
   controls: { gain: number; muted: boolean; solo: boolean; monitor: boolean };
+  monitorLabel: string;
   monitoring: boolean;
   outputDeviceId?: string;
   fallbackLevel?: number;
@@ -789,7 +800,7 @@ function LiveMicMeter({
             <SlidersHorizontal size={14} /> Solo
           </button>
           <button className={controls.monitor ? "selected" : ""} type="button" onClick={() => onControlsChange({ monitor: !controls.monitor })}>
-            <Headphones size={14} /> Monitor
+            <Headphones size={14} /> {monitorLabel} <strong>{controls.monitor && !controls.muted ? "On" : "Off"}</strong>
           </button>
         </div>
         <small className={visibleLevel > 82 ? "peak hot" : "peak"}>Peak {visibleLevel}%</small>

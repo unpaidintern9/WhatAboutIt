@@ -7,10 +7,10 @@ Only validated production behavior can receive a "Yes." This pass did not valida
 | Question | Answer | Evidence |
 | --- | --- | --- |
 | Can Morgan record a full episode? | Partial | Phase 8D validated a real 30-minute live-studio recording/export after fixing long-run stop/save defects. A clean post-fix 60-minute pass is still needed. |
-| Can Morgan review the recording? | Partial | Phase 8C Stop routed both real recordings to Review Episode and saved draft timelines, but the review screen is still not a validated real media playback timeline. |
+| Can Morgan review the recording? | Partial | Phase 9F Review now loads real Program, Camera, and Audio files, probes durations with ffprobe, and renders browser video/audio playback controls. A fresh physical Sony/mic QA run is still required. |
 | Can Morgan edit the recording? | No | Edit operations are non-destructive draft entries, but they are not yet applied to playable media in preview or render. |
 | Can Morgan run Auto Edit on a real recording? | No | Auto Edit currently generates deterministic suggestions from draft metadata and markers rather than analyzing real media. |
-| Can Morgan export a playable episode? | Partial | Phase 8D exported a playable 30-minute MP4 from real recorded hardware media after fixing the Export button. All presets and a clean 60-minute pass remain unvalidated. |
+| Can Morgan export a playable episode? | Partial | Phase 9F requires `Program/program.webm`, rejects stray media, and validates output with ffprobe before success. All presets and a fresh physical QA run remain unvalidated. |
 | Can Morgan recover from an interrupted session? | No | Recovery state exists, but interrupted real recording recovery has not been validated. |
 | Can Morgan use multiple Sony cameras? | No | Phase 8C detected and previewed `Sony Camera (Imaging Edge)` plus the integrated camera, but recording still captures one camera stream and no multi-Sony setup was validated. |
 | Can Morgan use Sony wireless video? | No | Wireless video is not confirmed. Bluetooth is treated as control-only unless a real video stream is validated. |
@@ -78,3 +78,15 @@ Phase 8D moved long-recording stability forward, but beta remains blocked:
 - Partial: Monitor Mic toggled, but headphone audibility/no-echo is still pending human confirmation.
 - Not run: 60-minute stability test.
 - Fixed: Long-run stop/save hang and dead Export button exposed during this pass.
+
+## Phase 9F Media Reliability Gate
+
+Phase 9F removes several false-success risks, but beta remains blocked:
+
+- Pass in automated tests: live preview/meter streams have central cleanup and duplicate mic streams are stopped.
+- Pass in automated tests: recording shutdown calls the recorder cleanup hook.
+- Pass in automated tests: per-mic monitoring controls show `Hear Morgan`, `Hear Guest`, and `Hear Extra` style On/Off states.
+- Pass in automated tests: Review loads real Program, Camera, and Audio files from an episode folder and marks missing media truthfully.
+- Pass in automated tests: Export fails when `Program/program.webm` is missing and succeeds from a real generated `Program/program.webm`.
+- Partial: Draft edits are saved non-destructively, but render-applied editing is not implemented.
+- Not run: focused physical Sony/mic media-flow QA after these fixes.

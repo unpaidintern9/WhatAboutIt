@@ -1,22 +1,25 @@
 # Live Audio Monitoring
 
-The live studio now uses browser media APIs for visible mic feedback and local test actions.
+Phase 9F replaces the single global monitor toggle with per-channel monitoring.
 
 ## What Works
 
-- Morgan Mic, Guest Mic, and Headset Mic cards attempt live Web Audio metering when a saved device id exists.
-- The meter uses green/yellow/red movement and plain-language states: `We hear you` and `We can't hear you yet`.
-- Monitor Mic is off by default.
-- Turning monitoring on connects the Morgan Mic stream to an audio element and warns: `Use headphones so the mic doesn't echo.`
-- Play Test Sound calls the existing device service test tone.
-- Output selection saves `audioOutputId`; browsers with `setSinkId` support can route monitored mic audio to the chosen output.
+- Morgan Mic, Guest Mic, and Extra Mic start with monitoring Off.
+- Each channel has its own clear control: `Hear Morgan`, `Hear Guest`, or `Hear Extra`.
+- Each monitor control shows `On` or `Off`.
+- Mute blocks monitoring for that channel.
+- Solo limits monitoring to the soloed channel or channels.
+- Web Audio meters still move independently for selected mic device ids.
+- Output selection still saves `audioOutputId`; browsers with `setSinkId` support route monitored audio to the chosen output.
+- The warning copy is now: `Use headphones to avoid echo.`
 
 ## Truthful Limits
 
+- Recording still captures the browser `MediaRecorder` program stream, not separate recorded mic files for every selected mic.
 - Browser support controls whether output routing is available.
-- Soundboard and Music are visible in the mixer, but they only show real activity when a local sound is playing or when a future music source is assigned.
-- No success state is faked for missing microphones or missing sound files.
+- Soundboard and Music do not pretend to be live mic channels.
+- Audible no-echo confirmation still requires human headphone QA.
 
 ## Manual QA Required
 
-Use headphones, select the intended Morgan Mic, speak at normal recording volume, and confirm the meter moves without audible echo.
+Use headphones, select Morgan/Guest/Extra mic devices where available, enable one `Hear` control at a time, then enable multiple channels and Solo to confirm the heard mix matches the UI.

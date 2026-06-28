@@ -31,6 +31,7 @@ import type { TimelineDraft } from "../shared/timeline";
 import { createTimelineDraft, markTimelineSaved, withTimelineDraftDefaults } from "../shared/timeline";
 import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
 import { defaultExportSettings } from "../shared/export";
+import type { ReviewMediaInventory } from "../shared/review-media";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import { runOfflineAutoEdit } from "../shared/auto-edit";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
@@ -194,6 +195,23 @@ function getStudioBridge(): Window["studio"] {
         now
       }),
     saveTimelineDraft: async (_episodeId, draft) => draft,
+    loadReviewMedia: async (episodeId) => ({
+      episodeId,
+      episodeFolder: "review-only",
+      loadedAt: now,
+      hasPlayableProgram: false,
+      message: "No program video found yet",
+      program: {
+        id: "program",
+        label: "Program video",
+        kind: "program",
+        relativePath: "Program/program.webm",
+        status: "missing",
+        message: "No program video found yet"
+      },
+      cameras: [],
+      audio: []
+    }),
     runAutoEdit: async (episodeId, draft, mode) => runOfflineAutoEdit({ episodeId, draft, mode, now }),
     createExport: async (request) => ({
       id: "review-export",
@@ -240,6 +258,7 @@ export default function App() {
   const [selectedQualityPreset, setSelectedQualityPreset] = useState<ExportQualityPreset>(defaultExportSettings.qualityPreset);
   const [exportJob, setExportJob] = useState<ExportJob | undefined>();
   const [mediaToolsStatus, setMediaToolsStatus] = useState<MediaToolsStatus | undefined>();
+  const [reviewMedia, setReviewMedia] = useState<ReviewMediaInventory | undefined>();
   const [autoEditMode, setAutoEditMode] = useState<AutoEditMode>("balanced");
   const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | undefined>();
   const [autoEditRunning, setAutoEditRunning] = useState(false);
@@ -294,8 +313,25 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (hardwareStopTimerRef.current) window.clearTimeout(hardwareStopTimerRef.current);
+      deviceService.releaseAll();
+      void recordingService.shutdown();
     };
-  }, []);
+  }, [deviceService, recordingService]);
+
+  useEffect(() => {
+    const cleanup = () => {
+      deviceService.releaseAll();
+      void recordingService.shutdown();
+    };
+    window.addEventListener("beforeunload", cleanup);
+    return () => window.removeEventListener("beforeunload", cleanup);
+  }, [deviceService, recordingService]);
+
+  useEffect(() => {
+    if (view !== "device-setup" && view !== "recording") {
+      deviceService.releaseAll();
+    }
+  }, [deviceService, view]);
 
   useEffect(() => {
     if (!navigator.mediaDevices?.addEventListener) return undefined;
@@ -347,11 +383,13 @@ export default function App() {
   useEffect(() => {
     if (!activeEpisode) {
       setPodcastTools(createDefaultPodcastToolsState());
+      setReviewMedia(undefined);
       return;
     }
 
     void studio.loadPodcastTools(activeEpisode.id).then((state) => setPodcastTools(withPodcastToolDefaults(state, activeEpisode.id)));
     void loadTimelineForEpisode(activeEpisode.id);
+    void loadReviewMediaForEpisode(activeEpisode.id);
   }, [activeEpisode, studio]);
 
   async function loadTimelineForEpisode(episodeId: string) {
@@ -364,6 +402,10 @@ export default function App() {
     });
     const savedDraft = await studio.loadTimelineDraft(episodeId);
     setTimelineDraft(withTimelineDraftDefaults(savedDraft, fallback));
+  }
+
+  async function loadReviewMediaForEpisode(episodeId: string) {
+    setReviewMedia(await studio.loadReviewMedia(episodeId));
   }
 
   async function saveTimelineDraftState(nextDraft: TimelineDraft) {
@@ -683,6 +725,7 @@ export default function App() {
       durationMs: nextSnapshot.elapsedMs
     });
     await saveTimelineDraftState(draft);
+    if (activeEpisode?.id) await loadReviewMediaForEpisode(activeEpisode.id);
     await refreshUnfinishedSessions();
   }
 
@@ -809,7 +852,10 @@ export default function App() {
             onExport={() => setView("export")}
             onDismissRecovery={() => setUnfinishedSessions([])}
             onNext={() => {
-              if (activeEpisode) void loadTimelineForEpisode(activeEpisode.id);
+              if (activeEpisode) {
+                void loadTimelineForEpisode(activeEpisode.id);
+                void loadReviewMediaForEpisode(activeEpisode.id);
+              }
               setView("timeline-review");
             }}
             onDefaultsChange={(defaults) => void saveDeviceDefaults(defaults)}
@@ -822,6 +868,7 @@ export default function App() {
         {view === "timeline-review" && (
           <TimelineReview
             draft={timelineDraft}
+            media={reviewMedia}
             onDraftChange={(nextDraft) => void saveTimelineDraftState(nextDraft)}
             onSaveDraft={() => void saveTimelineDraftState(markTimelineSaved(timelineDraft))}
             onExport={() => setView("export")}

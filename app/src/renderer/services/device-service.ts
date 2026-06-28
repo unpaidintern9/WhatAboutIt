@@ -29,6 +29,8 @@ export function findDeviceLabel(devices: StudioDevice[], deviceId?: string) {
 }
 
 export class DeviceService {
+  private readonly managedStreams = new Map<string, MediaStream>();
+
   constructor(private readonly plugin: DevicePlugin) {}
 
   detectDevices() {
@@ -48,10 +50,41 @@ export class DeviceService {
   }
 
   openCameraPreview(deviceId?: string) {
-    return this.plugin.openCameraPreview(deviceId);
+    return this.openManagedStream(`camera:${deviceId ?? "none"}`, () => this.plugin.openCameraPreview(deviceId));
   }
 
   openMicrophoneStream(deviceId?: string) {
-    return this.plugin.openMicrophoneStream(deviceId);
+    return this.openManagedStream(`microphone:${deviceId ?? "none"}`, () => this.plugin.openMicrophoneStream(deviceId));
+  }
+
+  releaseStream(kind: "camera" | "microphone", deviceId?: string) {
+    this.stopManagedStream(`${kind}:${deviceId ?? "none"}`);
+  }
+
+  releaseAll() {
+    for (const key of Array.from(this.managedStreams.keys())) {
+      this.stopManagedStream(key);
+    }
+  }
+
+  private async openManagedStream(key: string, open: () => Promise<MediaStream>) {
+    this.stopManagedStream(key);
+    const stream = await open();
+    this.managedStreams.set(key, stream);
+    stream.getTracks().forEach((track) => {
+      track.addEventListener("ended", () => {
+        if (this.managedStreams.get(key) === stream) this.managedStreams.delete(key);
+      }, { once: true });
+    });
+    return stream;
+  }
+
+  private stopManagedStream(key: string) {
+    const stream = this.managedStreams.get(key);
+    if (!stream) return;
+    stream.getTracks().forEach((track) => {
+      if (track.readyState !== "ended") track.stop();
+    });
+    this.managedStreams.delete(key);
   }
 }

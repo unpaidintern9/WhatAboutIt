@@ -1,6 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { defaultDeviceDefaults } from "../../shared/device-config";
-import { getDeviceReadiness, getEmptyStateMessage } from "./device-service";
+import type { DevicePlugin } from "../plugins/devices/types";
+import { DeviceService, getDeviceReadiness, getEmptyStateMessage } from "./device-service";
+
+function createStream() {
+  const track = {
+    readyState: "live",
+    stop: vi.fn(function stop(this: { readyState: string }) {
+      this.readyState = "ended";
+    }),
+    addEventListener: vi.fn()
+  };
+  return {
+    track,
+    stream: {
+      getTracks: () => [track]
+    } as unknown as MediaStream
+  };
+}
 
 describe("device service", () => {
   it("returns friendly empty states", () => {
@@ -27,5 +44,45 @@ describe("device service", () => {
       )
     ).toBe("ready");
   });
-});
 
+  it("stops duplicate mic streams before opening another stream for the same device", async () => {
+    const first = createStream();
+    const second = createStream();
+    const plugin: DevicePlugin = {
+      detectDevices: vi.fn(),
+      requestStudioPermissions: vi.fn(),
+      sampleMicrophoneLevel: vi.fn(),
+      playTestSound: vi.fn(),
+      openCameraPreview: vi.fn(),
+      openMicrophoneStream: vi.fn().mockResolvedValueOnce(first.stream).mockResolvedValueOnce(second.stream)
+    };
+    const service = new DeviceService(plugin);
+
+    await service.openMicrophoneStream("mic-a");
+    await service.openMicrophoneStream("mic-a");
+
+    expect(first.track.stop).toHaveBeenCalledTimes(1);
+    expect(second.track.stop).not.toHaveBeenCalled();
+  });
+
+  it("releases managed camera and mic streams on cleanup", async () => {
+    const camera = createStream();
+    const mic = createStream();
+    const plugin: DevicePlugin = {
+      detectDevices: vi.fn(),
+      requestStudioPermissions: vi.fn(),
+      sampleMicrophoneLevel: vi.fn(),
+      playTestSound: vi.fn(),
+      openCameraPreview: vi.fn().mockResolvedValue(camera.stream),
+      openMicrophoneStream: vi.fn().mockResolvedValue(mic.stream)
+    };
+    const service = new DeviceService(plugin);
+
+    await service.openCameraPreview("camera-a");
+    await service.openMicrophoneStream("mic-a");
+    service.releaseAll();
+
+    expect(camera.track.stop).toHaveBeenCalledTimes(1);
+    expect(mic.track.stop).toHaveBeenCalledTimes(1);
+  });
+});

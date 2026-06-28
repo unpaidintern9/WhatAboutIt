@@ -6,12 +6,12 @@ This document records the current status of production media integrations after 
 
 | Area | Current implementation | Production ready | Missing work |
 | --- | --- | --- | --- |
-| Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save; Phase 8D validated a recovered 30-minute live-studio recording and fixed long-run stop/save issues | Partial | Multi-camera capture, multi-mic capture, clean 60-minute pass, sync validation |
+| Recording | Browser `MediaRecorder` one-camera/one-mic path with ffprobe validation after save; Phase 9F adds explicit stream shutdown cleanup | Partial | Multi-camera capture, multi-mic capture, clean 60-minute pass, sync validation |
 | Camera capture | Physical Sony Camera via Imaging Edge and Integrated Camera previews validated; Camera 1 recording saved to Program and mirrored to Cameras | Partial | Simultaneous multi-camera recording, capture cards, backend error handling, physical unplug/replug validation |
 | Microphone capture | Physical Realtek microphone validated, muxed into Program and extracted to Audio with FFmpeg | Partial | Multiple input capture, separate tracks where supported, drift and clipping reporting |
-| Timeline review | Draft timeline JSON and marker/edit model | No | Real media discovery, stream probing, accurate playback, media-backed timeline tracks |
+| Timeline review | Draft timeline JSON plus real Review media inventory for Program, Cameras, and Audio files with ffprobe durations and browser playback controls | Partial | Review proxy generation for non-browser-playable files and render-accurate edit preview |
 | Editing | Non-destructive edit operation log | Partial | Apply edit decisions to renderable media timeline and playback preview |
-| Export | Bundled FFmpeg/ffprobe detection and real local rendering; video exports cap hardware WebM sources to 30 fps; Phase 8D exported a 30-minute recovered real recording | Partial | Validate all presets from full-length real podcast media and render from a fully media-backed draft timeline |
+| Export | Bundled FFmpeg/ffprobe detection and real local rendering; Phase 9F requires `Program/program.webm` and validates output before success | Partial | Validate all presets from full-length real podcast media and render draft edit decisions into output |
 | Auto Edit | Deterministic offline suggestion generator from draft data | No | Real transcript, audio analysis, speaker/camera analysis, real report evidence |
 | Recovery | Session state foundation | Partial | Real interrupted recording validation and media recovery workflow |
 | Packaging | Electron Builder config | Partial | Installable builds, clean-machine test, bundled media dependencies |
@@ -33,7 +33,7 @@ This document records the current status of production media integrations after 
 
 ## Files With Blocking Evidence
 
-- `app/src/main/export-store.ts`: now renders playable MP4, M4A, and MKV export outputs with FFmpeg.
+- `app/src/main/export-store.ts`: renders playable MP4, M4A, and MKV export outputs with FFmpeg and now requires `Program/program.webm` for non-practice exports.
 - `app/src/main/ffmpeg-tools.ts`: detects bundled FFmpeg/ffprobe, runs media tools, and validates playable outputs.
 - `app/src/main/recording-session-store.ts`: saves captured program bytes, validates them with ffprobe, mirrors the camera recording, extracts mic audio, and updates sync metadata.
 - `docs/manual-qa/PHYSICAL_RECORDING_QA.md`: documents the short physical camera/mic validation result.
@@ -44,7 +44,8 @@ This document records the current status of production media integrations after 
 - `app/src/renderer/plugins/recording/browser-media-recorder-plugin.ts`: records one browser media stream where supported and now surfaces friendly camera/mic attention states.
 - `app/src/shared/auto-edit.ts`: computes suggested edits from draft duration and markers, not real media analysis.
 - `app/src/main/auto-edit-store.ts`: persists the simulated Auto Edit result.
-- `app/src/main/timeline-store.ts`: persists draft JSON but does not bind to playable recorded media.
+- `app/src/main/review-media-store.ts`: loads real Review media from Program, Cameras, and Audio folders and probes durations/codecs with ffprobe.
+- `app/src/main/timeline-store.ts`: persists draft JSON. Draft edits are not render-applied yet.
 - `app/scripts/create-shortcut.mjs`: creates the local Windows desktop shortcut for development testing; validated at `C:\Users\mmcga\OneDrive\Desktop\What About It Studio.lnk`.
 - `app/src/shared/hardware-test.ts`: models the real hardware test flow and Ready/Needs Attention result states without simulated success.
 - `app/src/main/diagnostics-store.ts`: creates local diagnostics folders without raw media payloads.
@@ -108,3 +109,14 @@ The project now has two partial real media integrations: offline FFmpeg export r
 - Studio Setup dropdowns populated with Sony and Integrated cameras for Camera 1, Camera 2, and Camera 3.
 - Selecting `Sony Camera (Imaging Edge)` in Camera 1 started a live setup preview and reached `Live`.
 - Microphone dropdowns still populated with Realtek microphone options.
+
+## Phase 9F Media Reliability Addendum
+
+- `DeviceService` now tracks opened camera and microphone streams, stops duplicate streams for the same device, and exposes `releaseAll()` for route changes and app shutdown.
+- `RecordingService.shutdown()` and the browser recorder shutdown hook stop active recording tracks without pretending media was saved.
+- Live Studio monitoring is now per mic with `Hear Morgan`, `Hear Guest`, and `Hear Extra` controls. Monitoring defaults Off, Mute blocks monitoring, and Solo limits the audible channel set.
+- Review Episode now loads actual files from `Program`, `Cameras`, and `Audio`, shows a real Program video player when `Program/program.webm` exists, and shows real audio preview controls for present mic files.
+- Review uses ffprobe metadata for duration/codecs and marks missing media truthfully.
+- Draft edit operations remain non-destructive metadata. The UI now says `Draft saved. Preview rendering comes next.` when edits exist.
+- Export now requires `Program/program.webm` for real exports, rejects stray Program-folder media, and does not report success until ffprobe validates output.
+- Manual Sony/mic hardware QA was not rerun during this code pass; `docs/manual-qa/MEDIA_FLOW_QA.md` tracks the focused physical checklist.

@@ -6,6 +6,8 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   private chunks: Blob[] = [];
 
   async start(request: RecordingStartRequest) {
+    await this.shutdown();
+
     if (request.practice) {
       this.chunks = [];
       return;
@@ -45,6 +47,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
 
   async stop() {
     if (!this.recorder) {
+      this.stopStream();
       return {
         warning: "Practice recording stopped without writing media."
       };
@@ -59,20 +62,45 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
         });
 
     await stopped;
-    this.stream?.getTracks().forEach((track) => track.stop());
+    this.stopStream();
 
     const blob = new Blob(this.chunks, { type: recorder.mimeType || "video/webm" });
     const buffer = await blob.arrayBuffer();
     const bytes = new Uint8Array(buffer);
 
-    this.recorder = null;
-    this.stream = null;
-    this.chunks = [];
+    this.resetRecorder();
 
     return {
       bytes,
       mimeType: blob.type
     };
+  }
+
+  async shutdown() {
+    if (this.recorder && this.recorder.state !== "inactive") {
+      try {
+        this.recorder.stop();
+      } catch {
+        // The stream cleanup below is the important part during shutdown.
+      }
+    }
+    this.stopStream();
+    this.resetRecorder();
+  }
+
+  private stopStream() {
+    this.stream?.getTracks().forEach((track) => {
+      if (track.readyState !== "ended") track.stop();
+    });
+    this.stream = null;
+  }
+
+  private resetRecorder() {
+    if (this.recorder) {
+      this.recorder.ondataavailable = null;
+    }
+    this.recorder = null;
+    this.chunks = [];
   }
 }
 

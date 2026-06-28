@@ -103,6 +103,15 @@ export class RecordingService {
     return this.getSnapshot();
   }
 
+  async shutdown() {
+    this.stopStateTimer();
+    await this.plugin.shutdown?.();
+    if (this.status === "recording" || this.status === "paused") {
+      this.elapsedBeforePause = this.elapsedMs();
+      this.status = "idle";
+    }
+  }
+
   private elapsedMs() {
     if (this.status === "recording") return this.elapsedBeforePause + (Date.now() - this.startedAt);
     return this.elapsedBeforePause;

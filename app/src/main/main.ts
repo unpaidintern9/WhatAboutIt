@@ -20,6 +20,7 @@ import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
 import { cancelExport, createExport, detectMediaTools, openExportFolder } from "./export-store";
 import { runAutoEdit } from "./auto-edit-store";
 import { createDiagnosticsBundle, getStorageStatus } from "./diagnostics-store";
+import { loadReviewMedia } from "./review-media-store";
 
 app.setName("What About It Studio");
 
@@ -158,6 +159,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("podcast-tools:save", (_event, input) => savePodcastTools(input.episodeId, input.state));
   ipcMain.handle("timeline:load", (_event, episodeId) => loadTimelineDraft(episodeId));
   ipcMain.handle("timeline:save", (_event, input) => saveTimelineDraft(input.episodeId, input.draft));
+  ipcMain.handle("review-media:load", (_event, episodeId) => loadReviewMedia(episodeId));
   ipcMain.handle("auto-edit:run", (_event, input) => runAutoEdit(input));
   ipcMain.handle("export:create", (_event, input) => createExport(input));
   ipcMain.handle("export:media-tools-status", detectMediaTools);

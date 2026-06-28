@@ -25,6 +25,7 @@ function installStudioMock() {
     savePodcastTools: vi.fn(),
     loadTimelineDraft: vi.fn(),
     saveTimelineDraft: vi.fn(),
+    loadReviewMedia: vi.fn(),
     runAutoEdit: vi.fn(),
     createExport: vi.fn(),
     getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })),
@@ -107,5 +108,17 @@ describe("RecordingService", () => {
     expect(snapshot.status).toBe("error");
     expect(snapshot.friendlyError).toBe("Mic needs attention");
     expect(window.studio.appendRecordingError).toHaveBeenCalledWith("C:/recording/episode-a", "Mic needs attention");
+  });
+
+  it("shuts down the active recording plugin on app cleanup", async () => {
+    installStudioMock();
+    const plugin = { ...createPlugin(), shutdown: vi.fn() };
+    const service = new RecordingService(plugin);
+
+    await service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } });
+    await service.shutdown();
+
+    expect(plugin.shutdown).toHaveBeenCalledTimes(1);
+    expect(service.getSnapshot().status).toBe("idle");
   });
 });

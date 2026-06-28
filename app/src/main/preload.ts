@@ -6,6 +6,7 @@ import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
+import type { ReviewMediaInventory } from "../shared/review-media";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
@@ -28,6 +29,7 @@ contextBridge.exposeInMainWorld("studio", {
   loadTimelineDraft: (episodeId: string): Promise<TimelineDraft | null> => ipcRenderer.invoke("timeline:load", episodeId),
   saveTimelineDraft: (episodeId: string, draft: TimelineDraft): Promise<TimelineDraft> =>
     ipcRenderer.invoke("timeline:save", { episodeId, draft }),
+  loadReviewMedia: (episodeId: string): Promise<ReviewMediaInventory> => ipcRenderer.invoke("review-media:load", episodeId),
   runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean): Promise<AutoEditResult> =>
     ipcRenderer.invoke("auto-edit:run", { episodeId, draft, mode, practice }),
   createExport: (request: ExportRequest): Promise<ExportJob> => ipcRenderer.invoke("export:create", request),

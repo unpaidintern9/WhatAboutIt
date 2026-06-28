@@ -38,8 +38,8 @@ async function writeExportArtifacts(job: ExportJob) {
 
 async function hasProgramRecording(episodeId: string) {
   try {
-    const entries = await fs.readdir(programFolder(episodeId));
-    return entries.some((entry) => /\.(webm|mp4|mov|mkv|wav|mp3)$/i.test(entry));
+    await fs.access(path.join(programFolder(episodeId), "program.webm"));
+    return true;
   } catch {
     return false;
   }
@@ -47,10 +47,9 @@ async function hasProgramRecording(episodeId: string) {
 
 async function findProgramRecording(episodeId: string) {
   try {
-    const folder = programFolder(episodeId);
-    const entries = await fs.readdir(folder);
-    const recording = entries.find((entry) => /\.(webm|mp4|mov|mkv|wav|mp3|m4a)$/i.test(entry));
-    return recording ? path.join(folder, recording) : null;
+    const recording = path.join(programFolder(episodeId), "program.webm");
+    await fs.access(recording);
+    return recording;
   } catch {
     return null;
   }
@@ -170,7 +169,12 @@ export async function createExport(request: ExportRequest): Promise<ExportJob> {
     return failed;
   }
 
-  const complete = completeExportJob(running, fileName);
+  const complete = request.draft.editLog.length > 0
+    ? {
+        ...completeExportJob(running, fileName),
+        message: "Export complete from original program. Draft rendering comes next."
+      }
+    : completeExportJob(running, fileName);
   await writeExportArtifacts(complete);
   await logger.info("ExportService", "Created playable local export.", {
     episodeId: request.episodeId,

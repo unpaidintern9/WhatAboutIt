@@ -7,6 +7,7 @@ import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
+import type { ReviewMediaInventory } from "../shared/review-media";
 
 declare global {
   interface Window {
@@ -24,6 +25,7 @@ declare global {
       savePodcastTools: (episodeId: string, state: PodcastToolsState) => Promise<PodcastToolsState>;
       loadTimelineDraft: (episodeId: string) => Promise<TimelineDraft | null>;
       saveTimelineDraft: (episodeId: string, draft: TimelineDraft) => Promise<TimelineDraft>;
+      loadReviewMedia: (episodeId: string) => Promise<ReviewMediaInventory>;
       runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean) => Promise<AutoEditResult>;
       createExport: (request: ExportRequest) => Promise<ExportJob>;
       getMediaToolsStatus: () => Promise<MediaToolsStatus>;

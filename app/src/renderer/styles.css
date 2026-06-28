@@ -1399,6 +1399,9 @@ input[type="range"] {
 .hardware-test-hero,
 .auto-edit-hero,
 .visual-timeline,
+.review-media-board,
+.program-player-panel,
+.review-track-list,
 .timeline-marker-list,
 .draft-editing-tools,
 .edit-history-panel,
@@ -1459,6 +1462,76 @@ input[type="range"] {
 .studio-dashboard-summary p,
 .hardware-result-card .wai-audio-meter span {
   color: var(--color-mutedText);
+}
+
+.review-media-board {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.35fr) minmax(220px, 0.8fr) minmax(260px, 1fr);
+  gap: var(--space-md);
+  padding: var(--space-md);
+}
+
+.program-player-panel,
+.review-track-list {
+  display: grid;
+  align-content: start;
+  gap: var(--space-sm);
+  padding: var(--space-md);
+}
+
+.program-player-panel video {
+  inline-size: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--color-background);
+  border: var(--component-border-width) solid var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.missing-media-state {
+  display: grid;
+  place-items: center;
+  min-block-size: 180px;
+  padding: var(--space-lg);
+  text-align: center;
+  color: var(--color-mutedText);
+  background: color-mix(in srgb, var(--color-border), transparent 84%);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.review-track-card {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: var(--color-cards);
+  border: 1px solid color-mix(in srgb, var(--color-border), transparent 28%);
+  border-radius: var(--component-border-radius);
+}
+
+.review-track-card.ready {
+  border-color: color-mix(in srgb, var(--color-success), var(--color-border) 35%);
+}
+
+.review-track-card.missing,
+.review-track-card.needs-proxy,
+.review-track-card.error {
+  opacity: 0.82;
+}
+
+.review-track-card div {
+  display: grid;
+  gap: 2px;
+}
+
+.review-track-card span,
+.review-track-card small,
+.track-status {
+  color: var(--color-mutedText);
+  font-weight: 800;
+}
+
+.review-track-card audio {
+  inline-size: 100%;
 }
 
 .studio-dashboard-grid {
@@ -2420,6 +2493,13 @@ input[type="range"] {
 
 .headphone-warning {
   color: var(--color-mutedText);
+  font-weight: 900;
+}
+
+.monitor-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
   font-weight: 900;
 }
 
