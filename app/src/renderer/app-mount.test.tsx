@@ -58,7 +58,7 @@ describe("app mount", () => {
     expect(host.textContent).toContain("Camera 1");
   });
 
-  it("defaults to a collapsed sidebar and shows the simple workflow", async () => {
+  it("shows the simple workflow in the branded sidebar", async () => {
     window.studio = {
       listEpisodes: vi.fn(async () => []),
       createEpisode: vi.fn(),
@@ -103,7 +103,8 @@ describe("app mount", () => {
       root.render(<App />);
     });
 
-    expect(host.querySelector(".studio-shell")?.className).toContain("sidebar-collapsed");
+    expect(host.querySelector(".studio-shell")?.className).not.toContain("sidebar-collapsed");
+    expect(host.textContent).toContain("Morgan McGaughey");
     const workflow = host.querySelector('nav[aria-label="Studio workflow"]');
     expect(workflow?.textContent).toContain("Studio Setup");
     expect(workflow?.textContent).toContain("Record");

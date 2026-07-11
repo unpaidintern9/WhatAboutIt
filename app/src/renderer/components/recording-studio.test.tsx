@@ -80,11 +80,9 @@ describe("RecordingStudio", () => {
   it("renders the live control room with camera cards and mic meter states", () => {
     const { host } = renderStudio();
 
-    expect(host.textContent).toContain("Live Recording Studio");
-    expect(host.textContent).toContain("Camera 1");
-    expect(host.textContent).toContain("Live");
-    expect(host.textContent).toContain("1080p");
-    expect(host.textContent).toContain("30 fps");
+    expect(host.textContent).toContain("CAM 1");
+    expect(host.textContent).toContain("MORGAN");
+    expect(host.textContent).toContain("View Layouts");
     expect(host.textContent).toContain("Morgan Mic");
     expect(host.textContent).toContain("Audio input");
     expect(host.textContent).toContain("Input");
@@ -97,28 +95,32 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Markers");
   });
 
-  it("keeps camera cards, audio feedback, readiness, and sticky controls in the primary stack", () => {
+  it("keeps camera cards, audio feedback, notes, markers, and controls in the compact command center", () => {
     const { host } = renderStudio();
-    const board = host.querySelector(".live-studio-board");
+    const workbench = host.querySelector(".reference-workbench");
+    const mainColumn = host.querySelector(".reference-main-column");
+    const sideStack = host.querySelector(".studio-side-stack");
     const cameraStrip = host.querySelector(".camera-strip");
     const audioDeck = host.querySelector(".live-audio-deck");
-    const readiness = host.querySelector(".studio-readiness-strip");
+    const soundboard = host.querySelector(".compact-soundboard-panel");
+    const markers = host.querySelector(".compact-markers-panel");
     const controls = host.querySelector(".giant-control-row");
     const tools = host.querySelector(".secondary-studio-tools");
 
+    expect(workbench).toBeTruthy();
+    expect(mainColumn?.contains(cameraStrip)).toBe(true);
+    expect(mainColumn?.contains(audioDeck)).toBe(true);
+    expect(sideStack?.textContent).toContain("Episode Notes");
+    expect(sideStack?.textContent).toContain("Teleprompter");
     expect(cameraStrip?.querySelectorAll(".camera-live-card")).toHaveLength(3);
     expect(audioDeck?.textContent).toContain("Morgan Mic");
-    expect(readiness?.textContent).toContain("Cameras Ready");
+    expect(soundboard?.textContent).toContain("Add Sound");
+    expect(markers?.textContent).toContain("Funny");
     expect(controls?.textContent).toContain("Record");
     expect(controls?.textContent).toContain("Stop");
     expect(host.textContent).toContain("Studio Ready");
     expect(host.textContent).toContain("Ready to record");
-
-    const stack = Array.from(board?.children ?? []);
-    expect(stack.indexOf(cameraStrip as Element)).toBeLessThan(stack.indexOf(audioDeck as Element));
-    expect(stack.indexOf(audioDeck as Element)).toBeLessThan(stack.indexOf(readiness as Element));
-    expect(stack.indexOf(readiness as Element)).toBeLessThan(stack.indexOf(controls as Element));
-    expect(stack.indexOf(controls as Element)).toBeLessThan(stack.indexOf(tools as Element));
+    expect(tools?.querySelector("summary")?.textContent).toContain("Show notes, markers, teleprompter, and soundboard");
   });
 
   it("toggles per-mic monitoring and plays the test sound", async () => {
@@ -254,14 +256,10 @@ describe("RecordingStudio", () => {
 
     expect((host.querySelector('textarea[aria-label="Teleprompter"]') as HTMLTextAreaElement).className).toContain("dark-mode");
 
-    click(host, "Remote resume");
+    click(host, "A+");
     expect(onPodcastToolsChange.mock.calls).toContainEqual([
-      expect.objectContaining({ teleprompter: expect.objectContaining({ isScrolling: true }) })
+      expect.objectContaining({ teleprompter: expect.objectContaining({ fontSize: 36 }) })
     ]);
-
-    click(host, "Hide");
-    expect(host.querySelector('textarea[aria-label="Teleprompter"]')).toBeNull();
-    expect(host.textContent).toContain("Show");
   });
 
   it("shows truthful setup states for empty soundboard, Auto Edit, and Export", () => {

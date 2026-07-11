@@ -9,22 +9,28 @@ import {
   Circle,
   Cable,
   Download,
+  FileText,
   Headphones,
+  LayoutGrid,
   Mic2,
   Pause,
   Play,
+  Plus,
+  Radio,
   Save,
   Settings,
   SlidersHorizontal,
   Sparkles,
   Square,
+  Type,
+  User,
   VolumeX,
   Volume2
 } from "lucide-react";
 import type { CameraSlotKey, DeviceDefaults, MicrophoneSlotKey } from "../../shared/types";
 import type { RecordingSession, RecordingTrackSaveResult, RecordingTrackSlot } from "../../shared/recording";
 import type { CameraLayout, PodcastToolsState, SoundSlot } from "../../shared/podcast-tools";
-import { cameraLayouts, createLiveMarker } from "../../shared/podcast-tools";
+import { cameraLayouts, createLiveMarker, markerButtons } from "../../shared/podcast-tools";
 import type { StudioDisplayInfo, StudioPanelId } from "../../shared/studio-workspace";
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import type { RecordingServiceSnapshot } from "../services";
@@ -126,6 +132,7 @@ export function RecordingStudio({
   const [markerNotice, setMarkerNotice] = useState<string | undefined>();
   const [notesSavedAt, setNotesSavedAt] = useState<string>("Saved");
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [layoutNotice, setLayoutNotice] = useState(false);
   const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
     Object.fromEntries(micSlots.map((slot) => [slot.key, { gain: 75, muted: false, solo: false, monitor: false }]))
   );
@@ -289,14 +296,28 @@ export function RecordingStudio({
         </RippedPaperCard>
       )}
 
-      <main className="live-studio-board">
+      <main className="live-studio-board reference-studio-board">
         <TornEdgeHeader
-          title="Live Recording Studio"
+          title={snapshot.session?.episodeTitle ?? "Episode 047  •  Real Talk. No Filter."}
           eyebrow={isRecording ? "Recording Live" : isPaused ? "Paused" : isComplete ? "Recording Complete" : "Control Room"}
           aside={
-            <div className="recording-timer" aria-label="Recording timer">
-              <span>{snapshot.status}</span>
-              <strong>{formatRecordingTime(snapshot.elapsedMs)}</strong>
+            <div className="reference-header-actions">
+              <div className={`recording-timer ${isRecording ? "recording" : ""}`} aria-label="Recording timer">
+                <span>{isRecording ? "Recording" : isPaused ? "Paused" : "Not Recording"}</span>
+                <strong>{formatRecordingTime(snapshot.elapsedMs)}</strong>
+              </div>
+              <RusticButton
+                className={layoutNotice ? "selected" : ""}
+                onClick={() => {
+                  setLayoutNotice((current) => !current);
+                  setStudioNotice({ tone: "ready", message: "Layout presets are ready under the camera wall. Full layout editing comes next." });
+                }}
+              >
+                <LayoutGrid size={16} /> View Layouts
+              </RusticButton>
+              <RusticButton onClick={() => setStudioNotice({ tone: "ready", message: "Studio settings live in Setup and Settings." })}>
+                <Settings size={16} />
+              </RusticButton>
             </div>
           }
         />
@@ -308,81 +329,123 @@ export function RecordingStudio({
           </div>
         )}
 
-        <section className="camera-strip" aria-label="Camera previews">
-          {cameraSlots.map((slot) => (
-            <CameraCard
-              key={slot.key}
-              label={slot.label}
-              device={findDevice(detection.cameras, defaults.cameras[slot.key])}
-              deviceId={defaults.cameras[slot.key]}
-              isRecording={isRecording}
-              cameraSlot={slot.key}
-              micRoute={defaults.cameraMicrophones?.[slot.key] ?? fallbackCameraMicRoutes[slot.key]}
-              micRoutes={routableMicSlots}
-              trackStatus={trackStatusBySlot[slot.key]}
-              onMicRouteChange={(micSlot) => setCameraMicRoute(slot.key, micSlot)}
-              onConfigure={() =>
-                setStudioNotice({
-                  tone: "ready",
-                  message: `${slot.label} settings live in Studio Setup. Keep recording controls clean here.`
-                })
-              }
-              onOpenCameraPreview={onOpenCameraPreview}
-              onReleaseCameraPreview={onReleaseCameraPreview}
-            />
-          ))}
-        </section>
-
-        <section className="live-audio-deck" aria-label="Live audio feedback">
-          <VintagePanel title="Microphone Mixer" icon={<Mic2 size={20} />} className="mixer-panel">
-            <div className="monitor-row">
-              <label>
-                Output
-                <select value={defaults.audioOutputId ?? ""} onChange={(event) => setOutput(event.target.value)}>
-                  <option value="">System output</option>
-                  {detection.speakers.map((speaker) => (
-                    <option value={speaker.id} key={speaker.id}>{speaker.label}</option>
-                  ))}
-                </select>
-              </label>
-              <span className="monitor-status"><Headphones size={16} /> Monitoring starts Off</span>
-              <span className="headphone-warning">Use headphones to avoid echo.</span>
-              <RusticButton onClick={() => void playTestSound()}>
-                <Volume2 size={16} /> Play Test Sound
-              </RusticButton>
-            </div>
-            <div className="meter-list pro-tools-mixer">
-              {micSlots.map((slot) => {
-                const deviceId = slot.key === "soundboard" || slot.key === "music" ? undefined : defaults.microphones[slot.key];
-                const label = slot.key === "soundboard" && playingSlotId ? "We hear you" : slot.key === "music" ? "Add music first" : undefined;
-                const controls = mixerChannels[slot.key] ?? { gain: 75, muted: false, solo: false, monitor: false };
-                const isMicChannel = slot.key !== "soundboard" && slot.key !== "music";
-                const micKey = isMicChannel ? slot.key as MicKey : undefined;
-                return (
-                  <LiveMicMeter
+        <section className="reference-workbench" aria-label="Studio command center">
+          <div className="reference-main-column">
+            <section className="camera-command-panel" aria-label="Camera previews and layouts">
+              <section className="camera-strip" aria-label="Camera previews">
+                {cameraSlots.map((slot) => (
+                  <CameraCard
                     key={slot.key}
                     label={slot.label}
-                    deviceId={deviceId}
-                    inputOptions={isMicChannel ? detection.microphones : []}
-                    selectedInputId={deviceId}
-                    outputLabel={outputLabel}
-                    controls={controls}
-                    monitorLabel={getMonitorLabel(slot.label)}
-                    monitoring={controls.monitor && !controls.muted && (soloedChannels.length === 0 || soloedChannels.includes(slot.key))}
-                    outputDeviceId={defaults.audioOutputId}
-                    fallbackLevel={slot.key === "soundboard" && playingSlotId ? 72 : 0}
-                    fallbackLabel={label}
-                    trackStatus={trackStatusBySlot[slot.key as RecordingTrackSlot]}
-                    onInputChange={micKey ? (deviceId) => setMicInput(micKey, deviceId) : undefined}
-                    onControlsChange={(nextState) => patchMixerChannel(slot.key, nextState)}
-                    onEchoWarning={warnAboutEcho}
-                    onOpenMicrophoneStream={onOpenMicrophoneStream}
-                    onReleaseMicrophoneStream={onReleaseMicrophoneStream}
+                    device={findDevice(detection.cameras, defaults.cameras[slot.key])}
+                    deviceId={defaults.cameras[slot.key]}
+                    isRecording={isRecording}
+                    cameraSlot={slot.key}
+                    micRoute={defaults.cameraMicrophones?.[slot.key] ?? fallbackCameraMicRoutes[slot.key]}
+                    micRoutes={routableMicSlots}
+                    trackStatus={trackStatusBySlot[slot.key]}
+                    onMicRouteChange={(micSlot) => setCameraMicRoute(slot.key, micSlot)}
+                    onConfigure={() =>
+                      setStudioNotice({
+                        tone: "ready",
+                        message: `${slot.label} settings live in Studio Setup. Keep recording controls clean here.`
+                      })
+                    }
+                    onOpenCameraPreview={onOpenCameraPreview}
+                    onReleaseCameraPreview={onReleaseCameraPreview}
                   />
-                );
-              })}
-            </div>
-          </VintagePanel>
+                ))}
+              </section>
+
+              <section className="layout-row secondary-tools" aria-label="Camera layouts">
+                {cameraLayouts.map((layout) => (
+                  <RusticButton
+                    className={podcastTools.cameraLayout === layout.id ? "selected" : ""}
+                    key={layout.id}
+                    onClick={() => selectLayout(layout.id)}
+                  >
+                    {layout.label}
+                  </RusticButton>
+                ))}
+                <RusticButton onClick={() => selectLayout("sponsor-card")}>Topic Card</RusticButton>
+              </section>
+            </section>
+
+            <section className="reference-console-row" aria-label="Audio, sounds, and markers">
+              <section className="live-audio-deck" aria-label="Live audio feedback">
+                <VintagePanel title="Microphones" icon={<Mic2 size={20} />} className="mixer-panel">
+                  <div className="monitor-row">
+                    <label>
+                      Output
+                      <select value={defaults.audioOutputId ?? ""} onChange={(event) => setOutput(event.target.value)}>
+                        <option value="">System output</option>
+                        {detection.speakers.map((speaker) => (
+                          <option value={speaker.id} key={speaker.id}>{speaker.label}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <span className="monitor-status"><Headphones size={16} /> Monitoring starts Off</span>
+                    <span className="headphone-warning">Use headphones to avoid echo.</span>
+                    <RusticButton onClick={() => void playTestSound()}>
+                      <Volume2 size={16} /> Play Test Sound
+                    </RusticButton>
+                  </div>
+                  <div className="meter-list pro-tools-mixer">
+                    {micSlots.map((slot) => {
+                      const deviceId = slot.key === "soundboard" || slot.key === "music" ? undefined : defaults.microphones[slot.key];
+                      const label = slot.key === "soundboard" && playingSlotId ? "We hear you" : slot.key === "music" ? "Add music first" : undefined;
+                      const controls = mixerChannels[slot.key] ?? { gain: 75, muted: false, solo: false, monitor: false };
+                      const isMicChannel = slot.key !== "soundboard" && slot.key !== "music";
+                      const micKey = isMicChannel ? slot.key as MicKey : undefined;
+                      return (
+                        <LiveMicMeter
+                          key={slot.key}
+                          label={slot.label}
+                          deviceId={deviceId}
+                          inputOptions={isMicChannel ? detection.microphones : []}
+                          selectedInputId={deviceId}
+                          outputLabel={outputLabel}
+                          controls={controls}
+                          monitorLabel={getMonitorLabel(slot.label)}
+                          monitoring={controls.monitor && !controls.muted && (soloedChannels.length === 0 || soloedChannels.includes(slot.key))}
+                          outputDeviceId={defaults.audioOutputId}
+                          fallbackLevel={slot.key === "soundboard" && playingSlotId ? 72 : 0}
+                          fallbackLabel={label}
+                          trackStatus={trackStatusBySlot[slot.key as RecordingTrackSlot]}
+                          onInputChange={micKey ? (deviceId) => setMicInput(micKey, deviceId) : undefined}
+                          onControlsChange={(nextState) => patchMixerChannel(slot.key, nextState)}
+                          onEchoWarning={warnAboutEcho}
+                          onOpenMicrophoneStream={onOpenMicrophoneStream}
+                          onReleaseMicrophoneStream={onReleaseMicrophoneStream}
+                        />
+                      );
+                    })}
+                  </div>
+                </VintagePanel>
+              </section>
+
+              <CompactSoundboard
+                podcastTools={podcastTools}
+                playingSlotId={playingSlotId}
+                onPlaySound={(slot) => void toggleSound(slot)}
+                onPatchTools={patchTools}
+                onNeedsSetup={() => setStudioNotice({ tone: "needs-attention", message: "Assign sounds in the full Soundboard panel." })}
+              />
+
+              <CompactMarkers
+                markers={podcastTools.markers}
+                markerNotice={markerNotice}
+                onMark={mark}
+              />
+            </section>
+          </div>
+
+          <StudioSideStack
+            podcastTools={podcastTools}
+            notesSavedAt={notesSavedAt}
+            onPatchTools={patchTools}
+            onPatchNotes={patchNotes}
+          />
         </section>
 
         <ReadinessStrip
@@ -404,14 +467,17 @@ export function RecordingStudio({
           <StudioControlButton tone="record" disabled={isRecording || isPaused} onClick={() => void onStart()}>
             <Circle size={28} /> Record
           </StudioControlButton>
-          <StudioControlButton disabled={!isRecording} onClick={() => void onPause()}>
-            <Pause size={28} /> Pause
-          </StudioControlButton>
+          {isPaused ? (
+            <StudioControlButton onClick={() => void onResume()}>
+              <Play size={28} /> Resume
+            </StudioControlButton>
+          ) : (
+            <StudioControlButton disabled={!isRecording} onClick={() => void onPause()}>
+              <Pause size={28} /> Pause
+            </StudioControlButton>
+          )}
           <StudioControlButton disabled={!isRecording && !isPaused} onClick={() => void onStop()}>
             <Square size={28} /> Stop
-          </StudioControlButton>
-          <StudioControlButton disabled={!isPaused} onClick={() => void onResume()}>
-            <Play size={28} /> Resume
           </StudioControlButton>
           <StudioControlButton onClick={goAutoEdit}>
             <Sparkles size={28} /> Auto Edit
@@ -419,22 +485,6 @@ export function RecordingStudio({
           <StudioControlButton onClick={goExport}>
             <Download size={28} /> Export
           </StudioControlButton>
-        </section>
-
-        <section className="layout-row secondary-tools" aria-label="Camera layouts">
-          {cameraLayouts.map((layout) => (
-            <RusticButton
-              className={podcastTools.cameraLayout === layout.id ? "selected" : ""}
-              key={layout.id}
-              onClick={() => selectLayout(layout.id)}
-            >
-              {layout.label}
-            </RusticButton>
-          ))}
-          <RusticButton onClick={() => selectLayout("sponsor-card")}>Topic Card</RusticButton>
-          <RusticButton onClick={() => setStudioNotice({ tone: "needs-attention", message: "Advanced camera settings are ready after device setup." })}>
-            <Settings size={16} /> Gear
-          </RusticButton>
         </section>
 
         <details className="secondary-studio-tools" open={toolsOpen} onToggle={(event) => setToolsOpen(event.currentTarget.open)}>
@@ -530,6 +580,194 @@ function ReadinessStrip({
   );
 }
 
+function CompactSoundboard({
+  podcastTools,
+  playingSlotId,
+  onPlaySound,
+  onPatchTools,
+  onNeedsSetup
+}: {
+  podcastTools: PodcastToolsState;
+  playingSlotId?: string;
+  onPlaySound: (slot: SoundSlot) => void;
+  onPatchTools: (state: PodcastToolsState) => void;
+  onNeedsSetup: () => void;
+}) {
+  const slots = [podcastTools.soundboard.intro, podcastTools.soundboard.outro, ...podcastTools.soundboard.customSlots];
+
+  return (
+    <VintagePanel title="Sound Board" icon={<Radio size={20} />} className="compact-soundboard-panel">
+      <div className="compact-sound-grid">
+        {slots.slice(0, 6).map((slot) => (
+          <button
+            className={playingSlotId === slot.id ? "playing" : ""}
+            type="button"
+            onClick={() => {
+              if (!slot.filePath) onNeedsSetup();
+              onPlaySound(slot);
+            }}
+            key={slot.id}
+          >
+            <strong>{slot.label}</strong>
+            <span>{playingSlotId === slot.id ? "Playing" : slot.filePath ? "Ready" : "Add sound"}</span>
+          </button>
+        ))}
+      </div>
+      <label className="compact-volume">
+        Board volume
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={podcastTools.soundboard.masterVolume}
+          onChange={(event) =>
+            onPatchTools({
+              ...podcastTools,
+              soundboard: { ...podcastTools.soundboard, masterVolume: Number(event.target.value) },
+              practiceMode: { ...podcastTools.practiceMode, soundboardTried: true }
+            })
+          }
+        />
+      </label>
+      <RusticButton onClick={onNeedsSetup}><Plus size={16} /> Add Sound</RusticButton>
+    </VintagePanel>
+  );
+}
+
+function CompactMarkers({
+  markers,
+  markerNotice,
+  onMark
+}: {
+  markers: PodcastToolsState["markers"];
+  markerNotice?: string;
+  onMark: (label: string) => void;
+}) {
+  return (
+    <VintagePanel title="Markers" icon={<Sparkles size={20} />} className="compact-markers-panel">
+      <div className="compact-marker-actions">
+        {markerButtons.slice(0, 6).map((marker) => (
+          <button type="button" onClick={() => onMark(marker.label)} key={marker.label}>{marker.label}</button>
+        ))}
+      </div>
+      {markerNotice && <p className="marker-toast live" aria-live="polite">{markerNotice}</p>}
+      <div className="compact-marker-list">
+        {markers.length === 0 ? (
+          <span>No markers yet</span>
+        ) : (
+          markers.slice(0, 6).map((marker) => (
+            <span key={marker.id}><strong>{marker.label}</strong>{formatRecordingTime(marker.timestampMs)}</span>
+          ))
+        )}
+      </div>
+    </VintagePanel>
+  );
+}
+
+function StudioSideStack({
+  podcastTools,
+  notesSavedAt,
+  onPatchTools,
+  onPatchNotes
+}: {
+  podcastTools: PodcastToolsState;
+  notesSavedAt: string;
+  onPatchTools: (state: PodcastToolsState) => void;
+  onPatchNotes: (state: PodcastToolsState) => void;
+}) {
+  const teleprompter = podcastTools.teleprompter;
+
+  function patchTeleprompter(patch: Partial<typeof teleprompter>) {
+    onPatchTools({
+      ...podcastTools,
+      teleprompter: { ...teleprompter, ...patch },
+      practiceMode: { ...podcastTools.practiceMode, teleprompterTried: true }
+    });
+  }
+
+  return (
+    <aside className="studio-side-stack" aria-label="Episode notes and teleprompter">
+      <CompactTextPanel
+        title="Episode Notes"
+        icon={<FileText size={18} />}
+        savedState={notesSavedAt}
+        value={podcastTools.guestNotes.talkingPoints}
+        placeholder={"- Talk about starting over\n- Nashville experience\n- Future plans"}
+        onChange={(value) =>
+          onPatchNotes({
+            ...podcastTools,
+            guestNotes: { ...podcastTools.guestNotes, talkingPoints: value },
+            practiceMode: { ...podcastTools.practiceMode, notesTried: true }
+          })
+        }
+      />
+      <CompactTextPanel
+        title="Guest Notes"
+        icon={<User size={18} />}
+        savedState={notesSavedAt}
+        value={podcastTools.guestNotes.questions}
+        placeholder="Name, occupation, handle, topics..."
+        onChange={(value) =>
+          onPatchNotes({
+            ...podcastTools,
+            guestNotes: { ...podcastTools.guestNotes, questions: value },
+            practiceMode: { ...podcastTools.practiceMode, notesTried: true }
+          })
+        }
+      />
+      <section className="compact-side-panel teleprompter-reference-panel">
+        <div className="compact-panel-heading">
+          <h3>Teleprompter</h3>
+          <Type size={18} />
+        </div>
+        <textarea
+          className="dark-mode"
+          aria-label="Teleprompter"
+          value={teleprompter.script}
+          onChange={(event) => patchTeleprompter({ script: event.target.value })}
+          style={{ fontSize: `${Math.min(36, Math.max(22, teleprompter.fontSize))}px` }}
+          placeholder="Welcome back to What About It?, the show where we get real, we get deep..."
+        />
+        <div className="teleprompter-reference-controls">
+          <RusticButton onClick={() => patchTeleprompter({ fontSize: Math.max(22, teleprompter.fontSize - 4) })}>A-</RusticButton>
+          <RusticButton onClick={() => patchTeleprompter({ fontSize: Math.min(72, teleprompter.fontSize + 4) })}>A+</RusticButton>
+          <label>
+            Speed {teleprompter.speed}
+            <input type="range" min="1" max="10" value={teleprompter.speed} onChange={(event) => patchTeleprompter({ speed: Number(event.target.value) })} />
+          </label>
+        </div>
+      </section>
+    </aside>
+  );
+}
+
+function CompactTextPanel({
+  title,
+  icon,
+  value,
+  savedState,
+  placeholder,
+  onChange
+}: {
+  title: string;
+  icon: ReactNode;
+  value: string;
+  savedState: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <section className="compact-side-panel">
+      <div className="compact-panel-heading">
+        <h3>{title}</h3>
+        {icon}
+      </div>
+      <textarea value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+      <small>{savedState}</small>
+    </section>
+  );
+}
+
 function CameraCard({
   label,
   device,
@@ -573,7 +811,7 @@ function CameraCard({
     <RippedPaperCard className={`camera-live-card ${cardState}`}>
       <div className="camera-live-top">
         <div>
-          <h3>{label}</h3>
+          <h3>{getCameraReferenceTitle(cameraSlot, label)}</h3>
           <span className={previewState === "live" ? "live-badge" : ""}>{status}</span>
         </div>
         <button type="button" aria-label={`${label} advanced settings`} title="Advanced settings" onClick={onConfigure}>
@@ -612,6 +850,13 @@ function CameraCard({
       </div>
     </RippedPaperCard>
   );
+}
+
+function getCameraReferenceTitle(slot: CameraKey, fallback: string) {
+  if (slot === "camera1") return "CAM 1  •  MORGAN";
+  if (slot === "camera2") return "CAM 2  •  GUEST";
+  if (slot === "camera3") return "CAM 3  •  WIDE";
+  return fallback;
 }
 
 function CameraFeed({

@@ -90,7 +90,7 @@ const fallbackSettings: StudioSettings = {
   deviceDefaults: defaultDeviceDefaults,
   exportSettings: defaultExportSettings,
   onboarding: { guidedTour: "show" },
-  ui: { sidebarCollapsed: true },
+  ui: { sidebarCollapsed: false },
   studioWorkspace: defaultStudioWorkspaceState.settings
 };
 
@@ -344,7 +344,7 @@ export default function App() {
       setSettings(hydratedSettings);
       setSelectedExportType(hydratedSettings.exportSettings?.defaultExportType ?? defaultExportSettings.defaultExportType);
       setSelectedQualityPreset(hydratedSettings.exportSettings?.qualityPreset ?? defaultExportSettings.qualityPreset);
-      setSidebarCollapsed(hydratedSettings.ui?.sidebarCollapsed ?? true);
+      setSidebarCollapsed(hydratedSettings.ui?.sidebarCollapsed ?? false);
       const tourParam = new URLSearchParams(window.location.search).get("tour");
       setShowTour(tourParam === "on" || (tourParam !== "off" && hydratedSettings.onboarding?.guidedTour !== "never"));
     });
@@ -927,19 +927,21 @@ export default function App() {
     );
   }
 
+  const effectiveSidebarCollapsed = sidebarCollapsed && view !== "recording";
+
   return (
-    <main className={`studio-shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <main className={`studio-shell ${effectiveSidebarCollapsed ? "sidebar-collapsed" : ""} ${view === "recording" ? "studio-shell--recording" : ""}`.trim()}>
       <aside className="sidebar">
         <div className="brand-lockup">
           <div className="brand-badge">WAI</div>
           <div>
-            <p className="eyebrow">Offline studio</p>
-            <h1>{activeTheme.branding.logoText}</h1>
+            <p className="eyebrow">Studio</p>
+            <h1><span>What</span><span>About</span><span>It?</span></h1>
           </div>
         </div>
-        <button className="sidebar-toggle" type="button" onClick={() => void toggleSidebarCollapsed()} aria-label={sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
-          {sidebarCollapsed ? <ArrowRight size={18} /> : <ArrowLeft size={18} />}
-          <span>{sidebarCollapsed ? "Expand" : "Collapse"}</span>
+        <button className="sidebar-toggle" type="button" onClick={() => void toggleSidebarCollapsed()} aria-label={effectiveSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
+          {effectiveSidebarCollapsed ? <ArrowRight size={18} /> : <ArrowLeft size={18} />}
+          <span>{effectiveSidebarCollapsed ? "Expand" : "Collapse"}</span>
         </button>
 
         <nav className="nav-stack" aria-label="Studio workflow">
@@ -969,9 +971,10 @@ export default function App() {
           </button>
         </nav>
 
-        <div className="phase-note">
-          <Sparkles size={18} />
-          Phase 6 Smart Auto Edit Platform. Originals stay safe.
+        <div className="phase-note sidebar-persona">
+          <span className="sidebar-persona-avatar" aria-hidden="true">M</span>
+          <strong>Morgan McGaughey</strong>
+          <small>What About It? Studio</small>
         </div>
       </aside>
 
