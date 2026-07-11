@@ -2,11 +2,13 @@
 
 source visual truth path: `C:\Users\mmcga\Downloads\StudioReference.png`
 
-implementation screenshot path: `C:\Users\mmcga\OneDrive\Documents\WhatAboutItStudio\design-qa-recording-spacing-fix.png`
+implementation screenshot path: `C:\Users\mmcga\OneDrive\Documents\WhatAboutItStudio\design-qa-recording-lenovo-fit.png`
+
+stress screenshot path: `C:\Users\mmcga\OneDrive\Documents\WhatAboutItStudio\design-qa-recording-lenovo-fit-1366.png`
 
 comparison evidence: `C:\Users\mmcga\OneDrive\Documents\WhatAboutItStudio\design-qa-comparison.png`
 
-viewport: `1920 x 1017`
+viewport: `1920 x 900` primary Lenovo-height check, plus `1366 x 768` stress check
 
 state: Record screen, not recording, browser demo mode with live camera permissions unavailable.
 
@@ -45,6 +47,13 @@ No actionable P0/P1/P2 findings remain for this implementation scope.
 - Fixed: The packaged app viewport showed vertical scroll and bottom controls overlapping the mixer. The recording shell now fits the viewport, the recovery banner is compact, the workbench rows are tighter, and the bottom controls sit below the console row.
 - Fixed: Compact mixer controls were cramped. Channel strips now expose clear `M`, `S`, and `H` controls for Mute, Solo, and Hear while preserving input/output and volume.
 - Evidence: `document.body.scrollHeight` equals `window.innerHeight` at `1920 x 1017`; console row bottom is `906.98px` and controls top is `914px`.
+
+### Lenovo Laptop Fit Follow-Up
+
+- Fixed: The Record screen now accounts for Electron title/menu height and Windows taskbar pressure by using laptop-height responsive rules at `max-height: 980px` and a tighter emergency layout below `820px`.
+- Fixed: The reference board now fills the available viewport without forcing the recovery banner to push the bottom action deck below the fold. When the unfinished-recording banner is present, the board subtracts the banner height instead of overflowing.
+- Evidence: At `1920 x 900`, `document.body.scrollHeight` equals `window.innerHeight` (`900px`), the control row bottom is `892px`, and the board bottom is `897px`.
+- Evidence: At `1366 x 768`, `document.body.scrollHeight` equals `window.innerHeight` (`768px`), and the control row bottom is `760px`.
 
 ## Follow-Up Polish
 

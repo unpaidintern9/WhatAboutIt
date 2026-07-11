@@ -3353,6 +3353,10 @@ input[type="range"] {
   color: var(--color-text);
 }
 
+.studio-shell--recording .live-studio:has(.recovery-banner) .reference-studio-board {
+  height: calc(100vh - 65px);
+}
+
 .reference-studio-board .torn-edge-header {
   min-height: 82px;
   padding: 12px 16px;
@@ -3930,6 +3934,375 @@ input[type="range"] {
 .reference-studio-board .local-save-note.live,
 .reference-studio-board .studio-command-footer {
   display: none;
+}
+
+@media (max-height: 980px) {
+  .studio-shell--recording {
+    grid-template-columns: 210px minmax(0, 1fr);
+  }
+
+  .studio-shell--recording .sidebar {
+    gap: 10px;
+    padding: 16px 10px;
+  }
+
+  .studio-shell--recording .brand-lockup h1 {
+    font-size: clamp(1.8rem, 2.8vw, 2.55rem);
+  }
+
+  .studio-shell--recording .brand-lockup .eyebrow {
+    font-size: 0.9rem;
+    letter-spacing: 0.34em;
+  }
+
+  .studio-shell--recording .nav-stack {
+    gap: 5px;
+  }
+
+  .studio-shell--recording .nav-stack button,
+  .studio-shell--recording .sidebar-toggle {
+    min-height: 34px;
+    padding: 6px 12px;
+  }
+
+  .sidebar-persona-avatar {
+    width: 76px;
+    height: 76px;
+    border-width: 3px;
+    font-size: 3.1rem;
+  }
+
+  .sidebar-persona strong {
+    font-size: 1.22rem;
+  }
+
+  .sidebar-persona small {
+    display: none;
+  }
+
+  .studio-shell--recording .workspace {
+    padding: 7px;
+  }
+
+  .studio-shell--recording .live-studio {
+    gap: 5px;
+  }
+
+  .studio-shell--recording .recovery-banner {
+    min-height: 28px;
+    padding: 2px 8px;
+  }
+
+  .studio-shell--recording .recovery-banner p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .studio-shell--recording .recovery-banner .rustic-button {
+    min-height: 24px;
+    padding: 1px 10px;
+  }
+
+  .reference-studio-board {
+    gap: 5px;
+    height: calc(100vh - 14px);
+  }
+
+  .studio-shell--recording .live-studio:has(.recovery-banner) .reference-studio-board {
+    height: calc(100vh - 47px);
+  }
+
+  .reference-studio-board .torn-edge-header {
+    min-height: 54px;
+    padding: 8px 12px;
+  }
+
+  .reference-studio-board .torn-edge-header h2 {
+    max-width: 52vw;
+    font-size: clamp(0.95rem, 1.5vw, 1.32rem);
+    line-height: 0.96;
+  }
+
+  .reference-header-actions {
+    gap: 7px;
+  }
+
+  .reference-header-actions .recording-timer,
+  .reference-header-actions .rustic-button {
+    min-height: 30px;
+    padding: 4px 8px;
+    font-size: 0.72rem;
+  }
+
+  .reference-header-actions .recording-timer strong {
+    font-size: 0.82rem;
+  }
+
+  .reference-studio-board .studio-notice {
+    min-height: 27px;
+    padding: 3px 8px;
+  }
+
+  .reference-workbench {
+    grid-template-columns: minmax(0, 1fr) minmax(218px, 250px);
+    gap: 6px;
+  }
+
+  .reference-main-column {
+    grid-template-rows: minmax(190px, 0.98fr) minmax(140px, 0.58fr);
+    gap: 6px;
+  }
+
+  .reference-studio-board .camera-live-top {
+    min-height: 25px;
+    padding: 3px 6px;
+  }
+
+  .reference-studio-board .camera-live-top h3 {
+    font-size: 0.72rem;
+  }
+
+  .reference-studio-board .camera-identity-row {
+    min-height: 20px;
+    padding: 2px 6px;
+  }
+
+  .reference-studio-board .camera-audio-route {
+    min-height: 21px;
+    padding: 1px 6px 3px;
+    font-size: 0.54rem;
+  }
+
+  .reference-studio-board .camera-audio-route select {
+    min-height: 18px;
+    font-size: 0.54rem;
+  }
+
+  .reference-studio-board .layout-row {
+    gap: 4px;
+    padding: 6px 8px;
+  }
+
+  .reference-studio-board .layout-row .rustic-button {
+    min-height: 30px;
+    padding: 3px 4px;
+    font-size: 0.58rem;
+  }
+
+  .reference-console-row {
+    grid-template-columns: minmax(380px, 2.1fr) minmax(150px, 0.56fr) minmax(150px, 0.56fr);
+    gap: 6px;
+  }
+
+  .reference-console-row .vintage-panel {
+    gap: 4px;
+  }
+
+  .reference-console-row .vintage-panel-heading,
+  .compact-panel-heading {
+    min-height: 27px;
+    padding: 4px 8px;
+  }
+
+  .reference-console-row .vintage-panel-heading h3,
+  .compact-panel-heading h3 {
+    font-size: 0.76rem;
+  }
+
+  .reference-console-row .monitor-row {
+    gap: 4px;
+    padding: 0 6px;
+  }
+
+  .reference-console-row .monitor-row label {
+    min-width: 0;
+  }
+
+  .reference-console-row .monitor-row .rustic-button {
+    min-height: 24px;
+    padding: 2px 6px;
+    font-size: 0.62rem;
+  }
+
+  .reference-console-row .meter-list {
+    gap: 4px;
+    padding: 0 6px 6px;
+  }
+
+  .reference-console-row .live-meter-card {
+    gap: 3px;
+    padding: 4px;
+  }
+
+  .reference-console-row .channel-topline strong {
+    font-size: 0.58rem;
+  }
+
+  .reference-console-row .distressed-meter {
+    height: 18px;
+  }
+
+  .reference-console-row .channel-console {
+    gap: 2px;
+    padding-top: 2px;
+  }
+
+  .reference-console-row .channel-console label {
+    font-size: 0.48rem;
+  }
+
+  .reference-console-row .channel-console select {
+    min-height: 18px;
+    font-size: 0.44rem;
+  }
+
+  .reference-console-row .channel-buttons button {
+    min-height: 19px;
+    padding: 1px 2px;
+  }
+
+  .reference-console-row .channel-buttons button svg {
+    width: 11px;
+    height: 11px;
+  }
+
+  .reference-console-row .channel-buttons button::after {
+    font-size: 0.52rem;
+  }
+
+  .compact-sound-grid,
+  .compact-marker-actions {
+    gap: 5px;
+    padding: 6px;
+  }
+
+  .compact-sound-grid button,
+  .compact-marker-actions button {
+    min-height: 30px;
+    padding: 4px 6px;
+  }
+
+  .compact-sound-grid span,
+  .compact-volume,
+  .compact-marker-list span {
+    font-size: 0.62rem;
+  }
+
+  .compact-volume {
+    padding: 0 6px;
+  }
+
+  .compact-soundboard-panel > .rustic-button {
+    margin: 0 6px 6px;
+    min-height: 26px;
+  }
+
+  .compact-marker-list {
+    gap: 2px;
+    padding: 3px 6px 6px;
+  }
+
+  .compact-marker-list span {
+    padding: 2px 0;
+  }
+
+  .studio-side-stack {
+    grid-template-rows: minmax(65px, 0.44fr) minmax(65px, 0.44fr) minmax(128px, 1fr);
+    gap: 6px;
+  }
+
+  .compact-side-panel textarea {
+    padding: 7px 10px;
+    font-size: 0.78rem;
+    line-height: 1.32;
+  }
+
+  .compact-side-panel small {
+    padding: 0 10px 5px;
+    font-size: 0.64rem;
+  }
+
+  .teleprompter-reference-panel textarea {
+    font-size: clamp(1.1rem, 1.65vw, 1.5rem) !important;
+  }
+
+  .teleprompter-reference-controls {
+    gap: 4px;
+    padding: 5px 6px 6px;
+  }
+
+  .teleprompter-reference-controls .rustic-button {
+    min-height: 26px;
+    padding: 2px 6px;
+  }
+
+  .teleprompter-reference-controls label {
+    font-size: 0.6rem;
+  }
+
+  .reference-studio-board .giant-control-row {
+    gap: 5px;
+  }
+
+  .reference-studio-board .studio-control-button {
+    min-height: 54px;
+    padding: 7px 12px;
+    border-width: 2px;
+    font-size: clamp(0.78rem, 1.1vw, 0.95rem);
+  }
+
+  .reference-studio-board .studio-control-button svg {
+    width: 24px;
+    height: 24px;
+  }
+}
+
+@media (max-height: 820px) {
+  .studio-shell--recording {
+    grid-template-columns: 178px minmax(0, 1fr);
+  }
+
+  .studio-shell--recording .sidebar {
+    gap: 7px;
+    padding: 12px 8px;
+  }
+
+  .studio-shell--recording .brand-lockup h1 {
+    font-size: 1.85rem;
+  }
+
+  .sidebar-persona {
+    display: none;
+  }
+
+  .studio-shell--recording .nav-stack button,
+  .studio-shell--recording .sidebar-toggle {
+    min-height: 30px;
+    padding: 4px 10px;
+  }
+
+  .reference-workbench {
+    grid-template-columns: minmax(0, 1fr) minmax(196px, 220px);
+  }
+
+  .reference-main-column {
+    grid-template-rows: minmax(168px, 0.98fr) minmax(122px, 0.54fr);
+  }
+
+  .reference-studio-board .layout-row .rustic-button {
+    min-height: 26px;
+    font-size: 0.52rem;
+  }
+
+  .studio-side-stack {
+    grid-template-rows: minmax(56px, 0.38fr) minmax(56px, 0.38fr) minmax(105px, 0.92fr);
+  }
+
+  .reference-studio-board .studio-control-button {
+    min-height: 48px;
+    padding: 6px 10px;
+  }
 }
 
 @keyframes livePulse {
