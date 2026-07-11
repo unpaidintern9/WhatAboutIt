@@ -57,8 +57,16 @@ export class DeviceService {
     return this.openManagedStream(`microphone:${deviceId ?? "none"}`, () => this.plugin.openMicrophoneStream(deviceId));
   }
 
-  releaseStream(kind: "camera" | "microphone", deviceId?: string) {
-    this.stopManagedStream(`${kind}:${deviceId ?? "none"}`);
+  getActiveCameraStream(deviceId?: string) {
+    return this.getManagedStream(`camera:${deviceId ?? "none"}`);
+  }
+
+  getActiveMicrophoneStream(deviceId?: string) {
+    return this.getManagedStream(`microphone:${deviceId ?? "none"}`);
+  }
+
+  releaseStream(kind: "camera" | "microphone", deviceId?: string, stream?: MediaStream) {
+    this.stopManagedStream(`${kind}:${deviceId ?? "none"}`, stream);
   }
 
   releaseAll() {
@@ -79,9 +87,16 @@ export class DeviceService {
     return stream;
   }
 
-  private stopManagedStream(key: string) {
+  private getManagedStream(key: string) {
+    const stream = this.managedStreams.get(key);
+    if (!stream) return undefined;
+    return stream.getTracks().some((track) => track.readyState === "live") ? stream : undefined;
+  }
+
+  private stopManagedStream(key: string, expectedStream?: MediaStream) {
     const stream = this.managedStreams.get(key);
     if (!stream) return;
+    if (expectedStream && stream !== expectedStream) return;
     stream.getTracks().forEach((track) => {
       if (track.readyState !== "ended") track.stop();
     });

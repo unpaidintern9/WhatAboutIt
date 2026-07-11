@@ -159,3 +159,35 @@ Not physically validated in this pass:
 - Exact physical identity of the Guest Mic source
 - Audible Play Test Sound output
 - Headphone monitoring/no-feedback confirmation
+
+## Post-Phase 9I Routing Fix QA Notes
+
+Run date: 2026-07-11
+
+Reported issue:
+
+- Plugging in an M-Audio AudioBox made it unclear which input belonged to which camera.
+- Only one selected/live camera saved when Record was pressed.
+- The mixer spacing and controls felt cramped rather than like a clear production console.
+
+Implemented fix:
+
+- Camera cards now include an `Audio input` route for Morgan Mic, Guest Mic, or Extra Mic.
+- The Program recorder follows Camera 1's selected mic route.
+- The Live Studio recorder now clones active preview/meter streams first, so already-live selected cameras can start recording together without a second device-open request.
+- The mixer now shows Output, per-channel Input, Volume, Mute, Solo, and Hear controls directly.
+
+Automated validation passed:
+
+- Live Camera 1 and Camera 2 streams are reused without calling `getUserMedia()` again.
+- Camera 1 mic routing uses the selected mic input for Program recording.
+- Mixer input selectors update saved mic defaults.
+- Device service exposes active camera/mic streams for recorder reuse.
+
+Still requires physical QA:
+
+- Plug in M-Audio AudioBox and confirm each Windows-exposed input appears in Morgan/Guest/Extra selectors.
+- Assign M-Audio inputs to Camera 1/2/3 routes and record a 30-second take.
+- Confirm every live selected camera saves a sidecar file in unison.
+- Confirm audible Play Test Sound through the selected output.
+- Confirm Hear Morgan/Hear Guest/Hear Extra works through headphones without feedback.

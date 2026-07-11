@@ -85,4 +85,48 @@ describe("device service", () => {
     expect(camera.track.stop).toHaveBeenCalledTimes(1);
     expect(mic.track.stop).toHaveBeenCalledTimes(1);
   });
+
+  it("exposes active preview and microphone streams for recording reuse", async () => {
+    const camera = createStream();
+    const mic = createStream();
+    const plugin: DevicePlugin = {
+      detectDevices: vi.fn(),
+      requestStudioPermissions: vi.fn(),
+      sampleMicrophoneLevel: vi.fn(),
+      playTestSound: vi.fn(),
+      openCameraPreview: vi.fn().mockResolvedValue(camera.stream),
+      openMicrophoneStream: vi.fn().mockResolvedValue(mic.stream)
+    };
+    const service = new DeviceService(plugin);
+
+    await service.openCameraPreview("camera-a");
+    await service.openMicrophoneStream("mic-a");
+
+    expect(service.getActiveCameraStream("camera-a")).toBe(camera.stream);
+    expect(service.getActiveMicrophoneStream("mic-a")).toBe(mic.stream);
+
+    service.releaseStream("camera", "camera-a");
+    expect(service.getActiveCameraStream("camera-a")).toBeUndefined();
+  });
+
+  it("does not release a newer stream when an older preview finishes late", async () => {
+    const first = createStream();
+    const second = createStream();
+    const plugin: DevicePlugin = {
+      detectDevices: vi.fn(),
+      requestStudioPermissions: vi.fn(),
+      sampleMicrophoneLevel: vi.fn(),
+      playTestSound: vi.fn(),
+      openCameraPreview: vi.fn().mockResolvedValueOnce(first.stream).mockResolvedValueOnce(second.stream),
+      openMicrophoneStream: vi.fn()
+    };
+    const service = new DeviceService(plugin);
+
+    await service.openCameraPreview("camera-a");
+    await service.openCameraPreview("camera-a");
+    service.releaseStream("camera", "camera-a", first.stream);
+
+    expect(service.getActiveCameraStream("camera-a")).toBe(second.stream);
+    expect(second.track.stop).not.toHaveBeenCalled();
+  });
 });

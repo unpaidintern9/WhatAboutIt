@@ -9,12 +9,19 @@ interface ActiveTrackRecorder {
   chunks: Blob[];
 }
 
+export interface BrowserMediaRecorderStreamResolver {
+  getCameraStream?: (deviceId?: string) => MediaStream | undefined;
+  getMicrophoneStream?: (deviceId?: string) => MediaStream | undefined;
+}
+
 export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   private recorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
   private chunks: Blob[] = [];
   private trackRecorders: ActiveTrackRecorder[] = [];
   private trackResults: RecordingTrackSaveInput[] = [];
+
+  constructor(private readonly streams: BrowserMediaRecorderStreamResolver = {}) {}
 
   async start(request: RecordingStartRequest) {
     await this.shutdown();
@@ -28,13 +35,11 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera needs attention");
 
     const videoDeviceId = request.deviceDefaults.cameras.camera1;
-    const audioDeviceId = request.deviceDefaults.microphones.morganMic;
+    const programMicSlot = request.deviceDefaults.cameraMicrophones?.camera1 ?? "morganMic";
+    const audioDeviceId = request.deviceDefaults.microphones[programMicSlot] ?? request.deviceDefaults.microphones.morganMic;
 
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        video: videoDeviceId ? { deviceId: { exact: videoDeviceId } } : true,
-        audio: audioDeviceId ? { deviceId: { exact: audioDeviceId } } : true
-      });
+      this.stream = await this.openProgramStream(videoDeviceId, audioDeviceId);
     } catch (error) {
       const message = String(error);
       if (message.includes("audio") || message.includes("microphone")) throw new Error("Mic needs attention", { cause: error });
@@ -132,9 +137,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     if (!deviceId) return;
 
     try {
-      const stream = slot === "camera1" && this.stream?.getVideoTracks()[0]
-        ? new MediaStream([this.stream.getVideoTracks()[0].clone()])
-        : await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+      const stream = await this.openCameraTrackStream(slot, deviceId);
       this.trackRecorders.push(createTrackRecorder(slot, "camera", stream, pickMimeType()));
     } catch {
       this.trackResults.push({
@@ -150,9 +153,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     if (!deviceId) return;
 
     try {
-      const stream = slot === "morganMic" && this.stream?.getAudioTracks()[0]
-        ? new MediaStream([this.stream.getAudioTracks()[0].clone()])
-        : await navigator.mediaDevices.getUserMedia({ video: false, audio: { deviceId: { exact: deviceId } } });
+      const stream = await this.openMicTrackStream(slot, deviceId);
       this.trackRecorders.push(createTrackRecorder(slot, "audio", stream, pickAudioMimeType()));
     } catch {
       this.trackResults.push({
@@ -162,6 +163,47 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
         message: "This device can preview but could not save separately"
       });
     }
+  }
+
+  private async openProgramStream(videoDeviceId?: string, audioDeviceId?: string) {
+    const tracks: MediaStreamTrack[] = [];
+    const activeVideoTrack = cloneLiveTrack(this.streams.getCameraStream?.(videoDeviceId)?.getVideoTracks()[0]);
+    const activeAudioTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(audioDeviceId)?.getAudioTracks()[0]);
+
+    if (activeVideoTrack) tracks.push(activeVideoTrack);
+    if (activeAudioTrack) tracks.push(activeAudioTrack);
+
+    const needsVideo = !activeVideoTrack;
+    const needsAudio = !activeAudioTrack;
+    if (needsVideo || needsAudio) {
+      const fallback = await navigator.mediaDevices.getUserMedia({
+        video: needsVideo ? deviceConstraint(videoDeviceId) : false,
+        audio: needsAudio ? deviceConstraint(audioDeviceId) : false
+      });
+      tracks.push(...fallback.getTracks());
+    }
+
+    return new MediaStream(tracks);
+  }
+
+  private async openCameraTrackStream(slot: RecordingTrackSlot, deviceId: string) {
+    const activeTrack = cloneLiveTrack(this.streams.getCameraStream?.(deviceId)?.getVideoTracks()[0]);
+    if (activeTrack) return new MediaStream([activeTrack]);
+
+    const programTrack = slot === "camera1" ? cloneLiveTrack(this.stream?.getVideoTracks()[0]) : undefined;
+    if (programTrack) return new MediaStream([programTrack]);
+
+    return navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+  }
+
+  private async openMicTrackStream(slot: RecordingTrackSlot, deviceId: string) {
+    const activeTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(deviceId)?.getAudioTracks()[0]);
+    if (activeTrack) return new MediaStream([activeTrack]);
+
+    const programTrack = slot === "morganMic" ? cloneLiveTrack(this.stream?.getAudioTracks()[0]) : undefined;
+    if (programTrack) return new MediaStream([programTrack]);
+
+    return navigator.mediaDevices.getUserMedia({ video: false, audio: { deviceId: { exact: deviceId } } });
   }
 
   private stopStream() {
@@ -185,6 +227,14 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.trackRecorders = [];
     this.trackResults = [];
   }
+}
+
+function cloneLiveTrack(track?: MediaStreamTrack) {
+  return track?.readyState === "live" ? track.clone() : undefined;
+}
+
+function deviceConstraint(deviceId?: string) {
+  return deviceId ? { deviceId: { exact: deviceId } } : true;
 }
 
 function createTrackRecorder(slot: RecordingTrackSlot, kind: RecordingTrackKind, stream: MediaStream, mimeType: string): ActiveTrackRecorder {

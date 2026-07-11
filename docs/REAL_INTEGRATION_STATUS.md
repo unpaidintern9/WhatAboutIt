@@ -6,9 +6,9 @@ This document records the current status of production media integrations after 
 
 | Area | Current implementation | Production ready | Missing work |
 | --- | --- | --- | --- |
-| Recording | Browser `MediaRecorder` Program path plus Phase 9I sidecar camera/mic recorders with ffprobe validation after save | Partial | Camera 3/Extra Mic physical validation, clean 60-minute pass, sync/drift validation |
+| Recording | Browser `MediaRecorder` Program path plus Phase 9I sidecar camera/mic recorders with ffprobe validation after save; active preview streams are reused for synchronous multi-camera start | Partial | M-Audio physical routing confirmation, Camera 3/Extra Mic physical validation, clean 60-minute pass, sync/drift validation |
 | Camera capture | Physical Sony Camera via Imaging Edge and Integrated Camera previews validated; Phase 9I saved separate Camera 1 and Camera 2 WebM files | Partial | Camera 3 physical validation, capture cards, backend error handling, physical unplug/replug validation |
-| Microphone capture | Physical microphone capture validated; Phase 9I saved separate Morgan and Guest M4A files from app-selected mic channels | Partial | Exact second-mic hardware identity confirmation, Extra Mic physical validation, drift and clipping reporting |
+| Microphone capture | Physical microphone capture validated; Phase 9I saved separate Morgan and Guest M4A files from app-selected mic channels; mixer now exposes explicit input selection and per-camera mic slot routing | Partial | M-Audio AudioBox input selection needs physical validation, exact second-mic hardware identity confirmation, Extra Mic physical validation, drift and clipping reporting |
 | Timeline review | Draft timeline JSON plus real Review media inventory for Program, Cameras, and Audio files with ffprobe durations, recording-state duration fallback, and browser playback controls | Partial | Review proxy generation for non-browser-playable files and render-accurate edit preview |
 | Editing | Non-destructive edit operation log | Partial | Apply edit decisions to renderable media timeline and playback preview |
 | Export | Bundled FFmpeg/ffprobe detection and real local rendering; Phase 9F requires `Program/program.webm` and validates output before success | Partial | Validate all presets from full-length real podcast media and render draft edit decisions into output |
@@ -148,3 +148,12 @@ The project now has partial real media integrations for offline FFmpeg export re
 - Review displayed Camera 1, Camera 2, Morgan Mic, and Guest Mic as ready; Camera 3 and Extra Mic showed truthful `Not recorded in this episode` states.
 - Export continued to use `Program\program.webm` and produced H.264/AAC MP4, 1024x576, 30 fps, duration `74.359833`.
 - Camera 3, Extra Mic, exact physical second-mic identity, and audible monitoring/test sound remain pending human/hardware validation.
+
+## Post-Phase 9I Studio Routing Addendum
+
+- `DeviceService` now exposes active camera and microphone streams to the recording plugin so live previews/meters can be cloned at Record start.
+- `BrowserMediaRecorderPlugin` now reuses active Camera 1/2/3 preview tracks before falling back to a fresh `getUserMedia()` request. This targets the real failure where only one camera saved while another selected camera was already previewing.
+- Camera 1/2/3 cards now include an explicit `Audio input` route to Morgan Mic, Guest Mic, or Extra Mic. Camera 1's route feeds the Program recording audio source.
+- The mixer now shows clear Output routing, per-channel Input selectors for Morgan/Guest/Extra, Volume sliders, Mute, Solo, and Hear controls without hiding them behind a collapsed `More` panel.
+- Automated tests cover live camera stream reuse, Camera 1 mic route selection, mixer input updates, and stream resolver exposure.
+- Physical M-Audio AudioBox input selection, audible test sound, and headphone monitoring/no-feedback confirmation are still pending. No docs mark those as human-confirmed.

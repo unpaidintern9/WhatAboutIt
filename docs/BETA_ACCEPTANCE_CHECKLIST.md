@@ -117,3 +117,15 @@ Phase 9I moves multi-track recording from missing to partially validated:
 - Partial: Camera 3 and Extra Mic were not physically validated in this run.
 - Partial: The exact physical identity of the Guest Mic source was not independently confirmed.
 - Partial: Human ear confirmation is still required for test sound and headphone monitoring.
+
+## Post-Phase 9I Routing Gate
+
+This pass fixes a usability/reliability issue reported with an M-Audio AudioBox and multiple live cameras:
+
+- Pass in automated tests: already-live selected cameras are cloned for recording instead of being opened a second time.
+- Pass in automated tests: Camera 1 audio routing can choose Morgan, Guest, or Extra mic slot for Program audio.
+- Pass in automated tests: Morgan/Guest/Extra mixer strips expose input selection and update saved device defaults.
+- Pass in automated tests: the device service exposes active camera/mic streams for recorder reuse.
+- Partial: Physical M-Audio AudioBox input selection still needs a real hardware pass.
+- Partial: Physical confirmation that all currently live cameras save in unison after this fix still needs a real hardware pass.
+- Partial: Human ear confirmation is still required for output test sound and headphone monitoring.

@@ -322,7 +322,14 @@ export default function App() {
   const hardwareStopTimerRef = useRef<number | undefined>(undefined);
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
-  const recordingService = useMemo(() => new RecordingService(new BrowserMediaRecorderPlugin()), []);
+  const recordingService = useMemo(
+    () =>
+      new RecordingService(new BrowserMediaRecorderPlugin({
+        getCameraStream: (deviceId) => deviceService.getActiveCameraStream(deviceId),
+        getMicrophoneStream: (deviceId) => deviceService.getActiveMicrophoneStream(deviceId)
+      })),
+    [deviceService]
+  );
   const exportService = useMemo(() => new ExportService(studio), [studio]);
   const openCameraPreview = useCallback((deviceId?: string) => deviceService.openCameraPreview(deviceId), [deviceService]);
   const openMicrophoneStream = useCallback((deviceId?: string) => deviceService.openMicrophoneStream(deviceId), [deviceService]);
@@ -1050,6 +1057,8 @@ export default function App() {
             onPlayTestSound={() => void playTestSound()}
             onOpenCameraPreview={openCameraPreview}
             onOpenMicrophoneStream={openMicrophoneStream}
+            onReleaseCameraPreview={(deviceId, stream) => deviceService.releaseStream("camera", deviceId, stream)}
+            onReleaseMicrophoneStream={(deviceId, stream) => deviceService.releaseStream("microphone", deviceId, stream)}
             displays={displays}
             poppedOutPanels={Object.fromEntries(
               Object.entries(workspaceState.windows).map(([panelId, state]) => [panelId, Boolean(state?.isPoppedOut)])

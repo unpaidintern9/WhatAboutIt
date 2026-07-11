@@ -2,6 +2,11 @@ import type { DeviceDefaults, StudioSettings } from "./types";
 
 export const defaultDeviceDefaults: DeviceDefaults = {
   cameras: {},
+  cameraMicrophones: {
+    camera1: "morganMic",
+    camera2: "guestMic",
+    camera3: "extraMic"
+  },
   microphones: {},
   audioOutputId: undefined
 };
@@ -13,6 +18,10 @@ export function withDeviceDefaults(settings: StudioSettings): StudioSettings {
       cameras: {
         ...defaultDeviceDefaults.cameras,
         ...settings.deviceDefaults?.cameras
+      },
+      cameraMicrophones: {
+        ...defaultDeviceDefaults.cameraMicrophones,
+        ...settings.deviceDefaults?.cameraMicrophones
       },
       cameraSettings: settings.deviceDefaults?.cameraSettings
         ? {
@@ -48,6 +57,21 @@ export function saveMicrophoneSlot(
     microphones: {
       ...defaults.microphones,
       [slot]: deviceId || undefined
+    }
+  };
+}
+
+export function saveCameraMicrophoneSlot(
+  defaults: DeviceDefaults,
+  slot: keyof DeviceDefaults["cameras"],
+  micSlot: keyof DeviceDefaults["microphones"]
+) {
+  return {
+    ...defaults,
+    cameraMicrophones: {
+      ...defaultDeviceDefaults.cameraMicrophones,
+      ...defaults.cameraMicrophones,
+      [slot]: micSlot
     }
   };
 }

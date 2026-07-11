@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { defaultDeviceDefaults, saveCameraSlot, saveMicrophoneSlot, withDeviceDefaults } from "./device-config";
+import {
+  defaultDeviceDefaults,
+  saveCameraMicrophoneSlot,
+  saveCameraSlot,
+  saveMicrophoneSlot,
+  withDeviceDefaults
+} from "./device-config";
 import type { StudioSettings } from "./types";
 
 describe("device config", () => {
@@ -20,5 +26,12 @@ describe("device config", () => {
     expect(withMic.cameras.camera1).toBe("camera-a");
     expect(withMic.microphones.morganMic).toBe("mic-a");
   });
-});
 
+  it("keeps a clear default mic route for each camera", () => {
+    const routed = saveCameraMicrophoneSlot(defaultDeviceDefaults, "camera2", "morganMic");
+
+    expect(routed.cameraMicrophones?.camera1).toBe("morganMic");
+    expect(routed.cameraMicrophones?.camera2).toBe("morganMic");
+    expect(routed.cameraMicrophones?.camera3).toBe("extraMic");
+  });
+});

@@ -81,3 +81,21 @@ Export result:
 - Extra Mic was not physically validated.
 - Guest Mic was validated as a saved app channel, but the exact physical second microphone identity was not independently confirmed.
 - Human ear confirmation is still needed for test sound and headphone monitoring.
+
+## Post-Phase 9I Routing Fix
+
+The recorder now prefers active Live Studio preview and meter streams before opening a device again. When Camera 1, Camera 2, or Camera 3 is already live on the Record screen, pressing Record clones that live camera track for the Program/sidecar recorder instead of asking Windows/Electron to open the same camera a second time. This is intended to avoid the real failure where one camera previews but another camera fails to save because the driver rejects duplicate opens.
+
+Camera cards now include an `Audio input` route to Morgan Mic, Guest Mic, or Extra Mic. The Program recording uses the Camera 1 audio route. Sidecar audio files still save by microphone slot:
+
+- Camera 1 default route: Morgan Mic
+- Camera 2 default route: Guest Mic
+- Camera 3 default route: Extra Mic
+
+Automated coverage confirms:
+
+- Already-live Camera 1 and Camera 2 streams are reused without calling `getUserMedia()` again.
+- The Camera 1 audio route controls which selected mic feeds the Program recorder.
+- Mixer input selectors update Morgan/Guest/Extra mic device assignments.
+
+Physical M-Audio AudioBox input selection and headphone monitoring still need a human hardware pass.

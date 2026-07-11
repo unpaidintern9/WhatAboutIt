@@ -10,6 +10,7 @@ import { RecordingStudio } from "./RecordingStudio";
 
 const defaults: DeviceDefaults = {
   cameras: { camera1: "camera-a" },
+  cameraMicrophones: { camera1: "morganMic", camera2: "guestMic", camera3: "extraMic" },
   microphones: { morganMic: "mic-a" },
   audioOutputId: "speaker-a"
 };
@@ -51,6 +52,8 @@ function renderStudio(overrides: Partial<ComponentProps<typeof RecordingStudio>>
     onOpenMicrophoneStream: vi.fn(async () => {
       throw new Error("No mic in jsdom");
     }),
+    onReleaseCameraPreview: vi.fn(),
+    onReleaseMicrophoneStream: vi.fn(),
     ...overrides
   };
 
@@ -83,6 +86,9 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("1080p");
     expect(host.textContent).toContain("30 fps");
     expect(host.textContent).toContain("Morgan Mic");
+    expect(host.textContent).toContain("Audio input");
+    expect(host.textContent).toContain("Input");
+    expect(host.textContent).toContain("Output");
     expect(host.textContent).toContain("We can't hear you yet");
     expect(host.textContent).toContain("Cameras Ready");
     expect(host.textContent).toContain("Microphones Ready");
@@ -120,6 +126,7 @@ describe("RecordingStudio", () => {
     const { host } = renderStudio({ onPlayTestSound });
 
     expect(host.textContent).toContain("Monitoring starts Off");
+    expect(host.textContent).toContain("Output");
     expect(host.textContent).toContain("Hear Morgan");
     expect(host.textContent).toContain("Off");
     expect(host.textContent).toContain("Use headphones to avoid echo");
@@ -176,7 +183,21 @@ describe("RecordingStudio", () => {
   });
 
   it("makes mixer channel controls tactile and local", () => {
-    const { host } = renderStudio();
+    const onDefaultsChange = vi.fn();
+    const { host } = renderStudio({
+      onDefaultsChange,
+      detection: {
+        cameras: [
+          { id: "camera-a", label: "Main Camera", kind: "camera", camera: { connectionType: "usb", signal: "good", maxResolution: "1080p", maxFps: 30 } }
+        ],
+        microphones: [
+          { id: "mic-a", label: "Morgan Mic", kind: "microphone" },
+          { id: "mic-b", label: "M-Audio Input 2", kind: "microphone" }
+        ],
+        speakers: [{ id: "speaker-a", label: "Studio Headphones", kind: "speaker" }],
+        permissionNeeded: false
+      }
+    });
 
     click(host, "Mute");
     expect(host.textContent).toContain("Muted");
@@ -189,6 +210,33 @@ describe("RecordingStudio", () => {
       gain.dispatchEvent(new InputEvent("input", { bubbles: true, data: "42", inputType: "insertText" }));
     });
     expect(gain.value).toBe("42");
+
+    const input = host.querySelector('select[aria-label="Morgan Mic input"]') as HTMLSelectElement;
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      valueSetter?.call(input, "mic-b");
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(onDefaultsChange).toHaveBeenCalledWith(expect.objectContaining({
+      microphones: expect.objectContaining({ morganMic: "mic-b" })
+    }));
+  });
+
+  it("routes camera audio to Morgan, Guest, or Extra mic slots", () => {
+    const onDefaultsChange = vi.fn();
+    const { host } = renderStudio({ onDefaultsChange });
+    const route = host.querySelector('select[aria-label="Camera 1 audio input"]') as HTMLSelectElement;
+
+    expect(route).toBeTruthy();
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      valueSetter?.call(route, "guestMic");
+      route.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(onDefaultsChange).toHaveBeenCalledWith(expect.objectContaining({
+      cameraMicrophones: expect.objectContaining({ camera1: "guestMic" })
+    }));
   });
 
   it("shows note autosave confidence and teleprompter display controls", () => {
@@ -251,6 +299,7 @@ describe("RecordingStudio", () => {
     const { host } = renderStudio({
       defaults: {
         cameras: { camera1: "camera-a", camera2: "camera-b" },
+        cameraMicrophones: { camera1: "morganMic", camera2: "guestMic", camera3: "extraMic" },
         microphones: { morganMic: "mic-a", guestMic: "mic-b" },
         audioOutputId: "speaker-a"
       },

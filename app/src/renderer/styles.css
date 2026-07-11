@@ -2379,6 +2379,29 @@ input[type="range"] {
   margin: 0;
 }
 
+.camera-audio-route {
+  display: grid;
+  grid-template-columns: minmax(72px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0;
+  color: var(--color-mutedText);
+  font-size: var(--font-small-size);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.camera-audio-route select {
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px var(--space-xs);
+  color: var(--color-text);
+  background: var(--color-cards);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
 .recording-dot {
   display: inline-flex;
   align-items: center;
@@ -2513,6 +2536,25 @@ input[type="range"] {
   gap: var(--space-sm);
   flex-wrap: wrap;
   align-items: center;
+}
+
+.monitor-row {
+  align-items: flex-end;
+  padding: var(--space-xs);
+  background: color-mix(in srgb, var(--color-cards), transparent 18%);
+  border: 1px solid color-mix(in srgb, var(--color-border), transparent 28%);
+  border-radius: var(--component-border-radius);
+}
+
+.monitor-row label {
+  display: grid;
+  gap: 4px;
+  min-width: min(280px, 100%);
+  margin: 0;
+  color: var(--color-mutedText);
+  font-size: var(--font-small-size);
+  font-weight: 900;
+  text-transform: uppercase;
 }
 
 .headphone-warning {
@@ -2788,14 +2830,15 @@ input[type="range"] {
 
 .meter-list {
   display: grid;
-  grid-template-columns: repeat(5, minmax(145px, 1fr));
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
   gap: var(--space-sm);
 }
 
 .live-meter-card {
   display: grid;
-  gap: var(--space-xs);
-  padding: var(--space-sm);
+  gap: var(--space-sm);
+  min-width: 0;
+  padding: var(--space-md);
   background: var(--color-cards);
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-border-radius);
@@ -2831,23 +2874,57 @@ input[type="range"] {
 
 .channel-console {
   display: grid;
-  gap: var(--space-xs);
-}
-
-.channel-console summary {
-  cursor: pointer;
-  color: var(--color-primary);
-  font-weight: 900;
+  gap: var(--space-sm);
+  padding-top: var(--space-xs);
+  border-top: 1px solid color-mix(in srgb, var(--color-border), transparent 40%);
 }
 
 .channel-console label {
-  margin-bottom: 0;
+  display: grid;
+  gap: 4px;
+  margin: 0;
   color: var(--color-mutedText);
   font-size: var(--font-small-size);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.channel-console select {
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px var(--space-xs);
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface), var(--color-cards) 40%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
 }
 
 .channel-console input[type="range"] {
   padding: 0;
+}
+
+.channel-output {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  min-width: 0;
+  padding: var(--space-xs);
+  color: var(--color-mutedText);
+  background: color-mix(in srgb, var(--color-background), transparent 24%);
+  border: 1px solid color-mix(in srgb, var(--color-border), transparent 35%);
+  border-radius: var(--component-border-radius);
+  font-size: var(--font-small-size);
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.channel-output strong {
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .channel-buttons {
