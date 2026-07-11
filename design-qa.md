@@ -2,11 +2,11 @@
 
 source visual truth path: `C:\Users\mmcga\Downloads\StudioReference.png`
 
-implementation screenshot path: `C:\Users\mmcga\OneDrive\Documents\WhatAboutItStudio\design-qa-recording-pass2.png`
+implementation screenshot path: `C:\Users\mmcga\OneDrive\Documents\WhatAboutItStudio\design-qa-recording-spacing-fix.png`
 
 comparison evidence: `C:\Users\mmcga\OneDrive\Documents\WhatAboutItStudio\design-qa-comparison.png`
 
-viewport: `1600 x 1067`
+viewport: `1920 x 1017`
 
 state: Record screen, not recording, browser demo mode with live camera permissions unavailable.
 
@@ -38,6 +38,13 @@ console errors checked: one 404 static resource in Vite dev mode; no React/runti
 ### Pass 2 Result
 
 No actionable P0/P1/P2 findings remain for this implementation scope.
+
+### Spacing Fix Follow-Up
+
+- Fixed: Camera previews were turning off and on because release callbacks were recreated on parent rerenders, causing preview effects to clean up and restart. Release callbacks are now stable.
+- Fixed: The packaged app viewport showed vertical scroll and bottom controls overlapping the mixer. The recording shell now fits the viewport, the recovery banner is compact, the workbench rows are tighter, and the bottom controls sit below the console row.
+- Fixed: Compact mixer controls were cramped. Channel strips now expose clear `M`, `S`, and `H` controls for Mute, Solo, and Hear while preserving input/output and volume.
+- Evidence: `document.body.scrollHeight` equals `window.innerHeight` at `1920 x 1017`; console row bottom is `906.98px` and controls top is `914px`.
 
 ## Follow-Up Polish
 

@@ -333,6 +333,12 @@ export default function App() {
   const exportService = useMemo(() => new ExportService(studio), [studio]);
   const openCameraPreview = useCallback((deviceId?: string) => deviceService.openCameraPreview(deviceId), [deviceService]);
   const openMicrophoneStream = useCallback((deviceId?: string) => deviceService.openMicrophoneStream(deviceId), [deviceService]);
+  const releaseCameraPreview = useCallback((deviceId?: string, stream?: MediaStream) => {
+    deviceService.releaseStream("camera", deviceId, stream);
+  }, [deviceService]);
+  const releaseMicrophoneStream = useCallback((deviceId?: string, stream?: MediaStream) => {
+    deviceService.releaseStream("microphone", deviceId, stream);
+  }, [deviceService]);
 
   useEffect(() => {
     applyTheme(activeTheme);
@@ -1060,8 +1066,8 @@ export default function App() {
             onPlayTestSound={() => void playTestSound()}
             onOpenCameraPreview={openCameraPreview}
             onOpenMicrophoneStream={openMicrophoneStream}
-            onReleaseCameraPreview={(deviceId, stream) => deviceService.releaseStream("camera", deviceId, stream)}
-            onReleaseMicrophoneStream={(deviceId, stream) => deviceService.releaseStream("microphone", deviceId, stream)}
+            onReleaseCameraPreview={releaseCameraPreview}
+            onReleaseMicrophoneStream={releaseMicrophoneStream}
             displays={displays}
             poppedOutPanels={Object.fromEntries(
               Object.entries(workspaceState.windows).map(([panelId, state]) => [panelId, Boolean(state?.isPoppedOut)])
