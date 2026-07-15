@@ -35,7 +35,7 @@ import type { StudioDisplayInfo, StudioPanelId } from "../../shared/studio-works
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import type { RecordingServiceSnapshot } from "../services";
 import { formatRecordingTime } from "../services";
-import { Button } from ".";
+import { Button, Tooltip } from ".";
 import { StudioToolPanels } from "./StudioToolPanels";
 
 interface RecordingStudioProps {
@@ -153,7 +153,7 @@ export function RecordingStudio({
   const isRecording = snapshot.status === "recording";
   const isPaused = snapshot.status === "paused";
   const isComplete = snapshot.status === "stopped";
-  const hasMedia = Boolean(isComplete || snapshot.session);
+  const hasMedia = Boolean(isComplete && snapshot.session);
   const savingLocation = snapshot.session?.folderPath ?? "Session folder appears after Record starts";
   const cameraReadyCount = cameraSlots.filter((slot) => findDevice(detection.cameras, defaults.cameras[slot.key])).length;
   const micReadyCount = ["morganMic", "guestMic", "extraMic"].filter((key) => findDevice(detection.microphones, defaults.microphones[key as MicKey])).length;
@@ -276,6 +276,10 @@ export function RecordingStudio({
   }
 
   function goExport() {
+    if (isRecording || isPaused) {
+      setStudioNotice({ tone: "needs-attention", message: "Stop recording first, then Export will be ready." });
+      return;
+    }
     if (!hasMedia) {
       setStudioNotice({ tone: "needs-attention", message: "Record something first, then Export will be ready." });
       return;
@@ -981,8 +985,49 @@ function LiveMicMeter({
   onReleaseMicrophoneStream: (deviceId?: string, stream?: MediaStream) => void;
 }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const streamRef = useRef<MediaStream | undefined>(undefined);
   const [level, setLevel] = useState(fallbackLevel ?? 0);
   const [heard, setHeard] = useState(false);
+  const [monitorIssue, setMonitorIssue] = useState<string | undefined>();
+
+  const stopMonitorPlayback = useCallback(() => {
+    if (!audioRef.current) return;
+    if (audioRef.current.srcObject) audioRef.current.pause();
+    audioRef.current.muted = true;
+    audioRef.current.srcObject = null;
+  }, []);
+
+  const startMonitorPlayback = useCallback(async (stream = streamRef.current) => {
+    if (!stream || !audioRef.current) {
+      setMonitorIssue(deviceId ? "Starting monitor..." : "Pick input first");
+      return;
+    }
+
+    try {
+      const audio = audioRef.current;
+      const sinkableAudio = audio as HTMLAudioElement & { setSinkId?: (sinkId: string) => Promise<void> };
+      audio.srcObject = stream;
+      audio.muted = false;
+      audio.volume = Math.max(0, Math.min(1, controls.gain / 100));
+      if (outputDeviceId && sinkableAudio.setSinkId) await sinkableAudio.setSinkId(outputDeviceId);
+      onEchoWarning();
+      await audio.play();
+      setMonitorIssue(undefined);
+    } catch {
+      setMonitorIssue("Click again or pick headphones");
+    }
+  }, [controls.gain, deviceId, onEchoWarning, outputDeviceId]);
+
+  function toggleMonitor() {
+    const nextMonitor = !controls.monitor;
+    onControlsChange({ monitor: nextMonitor });
+    if (nextMonitor) {
+      void startMonitorPlayback();
+    } else {
+      setMonitorIssue(undefined);
+      stopMonitorPlayback();
+    }
+  }
 
   useEffect(() => {
     if (!deviceId || !window.AudioContext) {
@@ -1003,19 +1048,14 @@ function LiveMicMeter({
           onReleaseMicrophoneStream(deviceId, stream);
           return;
         }
+        streamRef.current = stream;
         audioContext = new AudioContext();
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
         const samples = new Uint8Array(analyser.frequencyBinCount);
         source.connect(analyser);
 
-        if (monitoring && audioRef.current) {
-          audioRef.current.srcObject = stream;
-          const sinkableAudio = audioRef.current as HTMLAudioElement & { setSinkId?: (sinkId: string) => Promise<void> };
-          if (outputDeviceId && sinkableAudio.setSinkId) await sinkableAudio.setSinkId(outputDeviceId);
-          onEchoWarning();
-          await audioRef.current.play();
-        }
+        if (monitoring) await startMonitorPlayback(stream);
 
         const tick = () => {
           if (canceled) return;
@@ -1039,10 +1079,24 @@ function LiveMicMeter({
     return () => {
       canceled = true;
       if (frame) window.cancelAnimationFrame(frame);
+      if (streamRef.current === stream) streamRef.current = undefined;
+      stopMonitorPlayback();
       if (stream) onReleaseMicrophoneStream(deviceId, stream);
       void audioContext?.close();
     };
-  }, [controls.gain, controls.muted, deviceId, fallbackLevel, monitoring, onEchoWarning, onOpenMicrophoneStream, onReleaseMicrophoneStream, outputDeviceId]);
+  }, [controls.gain, controls.muted, deviceId, fallbackLevel, monitoring, onOpenMicrophoneStream, onReleaseMicrophoneStream, outputDeviceId, startMonitorPlayback, stopMonitorPlayback]);
+
+  useEffect(() => {
+    if (!audioRef.current) return;
+    audioRef.current.volume = Math.max(0, Math.min(1, controls.gain / 100));
+
+    if (!monitoring || controls.muted) {
+      stopMonitorPlayback();
+      return;
+    }
+
+    void startMonitorPlayback();
+  }, [controls.gain, controls.muted, monitoring, outputDeviceId, startMonitorPlayback, stopMonitorPlayback]);
 
   const visibleLevel = controls.muted ? 0 : level;
   const copy = controls.muted ? "Muted" : fallbackLabel ?? (heard ? "Healthy" : "We can't hear you yet");
@@ -1057,8 +1111,8 @@ function LiveMicMeter({
       <DistressedMeter level={visibleLevel} label={label} />
       <div className="channel-console">
         {onInputChange && (
-          <label>
-            Input
+          <label className="channel-input-control" title="Choose which physical mic feeds this mixer channel.">
+            <span className="control-caption">Input</span>
             <select aria-label={`${label} input`} value={selectedInputId ?? ""} onChange={(event) => onInputChange(event.target.value)}>
               <option value="">Pick input</option>
               {inputOptions.map((device) => (
@@ -1067,8 +1121,8 @@ function LiveMicMeter({
             </select>
           </label>
         )}
-        <label>
-          Volume
+        <label className="channel-volume-control" title="Controls the live monitor level and meter sensitivity for this channel.">
+          <span className="control-caption">Volume <strong>{controls.gain}%</strong></span>
           <input
             aria-label={`${label} gain`}
             type="range"
@@ -1080,16 +1134,25 @@ function LiveMicMeter({
         </label>
         <span className="channel-output">Output <strong>{outputLabel}</strong></span>
         <div className="channel-buttons">
-          <button className={controls.muted ? "selected" : ""} type="button" onClick={() => onControlsChange({ muted: !controls.muted })}>
-            <VolumeX size={14} /> Mute
-          </button>
-          <button className={controls.solo ? "selected" : ""} type="button" onClick={() => onControlsChange({ solo: !controls.solo })}>
-            <SlidersHorizontal size={14} /> Solo
-          </button>
-          <button className={controls.monitor ? "selected" : ""} type="button" onClick={() => onControlsChange({ monitor: !controls.monitor })}>
-            <Headphones size={14} /> {monitorLabel} <strong>{controls.monitor && !controls.muted ? "On" : "Off"}</strong>
-          </button>
+          <Tooltip label="Mute: silence this channel in your headphones.">
+            <button title="Mute this channel" className={controls.muted ? "selected" : ""} type="button" onClick={() => onControlsChange({ muted: !controls.muted })}>
+              <VolumeX size={14} /> <span>Mute</span>
+            </button>
+          </Tooltip>
+          <Tooltip label="Solo: focus this channel while checking levels.">
+            <button title="Solo this channel" className={controls.solo ? "selected" : ""} type="button" onClick={() => onControlsChange({ solo: !controls.solo })}>
+              <SlidersHorizontal size={14} /> <span>Solo</span>
+            </button>
+          </Tooltip>
+          <Tooltip label="Hear: send this mic to your selected headphone output.">
+            <button title={`${monitorLabel} through headphones`} className={controls.monitor ? "selected" : ""} type="button" onClick={toggleMonitor}>
+              <Headphones size={14} /> <span>{monitorLabel}</span> <strong>{controls.monitor && !controls.muted ? "On" : "Off"}</strong>
+            </button>
+          </Tooltip>
         </div>
+        <small className={`monitor-feedback ${monitoring && !monitorIssue ? "on" : monitorIssue ? "needs-attention" : ""}`}>
+          {monitorIssue ?? (monitoring ? `${monitorLabel} On -> ${outputLabel}` : `${monitorLabel} Off`)}
+        </small>
         <small className={visibleLevel > 82 ? "peak hot" : "peak"}>Peak {visibleLevel}%</small>
       </div>
       <audio ref={audioRef} muted={!monitoring} />

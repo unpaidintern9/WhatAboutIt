@@ -905,6 +905,44 @@ dd {
   padding: var(--space-sm) var(--space-md);
 }
 
+.wai-tooltip {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+.wai-tooltip span[role="tooltip"] {
+  position: absolute;
+  z-index: 30;
+  inset-inline-start: 50%;
+  inset-block-end: calc(100% + 8px);
+  width: max-content;
+  max-width: 220px;
+  color: var(--color-inverseText);
+  background:
+    linear-gradient(rgba(12, 10, 9, 0.94), rgba(24, 18, 15, 0.96)),
+    var(--texture-active),
+    var(--color-secondary);
+  border: 1px solid color-mix(in srgb, var(--color-accent), #000 30%);
+  border-radius: 6px;
+  box-shadow: var(--component-shadow);
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  line-height: 1.25;
+  opacity: 0;
+  pointer-events: none;
+  text-align: left;
+  text-transform: none;
+  transform: translate(-50%, 4px);
+  transition: opacity var(--component-transition-speed), transform var(--component-transition-speed);
+}
+
+.wai-tooltip:hover span[role="tooltip"],
+.wai-tooltip:focus-within span[role="tooltip"] {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 .device-wizard {
   display: grid;
   gap: var(--space-xl);
@@ -3647,10 +3685,12 @@ input[type="range"] {
 }
 
 .reference-console-row .live-meter-card {
-  gap: 5px;
+  gap: 6px;
   min-height: 0;
-  padding: 5px;
-  background: rgba(255, 244, 220, 0.04);
+  padding: 6px;
+  background:
+    linear-gradient(180deg, rgba(255, 244, 220, 0.08), rgba(0, 0, 0, 0.1)),
+    rgba(255, 244, 220, 0.04);
   border: 1px solid color-mix(in srgb, var(--color-accent), transparent 42%);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
 }
@@ -3676,25 +3716,45 @@ input[type="range"] {
 }
 
 .reference-console-row .distressed-meter {
-  height: 26px;
+  height: 24px;
   border-width: 1px;
 }
 
 .reference-console-row .channel-console {
-  gap: 3px;
+  gap: 5px;
   padding-top: 4px;
 }
 
 .reference-console-row .channel-console label {
-  gap: 2px;
+  gap: 3px;
   color: var(--color-accent);
-  font-size: 0.52rem;
+  font-size: 0.56rem;
+}
+
+.reference-console-row .control-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  color: color-mix(in srgb, var(--color-accent), #fff 10%);
+  font-family: var(--font-heading);
+  font-size: 0.56rem;
+  text-transform: uppercase;
 }
 
 .reference-console-row .channel-console select {
-  min-height: 22px;
-  padding: 0 2px;
-  font-size: 0.48rem;
+  min-height: 24px;
+  padding: 0 5px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-surface), #fff 8%);
+  border-color: color-mix(in srgb, var(--color-accent), #000 40%);
+  font-size: 0.56rem;
+  font-weight: 900;
+}
+
+.reference-console-row .channel-volume-control input {
+  width: 100%;
+  accent-color: var(--color-danger);
 }
 
 .reference-console-row .channel-buttons {
@@ -3702,10 +3762,32 @@ input[type="range"] {
   gap: 3px;
 }
 
+.reference-console-row .channel-buttons .wai-tooltip,
+.reference-console-row .channel-buttons button {
+  width: 100%;
+}
+
 .reference-console-row .channel-buttons button {
   min-height: 24px;
-  padding: 3px;
-  font-size: 0;
+  padding: 3px 4px;
+  color: var(--color-text);
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.94), rgba(230, 184, 126, 0.78)),
+    var(--texture-active),
+    var(--color-surface);
+  border-color: color-mix(in srgb, var(--color-accent), #000 42%);
+  border-radius: 999px;
+  font-family: var(--font-heading);
+  font-size: 0.52rem;
+  text-transform: uppercase;
+}
+
+.reference-console-row .channel-buttons button.selected {
+  color: var(--color-accent);
+  background:
+    linear-gradient(rgba(174, 24, 18, 0.95), rgba(108, 13, 10, 0.95)),
+    var(--texture-active),
+    var(--color-primary);
 }
 
 .reference-console-row .channel-buttons button svg {
@@ -3713,30 +3795,34 @@ input[type="range"] {
   height: 14px;
 }
 
+.reference-console-row .channel-buttons button span,
 .reference-console-row .channel-buttons button strong {
-  display: none;
+  display: inline;
 }
 
 .reference-console-row .channel-buttons button::after {
-  color: inherit;
-  font-size: 0.62rem;
-  font-weight: 900;
-}
-
-.reference-console-row .channel-buttons button:nth-child(1)::after {
-  content: "M";
-}
-
-.reference-console-row .channel-buttons button:nth-child(2)::after {
-  content: "S";
-}
-
-.reference-console-row .channel-buttons button:nth-child(3)::after {
-  content: "H";
+  content: none;
 }
 
 .reference-console-row .peak {
   display: none;
+}
+
+.reference-console-row .monitor-feedback {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--color-accent), #fff 12%);
+  font-size: 0.58rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reference-console-row .monitor-feedback.on {
+  color: var(--color-success);
+}
+
+.reference-console-row .monitor-feedback.needs-attention {
+  color: var(--color-warning);
 }
 
 .compact-sound-grid,

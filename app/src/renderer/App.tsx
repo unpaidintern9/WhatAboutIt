@@ -504,7 +504,7 @@ export default function App() {
   }
 
   async function startExport(practice = false) {
-    let episodeId = activeEpisode?.id ?? timelineDraft.episodeId;
+    let episodeId = recordingSnapshot.session?.episodeId ?? timelineDraft.episodeId ?? activeEpisode?.id;
     if (!episodeId) {
       const latestEpisodes = await studio.listEpisodes();
       const latestEpisode = latestEpisodes[0];
@@ -519,7 +519,15 @@ export default function App() {
       episodeId,
       type: selectedExportType,
       qualityPreset: selectedQualityPreset,
-      draft: timelineDraft,
+      draft: timelineDraft.episodeId === episodeId
+        ? timelineDraft
+        : createTimelineDraft({
+            episodeId,
+            recordingSessionId: recordingSnapshot.session?.id,
+            deviceDefaults: settings.deviceDefaults,
+            markers: podcastTools.markers,
+            durationMs: recordingSnapshot.elapsedMs
+          }),
       practice
     });
     setExportJob(job);
@@ -874,13 +882,18 @@ export default function App() {
   }
 
   async function startRecording(practice = false) {
-    setRecordingSnapshot(
-      await recordingService.start(settings.deviceDefaults, {
-        episodeId: activeEpisode?.id,
-        episodeTitle: activeEpisode?.title,
-        practice
-      })
-    );
+    const nextSnapshot = await recordingService.start(settings.deviceDefaults, {
+      episodeId: activeEpisode?.id,
+      episodeTitle: activeEpisode?.title,
+      practice
+    });
+    setRecordingSnapshot(nextSnapshot);
+
+    if (nextSnapshot.session?.episodeId && nextSnapshot.session.episodeId !== activeEpisode?.id) {
+      const latestEpisodes = await studio.listEpisodes();
+      setEpisodes(latestEpisodes);
+      setActiveEpisode(latestEpisodes.find((episode) => episode.id === nextSnapshot.session?.episodeId) ?? activeEpisode);
+    }
   }
 
   async function pauseRecording() {
@@ -894,15 +907,24 @@ export default function App() {
   async function stopRecording() {
     const nextSnapshot = await recordingService.stop();
     setRecordingSnapshot(nextSnapshot);
+    const episodeId = nextSnapshot.session?.episodeId ?? activeEpisode?.id;
     const draft = createTimelineDraft({
-      episodeId: activeEpisode?.id,
+      episodeId,
       recordingSessionId: nextSnapshot.session?.id,
       deviceDefaults: settings.deviceDefaults,
       markers: podcastTools.markers,
       durationMs: nextSnapshot.elapsedMs
     });
-    await saveTimelineDraftState(draft);
-    if (activeEpisode?.id) await loadReviewMediaForEpisode(activeEpisode.id);
+    setTimelineDraft(draft);
+    if (episodeId) {
+      setTimelineDraft(await studio.saveTimelineDraft(episodeId, draft));
+      await loadReviewMediaForEpisode(episodeId);
+      if (episodeId !== activeEpisode?.id) {
+        const latestEpisodes = await studio.listEpisodes();
+        setEpisodes(latestEpisodes);
+        setActiveEpisode(latestEpisodes.find((episode) => episode.id === episodeId) ?? activeEpisode);
+      }
+    }
     await refreshUnfinishedSessions();
   }
 
@@ -1052,7 +1074,10 @@ export default function App() {
               setView("timeline-review");
             }}
             onAutoEdit={() => void runAutoEditFlow(reviewMode)}
-            onExport={() => setView("export")}
+            onExport={() => {
+              setView("export");
+              void startExport(reviewMode);
+            }}
             onDismissRecovery={() => setUnfinishedSessions([])}
             onNext={() => {
               if (activeEpisode) {
