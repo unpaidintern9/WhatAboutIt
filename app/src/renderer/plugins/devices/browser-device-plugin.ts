@@ -1,5 +1,6 @@
 import type { DeviceDetectionResult, DevicePlugin, StudioDevice, StudioDeviceKind } from "./types";
 import { cameraProviders } from "../cameras/camera-provider-registry";
+import { createCenteredMonoStream, createStudioAudioContext, highQualityAudioConstraint, stopStudioMediaStream } from "../audio/studio-audio";
 
 function deviceDebugEnabled() {
   try {
@@ -105,19 +106,7 @@ async function enumerateStudioDevices(): Promise<DeviceDetectionResult> {
 }
 
 async function stopStream(stream: MediaStream) {
-  stream.getTracks().forEach((track) => track.stop());
-}
-
-function highQualityAudioConstraint(deviceId?: string): MediaTrackConstraints | boolean {
-  return {
-    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-    sampleRate: { ideal: 48000 },
-    sampleSize: { ideal: 24 },
-    channelCount: { ideal: 1 },
-    echoCancellation: false,
-    noiseSuppression: false,
-    autoGainControl: false
-  };
+  stopStudioMediaStream(stream);
 }
 
 export const browserDevicePlugin: DevicePlugin = {
@@ -163,12 +152,13 @@ export const browserDevicePlugin: DevicePlugin = {
   async sampleMicrophoneLevel(deviceId?: string) {
     if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) return 0;
 
-    const stream = await navigator.mediaDevices.getUserMedia({
+    const rawStream = await navigator.mediaDevices.getUserMedia({
       audio: highQualityAudioConstraint(deviceId),
       video: false
     });
+    const stream = createCenteredMonoStream(rawStream);
 
-    const audioContext = new AudioContext();
+    const audioContext = createStudioAudioContext();
     const analyser = audioContext.createAnalyser();
     const source = audioContext.createMediaStreamSource(stream);
     const samples = new Uint8Array(analyser.frequencyBinCount);
@@ -186,7 +176,7 @@ export const browserDevicePlugin: DevicePlugin = {
   },
 
   async playTestSound(deviceId?: string) {
-    const audioContext = new AudioContext();
+    const audioContext = createStudioAudioContext();
     const oscillator = audioContext.createOscillator();
     const gain = audioContext.createGain();
     const destination = audioContext.createMediaStreamDestination();
@@ -219,9 +209,10 @@ export const browserDevicePlugin: DevicePlugin = {
 
   async openMicrophoneStream(deviceId?: string) {
     if (!navigator.mediaDevices?.getUserMedia || !deviceId) throw new Error("Mic needs attention");
-    return navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       audio: highQualityAudioConstraint(deviceId),
       video: false
     });
+    return createCenteredMonoStream(stream);
   }
 };

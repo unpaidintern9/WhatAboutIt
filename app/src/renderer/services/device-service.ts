@@ -1,4 +1,5 @@
 import type { DeviceDefaults } from "../../shared/types";
+import { stopStudioMediaStream } from "../plugins/audio/studio-audio";
 import type { DeviceDetectionResult, DevicePlugin, StudioDevice } from "../plugins/devices/types";
 
 export type StudioReadyState = "ready" | "needs-camera" | "needs-microphone" | "needs-permission";
@@ -97,9 +98,7 @@ export class DeviceService {
     const stream = this.managedStreams.get(key);
     if (!stream) return;
     if (expectedStream && stream !== expectedStream) return;
-    stream.getTracks().forEach((track) => {
-      if (track.readyState !== "ended") track.stop();
-    });
+    stopStudioMediaStream(stream);
     this.managedStreams.delete(key);
   }
 }

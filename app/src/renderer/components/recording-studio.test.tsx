@@ -282,15 +282,31 @@ describe("RecordingStudio", () => {
 
   it("does not reopen the mic stream when mixer controls change", async () => {
     const OriginalAudioContext = window.AudioContext;
+    const node = () => ({
+      channelCount: 2,
+      channelCountMode: "max" as ChannelCountMode,
+      channelInterpretation: "speakers" as ChannelInterpretation,
+      gain: { value: 1 },
+      connect: vi.fn(),
+      disconnect: vi.fn()
+    });
     class TestAudioContext {
       createAnalyser() {
         return {
           frequencyBinCount: 8,
-          getByteTimeDomainData: (samples: Uint8Array) => samples.fill(130)
+          getByteTimeDomainData: (samples: Uint8Array) => samples.fill(130),
+          connect: vi.fn(),
+          disconnect: vi.fn()
         };
       }
       createMediaStreamSource() {
-        return { connect: vi.fn() };
+        return node();
+      }
+      createChannelSplitter() {
+        return node();
+      }
+      createGain() {
+        return node();
       }
       close = vi.fn(async () => undefined);
     }

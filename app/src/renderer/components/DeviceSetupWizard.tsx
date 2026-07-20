@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DeviceDefaults } from "../../shared/types";
 import { saveCameraSlot, saveMicrophoneSlot } from "../../shared/device-config";
 import { AudioMeter, Button } from ".";
+import { createStudioAudioContext, stopStudioMediaStream } from "../plugins/audio/studio-audio";
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import { findDeviceLabel, getDeviceReadiness, getEmptyStateMessage } from "../services";
 
@@ -407,7 +408,7 @@ function SetupMicFeedback({
     async function startMeter() {
       try {
         stream = await onOpenMicrophoneStream(deviceId);
-        audioContext = new AudioContext();
+        audioContext = createStudioAudioContext();
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
         const samples = new Uint8Array(analyser.frequencyBinCount);
@@ -432,7 +433,7 @@ function SetupMicFeedback({
     return () => {
       canceled = true;
       if (frame) window.cancelAnimationFrame(frame);
-      stream?.getTracks().forEach((track) => track.stop());
+      stopStudioMediaStream(stream);
       void audioContext?.close();
     };
   }, [deviceId, fallbackLevel, onOpenMicrophoneStream]);

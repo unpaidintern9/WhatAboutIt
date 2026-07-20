@@ -32,6 +32,7 @@ import type { RecordingSession, RecordingTrackSaveResult, RecordingTrackSlot } f
 import type { CameraLayout, PodcastToolsState, SoundSlot } from "../../shared/podcast-tools";
 import { cameraLayouts, createLiveMarker, markerButtons } from "../../shared/podcast-tools";
 import type { StudioDisplayInfo, StudioPanelId } from "../../shared/studio-workspace";
+import { connectCenteredMonoSource, createStudioAudioContext } from "../plugins/audio/studio-audio";
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import type { RecordingServiceSnapshot } from "../services";
 import { formatRecordingTime } from "../services";
@@ -1100,7 +1101,7 @@ function LiveMicMeter({
       const sinkableAudio = audio as HTMLAudioElement & { setSinkId?: (sinkId: string) => Promise<void> };
       const currentControls = controlsRef.current;
       stopMonitorPlayback();
-      const audioContext = new AudioContext();
+      const audioContext = createStudioAudioContext();
       const destination = audioContext.createMediaStreamDestination();
       const source = audioContext.createMediaStreamSource(stream);
       connectVoiceMonitorChain(audioContext, source, destination, currentControls.voicePreset, currentControls.gain);
@@ -1140,6 +1141,7 @@ function LiveMicMeter({
     let audioContext: AudioContext | undefined;
     let stream: MediaStream | undefined;
     let frame = 0;
+    let centeredMeterSource: ReturnType<typeof connectCenteredMonoSource> | undefined;
     let canceled = false;
 
     async function startMeter() {
@@ -1150,11 +1152,12 @@ function LiveMicMeter({
           return;
         }
         streamRef.current = stream;
-        audioContext = new AudioContext();
+        audioContext = createStudioAudioContext();
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
         const samples = new Uint8Array(analyser.frequencyBinCount);
-        source.connect(analyser);
+        centeredMeterSource = connectCenteredMonoSource(audioContext, source);
+        centeredMeterSource.output.connect(analyser);
 
         const tick = () => {
           if (canceled) return;
@@ -1182,6 +1185,7 @@ function LiveMicMeter({
       if (streamRef.current === stream) streamRef.current = undefined;
       stopMonitorPlayback();
       if (stream) onReleaseMicrophoneStream(deviceId, stream);
+      centeredMeterSource?.disconnect();
       void audioContext?.close();
     };
   }, [deviceId, fallbackLevel, onOpenMicrophoneStream, onReleaseMicrophoneStream, stopMonitorPlayback]);
@@ -1247,7 +1251,7 @@ function LiveMicMeter({
           />
         </label>
         <span className="channel-output">Output <strong>{outputLabel}</strong></span>
-        <small className="channel-effect-copy">{voicePresets[controls.voicePreset].description}</small>
+        <small className="channel-effect-copy">{voicePresets[controls.voicePreset].description} AudioBox inputs are centered mono for podcast monitoring.</small>
         <div className="channel-buttons">
           <Tooltip label="Mute: silence this channel in your headphones.">
             <button title="Mute this channel" className={controls.muted ? "selected" : ""} type="button" onClick={() => onControlsChange({ muted: !controls.muted })}>
@@ -1381,7 +1385,9 @@ function connectVoiceMonitorChain(
   const makeup = audioContext.createGain();
   makeup.gain.value = Math.max(0, Math.min(1.35, gainValue / 82));
 
-  source.connect(highPass);
+  const centered = connectCenteredMonoSource(audioContext, source);
+
+  centered.output.connect(highPass);
   highPass.connect(warmth);
   warmth.connect(presence);
   presence.connect(compressor);

@@ -1,5 +1,6 @@
 import type { RecordingEnginePlugin, RecordingStartRequest } from "./types";
 import type { RecordingTrackKind, RecordingTrackSaveInput, RecordingTrackSlot } from "../../../shared/recording";
+import { createCenteredMonoStream, highQualityAudioConstraint, stopStudioMediaStream } from "../audio/studio-audio";
 
 interface ActiveTrackRecorder {
   slot: RecordingTrackSlot;
@@ -178,12 +179,12 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     if (needsVideo || needsAudio) {
       const fallback = await navigator.mediaDevices.getUserMedia({
         video: needsVideo ? deviceConstraint(videoDeviceId) : false,
-        audio: needsAudio ? audioDeviceConstraint(audioDeviceId) : false
+        audio: needsAudio ? highQualityAudioConstraint(audioDeviceId) : false
       });
       tracks.push(...fallback.getTracks());
     }
 
-    return new MediaStream(tracks);
+    return createCenteredMonoStream(new MediaStream(tracks), { preserveVideo: true });
   }
 
   private async openCameraTrackStream(slot: RecordingTrackSlot, deviceId: string) {
@@ -203,18 +204,15 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const programTrack = slot === "morganMic" ? cloneLiveTrack(this.stream?.getAudioTracks()[0]) : undefined;
     if (programTrack) return new MediaStream([programTrack]);
 
-    return navigator.mediaDevices.getUserMedia({ video: false, audio: audioDeviceConstraint(deviceId) });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: highQualityAudioConstraint(deviceId) });
+    return createCenteredMonoStream(stream);
   }
 
   private stopStream() {
-    this.stream?.getTracks().forEach((track) => {
-      if (track.readyState !== "ended") track.stop();
-    });
+    stopStudioMediaStream(this.stream);
     this.stream = null;
     this.trackRecorders.forEach((trackRecorder) => {
-      trackRecorder.stream.getTracks().forEach((track) => {
-        if (track.readyState !== "ended") track.stop();
-      });
+      stopStudioMediaStream(trackRecorder.stream);
     });
   }
 
@@ -237,18 +235,6 @@ function deviceConstraint(deviceId?: string) {
   return deviceId ? { deviceId: { exact: deviceId } } : true;
 }
 
-function audioDeviceConstraint(deviceId?: string): MediaTrackConstraints | boolean {
-  return {
-    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
-    sampleRate: { ideal: 48000 },
-    sampleSize: { ideal: 24 },
-    channelCount: { ideal: 1 },
-    echoCancellation: false,
-    noiseSuppression: false,
-    autoGainControl: false
-  };
-}
-
 function createTrackRecorder(slot: RecordingTrackSlot, kind: RecordingTrackKind, stream: MediaStream, mimeType: string): ActiveTrackRecorder {
   const chunks: Blob[] = [];
   const recorder = new MediaRecorder(stream, { mimeType });
@@ -269,9 +255,7 @@ async function stopTrackRecorder(trackRecorder: ActiveTrackRecorder): Promise<Re
       });
 
   await stopped;
-  trackRecorder.stream.getTracks().forEach((track) => {
-    if (track.readyState !== "ended") track.stop();
-  });
+  stopStudioMediaStream(trackRecorder.stream);
   const blob = new Blob(trackRecorder.chunks, { type: recorder.mimeType || (trackRecorder.kind === "audio" ? pickAudioMimeType() : pickMimeType()) });
   const bytes = new Uint8Array(await blob.arrayBuffer());
   return bytes.length > 0
