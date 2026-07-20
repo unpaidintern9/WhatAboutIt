@@ -112,6 +112,12 @@ describe("RecordingStudio", () => {
     expect(workbench).toBeTruthy();
     expect(mainColumn?.contains(cameraStrip)).toBe(true);
     expect(mainColumn?.contains(audioDeck)).toBe(true);
+    expect(mainColumn?.contains(controls)).toBe(true);
+    expect(cameraStrip).toBeTruthy();
+    expect(audioDeck).toBeTruthy();
+    expect(controls).toBeTruthy();
+    expect((cameraStrip as Element).compareDocumentPosition(controls as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect((controls as Element).compareDocumentPosition(audioDeck as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(sideStack?.textContent).toContain("Episode Notes");
     expect(sideStack?.textContent).toContain("Teleprompter");
     expect(cameraStrip?.querySelectorAll(".camera-live-card")).toHaveLength(3);

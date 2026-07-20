@@ -423,6 +423,30 @@ export function RecordingStudio({
               </section>
             </section>
 
+            <section className="giant-control-row" aria-label="Recording controls">
+              <StudioControlButton tone="record" disabled={isRecording || isPaused} onClick={() => void onStart()}>
+                <Circle size={28} /> Record
+              </StudioControlButton>
+              {isPaused ? (
+                <StudioControlButton onClick={() => void onResume()}>
+                  <Play size={28} /> Resume
+                </StudioControlButton>
+              ) : (
+                <StudioControlButton disabled={!isRecording} onClick={() => void onPause()}>
+                  <Pause size={28} /> Pause
+                </StudioControlButton>
+              )}
+              <StudioControlButton disabled={!isRecording && !isPaused} onClick={() => void onStop()}>
+                <Square size={28} /> Stop
+              </StudioControlButton>
+              <StudioControlButton onClick={goAutoEdit}>
+                <Sparkles size={28} /> Auto Edit
+              </StudioControlButton>
+              <StudioControlButton onClick={goExport}>
+                <Download size={28} /> Export
+              </StudioControlButton>
+            </section>
+
             <section className="reference-console-row" aria-label="Audio, sounds, and markers">
               <section className="live-audio-deck" aria-label="Live audio feedback">
                 <VintagePanel title="Microphones" icon={<Mic2 size={20} />} className="mixer-panel">
@@ -515,30 +539,6 @@ export function RecordingStudio({
           <span>{micReadyCount > 0 ? "Mics ready" : "Pick Morgan Mic"}</span>
           <span>{storageReady ? "Storage good" : "Storage needs attention"}</span>
           <span>{studioReady ? "Ready to record" : "Check the items above"}</span>
-        </section>
-
-        <section className="giant-control-row" aria-label="Recording controls">
-          <StudioControlButton tone="record" disabled={isRecording || isPaused} onClick={() => void onStart()}>
-            <Circle size={28} /> Record
-          </StudioControlButton>
-          {isPaused ? (
-            <StudioControlButton onClick={() => void onResume()}>
-              <Play size={28} /> Resume
-            </StudioControlButton>
-          ) : (
-            <StudioControlButton disabled={!isRecording} onClick={() => void onPause()}>
-              <Pause size={28} /> Pause
-            </StudioControlButton>
-          )}
-          <StudioControlButton disabled={!isRecording && !isPaused} onClick={() => void onStop()}>
-            <Square size={28} /> Stop
-          </StudioControlButton>
-          <StudioControlButton onClick={goAutoEdit}>
-            <Sparkles size={28} /> Auto Edit
-          </StudioControlButton>
-          <StudioControlButton onClick={goExport}>
-            <Download size={28} /> Export
-          </StudioControlButton>
         </section>
 
         <details className="secondary-studio-tools" open={toolsOpen} onToggle={(event) => setToolsOpen(event.currentTarget.open)}>

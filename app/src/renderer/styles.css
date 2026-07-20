@@ -326,7 +326,7 @@ h3 {
   min-height: 100vh;
   gap: 0;
   padding: 12px;
-  overflow-y: auto;
+  overflow: visible;
   background:
     linear-gradient(rgba(247, 212, 158, 0.82), rgba(236, 184, 120, 0.7)),
     var(--texture-active),
@@ -341,9 +341,10 @@ h3 {
 
 .studio-shell:not(.studio-shell--recording) .workspace {
   background:
-    linear-gradient(rgba(247, 212, 158, 0.82), rgba(236, 184, 120, 0.68)),
+    linear-gradient(rgba(247, 212, 158, 0.86), rgba(188, 108, 54, 0.28)),
     var(--texture-active),
     var(--color-surface);
+  border-left: 4px double color-mix(in srgb, var(--color-primary), #000 22%);
 }
 
 .studio-shell:not(.studio-shell--recording) .sidebar {
@@ -521,8 +522,12 @@ h3 {
 }
 
 .journey-progress span.complete {
-  color: var(--color-inverseText);
-  background: var(--color-success);
+  color: var(--color-text);
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.9), rgba(230, 184, 126, 0.74)),
+    var(--texture-active),
+    var(--color-surface);
+  border-color: var(--color-accent);
 }
 
 .journey-progress span.locked {
@@ -2804,14 +2809,13 @@ input[type="range"] {
 }
 
 .giant-control-row {
-  position: sticky;
-  bottom: var(--space-md);
-  z-index: 8;
+  position: static;
+  z-index: auto;
   padding: var(--space-sm);
   background:
-    linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.48)),
+    linear-gradient(rgba(20, 12, 9, 0.9), rgba(14, 10, 9, 0.95)),
     var(--texture-active),
-    var(--color-surface);
+    var(--color-secondary);
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -4456,7 +4460,8 @@ input[type="range"] {
 }
 
 .studio-shell--recording .reference-main-column {
-  grid-template-rows: minmax(300px, auto) auto;
+  grid-template-rows: minmax(300px, auto) auto auto;
+  gap: 12px;
 }
 
 .studio-shell--recording .reference-console-row {
@@ -4541,9 +4546,12 @@ input[type="range"] {
 
 .studio-shell--recording .reference-studio-board .giant-control-row {
   position: relative !important;
-  inset: auto !important;
-  z-index: 1;
-  margin-top: 12px;
+  z-index: auto;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 0;
+  padding: 8px;
   isolation: isolate;
 }
 
@@ -4566,7 +4574,12 @@ input[type="range"] {
   text-align: center;
 }
 
-.studio-shell:not(.studio-shell--recording) .brand-badge {
+.studio-shell:not(.studio-shell--recording):not(.sidebar-collapsed) .brand-badge {
+  display: none;
+}
+
+.studio-shell:not(.studio-shell--recording).sidebar-collapsed .brand-badge {
+  display: grid;
   width: 94px;
   height: 94px;
   margin-inline: auto;
@@ -4583,7 +4596,7 @@ input[type="range"] {
   max-width: 100%;
   color: var(--color-accent);
   font-family: var(--font-display);
-  font-size: clamp(1.9rem, 2.7vw, 3rem);
+  font-size: clamp(2.2rem, 3.3vw, 3.35rem);
   line-height: 0.82;
   overflow-wrap: normal;
   text-transform: uppercase;
@@ -4614,8 +4627,57 @@ input[type="range"] {
     var(--color-surface);
 }
 
+.studio-shell:not(.studio-shell--recording) .wizard-intro,
+.studio-shell:not(.studio-shell--recording) .wizard-panel,
+.studio-shell:not(.studio-shell--recording) .setup-guide-card,
+.studio-shell:not(.studio-shell--recording) .setup-next-action,
+.studio-shell:not(.studio-shell--recording) .studio-ready-summary,
+.studio-shell:not(.studio-shell--recording) .secondary-studio-tools {
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.92), rgba(236, 184, 126, 0.68)),
+    var(--texture-active),
+    var(--color-surface);
+  border: 3px solid var(--color-border);
+  border-radius: 8px;
+  box-shadow: var(--component-shadow);
+}
+
+.studio-shell:not(.studio-shell--recording) .wizard-intro {
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.96), rgba(247, 212, 158, 0.72)),
+    var(--texture-active),
+    var(--color-surface);
+}
+
+.studio-shell:not(.studio-shell--recording) .wizard-steps button,
+.studio-shell:not(.studio-shell--recording) .setup-guide-card span {
+  color: var(--color-text);
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.92), rgba(230, 184, 126, 0.74)),
+    var(--texture-active),
+    var(--color-surface);
+  border: 2px solid var(--color-border);
+  border-radius: 8px;
+}
+
+.studio-shell:not(.studio-shell--recording) .wizard-steps button.active,
+.studio-shell:not(.studio-shell--recording) .wizard-steps button:hover,
+.studio-shell:not(.studio-shell--recording) .setup-guide-card span.ready {
+  color: var(--color-accent);
+  background:
+    linear-gradient(rgba(160, 20, 15, 0.94), rgba(104, 13, 10, 0.95)),
+    var(--texture-active),
+    var(--color-primary);
+  border-color: var(--color-accent);
+}
+
+.studio-shell:not(.studio-shell--recording) .wizard-steps button.active span,
+.studio-shell:not(.studio-shell--recording) .wizard-steps button:hover span {
+  color: var(--color-accent);
+}
+
 .device-wizard {
-  width: min(100%, 1180px);
+  width: min(100%, 1280px);
   margin-inline: auto;
 }
 
