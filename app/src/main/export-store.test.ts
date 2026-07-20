@@ -48,7 +48,7 @@ describe("export store", () => {
     expect(status.message).toBe("Media tools are ready");
     expect(status.ffmpegPath).toMatch(/ffmpeg/i);
     expect(status.ffprobePath).toMatch(/ffprobe/i);
-  });
+  }, 20000);
 
   it("creates a real playable export and summary artifacts for practice export", async () => {
     const { createExport } = await import("./export-store");

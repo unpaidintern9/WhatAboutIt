@@ -108,6 +108,18 @@ async function stopStream(stream: MediaStream) {
   stream.getTracks().forEach((track) => track.stop());
 }
 
+function highQualityAudioConstraint(deviceId?: string): MediaTrackConstraints | boolean {
+  return {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    sampleRate: { ideal: 48000 },
+    sampleSize: { ideal: 24 },
+    channelCount: { ideal: 1 },
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false
+  };
+}
+
 export const browserDevicePlugin: DevicePlugin = {
   detectDevices: enumerateStudioDevices,
 
@@ -152,7 +164,7 @@ export const browserDevicePlugin: DevicePlugin = {
     if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) return 0;
 
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      audio: highQualityAudioConstraint(deviceId),
       video: false
     });
 
@@ -208,7 +220,7 @@ export const browserDevicePlugin: DevicePlugin = {
   async openMicrophoneStream(deviceId?: string) {
     if (!navigator.mediaDevices?.getUserMedia || !deviceId) throw new Error("Mic needs attention");
     return navigator.mediaDevices.getUserMedia({
-      audio: { deviceId: { exact: deviceId } },
+      audio: highQualityAudioConstraint(deviceId),
       video: false
     });
   }

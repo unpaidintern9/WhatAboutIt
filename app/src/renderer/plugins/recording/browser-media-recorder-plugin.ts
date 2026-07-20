@@ -178,7 +178,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     if (needsVideo || needsAudio) {
       const fallback = await navigator.mediaDevices.getUserMedia({
         video: needsVideo ? deviceConstraint(videoDeviceId) : false,
-        audio: needsAudio ? deviceConstraint(audioDeviceId) : false
+        audio: needsAudio ? audioDeviceConstraint(audioDeviceId) : false
       });
       tracks.push(...fallback.getTracks());
     }
@@ -203,7 +203,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const programTrack = slot === "morganMic" ? cloneLiveTrack(this.stream?.getAudioTracks()[0]) : undefined;
     if (programTrack) return new MediaStream([programTrack]);
 
-    return navigator.mediaDevices.getUserMedia({ video: false, audio: { deviceId: { exact: deviceId } } });
+    return navigator.mediaDevices.getUserMedia({ video: false, audio: audioDeviceConstraint(deviceId) });
   }
 
   private stopStream() {
@@ -235,6 +235,18 @@ function cloneLiveTrack(track?: MediaStreamTrack) {
 
 function deviceConstraint(deviceId?: string) {
   return deviceId ? { deviceId: { exact: deviceId } } : true;
+}
+
+function audioDeviceConstraint(deviceId?: string): MediaTrackConstraints | boolean {
+  return {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
+    sampleRate: { ideal: 48000 },
+    sampleSize: { ideal: 24 },
+    channelCount: { ideal: 1 },
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false
+  };
 }
 
 function createTrackRecorder(slot: RecordingTrackSlot, kind: RecordingTrackKind, stream: MediaStream, mimeType: string): ActiveTrackRecorder {

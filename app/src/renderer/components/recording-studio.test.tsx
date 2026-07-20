@@ -87,6 +87,8 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Audio input");
     expect(host.textContent).toContain("Input");
     expect(host.textContent).toContain("Output");
+    expect(host.textContent).toContain("Voice Polish");
+    expect(host.textContent).toContain("Warm Podcast");
     expect(host.textContent).toContain("We can't hear you yet");
     expect(host.textContent).toContain("Cameras Ready");
     expect(host.textContent).toContain("Microphones Ready");
@@ -133,7 +135,7 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Off");
     expect(host.textContent).toContain("Use headphones to avoid echo");
 
-    click(host, "Hear Morgan");
+    click(host, "Hear Off");
     expect(host.textContent).toContain("On");
 
     await act(async () => {
@@ -237,8 +239,97 @@ describe("RecordingStudio", () => {
     });
 
     expect(onDefaultsChange).toHaveBeenCalledWith(expect.objectContaining({
-      cameraMicrophones: expect.objectContaining({ camera1: "guestMic" })
+      cameraMicrophones: expect.objectContaining({ camera1: "guestMic", camera2: "morganMic" })
     }));
+    expect(host.textContent).toContain("Guest Mic moved to Camera 1");
+  });
+
+  it("keeps one physical mic input assigned to one mixer channel", () => {
+    const onDefaultsChange = vi.fn();
+    const { host } = renderStudio({
+      onDefaultsChange,
+      defaults: {
+        cameras: { camera1: "camera-a" },
+        cameraMicrophones: { camera1: "morganMic", camera2: "guestMic", camera3: "extraMic" },
+        microphones: { morganMic: "mic-a", guestMic: "mic-b" },
+        audioOutputId: "speaker-a"
+      },
+      detection: {
+        cameras: [
+          { id: "camera-a", label: "Main Camera", kind: "camera", camera: { connectionType: "usb", signal: "good", maxResolution: "1080p", maxFps: 30 } }
+        ],
+        microphones: [
+          { id: "mic-a", label: "Morgan Mic", kind: "microphone" },
+          { id: "mic-b", label: "M-Audio Box Input 2", kind: "microphone" }
+        ],
+        speakers: [{ id: "speaker-a", label: "Studio Headphones", kind: "speaker" }],
+        permissionNeeded: false
+      }
+    });
+
+    const input = host.querySelector('select[aria-label="Morgan Mic input"]') as HTMLSelectElement;
+    expect(input.textContent).toContain("M-Audio Box Input 2 - used by Guest Mic");
+
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      valueSetter?.call(input, "mic-b");
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(onDefaultsChange).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("M-Audio Box Input 2 is already assigned to Guest Mic");
+  });
+
+  it("does not reopen the mic stream when mixer controls change", async () => {
+    const OriginalAudioContext = window.AudioContext;
+    class TestAudioContext {
+      createAnalyser() {
+        return {
+          frequencyBinCount: 8,
+          getByteTimeDomainData: (samples: Uint8Array) => samples.fill(130)
+        };
+      }
+      createMediaStreamSource() {
+        return { connect: vi.fn() };
+      }
+      close = vi.fn(async () => undefined);
+    }
+    Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: TestAudioContext });
+
+    const stream = {
+      getTracks: () => [{ stop: vi.fn(), readyState: "live" }],
+      getAudioTracks: () => [{ stop: vi.fn(), readyState: "live" }]
+    } as unknown as MediaStream;
+    const onOpenMicrophoneStream = vi.fn(async () => stream);
+    const { host, root } = renderStudio({ onOpenMicrophoneStream });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(onOpenMicrophoneStream).toHaveBeenCalledTimes(1);
+
+    const gain = host.querySelector('input[aria-label="Morgan Mic gain"]') as HTMLInputElement;
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      valueSetter?.call(gain, "52");
+      gain.dispatchEvent(new InputEvent("input", { bubbles: true, data: "52", inputType: "insertText" }));
+    });
+
+    const polish = host.querySelector('select[aria-label="Morgan Mic voice polish"]') as HTMLSelectElement;
+    act(() => {
+      const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      valueSetter?.call(polish, "broadcast");
+      polish.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(onOpenMicrophoneStream).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+    Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: OriginalAudioContext });
   });
 
   it("shows note autosave confidence and teleprompter display controls", () => {

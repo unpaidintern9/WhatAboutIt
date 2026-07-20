@@ -16,7 +16,7 @@
     "format": "prettier . --check",
     "format:write": "prettier . --write",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.main.json --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --pool=threads --maxWorkers=1",
     "validate:json": "node scripts/validate-json.mjs",
     "validate:themes": "node scripts/validate-themes.mjs",
     "validate:plugins": "node scripts/validate-plugins.mjs",
