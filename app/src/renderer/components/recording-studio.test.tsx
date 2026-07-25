@@ -135,7 +135,7 @@ describe("RecordingStudio", () => {
     const onPlayTestSound = vi.fn(async () => undefined);
     const { host } = renderStudio({ onPlayTestSound });
 
-    expect(host.textContent).toContain("Monitoring starts Off");
+    expect(host.textContent).toContain("Low-latency monitor");
     expect(host.textContent).toContain("Output");
     expect(host.textContent).toContain("Hear Morgan");
     expect(host.textContent).toContain("Off");
@@ -288,15 +288,24 @@ describe("RecordingStudio", () => {
 
   it("does not reopen the mic stream when mixer controls change", async () => {
     const OriginalAudioContext = window.AudioContext;
+    const audioParam = (value = 0) => ({ value, setTargetAtTime: vi.fn() });
     const node = () => ({
       channelCount: 2,
       channelCountMode: "max" as ChannelCountMode,
       channelInterpretation: "speakers" as ChannelInterpretation,
-      gain: { value: 1 },
+      gain: audioParam(1),
       connect: vi.fn(),
       disconnect: vi.fn()
     });
     class TestAudioContext {
+      static instances = 0;
+      destination = node();
+      currentTime = 0;
+
+      constructor() {
+        TestAudioContext.instances += 1;
+      }
+
       createAnalyser() {
         return {
           frequencyBinCount: 8,
@@ -314,6 +323,21 @@ describe("RecordingStudio", () => {
       createGain() {
         return node();
       }
+      createBiquadFilter() {
+        return { ...node(), type: "lowpass", frequency: audioParam(), Q: audioParam(), gain: audioParam() };
+      }
+      createDynamicsCompressor() {
+        return {
+          ...node(),
+          threshold: audioParam(),
+          knee: audioParam(),
+          ratio: audioParam(),
+          attack: audioParam(),
+          release: audioParam()
+        };
+      }
+      setSinkId = vi.fn(async () => undefined);
+      resume = vi.fn(async () => undefined);
       close = vi.fn(async () => undefined);
     }
     Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: TestAudioContext });
@@ -329,6 +353,14 @@ describe("RecordingStudio", () => {
       await Promise.resolve();
     });
     expect(onOpenMicrophoneStream).toHaveBeenCalledTimes(1);
+    expect(TestAudioContext.instances).toBe(1);
+
+    click(host, "Hear Off");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(TestAudioContext.instances).toBe(2);
 
     const gain = host.querySelector('input[aria-label="Morgan Mic gain"]') as HTMLInputElement;
     act(() => {
@@ -349,6 +381,7 @@ describe("RecordingStudio", () => {
     });
 
     expect(onOpenMicrophoneStream).toHaveBeenCalledTimes(1);
+    expect(TestAudioContext.instances).toBe(2);
 
     act(() => root.unmount());
     Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: OriginalAudioContext });

@@ -1,20 +1,23 @@
 const processedStreamCleanups = new WeakMap<MediaStream, () => void>();
 
 export function highQualityAudioConstraint(deviceId?: string): MediaTrackConstraints | boolean {
-  return {
+  const constraints: MediaTrackConstraints & { latency?: { ideal: number } } = {
     ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
     sampleRate: { ideal: 48000 },
     sampleSize: { ideal: 24 },
     channelCount: { ideal: 2 },
+    latency: { ideal: 0.01 },
     echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false
   };
+
+  return constraints;
 }
 
 export function createStudioAudioContext() {
   try {
-    return new AudioContext({ latencyHint: "interactive", sampleRate: 48000 });
+    return new AudioContext({ latencyHint: 0.01, sampleRate: 48000 });
   } catch {
     return new AudioContext({ latencyHint: "interactive" });
   }

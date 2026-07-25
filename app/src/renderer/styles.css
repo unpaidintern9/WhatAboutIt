@@ -3472,7 +3472,7 @@ input[type="range"] {
 
 .reference-workbench {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(250px, 290px);
+  grid-template-columns: minmax(0, 1fr) minmax(290px, 310px);
   gap: 10px;
   min-height: 0;
 }
@@ -3488,6 +3488,7 @@ input[type="range"] {
 .camera-command-panel {
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
+  height: clamp(340px, 42vh, 420px);
   min-height: 0;
   overflow: hidden;
   background:
@@ -3617,7 +3618,7 @@ input[type="range"] {
 
 .reference-console-row {
   display: grid;
-  grid-template-columns: minmax(680px, 2.4fr) minmax(210px, 0.72fr) minmax(210px, 0.72fr);
+  grid-template-columns: minmax(640px, 2.7fr) minmax(180px, 0.68fr) minmax(180px, 0.68fr);
   gap: 12px;
   min-height: 0;
 }
@@ -3701,15 +3702,16 @@ input[type="range"] {
 
 .reference-console-row .meter-list {
   align-items: stretch;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(5, minmax(112px, 1fr));
   gap: 12px;
   padding: 0 12px 12px;
 }
 
 .reference-console-row .live-meter-card {
+  container-type: inline-size;
   grid-template-rows: auto auto 1fr;
   gap: 10px;
-  min-height: 390px;
+  min-height: 360px;
   padding: 12px;
   background:
     linear-gradient(180deg, rgba(255, 244, 220, 0.08), rgba(0, 0, 0, 0.1)),
@@ -3870,7 +3872,7 @@ input[type="range"] {
 }
 
 .reference-console-row .channel-effect-copy {
-  min-height: 44px;
+  min-height: 34px;
   padding: 7px 8px;
   color: color-mix(in srgb, var(--color-accent), #fff 8%);
   background: rgba(255, 244, 220, 0.045);
@@ -3976,7 +3978,9 @@ input[type="range"] {
 .studio-side-stack {
   display: grid;
   grid-template-rows: minmax(92px, 0.58fr) minmax(92px, 0.58fr) minmax(190px, 1.2fr);
+  align-self: start;
   gap: 10px;
+  height: clamp(520px, calc(100vh - 210px), 760px);
   min-height: 0;
 }
 
@@ -4007,9 +4011,18 @@ input[type="range"] {
 }
 
 .teleprompter-reference-panel textarea {
+  overflow: auto;
   color: var(--color-inverseText);
   background: rgba(0, 0, 0, 0.3);
+  font-size: clamp(1.15rem, 1.45vw, 1.7rem) !important;
   line-height: 1.22;
+  overflow-wrap: anywhere;
+}
+
+@container (max-width: 160px) {
+  .reference-console-row .channel-buttons button span {
+    display: none;
+  }
 }
 
 .teleprompter-reference-controls {
@@ -4465,7 +4478,7 @@ input[type="range"] {
 }
 
 .studio-shell--recording .reference-console-row {
-  grid-template-columns: minmax(680px, 2.4fr) minmax(210px, 0.72fr) minmax(210px, 0.72fr);
+  grid-template-columns: minmax(640px, 2.7fr) minmax(180px, 0.68fr) minmax(180px, 0.68fr);
   gap: 12px;
 }
 
@@ -4476,14 +4489,14 @@ input[type="range"] {
 }
 
 .studio-shell--recording .reference-console-row .meter-list {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(5, minmax(112px, 1fr));
   gap: 12px;
   padding: 0 12px 12px;
 }
 
 .studio-shell--recording .reference-console-row .live-meter-card {
   gap: 10px;
-  min-height: 390px;
+  min-height: 360px;
   padding: 12px;
 }
 
@@ -4524,6 +4537,7 @@ input[type="range"] {
   .studio-shell--recording .studio-side-stack {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     grid-template-rows: minmax(180px, auto);
+    height: auto;
   }
 
   .studio-shell--recording .reference-console-row {
@@ -4531,7 +4545,8 @@ input[type="range"] {
   }
 
   .studio-shell--recording .reference-console-row .meter-list {
-    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    grid-template-columns: repeat(5, minmax(150px, 1fr));
+    overflow-x: auto;
   }
 
   .studio-shell--recording .reference-console-row .monitor-row {

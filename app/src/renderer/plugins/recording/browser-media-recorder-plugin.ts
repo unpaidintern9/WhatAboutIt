@@ -199,7 +199,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
 
   private async openMicTrackStream(slot: RecordingTrackSlot, deviceId: string) {
     const activeTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(deviceId)?.getAudioTracks()[0]);
-    if (activeTrack) return new MediaStream([activeTrack]);
+    if (activeTrack) return createCenteredMonoStream(new MediaStream([activeTrack]));
 
     const programTrack = slot === "morganMic" ? cloneLiveTrack(this.stream?.getAudioTracks()[0]) : undefined;
     if (programTrack) return new MediaStream([programTrack]);

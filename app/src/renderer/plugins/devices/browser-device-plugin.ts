@@ -209,10 +209,9 @@ export const browserDevicePlugin: DevicePlugin = {
 
   async openMicrophoneStream(deviceId?: string) {
     if (!navigator.mediaDevices?.getUserMedia || !deviceId) throw new Error("Mic needs attention");
-    const stream = await navigator.mediaDevices.getUserMedia({
+    return navigator.mediaDevices.getUserMedia({
       audio: highQualityAudioConstraint(deviceId),
       video: false
     });
-    return createCenteredMonoStream(stream);
   }
 };

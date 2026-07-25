@@ -460,9 +460,9 @@ export function RecordingStudio({
                         ))}
                       </select>
                     </label>
-                    <span className="monitor-status"><Headphones size={16} /> Monitoring starts Off</span>
-                    <span className="headphone-warning">Use headphones to avoid echo.</span>
-                    <RusticButton onClick={() => void playTestSound()}>
+                    <span className="monitor-status" title="Monitoring stays off until you choose Hear on a channel."><Headphones size={16} /> Low-latency monitor</span>
+                    <span className="headphone-warning" title="For instant AudioBox monitoring, turn its Mixer knob toward Inputs.">Use headphones. AudioBox direct monitor is instant.</span>
+                    <RusticButton title="Play a short tone through the selected output." onClick={() => void playTestSound()}>
                       <Volume2 size={16} /> Play Test Sound
                     </RusticButton>
                   </div>
@@ -1069,8 +1069,8 @@ function LiveMicMeter({
   const streamRef = useRef<MediaStream | undefined>(undefined);
   const controlsRef = useRef(controls);
   const outputDeviceIdRef = useRef(outputDeviceId);
-  const monitorAudioContextRef = useRef<AudioContext | undefined>(undefined);
-  const monitorDestinationRef = useRef<MediaStreamAudioDestinationNode | undefined>(undefined);
+  const monitorGraphRef = useRef<ActiveVoiceMonitor | undefined>(undefined);
+  const monitorRequestRef = useRef(0);
   const [level, setLevel] = useState(fallbackLevel ?? 0);
   const [heard, setHeard] = useState(false);
   const [monitorIssue, setMonitorIssue] = useState<string | undefined>();
@@ -1079,15 +1079,17 @@ function LiveMicMeter({
   outputDeviceIdRef.current = outputDeviceId;
 
   const stopMonitorPlayback = useCallback(() => {
+    monitorRequestRef.current += 1;
     if (audioRef.current) {
       if (audioRef.current.srcObject) audioRef.current.pause();
       audioRef.current.muted = true;
       audioRef.current.srcObject = null;
     }
-    monitorDestinationRef.current?.stream.getTracks().forEach((track) => track.stop());
-    monitorDestinationRef.current = undefined;
-    void monitorAudioContextRef.current?.close();
-    monitorAudioContextRef.current = undefined;
+    const graph = monitorGraphRef.current;
+    monitorGraphRef.current = undefined;
+    graph?.chain.disconnect();
+    graph?.fallbackDestination?.stream.getTracks().forEach((track) => track.stop());
+    void graph?.audioContext.close();
   }, []);
 
   const startMonitorPlayback = useCallback(async (stream = streamRef.current) => {
@@ -1101,21 +1103,48 @@ function LiveMicMeter({
       const sinkableAudio = audio as HTMLAudioElement & { setSinkId?: (sinkId: string) => Promise<void> };
       const currentControls = controlsRef.current;
       stopMonitorPlayback();
+      const requestId = monitorRequestRef.current;
       const audioContext = createStudioAudioContext();
-      const destination = audioContext.createMediaStreamDestination();
+      const sinkableContext = audioContext as AudioContext & { setSinkId?: (sinkId: string) => Promise<void> };
       const source = audioContext.createMediaStreamSource(stream);
-      connectVoiceMonitorChain(audioContext, source, destination, currentControls.voicePreset, currentControls.gain);
+      let fallbackDestination: MediaStreamAudioDestinationNode | undefined;
+      let destination: AudioNode = audioContext.destination;
 
-      monitorAudioContextRef.current = audioContext;
-      monitorDestinationRef.current = destination;
-      audio.srcObject = destination.stream;
-      audio.muted = false;
-      audio.volume = 1;
-      if (outputDeviceIdRef.current && sinkableAudio.setSinkId) await sinkableAudio.setSinkId(outputDeviceIdRef.current);
+      if (outputDeviceIdRef.current && sinkableContext.setSinkId) {
+        try {
+          await sinkableContext.setSinkId(outputDeviceIdRef.current);
+        } catch {
+          fallbackDestination = audioContext.createMediaStreamDestination();
+          destination = fallbackDestination;
+        }
+      } else if (outputDeviceIdRef.current) {
+        fallbackDestination = audioContext.createMediaStreamDestination();
+        destination = fallbackDestination;
+      }
+
+      const chain = connectVoiceMonitorChain(audioContext, source, destination, currentControls.voicePreset, currentControls.gain);
+
+      if (monitorRequestRef.current !== requestId) {
+        chain.disconnect();
+        fallbackDestination?.stream.getTracks().forEach((track) => track.stop());
+        await audioContext.close();
+        return;
+      }
+
+      monitorGraphRef.current = { audioContext, chain, fallbackDestination };
+      if (fallbackDestination) {
+        audio.srcObject = fallbackDestination.stream;
+        audio.muted = false;
+        audio.volume = 1;
+        if (outputDeviceIdRef.current && sinkableAudio.setSinkId) await sinkableAudio.setSinkId(outputDeviceIdRef.current);
+        await audio.play();
+      } else {
+        await audioContext.resume();
+      }
       onEchoWarning();
-      await audio.play();
       setMonitorIssue(undefined);
     } catch {
+      stopMonitorPlayback();
       setMonitorIssue("Click again or pick headphones");
     }
   }, [deviceId, onEchoWarning, stopMonitorPlayback]);
@@ -1123,9 +1152,7 @@ function LiveMicMeter({
   function toggleMonitor() {
     const nextMonitor = !controls.monitor;
     onControlsChange({ monitor: nextMonitor });
-    if (nextMonitor) {
-      void startMonitorPlayback();
-    } else {
+    if (!nextMonitor) {
       setMonitorIssue(undefined);
       stopMonitorPlayback();
     }
@@ -1197,7 +1224,11 @@ function LiveMicMeter({
     }
 
     void startMonitorPlayback();
-  }, [controls.gain, controls.muted, controls.voicePreset, monitoring, outputDeviceId, startMonitorPlayback, stopMonitorPlayback]);
+  }, [controls.muted, deviceId, monitoring, outputDeviceId, startMonitorPlayback, stopMonitorPlayback]);
+
+  useEffect(() => {
+    monitorGraphRef.current?.chain.update(controls.voicePreset, controls.gain);
+  }, [controls.gain, controls.voicePreset]);
 
   const visibleLevel = controls.muted ? 0 : level;
   const copy = controls.muted ? "Muted" : fallbackLabel ?? (heard ? "Healthy" : "We can't hear you yet");
@@ -1250,8 +1281,10 @@ function LiveMicMeter({
             onChange={(event) => onControlsChange({ gain: Number(event.target.value) })}
           />
         </label>
-        <span className="channel-output">Output <strong>{outputLabel}</strong></span>
-        <small className="channel-effect-copy">{voicePresets[controls.voicePreset].description} AudioBox inputs are centered mono for podcast monitoring.</small>
+        <span className="channel-output" title={`This channel monitors through ${outputLabel}.`}>Output <strong>{outputLabel}</strong></span>
+        <small className="channel-effect-copy" title="AudioBox inputs are centered in both ears. For zero-delay monitoring, turn the AudioBox Mixer knob toward Inputs.">
+          {voicePresets[controls.voicePreset].description}
+        </small>
         <div className="channel-buttons">
           <Tooltip label="Mute: silence this channel in your headphones.">
             <button title="Mute this channel" className={controls.muted ? "selected" : ""} type="button" onClick={() => onControlsChange({ muted: !controls.muted })}>
@@ -1355,36 +1388,28 @@ function DistressedMeter({ level, label }: { level: number; label: string }) {
 function connectVoiceMonitorChain(
   audioContext: AudioContext,
   source: MediaStreamAudioSourceNode,
-  destination: MediaStreamAudioDestinationNode,
+  destination: AudioNode,
   preset: VoicePreset,
   gainValue: number
 ) {
   const highPass = audioContext.createBiquadFilter();
   highPass.type = "highpass";
-  highPass.frequency.value = preset === "clean" ? 60 : 82;
   highPass.Q.value = 0.7;
 
   const warmth = audioContext.createBiquadFilter();
   warmth.type = "lowshelf";
   warmth.frequency.value = 180;
-  warmth.gain.value = preset === "warm" ? 2 : preset === "broadcast" ? 1 : 0;
 
   const presence = audioContext.createBiquadFilter();
   presence.type = "peaking";
   presence.frequency.value = 3200;
   presence.Q.value = 0.9;
-  presence.gain.value = preset === "broadcast" ? 2.5 : preset === "warm" ? 1.2 : 0;
 
   const compressor = audioContext.createDynamicsCompressor();
-  compressor.threshold.value = preset === "broadcast" ? -24 : preset === "warm" ? -20 : -14;
-  compressor.knee.value = preset === "clean" ? 18 : 12;
-  compressor.ratio.value = preset === "broadcast" ? 4 : preset === "warm" ? 2.6 : 1.8;
   compressor.attack.value = 0.006;
   compressor.release.value = 0.14;
 
   const makeup = audioContext.createGain();
-  makeup.gain.value = Math.max(0, Math.min(1.35, gainValue / 82));
-
   const centered = connectCenteredMonoSource(audioContext, source);
 
   centered.output.connect(highPass);
@@ -1393,6 +1418,37 @@ function connectVoiceMonitorChain(
   presence.connect(compressor);
   compressor.connect(makeup);
   makeup.connect(destination);
+
+  function update(nextPreset: VoicePreset, nextGainValue: number) {
+    const now = audioContext.currentTime;
+    highPass.frequency.setTargetAtTime(nextPreset === "clean" ? 60 : 82, now, 0.01);
+    warmth.gain.setTargetAtTime(nextPreset === "warm" ? 2 : nextPreset === "broadcast" ? 1 : 0, now, 0.01);
+    presence.gain.setTargetAtTime(nextPreset === "broadcast" ? 2.5 : nextPreset === "warm" ? 1.2 : 0, now, 0.01);
+    compressor.threshold.setTargetAtTime(nextPreset === "broadcast" ? -24 : nextPreset === "warm" ? -20 : -14, now, 0.01);
+    compressor.knee.setTargetAtTime(nextPreset === "clean" ? 18 : 12, now, 0.01);
+    compressor.ratio.setTargetAtTime(nextPreset === "broadcast" ? 4 : nextPreset === "warm" ? 2.6 : 1.8, now, 0.01);
+    makeup.gain.setTargetAtTime(Math.max(0, Math.min(1.35, nextGainValue / 82)), now, 0.01);
+  }
+
+  update(preset, gainValue);
+
+  return {
+    update,
+    disconnect() {
+      centered.disconnect();
+      highPass.disconnect();
+      warmth.disconnect();
+      presence.disconnect();
+      compressor.disconnect();
+      makeup.disconnect();
+    }
+  };
+}
+
+interface ActiveVoiceMonitor {
+  audioContext: AudioContext;
+  chain: ReturnType<typeof connectVoiceMonitorChain>;
+  fallbackDestination?: MediaStreamAudioDestinationNode;
 }
 
 function StudioControlButton({ tone, className = "", children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "record" }) {
