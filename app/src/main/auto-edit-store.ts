@@ -6,6 +6,7 @@ import type { TimelineDraft } from "../shared/timeline";
 import { markTimelineSaved } from "../shared/timeline";
 import { getEpisodesRoot } from "./config-service";
 import { logger } from "./logger";
+import { analyzeEpisodeAudioActivity } from "./audio-activity-analysis";
 
 function sessionFolder(episodeId: string) {
   return path.join(getEpisodesRoot(), episodeId, "Session");
@@ -17,10 +18,19 @@ export async function runAutoEdit(input: {
   mode: AutoEditMode;
   practice?: boolean;
 }): Promise<AutoEditResult> {
+  const episodeFolder = path.join(getEpisodesRoot(), input.episodeId);
+  const activitySegments = input.practice ? [] : await analyzeEpisodeAudioActivity(episodeFolder).catch(async (error) => {
+    await logger.warning("AutoEditService", "Microphone activity analysis was unavailable; keeping the existing camera plan.", {
+      episodeId: input.episodeId,
+      error: String(error)
+    });
+    return [];
+  });
   const result = runOfflineAutoEdit({
     draft: input.draft,
     mode: input.mode,
-    episodeId: input.episodeId
+    episodeId: input.episodeId,
+    activitySegments
   });
   const folder = sessionFolder(input.episodeId);
   const savedDraft = markTimelineSaved(result.draft);

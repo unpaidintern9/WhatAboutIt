@@ -1,7 +1,18 @@
-import { Clock, Download, History, Lock, Pause, Play, RotateCcw, Save, Scissors, ShieldCheck, SkipForward, Sparkles, Split, Trash2, Undo2, Redo2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Clock, Download, History, Lock, MousePointer2, Pause, Play, RotateCcw, Save, Scissors, ShieldCheck, SkipForward, Sparkles, Split, Trash2, Undo2, Redo2, Video, Volume2, VolumeX } from "lucide-react";
 import type { ReviewMediaAsset, ReviewMediaInventory } from "../../shared/review-media";
 import type { TimelineDraft } from "../../shared/timeline";
-import { applyTimelineEdit, redoTimelineEdit, restoreOriginalTimeline, selectTimelinePoint, undoTimelineEdit } from "../../shared/timeline";
+import {
+  addCameraDecision,
+  applyTimelineEdit,
+  redoTimelineEdit,
+  restoreOriginalTimeline,
+  selectTimelinePoint,
+  selectTimelineTrack,
+  setTimelineEditMode,
+  undoTimelineEdit,
+  updateTimelineTrackMix
+} from "../../shared/timeline";
 import { Button } from ".";
 import { formatRecordingTime } from "../services";
 
@@ -16,13 +27,73 @@ interface TimelineReviewProps {
 
 export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExport, onAutoEdit }: TimelineReviewProps) {
   const selectedTimestamp = draft.selection?.timestampMs ?? 0;
+  const videoAssets = useMemo(() => media ? [media.program, ...media.cameras] : [], [media]);
+  const [selectedVideoId, setSelectedVideoId] = useState("program");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const pairedAudioRef = useRef<HTMLAudioElement>(null);
+  const selectedVideo = videoAssets.find((asset) => asset.id === selectedVideoId) ?? videoAssets.find((asset) => asset.status === "ready") ?? videoAssets[0];
+  const pairedAudio = selectedVideo?.pairedAudioId ? media?.audio.find((asset) => asset.id === selectedVideo.pairedAudioId) : undefined;
+  const selectedTrack = draft.tracks.find((track) => track.id === draft.selectedTrackId) ?? draft.tracks[0];
 
-  function choosePoint(timestampMs: number, markerId?: string) {
-    onDraftChange(selectTimelinePoint(draft, { timestampMs, markerId, source: markerId ? "marker" : "timeline" }));
+  useEffect(() => {
+    if (selectedVideo?.status === "ready") return;
+    const firstReady = videoAssets.find((asset) => asset.status === "ready");
+    if (firstReady) setSelectedVideoId(firstReady.id);
+  }, [selectedVideo?.status, videoAssets]);
+
+  useEffect(() => {
+    videoRef.current?.pause();
+    pairedAudioRef.current?.pause();
+  }, [selectedVideoId]);
+
+  function choosePoint(timestampMs: number, markerId?: string, trackId = draft.selectedTrackId) {
+    onDraftChange(selectTimelinePoint(draft, { timestampMs, markerId, trackId, source: markerId ? "marker" : "timeline" }));
+    seekSelectedVideo(timestampMs);
   }
 
   function applyEdit(type: Parameters<typeof applyTimelineEdit>[1]) {
-    onDraftChange(applyTimelineEdit(draft, type));
+    onDraftChange(applyTimelineEdit(draft, type, new Date().toISOString(), selectedTrack?.id));
+  }
+
+  function selectTrack(trackId: string, timestampMs?: number) {
+    const selectedDraft = selectTimelineTrack(draft, trackId);
+    const nextDraft = timestampMs === undefined
+      ? selectedDraft
+      : selectTimelinePoint(selectedDraft, { timestampMs, trackId, source: "timeline" });
+    onDraftChange(nextDraft);
+    const track = nextDraft.tracks.find((candidate) => candidate.id === trackId);
+    if (track?.kind === "program" || track?.kind === "camera") setSelectedVideoId(track.sourceAssetId ?? "program");
+  }
+
+  function selectAsset(asset: ReviewMediaAsset) {
+    const track = draft.tracks.find((candidate) => candidate.sourceAssetId === asset.id);
+    if (track) selectTrack(track.id);
+    if (asset.kind !== "audio") setSelectedVideoId(asset.id);
+  }
+
+  async function playSelectedVideo() {
+    if (!videoRef.current) return;
+    await videoRef.current.play();
+  }
+
+  function pauseSelectedVideo() {
+    videoRef.current?.pause();
+    pairedAudioRef.current?.pause();
+  }
+
+  function seekSelectedVideo(timestampMs: number) {
+    const timestampSeconds = Math.max(0, timestampMs / 1000);
+    if (videoRef.current) videoRef.current.currentTime = timestampSeconds;
+    if (pairedAudioRef.current) pairedAudioRef.current.currentTime = timestampSeconds;
+  }
+
+  function syncPairedAudio(play = false) {
+    const video = videoRef.current;
+    const audio = pairedAudioRef.current;
+    if (!video || !audio) return;
+    if (Math.abs(audio.currentTime - video.currentTime) > 0.2) audio.currentTime = video.currentTime;
+    audio.volume = video.volume;
+    if (play) void audio.play().catch(() => undefined);
   }
 
   return (
@@ -39,13 +110,28 @@ export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExp
         </div>
       </div>
 
+      <div className="editor-mode-switch" aria-label="Editing mode">
+        <button
+          type="button"
+          className={draft.editMode === "manual" ? "selected" : ""}
+          onClick={() => onDraftChange(setTimelineEditMode(draft, "manual"))}
+        >
+          <MousePointer2 size={18} /> Manual Edit
+          <small>Choose every camera and mic yourself</small>
+        </button>
+        <button type="button" className={draft.editMode === "auto" ? "selected" : ""} onClick={onAutoEdit}>
+          <Sparkles size={18} /> Auto Edit
+          <small>Build a draft from real saved sources</small>
+        </button>
+      </div>
+
       <div className="timeline-controls">
         <Button variant="primary" icon={<Sparkles size={20} />} onClick={onAutoEdit}>
           Auto Edit
         </Button>
-        <Button variant="secondary" icon={<Play size={20} />}>Play</Button>
-        <Button variant="secondary" icon={<Pause size={20} />}>Pause</Button>
-        <Button variant="secondary" icon={<SkipForward size={20} />} disabled={draft.markers.length === 0}>
+        <Button variant="secondary" icon={<Play size={20} />} disabled={selectedVideo?.status !== "ready"} onClick={() => void playSelectedVideo()}>Play</Button>
+        <Button variant="secondary" icon={<Pause size={20} />} disabled={selectedVideo?.status !== "ready"} onClick={pauseSelectedVideo}>Pause</Button>
+        <Button variant="secondary" icon={<SkipForward size={20} />} disabled={draft.markers.length === 0} onClick={() => seekSelectedVideo(selectedTimestamp)}>
           Jump to marker
         </Button>
         <Button variant="secondary" icon={<Save size={18} />} onClick={onSaveDraft}>
@@ -57,24 +143,71 @@ export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExp
       </div>
 
       <section className="review-media-board" aria-label="Recorded media">
-        <div className="program-player-panel">
+        <div className="program-player-panel review-playback-deck">
           <div className="panel-heading">
-            <h3>Program video</h3>
+            <h3>Recording playback</h3>
             <ShieldCheck size={22} />
           </div>
-          {media?.program.status === "ready" && media.program.playbackUrl ? (
-            <video controls src={media.program.playbackUrl} aria-label="Program video playback" />
+          <div className="review-source-tabs" aria-label="Recorded video sources">
+            {videoAssets.map((asset) => (
+              <button
+                type="button"
+                className={asset.id === selectedVideo?.id ? "selected" : ""}
+                onClick={() => selectAsset(asset)}
+                title={asset.kind === "camera" ? `${asset.label} plays with ${asset.pairedAudioLabel ?? "its assigned microphone"}` : "Play the finished Program recording"}
+                key={asset.id}
+              >
+                <span>{asset.label}</span>
+                <small>{asset.status === "ready" ? "Available" : "Not recorded"}</small>
+              </button>
+            ))}
+          </div>
+          {selectedVideo?.status === "ready" && selectedVideo.playbackUrl ? (
+            <div className="review-player-stage">
+              <video
+                key={selectedVideo.playbackUrl}
+                ref={videoRef}
+                controls
+                preload="metadata"
+                src={selectedVideo.playbackUrl}
+                aria-label={`${selectedVideo.label} playback`}
+                onPlay={() => syncPairedAudio(true)}
+                onPause={() => pairedAudioRef.current?.pause()}
+                onSeeked={() => syncPairedAudio()}
+                onTimeUpdate={() => syncPairedAudio()}
+                onVolumeChange={() => syncPairedAudio()}
+                onEnded={() => pairedAudioRef.current?.pause()}
+              />
+              {!selectedVideo.includesPairedAudio && pairedAudio?.status === "ready" && pairedAudio.playbackUrl && (
+                <audio key={pairedAudio.playbackUrl} ref={pairedAudioRef} preload="metadata" src={pairedAudio.playbackUrl} />
+              )}
+              <div className={`review-audio-route ${selectedVideo.kind === "program" || pairedAudio?.status === "ready" ? "ready" : "needs-attention"}`}>
+                <strong>{selectedVideo.label}</strong>
+                <span>
+                  {selectedVideo.kind === "program"
+                    ? "Program audio is included"
+                    : selectedVideo.includesPairedAudio || pairedAudio?.status === "ready"
+                      ? `${selectedVideo.pairedAudioLabel} plays with this camera`
+                      : `${selectedVideo.pairedAudioLabel ?? "Assigned microphone"} was not recorded separately`}
+                </span>
+              </div>
+            </div>
           ) : (
             <div className="missing-media-state">
-              <strong>{media ? media.program.message : "No program video found yet"}</strong>
-              <span>{media?.program.relativePath ?? "Program/program.webm"}</span>
+              <strong>{selectedVideo?.message ?? "No recorded video found yet"}</strong>
+              <span>{selectedVideo?.relativePath ?? "Record an episode to review it here"}</span>
             </div>
           )}
           <p className="soft-copy">Original files are safe. Draft edits stay non-destructive.</p>
         </div>
 
-        <TrackList title="Camera files" assets={media?.cameras ?? []} />
-        <TrackList title="Audio files" assets={media?.audio ?? []} previewAudio />
+        <TrackList
+          title="Audio files"
+          assets={media?.audio ?? []}
+          selectedAssetId={selectedTrack?.sourceAssetId}
+          onSelect={selectAsset}
+          previewAudio
+        />
       </section>
 
       <div className="visual-timeline" aria-label="Draft timeline">
@@ -82,13 +215,17 @@ export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExp
           <Clock size={18} />
           <span>Selected spot: {formatRecordingTime(selectedTimestamp)}</span>
           <em>{draft.hasUnsavedChanges ? "Auto-saving your draft" : "Draft saved locally"}</em>
-          {draft.editLog.length > 0 && <em>Draft saved. Preview rendering comes next.</em>}
+          {draft.editLog.length > 0 && <em>Saved edits will be applied during export.</em>}
         </div>
         {draft.tracks.map((track) => (
           <button
             type="button"
-            className={`timeline-track ${track.kind} ${draft.selection?.source === "timeline" ? "selected" : ""}`}
-            onClick={() => choosePoint(Math.max(0, Math.floor(draft.durationMs / 2)))}
+            className={`timeline-track ${track.kind} ${draft.selectedTrackId === track.id ? "selected" : ""}`}
+            onClick={() => {
+              const timestampMs = Math.max(0, Math.floor(draft.durationMs / 2));
+              selectTrack(track.id, timestampMs);
+              seekSelectedVideo(timestampMs);
+            }}
             key={track.id}
           >
             <strong>{track.label}</strong>
@@ -112,9 +249,39 @@ export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExp
       <section className="draft-editing-tools">
         <div>
           <p className="signature">Safe edits, no worries</p>
-          <h3>Make a simple draft edit</h3>
-          <p className="soft-copy">Pick a spot on the timeline or jump to a marker, then choose what should happen there.</p>
+          <h3>Edit {selectedTrack?.label ?? "the combined episode"}</h3>
+          <p className="soft-copy">Edits apply only to this source. Choose Program when a cut should affect the whole episode.</p>
         </div>
+        {selectedTrack && selectedTrack.kind !== "markers" && (
+          <div className="source-mix-controls" aria-label={`${selectedTrack.label} episode controls`}>
+            <button
+              type="button"
+              className={selectedTrack.includedInProgram ? "selected" : ""}
+              onClick={() => onDraftChange(updateTimelineTrackMix(draft, selectedTrack.id, { includedInProgram: !selectedTrack.includedInProgram }))}
+            >
+              {selectedTrack.includedInProgram ? <Volume2 size={17} /> : <VolumeX size={17} />}
+              {selectedTrack.includedInProgram ? "Included in episode" : "Excluded from episode"}
+            </button>
+            {selectedTrack.kind === "microphone" && (
+              <label>
+                Track level <strong>{selectedTrack.volume}%</strong>
+                <input
+                  aria-label={`${selectedTrack.label} episode volume`}
+                  type="range"
+                  min="0"
+                  max="150"
+                  value={selectedTrack.volume}
+                  onChange={(event) => onDraftChange(updateTimelineTrackMix(draft, selectedTrack.id, { volume: Number(event.target.value) }))}
+                />
+              </label>
+            )}
+            {selectedTrack.kind === "camera" && (
+              <button type="button" onClick={() => onDraftChange(addCameraDecision(draft, selectedTrack.id))}>
+                <Video size={17} /> Use this camera from selected spot
+              </button>
+            )}
+          </div>
+        )}
         <div className="edit-button-grid" aria-label="Draft editing controls">
           <Button variant="primary" icon={<Scissors size={18} />} onClick={() => applyEdit("trim-before")}>Trim before here</Button>
           <Button variant="secondary" icon={<Split size={18} />} onClick={() => applyEdit("split")}>Split here</Button>
@@ -144,12 +311,28 @@ export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExp
             {draft.editLog.map((edit) => (
               <li key={edit.id}>
                 <strong>{edit.label}</strong>
-                <span>{formatRecordingTime(edit.timestampMs)}</span>
+                <span>{draft.tracks.find((track) => track.id === edit.targetTrackId)?.label ?? "Program"} at {formatRecordingTime(edit.timestampMs)}</span>
               </li>
             ))}
           </ol>
         )}
       </section>
+
+      {draft.cameraDecisions.length > 0 && (
+        <section className="camera-decision-panel">
+          <div className="panel-heading">
+            <h3>Combined episode camera plan</h3>
+            <Video size={22} />
+          </div>
+          {draft.cameraDecisions.map((decision) => (
+            <div key={decision.id}>
+              <strong>{draft.tracks.find((track) => track.id === decision.cameraTrackId)?.label ?? "Camera"}</strong>
+              <span>{formatRecordingTime(decision.startMs)} - {decision.source === "auto" ? "Auto Edit" : "Manual"}</span>
+              <small>{decision.reason}</small>
+            </div>
+          ))}
+        </section>
+      )}
 
       <section className="timeline-marker-list">
         <div className="panel-heading">
@@ -192,7 +375,19 @@ export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExp
   );
 }
 
-function TrackList({ title, assets, previewAudio = false }: { title: string; assets: ReviewMediaAsset[]; previewAudio?: boolean }) {
+function TrackList({
+  title,
+  assets,
+  selectedAssetId,
+  onSelect,
+  previewAudio = false
+}: {
+  title: string;
+  assets: ReviewMediaAsset[];
+  selectedAssetId?: string;
+  onSelect?: (asset: ReviewMediaAsset) => void;
+  previewAudio?: boolean;
+}) {
   return (
     <section className="review-track-list">
       <div className="panel-heading">
@@ -203,14 +398,17 @@ function TrackList({ title, assets, previewAudio = false }: { title: string; ass
         <p className="empty-copy">No files found yet.</p>
       ) : (
         assets.map((asset) => (
-          <article className={`review-track-card ${asset.status}`} key={asset.id}>
+          <article className={`review-track-card ${asset.status} ${selectedAssetId === asset.id ? "selected" : ""}`} key={asset.id}>
             <div>
               <strong>{asset.label}</strong>
               <span>{asset.relativePath}</span>
               <small>{asset.status === "ready" ? `${formatRecordingTime(asset.durationMs ?? 0)} ${asset.codecSummary ?? ""}`.trim() : asset.message}</small>
             </div>
             {previewAudio && asset.status === "ready" && asset.playbackUrl ? (
-              <audio controls src={asset.playbackUrl} aria-label={`${asset.label} audio preview`} />
+              <div className="review-track-actions">
+                <audio controls src={asset.playbackUrl} aria-label={`${asset.label} audio preview`} />
+                <button type="button" onClick={() => onSelect?.(asset)}><Scissors size={15} /> Edit this track</button>
+              </div>
             ) : (
               <span className="track-status">{asset.status === "ready" ? "Ready" : asset.message}</span>
             )}

@@ -1,4 +1,5 @@
 import type { TimelineDraft } from "./timeline";
+import type { DeviceDefaults } from "./types";
 
 export type ExportType = "full-episode-video" | "audio-only" | "archive-master" | "social-clip-placeholder";
 export type ExportQualityPreset = "standard" | "high" | "archive";
@@ -15,6 +16,7 @@ export interface ExportRequest {
   type: ExportType;
   qualityPreset: ExportQualityPreset;
   draft: TimelineDraft;
+  deviceDefaults?: DeviceDefaults;
   practice?: boolean;
 }
 
@@ -40,6 +42,7 @@ export interface ExportJob {
   message: string;
   error?: ExportFriendlyError;
   outputFileName?: string;
+  outputFileNames?: string[];
 }
 
 export type ExportFriendlyError =

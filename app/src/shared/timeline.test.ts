@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  addCameraDecision,
   applyTimelineEdit,
   createTimelineDraft,
   lockedTimelineTools,
@@ -7,7 +8,9 @@ import {
   redoTimelineEdit,
   restoreOriginalTimeline,
   selectTimelinePoint,
+  selectTimelineTrack,
   undoTimelineEdit,
+  updateTimelineTrackMix,
   withTimelineDraftDefaults
 } from "./timeline";
 
@@ -65,6 +68,29 @@ describe("timeline draft", () => {
     expect(edited.version).toBe(2);
     expect(edited.editLog[0]).toMatchObject({ type: "trim-before", label: "Trim before here", timestampMs: 12000 });
     expect(edited.hasUnsavedChanges).toBe(true);
+  });
+
+  it("targets manual edits to one selected camera or microphone", () => {
+    const base = createTimelineDraft({ deviceDefaults, durationMs: 60000 });
+    const selected = selectTimelineTrack(base, "mic-guestMic");
+    const positioned = selectTimelinePoint(selected, { timestampMs: 8000, source: "timeline", trackId: "mic-guestMic" });
+    const edited = applyTimelineEdit(positioned, "delete-section");
+
+    expect(edited.editLog[0].targetTrackId).toBe("mic-guestMic");
+    expect(edited.tracks.find((track) => track.id === "mic-morganMic")?.includedInProgram).toBe(true);
+  });
+
+  it("stores source mix controls and manual camera choices", () => {
+    const base = selectTimelinePoint(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), {
+      timestampMs: 12000,
+      source: "timeline",
+      trackId: "camera-camera2"
+    });
+    const mixed = updateTimelineTrackMix(base, "mic-guestMic", { volume: 82, includedInProgram: true });
+    const switched = addCameraDecision(mixed, "camera-camera2", "manual", "Guest is speaking");
+
+    expect(mixed.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(82);
+    expect(switched.cameraDecisions[0]).toMatchObject({ cameraTrackId: "camera-camera2", startMs: 12000, source: "manual" });
   });
 
   it("creates split and delete draft edits", () => {

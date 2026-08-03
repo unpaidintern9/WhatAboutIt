@@ -1,6 +1,7 @@
 import type { RecordingEnginePlugin, RecordingStartRequest } from "./types";
 import type { RecordingTrackKind, RecordingTrackSaveInput, RecordingTrackSlot } from "../../../shared/recording";
-import { createCenteredMonoStream, highQualityAudioConstraint, stopStudioMediaStream } from "../audio/studio-audio";
+import type { MicrophoneInputChannel } from "../../../shared/types";
+import { createRoutedMonoStream, highQualityAudioConstraint, stopStudioMediaStream } from "../audio/studio-audio";
 
 interface ActiveTrackRecorder {
   slot: RecordingTrackSlot;
@@ -38,9 +39,10 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const videoDeviceId = request.deviceDefaults.cameras.camera1;
     const programMicSlot = request.deviceDefaults.cameraMicrophones?.camera1 ?? "morganMic";
     const audioDeviceId = request.deviceDefaults.microphones[programMicSlot] ?? request.deviceDefaults.microphones.morganMic;
+    const audioChannel = request.deviceDefaults.microphoneChannels?.[programMicSlot] ?? "mix";
 
     try {
-      this.stream = await this.openProgramStream(videoDeviceId, audioDeviceId);
+      this.stream = await this.openProgramStream(videoDeviceId, audioDeviceId, audioChannel);
     } catch (error) {
       const message = String(error);
       if (message.includes("audio") || message.includes("microphone")) throw new Error("Mic needs attention", { cause: error });
@@ -122,15 +124,15 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       { slot: "camera2", deviceId: request.deviceDefaults.cameras.camera2 },
       { slot: "camera3", deviceId: request.deviceDefaults.cameras.camera3 }
     ];
-    const micEntries: Array<{ slot: RecordingTrackSlot; deviceId?: string }> = [
-      { slot: "morganMic", deviceId: request.deviceDefaults.microphones.morganMic },
-      { slot: "guestMic", deviceId: request.deviceDefaults.microphones.guestMic },
-      { slot: "extraMic", deviceId: request.deviceDefaults.microphones.extraMic }
+    const micEntries: Array<{ slot: RecordingTrackSlot; deviceId?: string; channel: MicrophoneInputChannel }> = [
+      { slot: "morganMic", deviceId: request.deviceDefaults.microphones.morganMic, channel: request.deviceDefaults.microphoneChannels?.morganMic ?? "mix" },
+      { slot: "guestMic", deviceId: request.deviceDefaults.microphones.guestMic, channel: request.deviceDefaults.microphoneChannels?.guestMic ?? "mix" },
+      { slot: "extraMic", deviceId: request.deviceDefaults.microphones.extraMic, channel: request.deviceDefaults.microphoneChannels?.extraMic ?? "mix" }
     ];
 
     await Promise.all([
       ...cameraEntries.map((entry) => this.startCameraTrackRecorder(entry.slot, entry.deviceId)),
-      ...micEntries.map((entry) => this.startMicTrackRecorder(entry.slot, entry.deviceId))
+      ...micEntries.map((entry) => this.startMicTrackRecorder(entry.slot, entry.deviceId, entry.channel))
     ]);
   }
 
@@ -150,11 +152,11 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
   }
 
-  private async startMicTrackRecorder(slot: RecordingTrackSlot, deviceId?: string) {
+  private async startMicTrackRecorder(slot: RecordingTrackSlot, deviceId: string | undefined, channel: MicrophoneInputChannel) {
     if (!deviceId) return;
 
     try {
-      const stream = await this.openMicTrackStream(slot, deviceId);
+      const stream = await this.openMicTrackStream(slot, deviceId, channel);
       this.trackRecorders.push(createTrackRecorder(slot, "audio", stream, pickAudioMimeType()));
     } catch {
       this.trackResults.push({
@@ -166,7 +168,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
   }
 
-  private async openProgramStream(videoDeviceId?: string, audioDeviceId?: string) {
+  private async openProgramStream(videoDeviceId: string | undefined, audioDeviceId: string | undefined, channel: MicrophoneInputChannel) {
     const tracks: MediaStreamTrack[] = [];
     const activeVideoTrack = cloneLiveTrack(this.streams.getCameraStream?.(videoDeviceId)?.getVideoTracks()[0]);
     const activeAudioTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(audioDeviceId)?.getAudioTracks()[0]);
@@ -184,7 +186,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       tracks.push(...fallback.getTracks());
     }
 
-    return createCenteredMonoStream(new MediaStream(tracks), { preserveVideo: true });
+    return createRoutedMonoStream(new MediaStream(tracks), channel, { preserveVideo: true });
   }
 
   private async openCameraTrackStream(slot: RecordingTrackSlot, deviceId: string) {
@@ -197,15 +199,15 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     return navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
   }
 
-  private async openMicTrackStream(slot: RecordingTrackSlot, deviceId: string) {
+  private async openMicTrackStream(slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel) {
     const activeTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(deviceId)?.getAudioTracks()[0]);
-    if (activeTrack) return createCenteredMonoStream(new MediaStream([activeTrack]));
+    if (activeTrack) return createRoutedMonoStream(new MediaStream([activeTrack]), channel);
 
     const programTrack = slot === "morganMic" ? cloneLiveTrack(this.stream?.getAudioTracks()[0]) : undefined;
     if (programTrack) return new MediaStream([programTrack]);
 
     const stream = await navigator.mediaDevices.getUserMedia({ video: false, audio: highQualityAudioConstraint(deviceId) });
-    return createCenteredMonoStream(stream);
+    return createRoutedMonoStream(stream, channel);
   }
 
   private stopStream() {

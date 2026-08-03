@@ -8,10 +8,14 @@ export interface ReviewMediaAsset {
   relativePath: string;
   filePath?: string;
   playbackUrl?: string;
+  reviewProxyPath?: string;
   status: ReviewMediaStatus;
   durationMs?: number;
   sizeBytes?: number;
   codecSummary?: string;
+  pairedAudioId?: string;
+  pairedAudioLabel?: string;
+  includesPairedAudio?: boolean;
   message: string;
 }
 

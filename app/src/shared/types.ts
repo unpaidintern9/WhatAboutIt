@@ -32,12 +32,14 @@ export interface StudioSettings {
 
 export type CameraSlotKey = "camera1" | "camera2" | "camera3";
 export type MicrophoneSlotKey = "morganMic" | "guestMic" | "extraMic";
+export type MicrophoneInputChannel = "mix" | "input-1" | "input-2";
 
 export interface DeviceDefaults {
   cameras: Partial<Record<CameraSlotKey, string>>;
   cameraMicrophones?: Partial<Record<CameraSlotKey, MicrophoneSlotKey>>;
   cameraSettings?: Record<string, import("./camera-config").CameraAdvancedSettings>;
   microphones: Partial<Record<MicrophoneSlotKey, string>>;
+  microphoneChannels?: Partial<Record<MicrophoneSlotKey, MicrophoneInputChannel>>;
   audioOutputId?: string;
 }
 

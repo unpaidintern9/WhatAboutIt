@@ -8,6 +8,11 @@ export const defaultDeviceDefaults: DeviceDefaults = {
     camera3: "extraMic"
   },
   microphones: {},
+  microphoneChannels: {
+    morganMic: "mix",
+    guestMic: "mix",
+    extraMic: "mix"
+  },
   audioOutputId: undefined
 };
 
@@ -31,6 +36,10 @@ export function withDeviceDefaults(settings: StudioSettings): StudioSettings {
       microphones: {
         ...defaultDeviceDefaults.microphones,
         ...settings.deviceDefaults?.microphones
+      },
+      microphoneChannels: {
+        ...defaultDeviceDefaults.microphoneChannels,
+        ...settings.deviceDefaults?.microphoneChannels
       },
       audioOutputId: settings.deviceDefaults?.audioOutputId
     }
@@ -57,6 +66,21 @@ export function saveMicrophoneSlot(
     microphones: {
       ...defaults.microphones,
       [slot]: deviceId || undefined
+    }
+  };
+}
+
+export function saveMicrophoneInputChannel(
+  defaults: DeviceDefaults,
+  slot: keyof DeviceDefaults["microphones"],
+  channel: NonNullable<DeviceDefaults["microphoneChannels"]>[keyof DeviceDefaults["microphones"]]
+) {
+  return {
+    ...defaults,
+    microphoneChannels: {
+      ...defaultDeviceDefaults.microphoneChannels,
+      ...defaults.microphoneChannels,
+      [slot]: channel ?? "mix"
     }
   };
 }

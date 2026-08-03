@@ -1,9 +1,9 @@
 import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Headphones, HelpCircle, Mic2, RotateCcw, Search, Settings, ShieldCheck, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import type { DeviceDefaults } from "../../shared/types";
-import { saveCameraSlot, saveMicrophoneSlot } from "../../shared/device-config";
+import type { DeviceDefaults, MicrophoneInputChannel } from "../../shared/types";
+import { saveCameraSlot, saveMicrophoneInputChannel, saveMicrophoneSlot } from "../../shared/device-config";
 import { AudioMeter, Button } from ".";
-import { createStudioAudioContext, stopStudioMediaStream } from "../plugins/audio/studio-audio";
+import { connectInputChannelSource, createStudioAudioContext, stopStudioMediaStream } from "../plugins/audio/studio-audio";
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import { findDeviceLabel, getDeviceReadiness, getEmptyStateMessage } from "../services";
 
@@ -74,6 +74,35 @@ export function DeviceSetupWizard({
     { label: "Test Mic", ready: microphoneLevel > 0 },
     { label: "Go Record", ready: readyState === "ready" }
   ];
+
+  function assignMicrophone(slot: (typeof microphoneSlots)[number]["key"], deviceId: string) {
+    const currentChannel = defaults.microphoneChannels?.[slot] ?? "mix";
+    const owner = microphoneSlots.find((candidate) => candidate.key !== slot
+      && defaults.microphones[candidate.key] === deviceId
+      && (defaults.microphoneChannels?.[candidate.key] ?? "mix") === currentChannel);
+    if (!owner || !deviceId) {
+      onDefaultsChange(saveMicrophoneSlot(defaults, slot, deviceId));
+      return;
+    }
+    const ownerChannel = defaults.microphoneChannels?.[owner.key] ?? "mix";
+    onDefaultsChange({
+      ...saveMicrophoneSlot(defaults, slot, deviceId),
+      microphoneChannels: {
+        ...defaults.microphoneChannels,
+        [owner.key]: ownerChannel === "mix" ? "input-1" : ownerChannel,
+        [slot]: ownerChannel === "input-2" ? "input-1" : "input-2"
+      }
+    });
+  }
+
+  function assignInputChannel(slot: (typeof microphoneSlots)[number]["key"], channel: MicrophoneInputChannel) {
+    const deviceId = defaults.microphones[slot];
+    const routeInUse = microphoneSlots.some((candidate) => candidate.key !== slot
+      && defaults.microphones[candidate.key] === deviceId
+      && (defaults.microphoneChannels?.[candidate.key] ?? "mix") === channel);
+    if (routeInUse) return;
+    onDefaultsChange(saveMicrophoneInputChannel(defaults, slot, channel));
+  }
 
   useEffect(() => {
     if (!setupDebugEnabled()) return;
@@ -171,14 +200,24 @@ export function DeviceSetupWizard({
                     value={defaults.microphones[slot.key] ?? ""}
                     devices={detection.microphones}
                     emptyLabel="No mic picked yet"
-                    onChange={(deviceId) => onDefaultsChange(saveMicrophoneSlot(defaults, slot.key, deviceId))}
+                    onChange={(deviceId) => assignMicrophone(slot.key, deviceId)}
+                  />
+                  <InputChannelSelect
+                    label={`${slot.label} interface input`}
+                    value={defaults.microphoneChannels?.[slot.key] ?? "mix"}
+                    onChange={(channel) => assignInputChannel(slot.key, channel)}
                   />
                 </DeviceSlot>
               ))}
               <div className="device-test-card">
                 <Button variant="primary" icon={<Mic2 size={20} />} onClick={onTestMicrophone}>Say something!</Button>
                 <AudioMeter label="Mic check" level={microphoneLevel} />
-                <SetupMicFeedback deviceId={defaults.microphones.morganMic} onOpenMicrophoneStream={onOpenMicrophoneStream} fallbackLevel={microphoneLevel} />
+                <SetupMicFeedback
+                  deviceId={defaults.microphones.morganMic}
+                  inputChannel={defaults.microphoneChannels?.morganMic ?? "mix"}
+                  onOpenMicrophoneStream={onOpenMicrophoneStream}
+                  fallbackLevel={microphoneLevel}
+                />
               </div>
             </div>
           )}
@@ -385,10 +424,12 @@ function CameraSetupCard({
 
 function SetupMicFeedback({
   deviceId,
+  inputChannel,
   fallbackLevel,
   onOpenMicrophoneStream
 }: {
   deviceId?: string;
+  inputChannel: MicrophoneInputChannel;
   fallbackLevel: number;
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
 }) {
@@ -412,7 +453,8 @@ function SetupMicFeedback({
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
         const samples = new Uint8Array(analyser.frequencyBinCount);
-        source.connect(analyser);
+        const routed = connectInputChannelSource(audioContext, source, inputChannel);
+        routed.output.connect(analyser);
 
         const tick = () => {
           if (canceled) return;
@@ -436,7 +478,7 @@ function SetupMicFeedback({
       stopStudioMediaStream(stream);
       void audioContext?.close();
     };
-  }, [deviceId, fallbackLevel, onOpenMicrophoneStream]);
+  }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream]);
 
   const copy = level > 12 ? "We hear you" : level > 0 ? "Try speaking closer" : "We can't hear you yet";
 
@@ -445,6 +487,28 @@ function SetupMicFeedback({
       <AudioMeter label="Live mic level" level={level} />
       <p>{copy}</p>
     </div>
+  );
+}
+
+function InputChannelSelect({
+  label,
+  value,
+  onChange
+}: {
+  label: string;
+  value: MicrophoneInputChannel;
+  onChange: (channel: MicrophoneInputChannel) => void;
+}) {
+  return (
+    <label className="device-select input-channel-select" title="Choose the physical jack on a multichannel USB interface. This works with any interface whose Windows driver exposes stereo inputs.">
+      Interface input
+      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value as MicrophoneInputChannel)}>
+        <option value="mix">Stereo / automatic mix</option>
+        <option value="input-1">Input 1 / left</option>
+        <option value="input-2">Input 2 / right</option>
+      </select>
+      <small>Use Input 1 or 2 when two microphones share one USB interface.</small>
+    </label>
   );
 }
 

@@ -49,6 +49,14 @@ export interface AutoEditChange {
   reversible: true;
 }
 
+export interface AutoEditActivitySegment {
+  startMs: number;
+  endMs: number;
+  microphoneTrackId: string;
+  cameraTrackId: string;
+  averageDb: number;
+}
+
 export interface AutoEditReport {
   id: string;
   episodeId?: string;
@@ -92,13 +100,6 @@ export const autoEditStageLabels: Record<AutoEditStageId, string> = {
   "export-ready": "Almost finished..."
 };
 
-const reductionByMode: Record<AutoEditMode, number> = {
-  gentle: 0.05,
-  balanced: 0.12,
-  "fast-paced": 0.2,
-  "clip-hunter": 0.1
-};
-
 export function createAutoEditStages(activeStage?: AutoEditStageId): AutoEditStage[] {
   const stageIds = Object.keys(autoEditStageLabels) as AutoEditStageId[];
   const activeIndex = activeStage ? stageIds.indexOf(activeStage) : stageIds.length;
@@ -114,19 +115,22 @@ export function runOfflineAutoEdit(input: {
   mode?: AutoEditMode;
   now?: string;
   episodeId?: string;
+  activitySegments?: AutoEditActivitySegment[];
 }): AutoEditResult {
   const mode = input.mode ?? "balanced";
   const now = input.now ?? new Date().toISOString();
-  const originalLengthMs = Math.max(input.draft.durationMs, 120000);
-  const silenceRemovedMs = Math.round(originalLengthMs * reductionByMode[mode]);
-  const editedLengthMs = Math.max(0, originalLengthMs - silenceRemovedMs);
+  const originalLengthMs = Math.max(input.draft.durationMs, 0);
+  const silenceRemovedMs = 0;
+  const editedLengthMs = originalLengthMs;
   const autoOperation: TimelineEditOperation = {
     id: `auto-edit-${mode}-${now}`,
     type: "auto-edit-suggestion",
     label: `Auto Edit draft (${autoEditModes.find((item) => item.id === mode)?.title ?? "Balanced"})`,
     timestampMs: 0,
+    targetTrackId: "program",
     createdAt: now
   };
+  const cameraDecisions = createCameraDecisions(input.activitySegments ?? [], now);
   const chapters = createChapters(input.draft, originalLengthMs);
   const clips = createClipSuggestions(input.draft, originalLengthMs, mode);
   const report: AutoEditReport = {
@@ -141,12 +145,15 @@ export function runOfflineAutoEdit(input: {
     chaptersGenerated: chapters,
     clipsSuggested: clips,
     changesMade: [
-      { id: "dead-air", label: "Tightened obvious quiet spots", reversible: true },
+      { id: "timing-safe", label: "Kept episode timing intact until you approve manual cuts", reversible: true },
       { id: "markers", label: "Kept all markers and manual edits", reversible: true },
-      { id: "chapters", label: "Suggested chapter markers", reversible: true }
+      { id: "chapters", label: "Suggested chapter markers", reversible: true },
+      cameraDecisions.length > 0
+        ? { id: "camera-activity", label: `Planned ${cameraDecisions.length} camera changes from saved microphone activity`, reversible: true }
+        : { id: "camera-program", label: "Kept the Program camera because separate microphone activity was unavailable", reversible: true }
     ],
-    audioWarnings: ["Check any loud moments before export"],
-    reviewFlags: ["Review suggested clips before sharing"],
+    audioWarnings: ["Listen through the mixed microphones before export"],
+    reviewFlags: ["Review automatic camera choices and suggested clips before sharing"],
     originalRecordingSafe: true
   };
   const draft: TimelineDraft = {
@@ -155,6 +162,8 @@ export function runOfflineAutoEdit(input: {
     version: input.draft.version + 1,
     updatedAt: now,
     durationMs: editedLengthMs,
+    editMode: "auto",
+    cameraDecisions: cameraDecisions.length > 0 ? cameraDecisions : input.draft.cameraDecisions,
     editLog: [...input.draft.editLog, autoOperation],
     undoneEditLog: [],
     hasUnsavedChanges: true,
@@ -173,6 +182,22 @@ export function runOfflineAutoEdit(input: {
     draft,
     stages: createAutoEditStages()
   };
+}
+
+function createCameraDecisions(activity: AutoEditActivitySegment[], now: string) {
+  const decisions: TimelineDraft["cameraDecisions"] = [];
+  for (const segment of [...activity].sort((a, b) => a.startMs - b.startMs)) {
+    const previous = decisions.at(-1);
+    if (previous?.cameraTrackId === segment.cameraTrackId) continue;
+    decisions.push({
+      id: `auto-camera-${segment.cameraTrackId}-${segment.startMs}-${now}`,
+      cameraTrackId: segment.cameraTrackId,
+      startMs: segment.startMs,
+      source: "auto",
+      reason: `${segment.microphoneTrackId} was strongest here (${segment.averageDb.toFixed(1)} dB)`
+    });
+  }
+  return decisions;
 }
 
 function createChapters(draft: TimelineDraft, durationMs: number): AutoEditChapter[] {

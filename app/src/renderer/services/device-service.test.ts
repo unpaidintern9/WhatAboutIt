@@ -4,18 +4,29 @@ import type { DevicePlugin } from "../plugins/devices/types";
 import { DeviceService, getDeviceReadiness, getEmptyStateMessage } from "./device-service";
 
 function createStream() {
-  const track = {
+  const createTrack = () => ({
     readyState: "live",
     stop: vi.fn(function stop(this: { readyState: string }) {
       this.readyState = "ended";
     }),
-    addEventListener: vi.fn()
-  };
+    addEventListener: vi.fn(),
+    clone: vi.fn()
+  });
+  const track = createTrack();
+  const clones: ReturnType<typeof createTrack>[] = [];
+  const makeStream = (streamTrack: ReturnType<typeof createTrack>) => ({
+    getTracks: () => [streamTrack],
+    getAudioTracks: () => [streamTrack],
+    clone: () => {
+      const clonedTrack = createTrack();
+      clones.push(clonedTrack);
+      return makeStream(clonedTrack);
+    }
+  });
   return {
     track,
-    stream: {
-      getTracks: () => [track]
-    } as unknown as MediaStream
+    clones,
+    stream: makeStream(track) as unknown as MediaStream
   };
 }
 
@@ -45,7 +56,7 @@ describe("device service", () => {
     ).toBe("ready");
   });
 
-  it("stops duplicate mic streams before opening another stream for the same device", async () => {
+  it("shares one physical microphone source across independent channel consumers", async () => {
     const first = createStream();
     const second = createStream();
     const plugin: DevicePlugin = {
@@ -61,7 +72,9 @@ describe("device service", () => {
     await service.openMicrophoneStream("mic-a");
     await service.openMicrophoneStream("mic-a");
 
-    expect(first.track.stop).toHaveBeenCalledTimes(1);
+    expect(plugin.openMicrophoneStream).toHaveBeenCalledTimes(1);
+    expect(first.track.stop).not.toHaveBeenCalled();
+    expect(first.clones).toHaveLength(2);
     expect(second.track.stop).not.toHaveBeenCalled();
   });
 

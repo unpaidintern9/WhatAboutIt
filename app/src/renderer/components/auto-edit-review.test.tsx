@@ -33,6 +33,8 @@ describe("AutoEditReview", () => {
     expect(markup).toContain("Original length");
     expect(markup).toContain("Edited length");
     expect(markup).toContain("Clip suggestions");
+    expect(markup).toContain("Camera plan");
+    expect(markup).toContain("Program stays on screen");
     expect(markup).toContain("Review-needed items");
   });
 });

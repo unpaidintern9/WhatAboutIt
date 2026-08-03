@@ -48,11 +48,33 @@ describe("ExportEpisode", () => {
       updatedAt: "2026-06-27T10:05:00.000Z",
       outputFolder: "Episode/Exports",
       message: "Export complete",
-      outputFileName: "video.mp4"
+      outputFileName: "video.mp4",
+      outputFileNames: ["video.mp4", "Camera Masters/camera-1-with-morgan-mic.mp4"]
     });
 
     expect(markup).toContain("Export complete");
     expect(markup).toContain("Open export folder");
+    expect(markup).toContain("Your export includes");
+    expect(markup).toContain("camera-1-with-morgan-mic.mp4");
+  });
+
+  it("renders live export percentage and stage", () => {
+    const markup = render({
+      id: "job-running",
+      episodeId: "episode-a",
+      type: "full-episode-video",
+      qualityPreset: "standard",
+      status: "running",
+      progress: 38,
+      createdAt: "2026-06-27T10:00:00.000Z",
+      updatedAt: "2026-06-27T10:00:10.000Z",
+      outputFolder: "Episode/Exports",
+      message: "Exporting your episode"
+    });
+
+    expect(markup).toContain("Exporting your episode");
+    expect(markup).toContain("38%");
+    expect(markup).toContain('aria-valuenow="38"');
   });
 
   it("renders friendly export errors", () => {

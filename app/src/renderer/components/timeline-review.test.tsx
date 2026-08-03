@@ -30,6 +30,8 @@ const media: ReviewMediaInventory = {
       kind: "camera",
       relativePath: "Cameras/camera-1.webm",
       playbackUrl: "file:///C:/episodes/episode-a/Cameras/camera-1.webm",
+      pairedAudioId: "morgan-mic",
+      pairedAudioLabel: "Morgan Mic",
       status: "ready",
       durationMs: 30000,
       codecSummary: "vp9 1280x720",
@@ -70,15 +72,17 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Review your recording");
     expect(markup).toContain("original recording completely safe");
     expect(markup).toContain("Program video");
-    expect(markup).toContain("Camera files");
+    expect(markup).toContain("Recorded video sources");
+    expect(markup).toContain("Camera 1");
+    expect(markup).toContain("Camera 1 plays with Morgan Mic");
     expect(markup).toContain("Audio files");
     expect(markup).toContain("Original files are safe");
-    expect(markup).toContain("Not recorded in this episode");
+    expect(markup).toContain("Not recorded");
     expect(markup).toContain("Auto Edit");
     expect(markup).toContain("This only changes the draft");
     expect(markup).toContain("You can undo this anytime");
     expect(markup).toContain("Highlight");
-    expect(markup).toContain("Finished show track");
+    expect(markup).toContain("Combined episode");
     expect(markup).toContain("Camera angle track");
     expect(markup).toContain("Voice track");
     expect(markup).toContain("Trim before here");
@@ -89,6 +93,8 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Restore original");
     expect(markup).toContain("Export");
     expect(markup).toContain("Edit history");
+    expect(markup).toContain("Manual Edit");
+    expect(markup).toContain("Edit this track");
     expect(markup).not.toContain("Big finishing tools are coming next");
   });
 
@@ -113,7 +119,7 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Draft version 1");
     expect(markup).toContain("Split here");
     expect(markup).toContain("00:00:10");
-    expect(markup).toContain("Draft saved. Preview rendering comes next.");
+    expect(markup).toContain("Saved edits will be applied during export.");
   });
 
   it("shows truthful missing program media state", () => {

@@ -3,6 +3,7 @@ import {
   defaultDeviceDefaults,
   saveCameraMicrophoneSlot,
   saveCameraSlot,
+  saveMicrophoneInputChannel,
   saveMicrophoneSlot,
   withDeviceDefaults
 } from "./device-config";
@@ -25,6 +26,13 @@ describe("device config", () => {
 
     expect(withMic.cameras.camera1).toBe("camera-a");
     expect(withMic.microphones.morganMic).toBe("mic-a");
+  });
+
+  it("saves a physical interface channel independently for each mic slot", () => {
+    const withMorgan = saveMicrophoneInputChannel(defaultDeviceDefaults, "morganMic", "input-1");
+    const withGuest = saveMicrophoneInputChannel(withMorgan, "guestMic", "input-2");
+
+    expect(withGuest.microphoneChannels).toMatchObject({ morganMic: "input-1", guestMic: "input-2" });
   });
 
   it("keeps a clear default mic route for each camera", () => {

@@ -28,7 +28,7 @@ import type { RecordingSession } from "../shared/recording";
 import type { PodcastToolsState, SoundSlot } from "../shared/podcast-tools";
 import { createDefaultPodcastToolsState, createLiveMarker, withPodcastToolDefaults } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
-import { createTimelineDraft, markTimelineSaved, withTimelineDraftDefaults } from "../shared/timeline";
+import { createTimelineDraft, markTimelineSaved, syncTimelineTracksWithMedia, withTimelineDraftDefaults } from "../shared/timeline";
 import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
 import { defaultExportSettings } from "../shared/export";
 import type { ReviewMediaInventory } from "../shared/review-media";
@@ -372,6 +372,8 @@ export default function App() {
     void studio.getStorageStatus().then(setStorageStatus);
   }, [studio]);
 
+  useEffect(() => exportService.subscribe(setExportJob), [exportService]);
+
   useEffect(() => {
     if (!popOutEpisodeId) return;
     void studio.loadPodcastTools(popOutEpisodeId).then((state) => setPodcastTools(withPodcastToolDefaults(state, popOutEpisodeId)));
@@ -466,11 +468,10 @@ export default function App() {
     }
 
     void studio.loadPodcastTools(activeEpisode.id).then((state) => setPodcastTools(withPodcastToolDefaults(state, activeEpisode.id)));
-    void loadTimelineForEpisode(activeEpisode.id);
-    void loadReviewMediaForEpisode(activeEpisode.id);
+    void loadReviewWorkspace(activeEpisode.id);
   }, [activeEpisode, studio]);
 
-  async function loadTimelineForEpisode(episodeId: string) {
+  async function loadReviewWorkspace(episodeId: string) {
     const fallback = createTimelineDraft({
       episodeId,
       recordingSessionId: recordingSnapshot.session?.id,
@@ -478,12 +479,18 @@ export default function App() {
       markers: podcastTools.markers,
       durationMs: recordingSnapshot.elapsedMs
     });
-    const savedDraft = await studio.loadTimelineDraft(episodeId);
-    setTimelineDraft(withTimelineDraftDefaults(savedDraft, fallback));
+    const [savedDraft, inventory] = await Promise.all([
+      studio.loadTimelineDraft(episodeId),
+      studio.loadReviewMedia(episodeId)
+    ]);
+    setReviewMedia(inventory);
+    setTimelineDraft(syncTimelineTracksWithMedia(withTimelineDraftDefaults(savedDraft, fallback), inventory));
   }
 
   async function loadReviewMediaForEpisode(episodeId: string) {
-    setReviewMedia(await studio.loadReviewMedia(episodeId));
+    const inventory = await studio.loadReviewMedia(episodeId);
+    setReviewMedia(inventory);
+    setTimelineDraft((current) => current.episodeId === episodeId ? syncTimelineTracksWithMedia(current, inventory) : current);
   }
 
   async function saveTimelineDraftState(nextDraft: TimelineDraft) {
@@ -496,11 +503,14 @@ export default function App() {
   async function runAutoEditFlow(practice = false) {
     if (!activeEpisode) return;
     setAutoEditRunning(true);
-    const result = await studio.runAutoEdit(activeEpisode.id, timelineDraft, autoEditMode, practice);
-    setAutoEditResult(result);
-    setTimelineDraft(result.draft);
-    setAutoEditRunning(false);
     setView("auto-edit-review");
+    try {
+      const result = await studio.runAutoEdit(activeEpisode.id, timelineDraft, autoEditMode, practice);
+      setAutoEditResult(result);
+      setTimelineDraft(result.draft);
+    } finally {
+      setAutoEditRunning(false);
+    }
   }
 
   async function startExport(practice = false) {
@@ -515,10 +525,12 @@ export default function App() {
       }
     }
     if (!episodeId) return;
+    setView("export");
     const job = await exportService.start({
       episodeId,
       type: selectedExportType,
       qualityPreset: selectedQualityPreset,
+      deviceDefaults: settings.deviceDefaults,
       draft: timelineDraft.episodeId === episodeId
         ? timelineDraft
         : createTimelineDraft({
@@ -1081,8 +1093,7 @@ export default function App() {
             onDismissRecovery={() => setUnfinishedSessions([])}
             onNext={() => {
               if (activeEpisode) {
-                void loadTimelineForEpisode(activeEpisode.id);
-                void loadReviewMediaForEpisode(activeEpisode.id);
+                void loadReviewWorkspace(activeEpisode.id);
               }
               setView("timeline-review");
             }}

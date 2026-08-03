@@ -31,6 +31,9 @@ export function findDeviceLabel(devices: StudioDevice[], deviceId?: string) {
 
 export class DeviceService {
   private readonly managedStreams = new Map<string, MediaStream>();
+  private readonly microphoneSources = new Map<string, MediaStream>();
+  private readonly microphoneOpenPromises = new Map<string, Promise<MediaStream>>();
+  private microphoneGeneration = 0;
 
   constructor(private readonly plugin: DevicePlugin) {}
 
@@ -54,8 +57,26 @@ export class DeviceService {
     return this.openManagedStream(`camera:${deviceId ?? "none"}`, () => this.plugin.openCameraPreview(deviceId));
   }
 
-  openMicrophoneStream(deviceId?: string) {
-    return this.openManagedStream(`microphone:${deviceId ?? "none"}`, () => this.plugin.openMicrophoneStream(deviceId));
+  async openMicrophoneStream(deviceId?: string) {
+    const key = deviceId ?? "none";
+    let source = this.getLiveMicrophoneSource(key);
+    if (!source) {
+      let opening = this.microphoneOpenPromises.get(key);
+      if (!opening) {
+        const generation = this.microphoneGeneration;
+        opening = this.plugin.openMicrophoneStream(deviceId).then((opened) => {
+          if (generation !== this.microphoneGeneration) {
+            stopStudioMediaStream(opened);
+            throw new Error("Microphone request was released");
+          }
+          this.microphoneSources.set(key, opened);
+          return opened;
+        }).finally(() => this.microphoneOpenPromises.delete(key));
+        this.microphoneOpenPromises.set(key, opening);
+      }
+      source = await opening;
+    }
+    return source.clone();
   }
 
   getActiveCameraStream(deviceId?: string) {
@@ -63,17 +84,33 @@ export class DeviceService {
   }
 
   getActiveMicrophoneStream(deviceId?: string) {
-    return this.getManagedStream(`microphone:${deviceId ?? "none"}`);
+    return this.getLiveMicrophoneSource(deviceId ?? "none");
   }
 
   releaseStream(kind: "camera" | "microphone", deviceId?: string, stream?: MediaStream) {
+    if (kind === "microphone" && stream) {
+      stopStudioMediaStream(stream);
+      return;
+    }
     this.stopManagedStream(`${kind}:${deviceId ?? "none"}`, stream);
   }
 
   releaseAll() {
+    this.microphoneGeneration += 1;
     for (const key of Array.from(this.managedStreams.keys())) {
       this.stopManagedStream(key);
     }
+    for (const stream of this.microphoneSources.values()) stopStudioMediaStream(stream);
+    this.microphoneSources.clear();
+    this.microphoneOpenPromises.clear();
+  }
+
+  private getLiveMicrophoneSource(key: string) {
+    const stream = this.microphoneSources.get(key);
+    if (!stream) return undefined;
+    if (stream.getAudioTracks().some((track) => track.readyState === "live")) return stream;
+    this.microphoneSources.delete(key);
+    return undefined;
   }
 
   private async openManagedStream(key: string, open: () => Promise<MediaStream>) {

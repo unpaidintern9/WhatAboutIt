@@ -1,3 +1,5 @@
+import type { MicrophoneInputChannel } from "../../../shared/types";
+
 const processedStreamCleanups = new WeakMap<MediaStream, () => void>();
 
 export function highQualityAudioConstraint(deviceId?: string): MediaTrackConstraints | boolean {
@@ -23,7 +25,11 @@ export function createStudioAudioContext() {
   }
 }
 
-export function connectCenteredMonoSource(audioContext: AudioContext, source: AudioNode) {
+export function connectInputChannelSource(
+  audioContext: AudioContext,
+  source: AudioNode,
+  channel: MicrophoneInputChannel = "mix"
+) {
   const splitter = audioContext.createChannelSplitter(2);
   const monoBus = audioContext.createGain();
   const trim = audioContext.createGain();
@@ -31,11 +37,11 @@ export function connectCenteredMonoSource(audioContext: AudioContext, source: Au
   monoBus.channelCount = 1;
   monoBus.channelCountMode = "explicit";
   monoBus.channelInterpretation = "speakers";
-  trim.gain.value = 0.9;
+  trim.gain.value = channel === "mix" ? 0.5 : 0.95;
 
   source.connect(splitter);
-  splitter.connect(monoBus, 0, 0);
-  splitter.connect(monoBus, 1, 0);
+  if (channel !== "input-2") splitter.connect(monoBus, 0, 0);
+  if (channel !== "input-1") splitter.connect(monoBus, 1, 0);
   monoBus.connect(trim);
 
   return {
@@ -53,13 +59,21 @@ export function connectCenteredMonoSource(audioContext: AudioContext, source: Au
   };
 }
 
-export function createCenteredMonoStream(inputStream: MediaStream, options: { preserveVideo?: boolean } = {}) {
+export function connectCenteredMonoSource(audioContext: AudioContext, source: AudioNode) {
+  return connectInputChannelSource(audioContext, source, "mix");
+}
+
+export function createRoutedMonoStream(
+  inputStream: MediaStream,
+  channel: MicrophoneInputChannel = "mix",
+  options: { preserveVideo?: boolean } = {}
+) {
   const audioTracks = inputStream.getAudioTracks();
   if (audioTracks.length === 0 || typeof window === "undefined" || !window.AudioContext) return inputStream;
 
   const audioContext = createStudioAudioContext();
   const source = audioContext.createMediaStreamSource(inputStream);
-  const centered = connectCenteredMonoSource(audioContext, source);
+  const centered = connectInputChannelSource(audioContext, source, channel);
   const destination = audioContext.createMediaStreamDestination();
 
   centered.output.connect(destination);
@@ -77,6 +91,10 @@ export function createCenteredMonoStream(inputStream: MediaStream, options: { pr
   });
 
   return outputStream;
+}
+
+export function createCenteredMonoStream(inputStream: MediaStream, options: { preserveVideo?: boolean } = {}) {
+  return createRoutedMonoStream(inputStream, "mix", options);
 }
 
 export function stopStudioMediaStream(stream?: MediaStream | null) {

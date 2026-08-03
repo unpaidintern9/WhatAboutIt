@@ -30,6 +30,7 @@ declare global {
       loadReviewMedia: (episodeId: string) => Promise<ReviewMediaInventory>;
       runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean) => Promise<AutoEditResult>;
       createExport: (request: ExportRequest) => Promise<ExportJob>;
+      onExportProgress?: (listener: (job: ExportJob) => void) => () => void;
       getMediaToolsStatus: () => Promise<MediaToolsStatus>;
       cancelExport: (episodeId: string, job: ExportJob) => Promise<ExportJob>;
       openExportFolder: (episodeId: string) => Promise<string>;

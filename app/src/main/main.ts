@@ -23,8 +23,9 @@ import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
 import { cancelExport, createExport, detectMediaTools, openExportFolder } from "./export-store";
 import { runAutoEdit } from "./auto-edit-store";
 import { createDiagnosticsBundle, getStorageStatus } from "./diagnostics-store";
-import { loadReviewMedia } from "./review-media-store";
+import { configureMediaPlaybackBaseUrl, loadReviewMedia } from "./review-media-store";
 import { StudioWindowManager } from "./studio-window-manager";
+import { startMediaPlaybackServer, type MediaPlaybackServer } from "./media-playback-server";
 
 app.setName("What About It Studio");
 
@@ -33,6 +34,7 @@ const episodesRoot = getEpisodesRoot();
 const settingsPath = getSettingsPath();
 const workspaceStatePath = getWorkspaceStatePath();
 let studioWindowManager: StudioWindowManager;
+let mediaPlaybackServer: MediaPlaybackServer | undefined;
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -160,6 +162,8 @@ async function saveWorkspaceState(state: StudioWorkspaceState) {
 app.whenReady().then(async () => {
   await ensureBaseFolders();
   await logger.info("App", "What About It Studio launched.");
+  mediaPlaybackServer = await startMediaPlaybackServer(episodesRoot);
+  configureMediaPlaybackBaseUrl(mediaPlaybackServer.baseUrl);
   studioWindowManager = new StudioWindowManager({
     preloadPath: path.join(__dirname, "preload.js"),
     rendererPath: path.join(__dirname, "../renderer/index.html"),
@@ -202,7 +206,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("timeline:save", (_event, input) => saveTimelineDraft(input.episodeId, input.draft));
   ipcMain.handle("review-media:load", (_event, episodeId) => loadReviewMedia(episodeId));
   ipcMain.handle("auto-edit:run", (_event, input) => runAutoEdit(input));
-  ipcMain.handle("export:create", (_event, input) => createExport(input));
+  ipcMain.handle("export:create", (event, input) => createExport(input, (job) => event.sender.send("export:progress", job)));
   ipcMain.handle("export:media-tools-status", detectMediaTools);
   ipcMain.handle("export:cancel", (_event, input) => cancelExport(input.episodeId, input.job));
   ipcMain.handle("export:open-folder", (_event, episodeId) => openExportFolder(episodeId));
@@ -218,4 +222,8 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  void mediaPlaybackServer?.close();
 });

@@ -27,12 +27,12 @@ import {
   VolumeX,
   Volume2
 } from "lucide-react";
-import type { CameraSlotKey, DeviceDefaults, MicrophoneSlotKey } from "../../shared/types";
+import type { CameraSlotKey, DeviceDefaults, MicrophoneInputChannel, MicrophoneSlotKey } from "../../shared/types";
 import type { RecordingSession, RecordingTrackSaveResult, RecordingTrackSlot } from "../../shared/recording";
 import type { CameraLayout, PodcastToolsState, SoundSlot } from "../../shared/podcast-tools";
 import { cameraLayouts, createLiveMarker, markerButtons } from "../../shared/podcast-tools";
 import type { StudioDisplayInfo, StudioPanelId } from "../../shared/studio-workspace";
-import { connectCenteredMonoSource, createStudioAudioContext } from "../plugins/audio/studio-audio";
+import { connectInputChannelSource, createStudioAudioContext } from "../plugins/audio/studio-audio";
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import type { RecordingServiceSnapshot } from "../services";
 import { formatRecordingTime } from "../services";
@@ -261,13 +261,19 @@ export function RecordingStudio({
   }
 
   function setMicInput(slot: MicKey, deviceId: string) {
-    const owner = findAssignedMicSlot(defaults.microphones, deviceId, slot);
+    const selectedChannel = defaults.microphoneChannels?.[slot] ?? "mix";
+    const owner = findAssignedMicSlot(defaults.microphones, defaults.microphoneChannels, deviceId, selectedChannel, slot);
     if (owner) {
       const deviceLabel = findDevice(detection.microphones, deviceId)?.label ?? "That microphone";
-      setStudioNotice({
-        tone: "needs-attention",
-        message: `${deviceLabel} is already assigned to ${getMicSlotLabel(owner)}. Pick a different input.`
+      const ownerChannel = defaults.microphoneChannels?.[owner] ?? "mix";
+      const ownerPatch = ownerChannel === "mix" ? { [owner]: "input-1" as const } : {};
+      const nextChannel = ownerChannel === "input-2" ? "input-1" : "input-2";
+      onDefaultsChange({
+        ...defaults,
+        microphones: { ...defaults.microphones, [slot]: deviceId || undefined },
+        microphoneChannels: { ...defaults.microphoneChannels, ...ownerPatch, [slot]: nextChannel }
       });
+      setStudioNotice({ tone: "ready", message: `${deviceLabel} split into Input 1 and Input 2 for separate mixer channels.` });
       return;
     }
 
@@ -277,6 +283,22 @@ export function RecordingStudio({
         ...defaults.microphones,
         [slot]: deviceId || undefined
       }
+    });
+  }
+
+  function setMicInputChannel(slot: MicKey, channel: MicrophoneInputChannel) {
+    const deviceId = defaults.microphones[slot];
+    const owner = findAssignedMicSlot(defaults.microphones, defaults.microphoneChannels, deviceId, channel, slot);
+    if (owner) {
+      setStudioNotice({
+        tone: "needs-attention",
+        message: `${getMicSlotLabel(owner)} already uses that interface input. Pick Input 1 or Input 2 so each voice stays separate.`
+      });
+      return;
+    }
+    onDefaultsChange({
+      ...defaults,
+      microphoneChannels: { ...defaults.microphoneChannels, [slot]: channel }
     });
   }
 
@@ -480,8 +502,10 @@ export function RecordingStudio({
                           deviceId={deviceId}
                           inputOptions={isMicChannel ? detection.microphones : []}
                           inputAssignments={defaults.microphones}
+                          inputChannelAssignments={defaults.microphoneChannels}
                           micSlot={micKey}
                           selectedInputId={deviceId}
+                          inputChannel={micKey ? defaults.microphoneChannels?.[micKey] ?? "mix" : "mix"}
                           outputLabel={outputLabel}
                           controls={controls}
                           monitorLabel={getMonitorLabel(slot.label)}
@@ -491,6 +515,7 @@ export function RecordingStudio({
                           fallbackLabel={label}
                           trackStatus={trackStatusBySlot[slot.key as RecordingTrackSlot]}
                           onInputChange={micKey ? (deviceId) => setMicInput(micKey, deviceId) : undefined}
+                          onInputChannelChange={micKey ? (channel) => setMicInputChannel(micKey, channel) : undefined}
                           onControlsChange={(nextState) => patchMixerChannel(slot.key, nextState)}
                           onEchoWarning={warnAboutEcho}
                           onOpenMicrophoneStream={onOpenMicrophoneStream}
@@ -605,10 +630,18 @@ function getCameraSlotLabel(slot: CameraKey) {
   return cameraSlots.find((item) => item.key === slot)?.label ?? slot;
 }
 
-function findAssignedMicSlot(assignments: Partial<Record<MicKey, string>>, deviceId?: string, exceptSlot?: MicKey) {
+function findAssignedMicSlot(
+  assignments: Partial<Record<MicKey, string>>,
+  channelAssignments: Partial<Record<MicKey, MicrophoneInputChannel>> | undefined,
+  deviceId?: string,
+  channel: MicrophoneInputChannel = "mix",
+  exceptSlot?: MicKey
+) {
   if (!deviceId) return undefined;
   return (Object.entries(assignments) as Array<[MicKey, string | undefined]>)
-    .find(([slot, assignedDeviceId]) => slot !== exceptSlot && assignedDeviceId === deviceId)?.[0];
+    .find(([slot, assignedDeviceId]) => slot !== exceptSlot
+      && assignedDeviceId === deviceId
+      && (channelAssignments?.[slot] ?? "mix") === channel)?.[0];
 }
 
 function findAssignedCameraRoute(assignments: Partial<Record<CameraKey, MicKey>> | undefined, micSlot: MicKey, exceptSlot?: CameraKey) {
@@ -1029,8 +1062,10 @@ function LiveMicMeter({
   deviceId,
   inputOptions,
   inputAssignments,
+  inputChannelAssignments,
   micSlot,
   selectedInputId,
+  inputChannel,
   outputLabel,
   controls,
   monitorLabel,
@@ -1040,6 +1075,7 @@ function LiveMicMeter({
   fallbackLabel,
   trackStatus,
   onInputChange,
+  onInputChannelChange,
   onControlsChange,
   onEchoWarning,
   onOpenMicrophoneStream,
@@ -1049,8 +1085,10 @@ function LiveMicMeter({
   deviceId?: string;
   inputOptions: StudioDevice[];
   inputAssignments: Partial<Record<MicKey, string>>;
+  inputChannelAssignments?: Partial<Record<MicKey, MicrophoneInputChannel>>;
   micSlot?: MicKey;
   selectedInputId?: string;
+  inputChannel: MicrophoneInputChannel;
   outputLabel: string;
   controls: MixerChannelControls;
   monitorLabel: string;
@@ -1060,6 +1098,7 @@ function LiveMicMeter({
   fallbackLabel?: string;
   trackStatus?: RecordingTrackSaveResult;
   onInputChange?: (deviceId: string) => void;
+  onInputChannelChange?: (channel: MicrophoneInputChannel) => void;
   onControlsChange: (nextState: Partial<MixerChannelControls>) => void;
   onEchoWarning: () => void;
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
@@ -1122,7 +1161,7 @@ function LiveMicMeter({
         destination = fallbackDestination;
       }
 
-      const chain = connectVoiceMonitorChain(audioContext, source, destination, currentControls.voicePreset, currentControls.gain);
+      const chain = connectVoiceMonitorChain(audioContext, source, destination, currentControls.voicePreset, currentControls.gain, inputChannel);
 
       if (monitorRequestRef.current !== requestId) {
         chain.disconnect();
@@ -1147,7 +1186,7 @@ function LiveMicMeter({
       stopMonitorPlayback();
       setMonitorIssue("Click again or pick headphones");
     }
-  }, [deviceId, onEchoWarning, stopMonitorPlayback]);
+  }, [deviceId, inputChannel, onEchoWarning, stopMonitorPlayback]);
 
   function toggleMonitor() {
     const nextMonitor = !controls.monitor;
@@ -1168,7 +1207,7 @@ function LiveMicMeter({
     let audioContext: AudioContext | undefined;
     let stream: MediaStream | undefined;
     let frame = 0;
-    let centeredMeterSource: ReturnType<typeof connectCenteredMonoSource> | undefined;
+    let centeredMeterSource: ReturnType<typeof connectInputChannelSource> | undefined;
     let canceled = false;
 
     async function startMeter() {
@@ -1183,7 +1222,7 @@ function LiveMicMeter({
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
         const samples = new Uint8Array(analyser.frequencyBinCount);
-        centeredMeterSource = connectCenteredMonoSource(audioContext, source);
+        centeredMeterSource = connectInputChannelSource(audioContext, source, inputChannel);
         centeredMeterSource.output.connect(analyser);
 
         const tick = () => {
@@ -1215,7 +1254,7 @@ function LiveMicMeter({
       centeredMeterSource?.disconnect();
       void audioContext?.close();
     };
-  }, [deviceId, fallbackLevel, onOpenMicrophoneStream, onReleaseMicrophoneStream, stopMonitorPlayback]);
+  }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream, onReleaseMicrophoneStream, stopMonitorPlayback]);
 
   useEffect(() => {
     if (!monitoring || controls.muted) {
@@ -1224,7 +1263,7 @@ function LiveMicMeter({
     }
 
     void startMonitorPlayback();
-  }, [controls.muted, deviceId, monitoring, outputDeviceId, startMonitorPlayback, stopMonitorPlayback]);
+  }, [controls.muted, deviceId, inputChannel, monitoring, outputDeviceId, startMonitorPlayback, stopMonitorPlayback]);
 
   useEffect(() => {
     monitorGraphRef.current?.chain.update(controls.voicePreset, controls.gain);
@@ -1248,13 +1287,23 @@ function LiveMicMeter({
             <select aria-label={`${label} input`} value={selectedInputId ?? ""} onChange={(event) => onInputChange(event.target.value)}>
               <option value="">Pick input</option>
               {inputOptions.map((device) => {
-                const owner = findAssignedMicSlot(inputAssignments, device.id, micSlot);
+                const owner = findAssignedMicSlot(inputAssignments, inputChannelAssignments, device.id, inputChannel, micSlot);
                 return (
-                  <option value={device.id} disabled={Boolean(owner)} key={device.id}>
-                    {owner ? `${device.label} - used by ${getMicSlotLabel(owner)}` : device.label}
+                  <option value={device.id} key={device.id}>
+                    {owner ? `${device.label} - choose another input channel` : device.label}
                   </option>
                 );
               })}
+            </select>
+          </label>
+        )}
+        {onInputChannelChange && (
+          <label className="channel-route-control" title="Choose the physical input jack on a USB audio interface.">
+            <span className="control-caption">Interface Channel</span>
+            <select aria-label={`${label} interface channel`} value={inputChannel} onChange={(event) => onInputChannelChange(event.target.value as MicrophoneInputChannel)}>
+              <option value="mix">Stereo / Mix</option>
+              <option value="input-1">Input 1 / Left</option>
+              <option value="input-2">Input 2 / Right</option>
             </select>
           </label>
         )}
@@ -1387,10 +1436,11 @@ function DistressedMeter({ level, label }: { level: number; label: string }) {
 
 function connectVoiceMonitorChain(
   audioContext: AudioContext,
-  source: MediaStreamAudioSourceNode,
+  source: AudioNode,
   destination: AudioNode,
   preset: VoicePreset,
-  gainValue: number
+  gainValue: number,
+  inputChannel: MicrophoneInputChannel
 ) {
   const highPass = audioContext.createBiquadFilter();
   highPass.type = "highpass";
@@ -1410,7 +1460,7 @@ function connectVoiceMonitorChain(
   compressor.release.value = 0.14;
 
   const makeup = audioContext.createGain();
-  const centered = connectCenteredMonoSource(audioContext, source);
+  const centered = connectInputChannelSource(audioContext, source, inputChannel);
 
   centered.output.connect(highPass);
   highPass.connect(warmth);

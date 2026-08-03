@@ -18,7 +18,8 @@ describe("offline auto edit", () => {
     expect(result.report.originalRecordingSafe).toBe(true);
     expect(result.report.chaptersGenerated.length).toBeGreaterThan(0);
     expect(result.report.clipsSuggested[0].reason).toContain("marker");
-    expect(result.report.runtimeReductionMs).toBeGreaterThan(0);
+    expect(result.report.runtimeReductionMs).toBe(0);
+    expect(result.report.editedLengthMs).toBe(result.report.originalLengthMs);
   });
 
   it("keeps manual edits and markers", () => {

@@ -22,7 +22,29 @@ Audio sidecar outputs, when selected and supported by Electron/browser capture:
 - `Audio/guest-mic.m4a`
 - `Audio/extra-mic.m4a`
 
-Export still uses `Program/program.webm`. Sidecar files are for Review and future edit/export choices.
+Program remains the reliable fallback. Review now exposes every saved sidecar as an individual editable source, and draft export can assemble selected camera angles plus the included microphone tracks into one episode.
+
+## Editing and Episode Folders
+
+Each episode keeps its complete work inside its own folder:
+
+- original Program, Cameras, and Audio media
+- device and camera-to-microphone routing in `Session/device-map.json`
+- non-destructive manual or Auto Edit decisions in `Session/draft-timeline.json`
+- Auto Edit evidence and explanations in `Session/AutoEditReport.json`
+- final episode and camera masters in `Exports/`
+
+Camera and microphone sources can be selected independently in Review. Source-specific trims and cuts affect only that source. Program edits affect the combined episode. Microphones can be included, excluded, and leveled independently before the final mix.
+
+Auto Edit can use sustained loudness from saved routed microphone tracks to propose camera changes. When the required mic sidecars or routes are missing, it keeps Program and reports that limitation instead of guessing.
+
+## Interface Input Routing
+
+Morgan, Guest, and Extra Mic each store a physical input route: `Stereo / automatic mix`, `Input 1 / left`, or `Input 2 / right`. The routing is available for any USB interface whose Windows driver exposes its inputs as a stereo capture device, not only PreSonus AudioBox hardware.
+
+One physical USB capture stream is shared and cloned for the selected channels. Input 1 and Input 2 are then centered to mono independently for podcast recording and monitoring. The exact same device and input channel cannot be assigned to two mic slots at once.
+
+Interfaces that expose channels as separate Windows devices appear as separate microphone choices. Interfaces with more than two inputs still depend on their Windows driver exposing those channels to Electron; the app does not claim access to hidden ASIO-only channels.
 
 ## Truthful States
 

@@ -1,5 +1,5 @@
 import { type ReactElement } from "react";
-import { CheckCircle2, ExternalLink, FileArchive, FileAudio, Lock, Play, ShieldCheck, Square, Video } from "lucide-react";
+import { CheckCircle2, ExternalLink, FileArchive, FileAudio, LoaderCircle, Lock, Play, ShieldCheck, Square, Video } from "lucide-react";
 import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../../shared/export";
 import { exportFriendlyErrorCopy, exportTypeLabels } from "../../shared/export";
 import { Button } from ".";
@@ -94,21 +94,35 @@ export function ExportEpisode({
 
       <section className="export-progress-panel">
         <div className="panel-heading">
-          <h3>{isComplete ? "Export complete" : isError ? "Something needs attention before export" : "Ready to export"}</h3>
-          {isComplete ? <CheckCircle2 size={24} /> : <ShieldCheck size={24} />}
+          <h3>{isComplete ? "Export complete" : isRunning ? "Exporting your episode" : isError ? "Something needs attention before export" : "Ready to export"}</h3>
+          {isComplete ? <CheckCircle2 size={24} /> : isRunning ? <LoaderCircle className="export-spinner" size={24} /> : <ShieldCheck size={24} />}
         </div>
         <p className={`media-tools-status ${mediaToolsStatus?.ready ? "ready" : "needs-setup"}`}>
           {mediaToolsStatus?.message ?? "Checking local media tools..."}
         </p>
-        <div className="export-progress-bar" aria-label="Export progress">
+        <div
+          className={`export-progress-bar ${isRunning ? "running" : ""}`}
+          role="progressbar"
+          aria-label="Export progress"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={job?.progress ?? 0}
+        >
           <span style={{ width: `${job?.progress ?? 0}%` }} />
         </div>
-        <p className="soft-copy">
-          {job?.error ? exportFriendlyErrorCopy[job.error] : job?.message ?? "Save a finished copy"}
-        </p>
+        <div className="export-live-status" role="status" aria-live="polite">
+          <strong>{isRunning ? `${job?.progress ?? 0}%` : isComplete ? "100%" : ""}</strong>
+          <span>{job?.error ? exportFriendlyErrorCopy[job.error] : job?.message ?? "Save a finished copy"}</span>
+        </div>
+        {isComplete && job?.outputFileNames && job.outputFileNames.length > 1 && (
+          <div className="export-output-summary">
+            <strong>Your export includes</strong>
+            {job.outputFileNames.map((fileName) => <span key={fileName}>{fileName}</span>)}
+          </div>
+        )}
         <div className="export-actions">
           <Button variant="primary" icon={<Play size={20} />} disabled={isRunning || selectedType === "social-clip-placeholder"} onClick={onStartExport}>
-            Export
+            {isRunning ? "Exporting" : "Export"}
           </Button>
           <Button variant="secondary" icon={<Square size={18} />} disabled={!isRunning} onClick={onCancelExport}>
             Cancel export

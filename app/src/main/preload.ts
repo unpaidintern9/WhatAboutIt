@@ -36,6 +36,11 @@ contextBridge.exposeInMainWorld("studio", {
   runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean): Promise<AutoEditResult> =>
     ipcRenderer.invoke("auto-edit:run", { episodeId, draft, mode, practice }),
   createExport: (request: ExportRequest): Promise<ExportJob> => ipcRenderer.invoke("export:create", request),
+  onExportProgress: (listener: (job: ExportJob) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, job: ExportJob) => listener(job);
+    ipcRenderer.on("export:progress", handler);
+    return () => ipcRenderer.removeListener("export:progress", handler);
+  },
   getMediaToolsStatus: (): Promise<MediaToolsStatus> => ipcRenderer.invoke("export:media-tools-status"),
   cancelExport: (episodeId: string, job: ExportJob): Promise<ExportJob> =>
     ipcRenderer.invoke("export:cancel", { episodeId, job }),

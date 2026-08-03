@@ -22,6 +22,7 @@ describe("recording session metadata", () => {
     const defaults = {
       cameras: { camera1: "camera-a", camera2: "camera-b" },
       microphones: { morganMic: "mic-a", guestMic: "mic-b" },
+      microphoneChannels: { morganMic: "input-1" as const, guestMic: "input-2" as const },
       audioOutputId: "speaker-a"
     };
 
@@ -30,6 +31,7 @@ describe("recording session metadata", () => {
       microphoneDeviceId: "mic-a",
       separateTracksWherePossible: false
     });
+    expect(createDeviceMap(defaults).microphoneChannels).toEqual({ morganMic: "input-1", guestMic: "input-2" });
     expect(createSyncMetadata(defaults, "2026-06-27T10:00:00.000Z").deviceStartTimestamps["camera-a"]).toBe(
       "2026-06-27T10:00:00.000Z"
     );

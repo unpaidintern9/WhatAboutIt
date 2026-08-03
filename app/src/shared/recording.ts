@@ -44,7 +44,9 @@ export interface RecordingState {
 
 export interface DeviceMap {
   cameras: DeviceDefaults["cameras"];
+  cameraMicrophones?: DeviceDefaults["cameraMicrophones"];
   microphones: DeviceDefaults["microphones"];
+  microphoneChannels?: DeviceDefaults["microphoneChannels"];
   audioOutputId?: string;
   program: {
     cameraDeviceId?: string;
@@ -111,11 +113,13 @@ export function createInitialRecordingState(sessionId: string, now = new Date().
 export function createDeviceMap(defaults: DeviceDefaults): DeviceMap {
   return {
     cameras: defaults.cameras,
+    cameraMicrophones: defaults.cameraMicrophones,
     microphones: defaults.microphones,
+    microphoneChannels: defaults.microphoneChannels,
     audioOutputId: defaults.audioOutputId,
     program: {
       cameraDeviceId: defaults.cameras.camera1,
-      microphoneDeviceId: defaults.microphones.morganMic,
+      microphoneDeviceId: defaults.microphones[defaults.cameraMicrophones?.camera1 ?? "morganMic"] ?? defaults.microphones.morganMic,
       separateTracksWherePossible: false
     }
   };

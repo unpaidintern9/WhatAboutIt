@@ -7,6 +7,10 @@ export class ExportService {
     return this.studio.createExport(request);
   }
 
+  subscribe(listener: (job: ExportJob) => void) {
+    return this.studio.onExportProgress?.(listener) ?? (() => undefined);
+  }
+
   mediaToolsStatus(): Promise<MediaToolsStatus> {
     return this.studio.getMediaToolsStatus();
   }

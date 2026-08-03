@@ -250,7 +250,7 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Guest Mic moved to Camera 1");
   });
 
-  it("keeps one physical mic input assigned to one mixer channel", () => {
+  it("splits one multichannel interface into distinct physical input routes", () => {
     const onDefaultsChange = vi.fn();
     const { host } = renderStudio({
       onDefaultsChange,
@@ -274,7 +274,7 @@ describe("RecordingStudio", () => {
     });
 
     const input = host.querySelector('select[aria-label="Morgan Mic input"]') as HTMLSelectElement;
-    expect(input.textContent).toContain("M-Audio Box Input 2 - used by Guest Mic");
+    expect(input.textContent).toContain("M-Audio Box Input 2 - choose another input channel");
 
     act(() => {
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
@@ -282,8 +282,11 @@ describe("RecordingStudio", () => {
       input.dispatchEvent(new Event("change", { bubbles: true }));
     });
 
-    expect(onDefaultsChange).not.toHaveBeenCalled();
-    expect(host.textContent).toContain("M-Audio Box Input 2 is already assigned to Guest Mic");
+    expect(onDefaultsChange).toHaveBeenCalledWith(expect.objectContaining({
+      microphones: expect.objectContaining({ morganMic: "mic-b", guestMic: "mic-b" }),
+      microphoneChannels: expect.objectContaining({ guestMic: "input-1", morganMic: "input-2" })
+    }));
+    expect(host.textContent).toContain("split into Input 1 and Input 2");
   });
 
   it("does not reopen the mic stream when mixer controls change", async () => {

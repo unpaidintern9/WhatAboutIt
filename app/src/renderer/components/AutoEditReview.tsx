@@ -108,6 +108,12 @@ export function AutoEditReview({ mode, result, running, onModeChange, onRun, onE
               items={report.clipsSuggested.map((clip) => `${clip.title}: ${formatRecordingTime(clip.startMs)} to ${formatRecordingTime(clip.endMs)}. ${clip.reason} Confidence: ${clip.confidence}.`)}
             />
             <AutoEditList title="Changes made" items={report.changesMade.map((change) => `${change.label}. Reversible.`)} />
+            <AutoEditList
+              title="Camera plan"
+              items={result.draft.cameraDecisions.length > 0
+                ? result.draft.cameraDecisions.map((decision) => `${formatRecordingTime(decision.startMs)} - ${decision.reason}`)
+                : ["Program stays on screen. Saved microphone activity was not available for automatic camera choices."]}
+            />
             <AutoEditList title="Review-needed items" items={[...report.audioWarnings, ...report.reviewFlags]} />
           </section>
         </>

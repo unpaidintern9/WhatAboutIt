@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import { promisify } from "node:util";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
@@ -19,6 +19,18 @@ export interface FfmpegRunResult {
   stderr: string;
 }
 
+export interface FfmpegProgressOptions {
+  durationMs: number;
+  onProgress?: (progress: number) => void;
+  signal?: AbortSignal;
+}
+
+export interface MediaValidationRequirements {
+  video?: boolean;
+  audio?: boolean;
+  decode?: boolean;
+}
+
 function firstLine(input: string) {
   return input.split(/\r?\n/).find(Boolean)?.trim() ?? "Version unavailable";
 }
@@ -32,9 +44,14 @@ async function canExecute(filePath: string) {
   }
 }
 
+export function resolveBundledToolPath(bundledPath: string) {
+  return bundledPath.replace(/([\\/])app\.asar([\\/])/, "$1app.asar.unpacked$2");
+}
+
 function configuredToolPath(envName: string, bundledPath: string) {
   const override = process.env[envName]?.trim();
-  return override || bundledPath;
+  if (override) return override;
+  return resolveBundledToolPath(bundledPath);
 }
 
 export async function detectMediaTools(): Promise<MediaToolsStatus> {
@@ -98,20 +115,103 @@ export async function runFfmpeg(args: string[], tools?: MediaTools): Promise<Ffm
   return { stdout: result.stdout, stderr: result.stderr };
 }
 
+export async function runFfmpegWithProgress(
+  args: string[],
+  options: FfmpegProgressOptions,
+  tools?: MediaTools
+): Promise<FfmpegRunResult> {
+  const resolvedTools = tools ?? (await requireMediaTools());
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(resolvedTools.ffmpegPath, ["-progress", "pipe:1", "-nostats", ...args], {
+      windowsHide: true
+    });
+    let stdout = "";
+    let stderr = "";
+    let progressBuffer = "";
+    let aborted = false;
+
+    const abort = () => {
+      aborted = true;
+      child.kill();
+    };
+    options.signal?.addEventListener("abort", abort, { once: true });
+
+    child.stdout.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdout += text;
+      progressBuffer += text;
+      const lines = progressBuffer.split(/\r?\n/);
+      progressBuffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const [key, rawValue] = line.split("=", 2);
+        if (key !== "out_time_us" && key !== "out_time_ms") continue;
+        const encodedMicroseconds = Number(rawValue);
+        if (!Number.isFinite(encodedMicroseconds) || options.durationMs <= 0) continue;
+        options.onProgress?.(Math.min(99, Math.max(0, (encodedMicroseconds / 1000 / options.durationMs) * 100)));
+      }
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+      if (stderr.length > 1024 * 1024 * 8) stderr = stderr.slice(-1024 * 1024 * 8);
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      options.signal?.removeEventListener("abort", abort);
+      if (aborted) {
+        const error = new Error("Export was canceled");
+        error.name = "AbortError";
+        reject(error);
+      } else if (code === 0) {
+        options.onProgress?.(100);
+        resolve({ stdout, stderr });
+      } else {
+        reject(new Error(stderr.trim() || `FFmpeg exited with code ${code ?? "unknown"}`));
+      }
+    });
+  });
+}
+
 export async function runFfprobe(args: string[], tools?: MediaTools): Promise<FfmpegRunResult> {
   const resolvedTools = tools ?? (await requireMediaTools());
   const result = await execFileAsync(resolvedTools.ffprobePath, args, { maxBuffer: 1024 * 1024 * 8 });
   return { stdout: result.stdout, stderr: result.stderr };
 }
 
-export async function validatePlayableMedia(filePath: string, tools?: MediaTools) {
+export async function getMediaDurationMs(filePath: string, tools?: MediaTools) {
+  const result = await runFfprobe(["-v", "error", "-show_entries", "format=duration", "-of", "json", filePath], tools);
+  const parsed = JSON.parse(result.stdout) as { format?: { duration?: string } };
+  const durationMs = Number(parsed.format?.duration ?? 0) * 1000;
+  return Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0;
+}
+
+export async function validatePlayableMedia(
+  filePath: string,
+  tools?: MediaTools,
+  requirements: MediaValidationRequirements = {}
+) {
   const result = await runFfprobe(
     ["-v", "error", "-show_entries", "format=duration,size", "-show_streams", "-of", "json", filePath],
     tools
   );
-  const parsed = JSON.parse(result.stdout) as { streams?: unknown[]; format?: { duration?: string; size?: string } };
+  const parsed = JSON.parse(result.stdout) as {
+    streams?: Array<{ codec_type?: string }>;
+    format?: { duration?: string; size?: string };
+  };
   const duration = Number(parsed.format?.duration ?? 0);
   const size = Number(parsed.format?.size ?? 0);
   const hasStreams = Boolean(parsed.streams?.length);
-  return (Number.isFinite(duration) && duration > 0) || (hasStreams && Number.isFinite(size) && size > 0);
+  const hasVideo = Boolean(parsed.streams?.some((stream) => stream.codec_type === "video"));
+  const hasAudio = Boolean(parsed.streams?.some((stream) => stream.codec_type === "audio"));
+  const hasMedia = (Number.isFinite(duration) && duration > 0) || (hasStreams && Number.isFinite(size) && size > 0);
+  if (!hasMedia || (requirements.video && !hasVideo) || (requirements.audio && !hasAudio)) return false;
+  if (!requirements.decode) return true;
+
+  const maps = [requirements.video ? ["-map", "0:v:0"] : [], requirements.audio ? ["-map", "0:a:0"] : []].flat();
+  try {
+    await runFfmpeg(["-v", "error", "-i", filePath, ...maps, "-t", "3", "-f", "null", "-"], tools);
+    return true;
+  } catch {
+    return false;
+  }
 }
