@@ -6,13 +6,13 @@ This document records the current status of production media integrations after 
 
 | Area | Current implementation | Production ready | Missing work |
 | --- | --- | --- | --- |
-| Recording | Browser `MediaRecorder` Program path plus Phase 9I sidecar camera/mic recorders with ffprobe validation after save; active preview streams are reused for synchronous multi-camera start | Partial | M-Audio physical routing confirmation, Camera 3/Extra Mic physical validation, clean 60-minute pass, sync/drift validation |
+| Recording | Browser `MediaRecorder` Program path plus Phase 9I sidecar camera/mic recorders with ffprobe validation after save; active preview streams are reused for synchronous multi-camera start; live recorder health reports Program and active sidecar counts | Partial | M-Audio physical routing confirmation, Camera 3/Extra Mic physical validation, clean 60-minute pass, sync/drift validation |
 | Camera capture | Physical Sony Camera via Imaging Edge and Integrated Camera previews validated; Phase 9I saved separate Camera 1 and Camera 2 WebM files | Partial | Camera 3 physical validation, capture cards, backend error handling, physical unplug/replug validation |
-| Microphone capture | Physical microphone capture validated; Phase 9I saved separate Morgan and Guest M4A files from app-selected mic channels; mixer now exposes explicit input selection and per-camera mic slot routing | Partial | M-Audio AudioBox input selection needs physical validation, exact second-mic hardware identity confirmation, Extra Mic physical validation, drift and clipping reporting |
-| Timeline review | Draft timeline JSON plus real Review media inventory for Program, Cameras, and Audio files with ffprobe durations, recording-state duration fallback, and browser playback controls | Partial | Review proxy generation for non-browser-playable files and render-accurate edit preview |
-| Editing | Non-destructive edit operation log | Partial | Apply edit decisions to renderable media timeline and playback preview |
-| Export | Bundled FFmpeg/ffprobe detection and real local rendering; Phase 9F requires `Program/program.webm` and validates output before success | Partial | Validate all presets from full-length real podcast media and render draft edit decisions into output |
-| Auto Edit | Deterministic offline suggestion generator from draft data | No | Real transcript, audio analysis, speaker/camera analysis, real report evidence |
+| Microphone capture | Physical microphone capture validated; Phase 9I saved separate Morgan and Guest M4A files; every browser-visible Windows input is preserved, laptop mics use automatic mono routing, interfaces expose Inputs 1-16, and capture retries the same device with simpler constraints when optional quality preferences are rejected | Partial | M-Audio AudioBox and other multichannel routes need physical validation, exact second-mic hardware identity confirmation, Extra Mic physical validation, drift and clipping reporting |
+| Timeline review | Draft timeline JSON plus real Review media inventory for Program, Cameras, and Audio files with ffprobe durations, recording-state duration fallback, browser playback, click scrubbing, drag range selection, split placement, zoom, and snapping | Partial | Review proxy generation for non-browser-playable files and render-accurate edit preview |
+| Editing | Non-destructive per-source timeline with cuts, draggable camera-to-Program decisions, source mix, voice treatment, camera finishing, reusable treatment actions, and delivery mastering targets | Partial | Arbitrary clip reorder/ripple editing, automation keyframes, transcript editing, advanced color tools, and plug-in hosting |
+| Export | Bundled FFmpeg/ffprobe rendering applies draft camera cuts, source mix, voice/camera treatment, transitions, and configurable loudness targets; output is decode-validated before success | Partial | Validate all presets from full-length real podcast media and broader hardware combinations |
+| Auto Edit | Offline microphone activity analysis, camera routing decisions, mode-based production treatment, stable camera hold, and local learning from explicitly approved Manual Edit drafts | Partial | Transcript-backed structure, richer audio analysis, visual speaker evidence, and broader real-episode evaluation |
 | Recovery | Session state foundation | Partial | Real interrupted recording validation and media recovery workflow |
 | Packaging | Electron Builder config | Partial | Installable builds, clean-machine test, bundled media dependencies |
 | Windows beta installer | NSIS installer built and installed locally; Desktop shortcut, Start Menu shortcut, first-run Hardware Test routing, packaged app data paths, MP4 export, diagnostics, uninstall, and reinstall were validated in Phase 8C | Partial | Final branded `.ico`, package author metadata, and separate clean-machine QA still needed |
@@ -42,10 +42,10 @@ This document records the current status of production media integrations after 
 - `docs/manual-qa/SONY_MULTI_CAMERA_QA.md`: documents that no physical Sony camera was detected during Phase 7C.
 - `app/src/renderer/plugins/recording/obs-control-plugin.ts`: all recording methods throw `OBS recording engine is not connected yet.`
 - `app/src/renderer/plugins/recording/browser-media-recorder-plugin.ts`: records one browser media stream where supported and now surfaces friendly camera/mic attention states.
-- `app/src/shared/auto-edit.ts`: computes suggested edits from draft duration and markers, not real media analysis.
-- `app/src/main/auto-edit-store.ts`: persists the simulated Auto Edit result.
+- `app/src/shared/auto-edit.ts`: creates non-destructive camera/treatment suggestions, blends approved local production preferences, and enforces stable camera pacing.
+- `app/src/main/auto-edit-store.ts`: analyzes saved microphone activity and persists the Auto Edit report and draft.
 - `app/src/main/review-media-store.ts`: loads real Review media from Program, Cameras, and Audio folders and probes durations/codecs with ffprobe.
-- `app/src/main/timeline-store.ts`: persists draft JSON. Draft edits are not render-applied yet.
+- `app/src/main/timeline-store.ts`: persists non-destructive draft JSON; `app/src/main/export-store.ts` applies supported cuts, camera decisions, source treatment, and mastering during render.
 - `app/scripts/create-shortcut.mjs`: creates the local Windows desktop shortcut for development testing; validated at `C:\Users\mmcga\OneDrive\Desktop\What About It Studio.lnk`.
 - `app/src/shared/hardware-test.ts`: models the real hardware test flow and Ready/Needs Attention result states without simulated success.
 - `app/src/main/diagnostics-store.ts`: creates local diagnostics folders without raw media payloads.
@@ -115,6 +115,7 @@ The project now has partial real media integrations for offline FFmpeg export re
 - `DeviceService` now tracks opened camera and microphone streams, stops duplicate streams for the same device, and exposes `releaseAll()` for route changes and app shutdown.
 - `RecordingService.shutdown()` and the browser recorder shutdown hook stop active recording tracks without pretending media was saved.
 - Live Studio monitoring is now per mic with `Hear Morgan`, `Hear Guest`, and `Hear Extra` controls. Monitoring defaults Off, Mute blocks monitoring, and Solo limits the audible channel set.
+- Software monitoring now uses a direct interactive AudioContext route instead of a buffered media-element relay and removes live look-ahead compression. Hardware direct monitoring remains the only zero-delay path; audible latency improvements still require human confirmation on each Windows driver/interface combination.
 - Review Episode now loads actual files from `Program`, `Cameras`, and `Audio`, shows a real Program video player when `Program/program.webm` exists, and shows real audio preview controls for present mic files.
 - Review uses ffprobe metadata for duration/codecs and marks missing media truthfully.
 - Draft edit operations remain non-destructive metadata. The UI now says `Draft saved. Preview rendering comes next.` when edits exist.
@@ -157,3 +158,46 @@ The project now has partial real media integrations for offline FFmpeg export re
 - The mixer now shows clear Output routing, per-channel Input selectors for Morgan/Guest/Extra, Volume sliders, Mute, Solo, and Hear controls without hiding them behind a collapsed `More` panel.
 - Automated tests cover live camera stream reuse, Camera 1 mic route selection, mixer input updates, and stream resolver exposure.
 - Physical M-Audio AudioBox input selection, audible test sound, and headphone monitoring/no-feedback confirmation are still pending. No docs mark those as human-confirmed.
+
+## Production Depth Addendum
+
+- The collapsed sidebar is now one consistent branded navigation rail on Setup, Record, Review, and Export. Record no longer forces the sidebar open; compact controls retain hover/focus labels.
+- Recording confidence now comes from the active media engine. The UI checks Program state, active camera/audio sidecar counts, expected source counts, and source warnings while recording.
+- Edit Studio can copy an approved voice treatment to all microphone tracks, copy a camera look to all camera tracks, and reset one source without changing the others.
+- Program mastering offers Podcast, Video, and Broadcast loudness targets. The selected LUFS and true-peak values are passed into FFmpeg loudness normalization.
+- Explicitly saving a Manual Edit draft updates a local Auto Edit learning profile. Auto Edit blends those approved settings with the selected mode and applies a minimum camera hold to avoid rapid cuts.
+- This pass used automated short-media and UI tests only. It did not claim new physical hardware, audible-monitoring, long-recording, or full-episode validation.
+
+## Start-to-Finish Workflow Addendum
+
+- Workspace scrolling is isolated from the branded sidebar, so setup, recording, editing, and export navigation stays available on laptop-sized windows.
+- The four-step workflow is interactive and truthful. Placeholder timeline tracks no longer mark Review complete, and Review/Export remain locked until media exists.
+- Recent episode rows reopen their real Review inventory.
+- Studio Setup was condensed so hardware selection begins substantially closer to the top of the screen; the detailed setup checklist is available on demand.
+- Live Studio now reports pending `Starting` and `Saving` work around the asynchronous recorder lifecycle instead of appearing unresponsive.
+- Edit Studio can jump between saved markers and uses `Save & Export` to persist the current approved draft before handoff.
+- Export now communicates five concrete rendering stages and provides explicit completion actions.
+- This pass did not change media codecs or claim additional physical hardware results. Validation is automated and short-duration only.
+
+## Direct Editing Usability Addendum
+
+- The Edit Studio now supports click-to-scrub, drag range selection with visible handles, Split mode, double-click split, Delete range, timeline zoom, and optional snapping to markers, edits, and camera decisions.
+- Recorded camera sources and camera timeline clips can be dragged onto Program to create an export-backed camera decision at the drop time.
+- Draft saved/changed status is visible beside source readiness; Undo, Redo, Save draft, and Save & Export remain explicit.
+- New installs default to the compact branded navigation rail, while a saved user choice to expand it remains authoritative.
+- Closing or completing the first-run guide now persists `never`; `Remind Me Later` remains the only choice that intentionally brings it back.
+- Laptop-width browser QA at 1366x768 found no horizontal workspace overflow on Studio Setup, Record, Edit Studio, or Export.
+- This pass used focused automated interaction tests and visual browser QA. It did not run a long recording or claim new physical hardware results.
+
+## M-Track Duo P0 Audio Addendum
+
+- Windows exposes the connected two-input interface as one generic DirectShow endpoint: `Line (2- USB AUDIO CODEC)`, not as two separately named M-Audio devices.
+- DirectShow reports a maximum of two channels at 44.1 kHz/16-bit. The app therefore treats this machine as one interface with browser-visible Input 1 and Input 2 routes and does not fabricate separate devices.
+- USB audio endpoints are surfaced as `USB Audio Interface (...)` while preserving the exact Windows label for diagnostics and session metadata.
+- Audio capture now preserves a stereo request through the first constraint fallback, validates the real stream channel count before routing a numbered input, and reports a truthful one-channel error when Input 2 is unavailable.
+- Studio Setup and Live Studio provide independent RMS/peak meters, clipping/quiet/disconnected states, editable person names, route diagnostics, and a first-click quiet-input warning with a second-click recording override.
+- Program and sidecar recording retain the selected slot, device, label, input number, person name, and role. Same-interface Input 1/Input 2 tracks use distinct sync keys.
+- Automated audio/setup/recording coverage passed. Windows/DirectShow detection is physically confirmed; spoken isolation of Input 1 versus Input 2 and post-record voice playback still require the short human hardware steps in `docs/manual-qa/M_TRACK_DUO_P0_QA.md`.
+- A duplicate app-level mic sampler that reopened the selected input every 900 ms was removed. Setup and Record now rely on their persistent per-channel meter streams, eliminating the observed capture loop.
+- Laptop layout QA at 1366x768 confirms three camera previews, a non-overlapping transport, a three-column mic console, collapsed secondary tools, and no body/workspace horizontal overflow.
+- Three same-named Imaging Edge feeds remain distinct when Windows exposes three unique device IDs. The current laptop audit still exposes one Imaging Edge endpoint, so three Sony tracks require two additional Windows-visible video endpoints rather than duplicated app slots.

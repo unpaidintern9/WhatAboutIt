@@ -89,7 +89,8 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Output");
     expect(host.textContent).toContain("Voice Polish");
     expect(host.textContent).toContain("Warm Podcast");
-    expect(host.textContent).toContain("We can't hear you yet");
+    expect(host.textContent).toContain("CHECKING");
+    expect(host.textContent).toContain("Audio Diagnostics");
     expect(host.textContent).toContain("Cameras Ready");
     expect(host.textContent).toContain("Microphones Ready");
     expect(host.textContent).toContain("Recording Healthy");
@@ -135,7 +136,8 @@ describe("RecordingStudio", () => {
     const onPlayTestSound = vi.fn(async () => undefined);
     const { host } = renderStudio({ onPlayTestSound });
 
-    expect(host.textContent).toContain("Low-latency monitor");
+    expect(host.textContent).toContain("Direct software monitor");
+    expect(host.textContent).toContain("Hardware direct monitoring is zero-delay");
     expect(host.textContent).toContain("Output");
     expect(host.textContent).toContain("Hear Morgan");
     expect(host.textContent).toContain("Off");
@@ -169,6 +171,28 @@ describe("RecordingStudio", () => {
     const { host: pausedHost } = renderStudio({ snapshot: { status: "paused", elapsedMs: 1000, localSaveMessage: "Everything is saving locally", trackStatuses: [] }, onResume });
     click(pausedHost, "Resume");
     expect(onResume).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows honest starting and saving states while recorder work is pending", async () => {
+    let finishStart: (() => void) | undefined;
+    let finishStop: (() => void) | undefined;
+    const onStart = vi.fn(() => new Promise<void>((resolve) => { finishStart = resolve; }));
+    const onStop = vi.fn(() => new Promise<void>((resolve) => { finishStop = resolve; }));
+    const { host: idleHost } = renderStudio({ onStart });
+
+    click(idleHost, "Record");
+    expect(idleHost.textContent).toContain("Starting every ready camera and microphone together");
+    expect(idleHost.textContent).toContain("Starting");
+    await act(async () => finishStart?.());
+
+    const { host: recordingHost } = renderStudio({
+      snapshot: { status: "recording", elapsedMs: 1000, localSaveMessage: "Everything is saving locally", trackStatuses: [] },
+      onStop
+    });
+    click(recordingHost, "Stop");
+    expect(recordingHost.textContent).toContain("Finishing camera and microphone files before Review opens");
+    expect(recordingHost.textContent).toContain("Saving");
+    await act(async () => finishStop?.());
   });
 
   it("saves layout selection, markers, and notes through podcast tools state", () => {
@@ -286,7 +310,7 @@ describe("RecordingStudio", () => {
       microphones: expect.objectContaining({ morganMic: "mic-b", guestMic: "mic-b" }),
       microphoneChannels: expect.objectContaining({ guestMic: "input-1", morganMic: "input-2" })
     }));
-    expect(host.textContent).toContain("split into Input 1 and Input 2");
+    expect(host.textContent).toContain("inputs were assigned to separate mixer channels");
   });
 
   it("does not reopen the mic stream when mixer controls change", async () => {

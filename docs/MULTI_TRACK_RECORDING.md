@@ -33,6 +33,8 @@ Each episode keeps its complete work inside its own folder:
 - non-destructive manual or Auto Edit decisions in `Session/draft-timeline.json`
 - Auto Edit evidence and explanations in `Session/AutoEditReport.json`
 - final episode and camera masters in `Exports/`
+- edited 48 kHz, 24-bit microphone masters in `Exports/Audio Masters/`
+- portable edit decisions in `Exports/edit-decision-list.json`
 
 Camera and microphone sources can be selected independently in Review. Source-specific trims and cuts affect only that source. Program edits affect the combined episode. Microphones can be included, excluded, and leveled independently before the final mix.
 
@@ -40,11 +42,17 @@ Auto Edit can use sustained loudness from saved routed microphone tracks to prop
 
 ## Interface Input Routing
 
-Morgan, Guest, and Extra Mic each store a physical input route: `Stereo / automatic mix`, `Input 1 / left`, or `Input 2 / right`. The routing is available for any USB interface whose Windows driver exposes its inputs as a stereo capture device, not only PreSonus AudioBox hardware.
+Morgan, Guest, and Extra Mic each store a physical input route: `Automatic / mono mix` or numbered `Input 1` through `Input 16`. Automatic mono mix is the correct default for laptop microphones and ordinary single-input devices. Numbered routing is available for any interface whose Windows driver exposes those channels to Electron, not only one hardware brand.
 
-One physical USB capture stream is shared and cloned for the selected channels. Input 1 and Input 2 are then centered to mono independently for podcast recording and monitoring. The exact same device and input channel cannot be assigned to two mic slots at once.
+One physical interface capture stream is shared and cloned for selected channels. Each numbered input is centered to mono independently for podcast recording and monitoring. Assigning one interface to multiple mic tracks automatically chooses separate numbered routes, and the exact same device/input route cannot be assigned twice. The recorder also refuses to start from stale settings that contain an exact duplicate route.
 
-Interfaces that expose channels as separate Windows devices appear as separate microphone choices. Interfaces with more than two inputs still depend on their Windows driver exposing those channels to Electron; the app does not claim access to hidden ASIO-only channels.
+Camera assignment follows the same physical-source rule. Choosing a camera that is already in another slot moves it to the new slot, and the used option is disabled in the other selectors. Three Sony bodies must be exposed by Windows as three unique camera device IDs; one Imaging Edge virtual device cannot truthfully represent three simultaneous bodies.
+
+When Windows supplies three distinct camera IDs with the same `Sony Camera (Imaging Edge)` label, discovery keeps all three and numbers the visible labels 1 through 3. Recording identity remains the device ID, and the three recorders write separate Camera 1/2/3 sidecars. One shared Imaging Edge endpoint is never duplicated into fake angles.
+
+Interfaces that expose channels or channel pairs as separate Windows devices appear as separate microphone choices. Capture retries the same selected device in three steps: preferred studio quality, stereo with browser processing disabled, then device-only. This preserves Input 2 whenever the driver rejects only the optional sample-rate/sample-size request, and it never silently switches to another microphone. Interfaces still depend on their Windows WDM/WASAPI driver exposing those channels to Electron, and the app does not claim access to hidden ASIO-only channels.
+
+The session device map retains the selected device id, Windows label, numbered channel, editable display name, role, and a slot/channel-specific start timestamp. Two tracks may share one interface only when their numbered channel routes differ.
 
 ## Truthful States
 

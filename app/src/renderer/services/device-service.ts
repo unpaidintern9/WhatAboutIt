@@ -1,8 +1,9 @@
 import type { DeviceDefaults } from "../../shared/types";
+import { getDeviceAssignmentConflicts } from "../../shared/device-config";
 import { stopStudioMediaStream } from "../plugins/audio/studio-audio";
 import type { DeviceDetectionResult, DevicePlugin, StudioDevice } from "../plugins/devices/types";
 
-export type StudioReadyState = "ready" | "needs-camera" | "needs-microphone" | "needs-permission";
+export type StudioReadyState = "ready" | "needs-camera" | "needs-microphone" | "needs-permission" | "needs-routing";
 
 export function getEmptyStateMessage(kind: "camera" | "microphone" | "speaker" | "permission" | "quiet" | "busy" | "ready") {
   const messages = {
@@ -20,8 +21,9 @@ export function getEmptyStateMessage(kind: "camera" | "microphone" | "speaker" |
 
 export function getDeviceReadiness(result: DeviceDetectionResult, defaults: DeviceDefaults): StudioReadyState {
   if (result.permissionNeeded) return "needs-permission";
-  if (result.cameras.length === 0 || !defaults.cameras.camera1) return "needs-camera";
-  if (result.microphones.length === 0 || !defaults.microphones.morganMic) return "needs-microphone";
+  if (getDeviceAssignmentConflicts(defaults).length > 0) return "needs-routing";
+  if (result.cameras.length === 0 || !defaults.cameras.camera1 || !result.cameras.some((device) => device.id === defaults.cameras.camera1)) return "needs-camera";
+  if (result.microphones.length === 0 || !defaults.microphones.morganMic || !result.microphones.some((device) => device.id === defaults.microphones.morganMic)) return "needs-microphone";
   return "ready";
 }
 

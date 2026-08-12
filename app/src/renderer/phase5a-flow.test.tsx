@@ -15,7 +15,7 @@ describe("Phase 5C flow", () => {
       ["new-episode", "New Episode"],
       ["device-setup", "Let's check your studio"],
       ["recording", "Everything is saving locally"],
-      ["timeline-review", "Review your recording"],
+      ["timeline-review", "Edit Studio"],
       ["auto-edit-review", "Auto Edit"],
       ["export", "Export your episode"]
     ];
@@ -124,14 +124,15 @@ describe("Phase 5C flow", () => {
       root.render(<App />);
     });
 
-    expect(host.textContent).toContain("Review your recording");
-    expect(host.textContent).toContain("original recording completely safe");
+    expect(host.textContent).toContain("Edit Studio");
+    expect(host.textContent).toContain("Originals always stay untouched");
     expect(host.textContent).toContain("Auto Edit");
-    expect(host.textContent).toContain("This only changes the draft");
-    expect(host.textContent).toContain("Trim before here");
-    expect(host.textContent).toContain("Split here");
-    expect(host.textContent).toContain("Cut this section");
-    expect(host.textContent).toContain("Restore original");
+    expect(host.textContent).toContain("Source monitor");
+    expect(host.textContent).toContain("Delete range");
+    expect(host.querySelector('input[aria-label="Timeline zoom"]')).toBeTruthy();
+    expect(host.textContent).toContain("Trim start");
+    expect(host.textContent).toContain("Split");
+    expect(host.textContent).toContain("Restore");
     expect(host.textContent).toContain("Edit history");
     expect(host.textContent).toContain("Export");
     expect(host.textContent).toContain("Funny");

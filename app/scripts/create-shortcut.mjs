@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
+import path from "node:path";
 import {
   getElectronTargetPath,
   getFallbackDesktopPath,
@@ -11,7 +12,9 @@ import {
 } from "./shortcut-paths.mjs";
 
 const appRoot = process.cwd();
-const targetPath = getElectronTargetPath(appRoot);
+const packagedTargetPath = path.join(appRoot, "release", "win-unpacked", `${shortcutDisplayName}.exe`);
+const packagedBuildExists = existsSync(packagedTargetPath);
+const targetPath = packagedBuildExists ? packagedTargetPath : getElectronTargetPath(appRoot);
 
 if (!existsSync(targetPath)) {
   throw new Error(`Electron was not found at ${targetPath}. Run npm install inside app first.`);
@@ -26,9 +29,9 @@ const desktopPath = execFileSync("powershell.exe", [
   .trim() || getFallbackDesktopPath();
 
 const shortcutPath = getShortcutPath(desktopPath);
-const shortcutArguments = getShortcutArguments();
-const workingDirectory = getShortcutWorkingDirectory(appRoot);
-const iconPath = getShortcutIconPath(appRoot);
+const shortcutArguments = packagedBuildExists ? "" : getShortcutArguments();
+const workingDirectory = packagedBuildExists ? path.dirname(packagedTargetPath) : getShortcutWorkingDirectory(appRoot);
+const iconPath = packagedBuildExists ? packagedTargetPath : getShortcutIconPath(appRoot);
 
 const script = `
 $shell = New-Object -ComObject WScript.Shell

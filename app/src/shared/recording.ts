@@ -47,6 +47,15 @@ export interface DeviceMap {
   cameraMicrophones?: DeviceDefaults["cameraMicrophones"];
   microphones: DeviceDefaults["microphones"];
   microphoneChannels?: DeviceDefaults["microphoneChannels"];
+  microphoneNames?: DeviceDefaults["microphoneNames"];
+  microphoneDeviceLabels?: DeviceDefaults["microphoneDeviceLabels"];
+  microphoneRoutes?: Partial<Record<"morganMic" | "guestMic" | "extraMic", {
+    deviceId?: string;
+    deviceLabel?: string;
+    channel: import("./types").MicrophoneInputChannel;
+    displayName: string;
+    role: "host" | "guest" | "extra";
+  }>>;
   audioOutputId?: string;
   program: {
     cameraDeviceId?: string;
@@ -111,16 +120,26 @@ export function createInitialRecordingState(sessionId: string, now = new Date().
 }
 
 export function createDeviceMap(defaults: DeviceDefaults): DeviceMap {
+  const microphoneRoutes = Object.fromEntries((["morganMic", "guestMic", "extraMic"] as const).map((slot) => [slot, {
+    deviceId: defaults.microphones[slot],
+    deviceLabel: defaults.microphoneDeviceLabels?.[slot],
+    channel: defaults.microphoneChannels?.[slot] ?? "mix",
+    displayName: defaults.microphoneNames?.[slot] ?? (slot === "morganMic" ? "Morgan" : slot === "guestMic" ? "Guest" : "Extra"),
+    role: slot === "morganMic" ? "host" : slot === "guestMic" ? "guest" : "extra"
+  }])) as DeviceMap["microphoneRoutes"];
   return {
     cameras: defaults.cameras,
     cameraMicrophones: defaults.cameraMicrophones,
     microphones: defaults.microphones,
     microphoneChannels: defaults.microphoneChannels,
+    microphoneNames: defaults.microphoneNames,
+    microphoneDeviceLabels: defaults.microphoneDeviceLabels,
+    microphoneRoutes,
     audioOutputId: defaults.audioOutputId,
     program: {
       cameraDeviceId: defaults.cameras.camera1,
       microphoneDeviceId: defaults.microphones[defaults.cameraMicrophones?.camera1 ?? "morganMic"] ?? defaults.microphones.morganMic,
-      separateTracksWherePossible: false
+      separateTracksWherePossible: true
     }
   };
 }
@@ -132,8 +151,8 @@ export function createSyncMetadata(defaults: DeviceDefaults, now = new Date().to
     if (deviceId) deviceStartTimestamps[deviceId] = now;
   });
 
-  Object.values(defaults.microphones).forEach((deviceId) => {
-    if (deviceId) deviceStartTimestamps[deviceId] = now;
+  Object.entries(defaults.microphones).forEach(([slot, deviceId]) => {
+    if (deviceId) deviceStartTimestamps[`microphone:${slot}:${defaults.microphoneChannels?.[slot as keyof DeviceDefaults["microphones"]] ?? "mix"}`] = now;
   });
 
   return {

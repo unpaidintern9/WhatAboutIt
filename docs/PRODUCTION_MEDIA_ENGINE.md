@@ -1,205 +1,56 @@
 # Production Media Engine
 
-Phase 7 status: blocked for full production readiness.
-
-Phase 7A status: real FFmpeg export integration completed.
-
-Phase 7B status: partial real recording capture integration completed.
-
-Phase 7B.5 status: short physical camera/microphone validation completed.
-
-This pass audited the current media engine against the requirement to replace placeholder or simulated behavior with production-ready integrations. The project is not ready for a Phase 7 production commit because the required real media integrations are not yet implemented or validated.
-
-No new UI features were added. No interface redesign was performed. No Version 2 features were started.
-
-## Current Result
-
-The existing application remains an offline-first MVP shell with local project structure, draft timeline storage, review/edit/export flows, and Auto Edit review concepts. It does not yet contain a validated production media engine.
-
-The requested commit condition was not met:
-
-> Commit only if production integrations replace placeholder implementations.
-
-Because full-length multi-track stability, media-backed timeline playback, Auto Edit, full recovery, and packaging remain unvalidated foundations, the full production gate is still not complete. Phase 7A specifically replaced the export placeholder with a real local FFmpeg render path. Phase 7B hardened the browser MediaRecorder path for one-camera/one-mic capture where supported and validates saved recordings with ffprobe. Phase 7B.5 validated a short physical recording with real connected camera/microphone hardware. Phase 9I added sidecar camera/mic recording outputs where Electron/browser capture supports them.
+The app has a real, offline production path built on Electron media capture plus bundled FFmpeg and ffprobe. The originals, draft, rendered masters, and reports for an episode stay inside that episode's folder.
 
 ## Recording
 
-Status: partial real integration.
+The Live Studio creates `Program/program.webm` and attempts a separate sidecar for every selected source:
 
-Evidence:
+- `Cameras/camera-1.webm`, `camera-2.webm`, and `camera-3.webm`
+- `Audio/morgan-mic.m4a`, `guest-mic.m4a`, and `extra-mic.m4a`
 
-- `app/src/renderer/plugins/recording/browser-media-recorder-plugin.ts`
-- `app/src/renderer/plugins/recording/obs-control-plugin.ts`
-- `app/src/main/recording-session-store.ts`
-- `app/src/main/recording-session-store.test.ts`
-- `app/src/renderer/services/recording-service.test.ts`
+Every saved file is probed before it is reported as saved. A source that previews but cannot open a separate recorder is reported as `Preview only`; the app does not create a fake file.
 
-The browser recording plugin uses `navigator.mediaDevices.getUserMedia` and `MediaRecorder` for the main Program recording, then attempts separate sidecar recorders for selected Camera 1/2/3 and Morgan/Guest/Extra mic slots. The main process saves the Program bytes to `Episode/Program/program.webm`, validates that file with ffprobe, saves camera sidecars to `Episode/Cameras`, transcodes mic sidecars to `Episode/Audio/*.m4a`, and validates every saved sidecar before marking it saved.
+While Record or Pause is active, the renderer reads recorder health from the capture engine. It reports whether the Program recorder is alive, how many selected camera and microphone sidecars are active, and whether any selected source needs attention. Preflight readiness is not reused as proof that recording is healthy.
 
-The recording save path updates `Session/sync-metadata.json` with saved media file paths, validation status, and truthful sidecar states such as `Saved`, `Preview only`, and `Needs Attention`.
+One Windows camera device can occupy only one camera slot. Multiple Sony bodies are supported only when Windows exposes each body as a unique camera device ID. Every browser-visible Windows audio input remains selectable, including laptop microphone arrays and interface channel pairs. One interface can feed multiple mic tracks through browser-visible Inputs 1 through 16, but the exact same device and input route cannot be assigned twice. Channels hidden behind an ASIO-only driver are not available to Electron.
 
-Phase 7B.5 physical validation:
+## Edit Studio
 
-- Camera: Integrated Camera
-- Microphone: Microphone (Realtek(R) Audio)
-- Program output: VP9 video, Opus mono audio, 640x480
-- Camera mirror: created and ffprobe-valid
-- Audio extraction: AAC mono M4A, 17.039 seconds
-- Final UI state: `Recording Complete`, `STOPPED`, 17-second timer
-- Manual QA report: `docs/manual-qa/PHYSICAL_RECORDING_QA.md`
+`Session/draft-timeline.json` is a non-destructive edit decision document. The Edit Studio loads the real Program, camera, and microphone inventory and offers:
 
-Friendly capture failure states now include:
+- synchronized Program, camera, and microphone lanes
+- source playback, click-to-scrub, drag range selection, exact In/Out selection, trim start/end, click-to-split, and range removal
+- timeline zoom, marker/cut snapping, and draggable camera sources that create real Program camera decisions at the drop time
+- per-camera inclusion, fit/fill framing, zoom and position, brightness, contrast, saturation, temperature, tint, denoise, sharpening, and sync nudge
+- per-mic inclusion, mute, solo, level, pan, fades, sync nudge, noise cleanup, gate, de-essing, compression, three-band tone, voice presets, and output limiting
+- clean-cut or soft-fade camera changes with an adjustable transition duration
+- reusable `Apply to all mics` and `Apply to all cameras` treatment actions plus independent source reset
+- Podcast (-16 LUFS), Video (-14 LUFS), and Broadcast (-24 LUFS) final delivery targets with true-peak protection
+- manual camera decisions and explainable Auto Edit camera suggestions
+- undo, redo, restore, and explicit draft save
 
-- `Camera needs attention`
-- `Mic needs attention`
-
-The OBS control plugin still throws `OBS recording engine is not connected yet.` for start, pause, resume, and stop.
-
-Missing production work:
-
-- Validate Camera 3 with supported hardware.
-- Validate Extra Mic with supported hardware.
-- Confirm exact physical identity for each separate microphone source.
-- Validate long-duration recording stability.
-- Validate audio/video sync.
-- Validate dropped frame and drift reporting from the real backend.
-- Validate recording from an installable packaged app, not only `npm run electron`.
-
-## Timeline
-
-Status: partial foundation.
-
-Evidence:
-
-- `app/src/main/timeline-store.ts`
-- `app/src/shared/timeline.ts`
-- `app/src/renderer/components/TimelineReview.tsx`
-
-The timeline currently saves and loads `Session/draft-timeline.json` and preserves non-destructive edit operations. It does not yet load actual recorded media into a production playback timeline or provide accurate media-backed playback.
-
-Missing production work:
-
-- Discover actual recording files for an episode.
-- Probe durations and streams.
-- Bind timeline tracks to real media assets.
-- Play recorded program/camera/audio media accurately.
-- Apply trim, split, and delete operations against a renderable draft timeline.
+The raw recordings are never rewritten. Arbitrary ripple rearranging of recorded clips, titles, transcript editing, automation keyframes, advanced color masks/curves, and third-party VST hosting are not implemented. Camera clips can be dragged onto Program to create export-backed camera changes; they cannot yet be freely reordered like a general-purpose nonlinear editor. The de-ess control is a focused high-frequency reduction rather than a spectral de-esser plug-in.
 
 ## Export
 
-Status: real integration completed for local export rendering.
+Bundled FFmpeg renders the draft and ffprobe validates decodability before the job completes. The UI reports live percentage plus Prepare, Mix Sources, Build Video, Verify File, and Done stages, and lists every generated artifact. A completed job makes `Open export folder` the primary action while preserving clear routes back to Review or Home.
 
-Evidence:
+Full episode exports include:
 
-- `app/src/main/export-store.ts`
-- `app/src/main/ffmpeg-tools.ts`
-- `app/src/main/export-store.test.ts`
-- `app/package.json`
+- finished H.264/AAC MP4
+- each available camera paired with its assigned microphone in `Exports/Camera Masters/`
+- each available edited microphone as 48 kHz stereo, 24-bit PCM WAV in `Exports/Audio Masters/`
+- `Exports/edit-decision-list.json`
 
-The export store now detects bundled FFmpeg and ffprobe binaries, renders playable local outputs, and validates the output with ffprobe before marking a job complete.
-
-Supported Phase 7A outputs:
-
-- Full Episode Video: `what-about-it-full-episode-video.mp4`
-- Audio Only: `what-about-it-audio-only.m4a`
-- Archive Master: `what-about-it-archive-master.mkv`
-
-Export artifacts still write locally to `Episode/Exports/`:
-
-- `export-job.json`
-- `export-log.txt`
-- `export-summary.json`
-
-The app now reports a friendly readiness status:
-
-- `Media tools are ready`
-- `Media tools need setup before export`
-
-Real export validation:
-
-- `app/src/main/export-store.test.ts` generates tiny local sample media through FFmpeg.
-- The test exports a playable MP4 and M4A.
-- The output is validated through ffprobe before the job completes.
-
-Missing production work:
-
-- Validate Full Episode Video, Audio Only, and Archive Master presets.
-- Render from a fully media-backed draft timeline once real recording and timeline playback are complete.
-- Validate exports from real recorded podcast media, not only generated sample media.
+The final voice mix uses track controls and EBU R128 loudness normalization using the delivery target stored in the draft. Podcast defaults to -16 LUFS with a -1.5 dB true-peak ceiling; Video and Broadcast targets are selectable in the Program inspector. Standard renders at 720p with 192 kbps AAC. High renders at 1080p with 320 kbps AAC. Archive uses a near-master H.264 encode and 24-bit PCM audio.
 
 ## Auto Edit
 
-Status: simulated analysis.
+Auto Edit reads saved microphone activity and camera-to-mic routes to propose camera changes. It applies a mode-specific starting profile for voice cleanup, dynamics, three-band tone, output limiting, camera denoise, picture finishing, and camera transitions. A locally stored learning profile blends in treatment, transition, and camera pacing values from explicitly saved Manual Edit drafts. Minimum camera hold time suppresses rapid activity-driven switching. It does not guess when sidecars or routing evidence are missing. Manual Edit and Auto Edit use the same draft and controls, so every automatic choice remains editable before export.
 
-Evidence:
+## Validation Status
 
-- `app/src/shared/auto-edit.ts`
-- `app/src/main/auto-edit-store.ts`
+Automated short-media tests create two camera files and two microphone files, render a switched-camera final MP4, exercise camera fades, reframing, color, denoise, sharpening, voice cleanup, EQ, compression, limiting, pan, and sync controls, create 24-bit WAV stems, and decode-validate every result. Focused UI tests also exercise drag range selection and split-tool placement against the non-destructive draft model.
 
-Auto Edit currently generates deterministic draft suggestions from the existing draft timeline and markers. It does not analyze recorded audio/video media, transcripts, silence, speakers, camera changes, or loudness from real files.
-
-Missing production work:
-
-- Run offline transcript generation or document a selected local transcript backend.
-- Analyze real audio for silence, pacing, loudness, clipping, and noise.
-- Analyze real recording assets for speaker/camera decisions where feasible.
-- Generate chapter and clip suggestions from actual media evidence.
-- Write `AutoEditReport.json` from real analysis results.
-
-## Recovery
-
-Status: partial state recovery foundation.
-
-Evidence:
-
-- Recording state and session folder scaffolding exist from earlier phases.
-
-The application can represent unfinished recording state, but crash recovery has not been validated against real recorded media files.
-
-Missing production work:
-
-- Interrupt a real recording.
-- Confirm partial files remain available.
-- Confirm the application detects the unfinished session.
-- Confirm the user can safely resume, recover, or review what was saved.
-- Confirm raw files are never deleted automatically.
-
-## Packaging
-
-Status: packaging configuration only.
-
-Evidence:
-
-- `app/package.json`
-
-Electron Builder configuration exists for Windows, macOS, and Linux targets. Installable builds and clean-machine first-run validation were not completed in this pass.
-
-Missing production work:
-
-- Produce installable artifacts.
-- Validate first run on a clean machine.
-- Confirm native media dependencies are included.
-- Confirm offline behavior after installation.
-
-## End-to-End Real Media Test
-
-Status: partial.
-
-Phase 7A completed a real export test with generated sample media. The test uses bundled FFmpeg to create sample media, exports a playable output, and validates it with ffprobe.
-
-Phase 7B completed automated real-media recording-path tests with generated local media:
-
-- A generated WebM is saved through the recording session store.
-- `Program/program.webm` is validated with ffprobe.
-- `Cameras/camera-1.webm` is written and validated.
-- `Audio/morgan-mic.m4a` is extracted and validated.
-- `sync-metadata.json` records saved media files and validation state.
-- Export from an existing `Episode/Program/program.webm` file is validated.
-
-Phase 7B.5 completed a real physical camera/mic test and exported the resulting recording through the UI. The full app launch-to-record-to-review-to-edit-to-export real-media test is still blocked because media-backed timeline review/edit remains incomplete and real Auto Edit remains incomplete.
-
-## Production Gate Decision
-
-The MVP user flow remains useful as a guided prototype and offline product shell. It is not yet a production media engine.
-
-The Phase 7B.5 commit may be made because a real short physical camera/mic recording was captured, validated, and exported to a playable file. The full Phase 7 production gate should remain blocked until a full-length recording can be captured, reviewed with media-backed playback, edited non-destructively, exported to a playable file, and documented with real test evidence.
+Previously completed physical QA validated Sony Imaging Edge plus an integrated camera, separate microphone files, review playback, export, and ffprobe. Camera 3, Extra Mic, long-duration drift, and hidden ASIO-only channels still require compatible physical hardware validation. The latest start-to-finish UI pass used focused automated tests and intentionally did not run a long recording test.

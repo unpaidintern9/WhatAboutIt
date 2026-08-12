@@ -4,7 +4,7 @@ import type { RecordingSession, RecordingSessionCreateInput, RecordingState, Rec
 import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
-import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
+import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
 import type { ReviewMediaInventory } from "../shared/review-media";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
@@ -33,8 +33,8 @@ contextBridge.exposeInMainWorld("studio", {
   saveTimelineDraft: (episodeId: string, draft: TimelineDraft): Promise<TimelineDraft> =>
     ipcRenderer.invoke("timeline:save", { episodeId, draft }),
   loadReviewMedia: (episodeId: string): Promise<ReviewMediaInventory> => ipcRenderer.invoke("review-media:load", episodeId),
-  runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean): Promise<AutoEditResult> =>
-    ipcRenderer.invoke("auto-edit:run", { episodeId, draft, mode, practice }),
+  runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean, learningProfile?: AutoEditLearningProfile): Promise<AutoEditResult> =>
+    ipcRenderer.invoke("auto-edit:run", { episodeId, draft, mode, practice, learningProfile }),
   createExport: (request: ExportRequest): Promise<ExportJob> => ipcRenderer.invoke("export:create", request),
   onExportProgress: (listener: (job: ExportJob) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, job: ExportJob) => listener(job);

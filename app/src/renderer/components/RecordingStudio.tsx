@@ -12,6 +12,7 @@ import {
   FileText,
   Headphones,
   LayoutGrid,
+  LoaderCircle,
   Mic2,
   Pause,
   Play,
@@ -28,11 +29,18 @@ import {
   Volume2
 } from "lucide-react";
 import type { CameraSlotKey, DeviceDefaults, MicrophoneInputChannel, MicrophoneSlotKey } from "../../shared/types";
+import { getDeviceAssignmentConflicts, getMicrophoneInputDisplay, microphoneInputChannelOptions, saveMicrophoneDeviceRoute } from "../../shared/device-config";
 import type { RecordingSession, RecordingTrackSaveResult, RecordingTrackSlot } from "../../shared/recording";
 import type { CameraLayout, PodcastToolsState, SoundSlot } from "../../shared/podcast-tools";
 import { cameraLayouts, createLiveMarker, markerButtons } from "../../shared/podcast-tools";
 import type { StudioDisplayInfo, StudioPanelId } from "../../shared/studio-workspace";
-import { connectInputChannelSource, createStudioAudioContext } from "../plugins/audio/studio-audio";
+import {
+  calculateAudioLevel,
+  connectInputChannelSource,
+  createStudioAudioContext,
+  getAudioStreamDiagnostics,
+  type AudioStreamDiagnostics
+} from "../plugins/audio/studio-audio";
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import type { RecordingServiceSnapshot } from "../services";
 import { formatRecordingTime } from "../services";
@@ -73,6 +81,9 @@ type StudioNoticeTone = "ready" | "needs-attention" | "recording";
 type VoicePreset = "clean" | "warm" | "broadcast";
 type MixerChannelControls = { gain: number; muted: boolean; solo: boolean; monitor: boolean; voicePreset: VoicePreset };
 type MixerChannelState = Record<string, MixerChannelControls>;
+type RecordingAction = "idle" | "starting" | "saving";
+type MicSignalState = "checking" | "active" | "quiet" | "no-signal" | "clipping" | "disconnected";
+type LiveInputDiagnostics = AudioStreamDiagnostics & { signal: MicSignalState; rms: number; peak: number; trackState?: MediaStreamTrackState };
 
 const defaultMixerChannel: MixerChannelControls = {
   gain: 75,
@@ -115,11 +126,11 @@ const voicePresets: Record<VoicePreset, { label: string; description: string }> 
   },
   warm: {
     label: "Warm Podcast",
-    description: "High-pass, gentle compression, and light warmth in headphones."
+    description: "Low-delay high-pass and light warmth in headphones."
   },
   broadcast: {
     label: "Broadcast",
-    description: "Tighter voice monitor with stronger leveling and presence."
+    description: "Low-delay monitor tone with stronger presence."
   }
 };
 
@@ -159,6 +170,10 @@ export function RecordingStudio({
   const [notesSavedAt, setNotesSavedAt] = useState<string>("Saved");
   const [toolsOpen, setToolsOpen] = useState(false);
   const [layoutNotice, setLayoutNotice] = useState(false);
+  const [recordingAction, setRecordingAction] = useState<RecordingAction>("idle");
+  const [micSignals, setMicSignals] = useState<Partial<Record<MicKey, MicSignalState>>>({});
+  const [audioDiagnostics, setAudioDiagnostics] = useState<Partial<Record<MicKey, LiveInputDiagnostics>>>({});
+  const [startAnywayArmed, setStartAnywayArmed] = useState(false);
   const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
     Object.fromEntries(micSlots.map((slot) => [slot.key, { ...defaultMixerChannel }]))
   );
@@ -184,8 +199,15 @@ export function RecordingStudio({
   const cameraReadyCount = cameraSlots.filter((slot) => findDevice(detection.cameras, defaults.cameras[slot.key])).length;
   const micReadyCount = ["morganMic", "guestMic", "extraMic"].filter((key) => findDevice(detection.microphones, defaults.microphones[key as MicKey])).length;
   const storageReady = !storageWarning;
-  const recordingHealthy = !snapshot.friendlyError && snapshot.status !== "error";
-  const studioReady = cameraReadyCount > 0 && micReadyCount > 0 && storageReady && recordingHealthy;
+  const recordingInProgress = isRecording || isPaused;
+  const recordingHealthy = !snapshot.friendlyError
+    && snapshot.status !== "error"
+    && (!recordingInProgress || Boolean(snapshot.health?.programActive
+      && snapshot.health.warnings.length === 0
+      && snapshot.health.activeCameraTracks >= snapshot.health.expectedCameraTracks
+      && snapshot.health.activeAudioTracks >= snapshot.health.expectedAudioTracks));
+  const deviceAssignmentsHealthy = getDeviceAssignmentConflicts(defaults).length === 0;
+  const studioReady = cameraReadyCount > 0 && micReadyCount > 0 && storageReady && recordingHealthy && deviceAssignmentsHealthy;
   const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
 
   function patchTools(nextState: PodcastToolsState) {
@@ -261,28 +283,23 @@ export function RecordingStudio({
   }
 
   function setMicInput(slot: MicKey, deviceId: string) {
-    const selectedChannel = defaults.microphoneChannels?.[slot] ?? "mix";
-    const owner = findAssignedMicSlot(defaults.microphones, defaults.microphoneChannels, deviceId, selectedChannel, slot);
-    if (owner) {
-      const deviceLabel = findDevice(detection.microphones, deviceId)?.label ?? "That microphone";
-      const ownerChannel = defaults.microphoneChannels?.[owner] ?? "mix";
-      const ownerPatch = ownerChannel === "mix" ? { [owner]: "input-1" as const } : {};
-      const nextChannel = ownerChannel === "input-2" ? "input-1" : "input-2";
-      onDefaultsChange({
-        ...defaults,
-        microphones: { ...defaults.microphones, [slot]: deviceId || undefined },
-        microphoneChannels: { ...defaults.microphoneChannels, ...ownerPatch, [slot]: nextChannel }
-      });
-      setStudioNotice({ tone: "ready", message: `${deviceLabel} split into Input 1 and Input 2 for separate mixer channels.` });
-      return;
+    const selectedDevice = findDevice(detection.microphones, deviceId);
+    const routed = saveMicrophoneDeviceRoute(defaults, slot, deviceId);
+    const next = {
+      ...routed,
+      microphoneDeviceLabels: { ...routed.microphoneDeviceLabels, [slot]: selectedDevice?.rawLabel ?? selectedDevice?.label }
+    };
+    onDefaultsChange(next);
+    if (deviceId && Object.values(next.microphones).filter((candidate) => candidate === deviceId).length > 1) {
+      const deviceLabel = findDevice(detection.microphones, deviceId)?.label ?? "That interface";
+      setStudioNotice({ tone: "ready", message: `${deviceLabel} inputs were assigned to separate mixer channels.` });
     }
+  }
 
+  function setMicName(slot: MicKey, name: string) {
     onDefaultsChange({
       ...defaults,
-      microphones: {
-        ...defaults.microphones,
-        [slot]: deviceId || undefined
-      }
+      microphoneNames: { ...defaults.microphoneNames, [slot]: name }
     });
   }
 
@@ -292,7 +309,7 @@ export function RecordingStudio({
     if (owner) {
       setStudioNotice({
         tone: "needs-attention",
-        message: `${getMicSlotLabel(owner)} already uses that interface input. Pick Input 1 or Input 2 so each voice stays separate.`
+        message: `${getMicSlotLabel(owner)} already uses that interface input. Pick another numbered input so each voice stays separate.`
       });
       return;
     }
@@ -356,6 +373,40 @@ export function RecordingStudio({
     onExport();
   }
 
+  async function startStudioRecording() {
+    if (!studioReady || recordingAction !== "idle") return;
+    const selectedMicSlots = routableMicSlots.filter((slot) => Boolean(defaults.microphones[slot.key]));
+    const uncheckedInputs = selectedMicSlots.filter((slot) => {
+      const signal = micSignals[slot.key];
+      return signal === "quiet" || signal === "no-signal" || signal === "disconnected";
+    });
+    if (uncheckedInputs.length > 0 && !startAnywayArmed) {
+      const names = uncheckedInputs.map((slot) => defaults.microphoneNames?.[slot.key] || slot.label).join(" and ");
+      setStartAnywayArmed(true);
+      setStudioNotice({ tone: "needs-attention", message: `${names} ${uncheckedInputs.length === 1 ? "has" : "have"} not detected signal yet. Press Record again to start anyway.` });
+      return;
+    }
+    setStartAnywayArmed(false);
+    setRecordingAction("starting");
+    setStudioNotice({ tone: "recording", message: "Starting every ready camera and microphone together..." });
+    try {
+      await onStart();
+    } finally {
+      setRecordingAction("idle");
+    }
+  }
+
+  async function stopStudioRecording() {
+    if (recordingAction !== "idle") return;
+    setRecordingAction("saving");
+    setStudioNotice({ tone: "recording", message: "Saving every recorded source safely..." });
+    try {
+      await onStop();
+    } finally {
+      setRecordingAction("idle");
+    }
+  }
+
   return (
     <section className="live-studio" aria-label="Live recording studio">
       {unfinishedSessions.length > 0 && (
@@ -371,7 +422,7 @@ export function RecordingStudio({
 
       <main className="live-studio-board reference-studio-board">
         <TornEdgeHeader
-          title={snapshot.session?.episodeTitle ?? "Episode 047  •  Real Talk. No Filter."}
+          title={snapshot.session?.episodeTitle ?? "Episode 047 - Real Talk. No Filter."}
           eyebrow={isRecording ? "Recording Live" : isPaused ? "Paused" : isComplete ? "Recording Complete" : "Control Room"}
           aside={
             <div className="reference-header-actions">
@@ -446,20 +497,20 @@ export function RecordingStudio({
             </section>
 
             <section className="giant-control-row" aria-label="Recording controls">
-              <StudioControlButton tone="record" disabled={isRecording || isPaused} onClick={() => void onStart()}>
-                <Circle size={28} /> Record
+              <StudioControlButton tone="record" disabled={!studioReady || isRecording || isPaused || recordingAction !== "idle"} onClick={() => void startStudioRecording()}>
+                {recordingAction === "starting" ? <LoaderCircle className="control-spinner" size={28} /> : <Circle size={28} />} {recordingAction === "starting" ? "Starting" : "Record"}
               </StudioControlButton>
               {isPaused ? (
-                <StudioControlButton onClick={() => void onResume()}>
+                <StudioControlButton disabled={recordingAction !== "idle"} onClick={() => void onResume()}>
                   <Play size={28} /> Resume
                 </StudioControlButton>
               ) : (
-                <StudioControlButton disabled={!isRecording} onClick={() => void onPause()}>
+                <StudioControlButton disabled={!isRecording || recordingAction !== "idle"} onClick={() => void onPause()}>
                   <Pause size={28} /> Pause
                 </StudioControlButton>
               )}
-              <StudioControlButton disabled={!isRecording && !isPaused} onClick={() => void onStop()}>
-                <Square size={28} /> Stop
+              <StudioControlButton disabled={(!isRecording && !isPaused) || recordingAction !== "idle"} onClick={() => void stopStudioRecording()}>
+                {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={28} /> : <Square size={28} />} {recordingAction === "saving" ? "Saving" : "Stop"}
               </StudioControlButton>
               <StudioControlButton onClick={goAutoEdit}>
                 <Sparkles size={28} /> Auto Edit
@@ -482,8 +533,8 @@ export function RecordingStudio({
                         ))}
                       </select>
                     </label>
-                    <span className="monitor-status" title="Monitoring stays off until you choose Hear on a channel."><Headphones size={16} /> Low-latency monitor</span>
-                    <span className="headphone-warning" title="For instant AudioBox monitoring, turn its Mixer knob toward Inputs.">Use headphones. AudioBox direct monitor is instant.</span>
+                    <span className="monitor-status" title="Monitoring uses a direct low-buffer software path and stays off until you choose Hear."><Headphones size={16} /> Direct software monitor</span>
+                    <span className="headphone-warning" title="For true zero-delay monitoring, use the Direct Monitor control on your audio interface.">Use headphones. Hardware direct monitoring is zero-delay.</span>
                     <RusticButton title="Play a short tone through the selected output." onClick={() => void playTestSound()}>
                       <Volume2 size={16} /> Play Test Sound
                     </RusticButton>
@@ -495,10 +546,12 @@ export function RecordingStudio({
                       const controls = mixerChannels[slot.key] ?? defaultMixerChannel;
                       const isMicChannel = slot.key !== "soundboard" && slot.key !== "music";
                       const micKey = isMicChannel ? slot.key as MicKey : undefined;
+                      const displayLabel = micKey ? defaults.microphoneNames?.[micKey] || slot.label : slot.label;
                       return (
                         <LiveMicMeter
                           key={slot.key}
-                          label={slot.label}
+                          label={displayLabel}
+                          roleLabel={micKey ? getMicRoleLabel(micKey) : undefined}
                           deviceId={deviceId}
                           inputOptions={isMicChannel ? detection.microphones : []}
                           inputAssignments={defaults.microphones}
@@ -516,6 +569,9 @@ export function RecordingStudio({
                           trackStatus={trackStatusBySlot[slot.key as RecordingTrackSlot]}
                           onInputChange={micKey ? (deviceId) => setMicInput(micKey, deviceId) : undefined}
                           onInputChannelChange={micKey ? (channel) => setMicInputChannel(micKey, channel) : undefined}
+                          onNameChange={micKey ? (name) => setMicName(micKey, name) : undefined}
+                          onSignalChange={micKey ? (signal) => setMicSignals((current) => ({ ...current, [micKey]: signal })) : undefined}
+                          onDiagnosticsChange={micKey ? (details) => setAudioDiagnostics((current) => ({ ...current, [micKey]: details })) : undefined}
                           onControlsChange={(nextState) => patchMixerChannel(slot.key, nextState)}
                           onEchoWarning={warnAboutEcho}
                           onOpenMicrophoneStream={onOpenMicrophoneStream}
@@ -524,6 +580,12 @@ export function RecordingStudio({
                       );
                     })}
                   </div>
+                  <AudioDiagnostics
+                    permissionNeeded={detection.permissionNeeded}
+                    microphones={detection.microphones}
+                    defaults={defaults}
+                    diagnostics={audioDiagnostics}
+                  />
                 </VintagePanel>
               </section>
 
@@ -556,6 +618,7 @@ export function RecordingStudio({
           micReadyCount={micReadyCount}
           storageReady={storageReady}
           recordingHealthy={recordingHealthy}
+          deviceAssignmentsHealthy={deviceAssignmentsHealthy}
         />
 
         <section className={`studio-ready-summary ${studioReady ? "ready" : "needs-attention"}`} aria-label="Studio Ready summary">
@@ -563,6 +626,10 @@ export function RecordingStudio({
           <span>{cameraReadyCount > 0 ? "Cameras ready" : "Pick a camera first"}</span>
           <span>{micReadyCount > 0 ? "Mics ready" : "Pick Morgan Mic"}</span>
           <span>{storageReady ? "Storage good" : "Storage needs attention"}</span>
+          <span>{deviceAssignmentsHealthy ? "Sources separate" : "Fix duplicate sources"}</span>
+          {recordingInProgress && snapshot.health && (
+            <span>{snapshot.health.activeCameraTracks} cameras / {snapshot.health.activeAudioTracks} mics active</span>
+          )}
           <span>{studioReady ? "Ready to record" : "Check the items above"}</span>
         </section>
 
@@ -589,9 +656,9 @@ export function RecordingStudio({
           </section>
         </details>
 
-        <div className="local-save-note live">
-          <Save size={20} />
-          <span>{isRecording ? "Recording. Saving. Auto Save on." : snapshot.localSaveMessage}. Saving location: {savingLocation}</span>
+        <div className={`local-save-note live ${recordingAction === "saving" ? "saving" : ""}`} role="status" aria-live="polite">
+          {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={20} /> : <Save size={20} />}
+          <span>{recordingAction === "saving" ? "Finishing camera and microphone files before Review opens." : `${snapshot.localSaveMessage}. Auto Save on. Saving location: ${savingLocation}`}</span>
         </div>
 
         {isComplete && (
@@ -661,18 +728,21 @@ function ReadinessStrip({
   cameraReadyCount,
   micReadyCount,
   storageReady,
-  recordingHealthy
+  recordingHealthy,
+  deviceAssignmentsHealthy
 }: {
   cameraReadyCount: number;
   micReadyCount: number;
   storageReady: boolean;
   recordingHealthy: boolean;
+  deviceAssignmentsHealthy: boolean;
 }) {
   const items = [
     { label: cameraReadyCount > 0 ? "Cameras Ready" : "Cameras Need Attention", ready: cameraReadyCount > 0 },
     { label: micReadyCount > 0 ? "Microphones Ready" : "Microphones Need Attention", ready: micReadyCount > 0 },
     { label: storageReady ? "Storage Available" : "Storage Needs Attention", ready: storageReady },
-    { label: recordingHealthy ? "Recording Healthy" : "Recording Needs Attention", ready: recordingHealthy }
+    { label: recordingHealthy ? "Recording Healthy" : "Recording Needs Attention", ready: recordingHealthy },
+    { label: deviceAssignmentsHealthy ? "Routes Separate" : "Routes Need Attention", ready: deviceAssignmentsHealthy }
   ];
 
   return (
@@ -1059,6 +1129,7 @@ function getLivePreviewCopy(state: "starting" | "live" | "needs-attention" | "bu
 
 function LiveMicMeter({
   label,
+  roleLabel,
   deviceId,
   inputOptions,
   inputAssignments,
@@ -1076,12 +1147,16 @@ function LiveMicMeter({
   trackStatus,
   onInputChange,
   onInputChannelChange,
+  onNameChange,
+  onSignalChange,
+  onDiagnosticsChange,
   onControlsChange,
   onEchoWarning,
   onOpenMicrophoneStream,
   onReleaseMicrophoneStream
 }: {
   label: string;
+  roleLabel?: string;
   deviceId?: string;
   inputOptions: StudioDevice[];
   inputAssignments: Partial<Record<MicKey, string>>;
@@ -1099,90 +1174,83 @@ function LiveMicMeter({
   trackStatus?: RecordingTrackSaveResult;
   onInputChange?: (deviceId: string) => void;
   onInputChannelChange?: (channel: MicrophoneInputChannel) => void;
+  onNameChange?: (name: string) => void;
+  onSignalChange?: (signal: MicSignalState) => void;
+  onDiagnosticsChange?: (details: LiveInputDiagnostics) => void;
   onControlsChange: (nextState: Partial<MixerChannelControls>) => void;
   onEchoWarning: () => void;
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
   onReleaseMicrophoneStream: (deviceId?: string, stream?: MediaStream) => void;
 }) {
-  const audioRef = useRef<HTMLAudioElement | null>(null);
   const streamRef = useRef<MediaStream | undefined>(undefined);
   const controlsRef = useRef(controls);
   const outputDeviceIdRef = useRef(outputDeviceId);
+  const onSignalChangeRef = useRef(onSignalChange);
+  const onDiagnosticsChangeRef = useRef(onDiagnosticsChange);
   const monitorGraphRef = useRef<ActiveVoiceMonitor | undefined>(undefined);
   const monitorRequestRef = useRef(0);
   const [level, setLevel] = useState(fallbackLevel ?? 0);
+  const [peakLevel, setPeakLevel] = useState(0);
   const [heard, setHeard] = useState(false);
+  const [signalState, setSignalState] = useState<MicSignalState>(deviceId ? "checking" : "disconnected");
+  const [routeIssue, setRouteIssue] = useState<string | undefined>();
   const [monitorIssue, setMonitorIssue] = useState<string | undefined>();
+  const inputDisplay = getMicrophoneInputDisplay(inputChannel);
 
   controlsRef.current = controls;
   outputDeviceIdRef.current = outputDeviceId;
+  onSignalChangeRef.current = onSignalChange;
+  onDiagnosticsChangeRef.current = onDiagnosticsChange;
+
+  function publishSignal(signal: MicSignalState, diagnostics?: AudioStreamDiagnostics, rms = level, peak = peakLevel, trackState?: MediaStreamTrackState) {
+    setSignalState(signal);
+    onSignalChangeRef.current?.(signal);
+    if (diagnostics) onDiagnosticsChangeRef.current?.({ ...diagnostics, signal, rms, peak, trackState });
+  }
 
   const stopMonitorPlayback = useCallback(() => {
     monitorRequestRef.current += 1;
-    if (audioRef.current) {
-      if (audioRef.current.srcObject) audioRef.current.pause();
-      audioRef.current.muted = true;
-      audioRef.current.srcObject = null;
-    }
     const graph = monitorGraphRef.current;
     monitorGraphRef.current = undefined;
     graph?.chain.disconnect();
-    graph?.fallbackDestination?.stream.getTracks().forEach((track) => track.stop());
     void graph?.audioContext.close();
   }, []);
 
   const startMonitorPlayback = useCallback(async (stream = streamRef.current) => {
-    if (!stream || !audioRef.current) {
+    if (!stream) {
       setMonitorIssue(deviceId ? "Starting monitor..." : "Pick input first");
       return;
     }
 
+    let pendingContext: AudioContext | undefined;
     try {
-      const audio = audioRef.current;
-      const sinkableAudio = audio as HTMLAudioElement & { setSinkId?: (sinkId: string) => Promise<void> };
       const currentControls = controlsRef.current;
       stopMonitorPlayback();
       const requestId = monitorRequestRef.current;
-      const audioContext = createStudioAudioContext();
+      const audioContext = createStudioAudioContext(outputDeviceIdRef.current);
+      pendingContext = audioContext;
       const sinkableContext = audioContext as AudioContext & { setSinkId?: (sinkId: string) => Promise<void> };
       const source = audioContext.createMediaStreamSource(stream);
-      let fallbackDestination: MediaStreamAudioDestinationNode | undefined;
-      let destination: AudioNode = audioContext.destination;
 
       if (outputDeviceIdRef.current && sinkableContext.setSinkId) {
-        try {
-          await sinkableContext.setSinkId(outputDeviceIdRef.current);
-        } catch {
-          fallbackDestination = audioContext.createMediaStreamDestination();
-          destination = fallbackDestination;
-        }
-      } else if (outputDeviceIdRef.current) {
-        fallbackDestination = audioContext.createMediaStreamDestination();
-        destination = fallbackDestination;
+        await sinkableContext.setSinkId(outputDeviceIdRef.current);
       }
 
-      const chain = connectVoiceMonitorChain(audioContext, source, destination, currentControls.voicePreset, currentControls.gain, inputChannel);
+      const chain = connectVoiceMonitorChain(audioContext, source, audioContext.destination, currentControls.voicePreset, currentControls.gain, inputChannel);
 
       if (monitorRequestRef.current !== requestId) {
         chain.disconnect();
-        fallbackDestination?.stream.getTracks().forEach((track) => track.stop());
         await audioContext.close();
         return;
       }
 
-      monitorGraphRef.current = { audioContext, chain, fallbackDestination };
-      if (fallbackDestination) {
-        audio.srcObject = fallbackDestination.stream;
-        audio.muted = false;
-        audio.volume = 1;
-        if (outputDeviceIdRef.current && sinkableAudio.setSinkId) await sinkableAudio.setSinkId(outputDeviceIdRef.current);
-        await audio.play();
-      } else {
-        await audioContext.resume();
-      }
+      monitorGraphRef.current = { audioContext, chain };
+      pendingContext = undefined;
+      await audioContext.resume();
       onEchoWarning();
       setMonitorIssue(undefined);
     } catch {
+      void pendingContext?.close();
       stopMonitorPlayback();
       setMonitorIssue("Click again or pick headphones");
     }
@@ -1201,6 +1269,8 @@ function LiveMicMeter({
     if (!deviceId || !window.AudioContext) {
       setLevel(fallbackLevel ?? 0);
       setHeard(Boolean(fallbackLevel));
+      setPeakLevel(fallbackLevel ?? 0);
+      publishSignal(deviceId ? "checking" : "disconnected", undefined, fallbackLevel ?? 0, fallbackLevel ?? 0);
       return undefined;
     }
 
@@ -1209,6 +1279,8 @@ function LiveMicMeter({
     let frame = 0;
     let centeredMeterSource: ReturnType<typeof connectInputChannelSource> | undefined;
     let canceled = false;
+    let lastSignalAt = 0;
+    const startedAt = Date.now();
 
     async function startMeter() {
       try {
@@ -1218,28 +1290,51 @@ function LiveMicMeter({
           return;
         }
         streamRef.current = stream;
+        const track = stream.getAudioTracks()[0];
+        const diagnostics = getAudioStreamDiagnostics(stream);
+        setRouteIssue(undefined);
+        if (track && typeof track.addEventListener === "function") {
+          track.addEventListener("ended", () => publishSignal("disconnected", diagnostics, 0, 0, "ended"), { once: true });
+        }
         audioContext = createStudioAudioContext();
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
         const samples = new Uint8Array(analyser.frequencyBinCount);
-        centeredMeterSource = connectInputChannelSource(audioContext, source, inputChannel);
+        centeredMeterSource = connectInputChannelSource(audioContext, source, inputChannel, diagnostics.channelCount);
         centeredMeterSource.output.connect(analyser);
 
         const tick = () => {
           if (canceled) return;
           analyser.getByteTimeDomainData(samples);
-          const volume = samples.reduce((total, sample) => total + Math.abs(sample - 128), 0) / Math.max(samples.length, 1);
+          const measured = calculateAudioLevel(samples);
           const currentControls = controlsRef.current;
-          const nextLevel = currentControls.muted ? 0 : Math.min(100, Math.round(volume * 4 * (currentControls.gain / 75)));
+          const nextLevel = currentControls.muted ? 0 : Math.min(100, Math.round(measured.rms * (currentControls.gain / 75)));
+          const nextPeak = currentControls.muted ? 0 : measured.peak;
+          if (nextLevel > 7) lastSignalAt = Date.now();
+          const nextSignal: MicSignalState = track?.readyState === "ended"
+            ? "disconnected"
+            : nextPeak >= 98
+            ? "clipping"
+            : nextLevel > 7
+            ? "active"
+            : Date.now() - Math.max(lastSignalAt, startedAt) < 5000
+            ? "quiet"
+            : "no-signal";
           setLevel(nextLevel);
+          setPeakLevel(nextPeak);
           setHeard(nextLevel > 8);
+          publishSignal(nextSignal, diagnostics, nextLevel, nextPeak, track?.readyState);
           frame = window.requestAnimationFrame(tick);
         };
 
         tick();
-      } catch {
+      } catch (error) {
         setLevel(0);
+        setPeakLevel(0);
         setHeard(false);
+        const message = String(error);
+        setRouteIssue(message.includes("input channel") ? message.replace(/^Error:\s*/, "") : "Could not open this input. Check the cable and Retry Devices.");
+        publishSignal(deviceId ? "no-signal" : "disconnected", undefined, 0, 0);
       }
     }
 
@@ -1270,17 +1365,29 @@ function LiveMicMeter({
   }, [controls.gain, controls.voicePreset]);
 
   const visibleLevel = controls.muted ? 0 : level;
-  const copy = controls.muted ? "Muted" : fallbackLabel ?? (heard ? "Healthy" : "We can't hear you yet");
+  const copy = controls.muted
+    ? "Muted"
+    : routeIssue
+    ? "Needs attention"
+    : fallbackLabel
+    ?? (signalState === "clipping" ? "CLIPPING" : signalState === "active" ? "ACTIVE" : signalState === "quiet" ? "CONNECTED / QUIET" : signalState === "no-signal" ? "NO SIGNAL" : signalState === "disconnected" ? "DISCONNECTED" : "CHECKING");
 
   return (
     <article className={`live-meter-card ${heard && !controls.muted ? "heard" : "quiet"}`}>
       <div className="channel-topline">
-        <strong>{label}</strong>
+        <strong>{label}{roleLabel ? <small>{roleLabel}</small> : null}</strong>
         <span>{copy}</span>
       </div>
+      {routeIssue ? <small className="input-route-warning">{routeIssue}</small> : null}
       {trackStatus && <TrackSavePill status={trackStatus} />}
       <DistressedMeter level={visibleLevel} label={label} />
       <div className="channel-console">
+        {onNameChange && (
+          <label className="channel-name-control" title="This name is saved with the episode and its separate audio track.">
+            <span className="control-caption">Name</span>
+            <input aria-label={`${roleLabel ?? label} name`} value={label} onChange={(event) => onNameChange(event.target.value)} />
+          </label>
+        )}
         {onInputChange && (
           <label className="channel-input-control" title="Choose which physical mic feeds this mixer channel.">
             <span className="control-caption">Input</span>
@@ -1298,13 +1405,15 @@ function LiveMicMeter({
           </label>
         )}
         {onInputChannelChange && (
-          <label className="channel-route-control" title="Choose the physical input jack on a USB audio interface.">
-            <span className="control-caption">Interface Channel</span>
+          <label className="channel-route-control" title="Choose the physical input jack when the Windows audio driver exposes it.">
+            <span className="control-caption">Physical Jack</span>
             <select aria-label={`${label} interface channel`} value={inputChannel} onChange={(event) => onInputChannelChange(event.target.value as MicrophoneInputChannel)}>
-              <option value="mix">Stereo / Mix</option>
-              <option value="input-1">Input 1 / Left</option>
-              <option value="input-2">Input 2 / Right</option>
+              {microphoneInputChannelOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
             </select>
+            <span className={`physical-input-assignment compact ${inputChannel === "mix" ? "automatic" : "routed"}`}>
+              <strong>{inputDisplay.short}</strong>
+              <b>{inputChannel === "mix" ? "Combined" : `Feeds ${label}`}</b>
+            </span>
           </label>
         )}
         <label className="channel-effect-control" title="Live headphone processing for podcast voice checks. Recordings keep the high-quality mic capture.">
@@ -1331,7 +1440,7 @@ function LiveMicMeter({
           />
         </label>
         <span className="channel-output" title={`This channel monitors through ${outputLabel}.`}>Output <strong>{outputLabel}</strong></span>
-        <small className="channel-effect-copy" title="AudioBox inputs are centered in both ears. For zero-delay monitoring, turn the AudioBox Mixer knob toward Inputs.">
+        <small className="channel-effect-copy" title="Inputs are centered in both ears. Use your interface Direct Monitor switch or mixer control for true zero-delay monitoring.">
           {voicePresets[controls.voicePreset].description}
         </small>
         <div className="channel-buttons">
@@ -1354,9 +1463,8 @@ function LiveMicMeter({
         <small className={`monitor-feedback ${monitoring && !monitorIssue ? "on" : monitorIssue ? "needs-attention" : ""}`}>
           {monitorIssue ?? (monitoring ? `${monitorLabel} On -> ${outputLabel}` : `${monitorLabel} Off`)}
         </small>
-        <small className={visibleLevel > 82 ? "peak hot" : "peak"}>Peak {visibleLevel}%</small>
+        <small className={peakLevel >= 98 ? "peak hot" : "peak"}>Peak {peakLevel}%{peakLevel >= 98 ? " - CLIPPING" : ""}</small>
       </div>
-      <audio ref={audioRef} muted={!monitoring} />
     </article>
   );
 }
@@ -1364,6 +1472,63 @@ function LiveMicMeter({
 function TrackSavePill({ status }: { status: RecordingTrackSaveResult }) {
   const label = status.status === "saved" ? "Saved" : status.status === "needs-attention" ? "Needs Attention" : "Preview only";
   return <span className={`track-save-pill ${status.status}`}>{label}</span>;
+}
+
+function AudioDiagnostics({
+  permissionNeeded,
+  microphones,
+  defaults,
+  diagnostics
+}: {
+  permissionNeeded: boolean;
+  microphones: StudioDevice[];
+  defaults: DeviceDefaults;
+  diagnostics: Partial<Record<MicKey, LiveInputDiagnostics>>;
+}) {
+  return (
+    <details className="audio-diagnostics">
+      <summary>Audio Diagnostics</summary>
+      <div className="audio-diagnostics-grid">
+        <span><strong>Microphone permission</strong>{permissionNeeded ? "Permission needed" : "Granted"}</span>
+        <span><strong>Detected audio inputs</strong>{microphones.length || "None"}</span>
+        {routableMicSlots.map((slot) => {
+          const device = findDevice(microphones, defaults.microphones[slot.key]);
+          const details = diagnostics[slot.key];
+          return (
+            <section key={slot.key}>
+              <h4>{defaults.microphoneNames?.[slot.key] || slot.label} - {getMicRoleLabel(slot.key)}</h4>
+              <dl>
+                <dt>Selected interface</dt><dd>{device?.label ?? "Not selected"}</dd>
+                <dt>Windows label</dt><dd>{device?.rawLabel ?? device?.label ?? "Unavailable"}</dd>
+                <dt>Device ID</dt><dd>{details?.deviceId ?? device?.id ?? "Unavailable"}</dd>
+                <dt>Group ID</dt><dd>{details?.groupId ?? device?.groupId ?? "Unavailable"}</dd>
+                <dt>Interface channel</dt><dd>{defaults.microphoneChannels?.[slot.key] ?? "mix"}</dd>
+                <dt>Channels reported</dt><dd>{details?.channelCount ?? "Open the input to inspect"}</dd>
+                <dt>Format</dt><dd>{details?.sampleRate ? `${details.sampleRate} Hz` : "Unknown"}{details?.sampleSize ? ` / ${details.sampleSize}-bit` : ""}</dd>
+                <dt>Browser processing</dt><dd>Echo {formatDiagnosticFlag(details?.echoCancellation)}, Noise {formatDiagnosticFlag(details?.noiseSuppression)}, Auto gain {formatDiagnosticFlag(details?.autoGainControl)}</dd>
+                <dt>Signal</dt><dd>{formatSignalState(details?.signal)} / RMS {details?.rms ?? 0}% / Peak {details?.peak ?? 0}%</dd>
+              </dl>
+            </section>
+          );
+        })}
+      </div>
+    </details>
+  );
+}
+
+function getMicRoleLabel(slot: MicKey) {
+  if (slot === "morganMic") return "Host";
+  if (slot === "guestMic") return "Guest";
+  return "Extra";
+}
+
+function formatDiagnosticFlag(value?: boolean) {
+  return value === undefined ? "unknown" : value ? "on" : "off";
+}
+
+function formatSignalState(value?: MicSignalState) {
+  if (!value) return "Checking";
+  return value.replace("-", " ").toUpperCase();
 }
 
 function StudioFooter({
@@ -1455,18 +1620,13 @@ function connectVoiceMonitorChain(
   presence.frequency.value = 3200;
   presence.Q.value = 0.9;
 
-  const compressor = audioContext.createDynamicsCompressor();
-  compressor.attack.value = 0.006;
-  compressor.release.value = 0.14;
-
   const makeup = audioContext.createGain();
   const centered = connectInputChannelSource(audioContext, source, inputChannel);
 
   centered.output.connect(highPass);
   highPass.connect(warmth);
   warmth.connect(presence);
-  presence.connect(compressor);
-  compressor.connect(makeup);
+  presence.connect(makeup);
   makeup.connect(destination);
 
   function update(nextPreset: VoicePreset, nextGainValue: number) {
@@ -1474,9 +1634,6 @@ function connectVoiceMonitorChain(
     highPass.frequency.setTargetAtTime(nextPreset === "clean" ? 60 : 82, now, 0.01);
     warmth.gain.setTargetAtTime(nextPreset === "warm" ? 2 : nextPreset === "broadcast" ? 1 : 0, now, 0.01);
     presence.gain.setTargetAtTime(nextPreset === "broadcast" ? 2.5 : nextPreset === "warm" ? 1.2 : 0, now, 0.01);
-    compressor.threshold.setTargetAtTime(nextPreset === "broadcast" ? -24 : nextPreset === "warm" ? -20 : -14, now, 0.01);
-    compressor.knee.setTargetAtTime(nextPreset === "clean" ? 18 : 12, now, 0.01);
-    compressor.ratio.setTargetAtTime(nextPreset === "broadcast" ? 4 : nextPreset === "warm" ? 2.6 : 1.8, now, 0.01);
     makeup.gain.setTargetAtTime(Math.max(0, Math.min(1.35, nextGainValue / 82)), now, 0.01);
   }
 
@@ -1489,7 +1646,6 @@ function connectVoiceMonitorChain(
       highPass.disconnect();
       warmth.disconnect();
       presence.disconnect();
-      compressor.disconnect();
       makeup.disconnect();
     }
   };
@@ -1498,7 +1654,6 @@ function connectVoiceMonitorChain(
 interface ActiveVoiceMonitor {
   audioContext: AudioContext;
   chain: ReturnType<typeof connectVoiceMonitorChain>;
-  fallbackDestination?: MediaStreamAudioDestinationNode;
 }
 
 function StudioControlButton({ tone, className = "", children, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: "record" }) {

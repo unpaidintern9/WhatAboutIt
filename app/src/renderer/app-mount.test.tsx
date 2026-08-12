@@ -53,9 +53,17 @@ describe("app mount", () => {
       root.render(<App />);
     });
 
+    const startWithHome = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Start with Home"));
+    expect(startWithHome).toBeTruthy();
+
+    await act(async () => {
+      startWithHome?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
     expect(host.textContent).toContain("Ready when you are.");
     expect(host.textContent).toContain("New Episode");
     expect(host.textContent).toContain("Camera 1");
+    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ onboarding: { guidedTour: "never" } }));
   });
 
   it("shows the simple workflow in the branded sidebar", async () => {
@@ -103,7 +111,7 @@ describe("app mount", () => {
       root.render(<App />);
     });
 
-    expect(host.querySelector(".studio-shell")?.className).not.toContain("sidebar-collapsed");
+    expect(host.querySelector(".studio-shell")?.className).toContain("sidebar-collapsed");
     expect(host.textContent).toContain("Morgan McGaughey");
     const workflow = host.querySelector('nav[aria-label="Studio workflow"]');
     expect(workflow?.textContent).toContain("Studio Setup");

@@ -53,6 +53,62 @@ describe("browserDevicePlugin", () => {
     expect(result.cameras).toEqual([expect.objectContaining({ id: "sony-camera", label: "Sony Camera (Imaging Edge)" })]);
   });
 
+  it("keeps three same-named Imaging Edge endpoints distinct and selectable", async () => {
+    setMediaDevices({
+      enumerateDevices: vi.fn(async () => [
+        { deviceId: "sony-camera-a", kind: "videoinput", label: "Sony Camera (Imaging Edge)" },
+        { deviceId: "sony-camera-b", kind: "videoinput", label: "Sony Camera (Imaging Edge)" },
+        { deviceId: "sony-camera-c", kind: "videoinput", label: "Sony Camera (Imaging Edge)" }
+      ] as MediaDeviceInfo[])
+    });
+
+    const result = await browserDevicePlugin.detectDevices();
+
+    expect(result.cameras.map((camera) => ({ id: camera.id, label: camera.label }))).toEqual([
+      { id: "sony-camera-a", label: "Sony Camera (Imaging Edge) 1" },
+      { id: "sony-camera-b", label: "Sony Camera (Imaging Edge) 2" },
+      { id: "sony-camera-c", label: "Sony Camera (Imaging Edge) 3" }
+    ]);
+  });
+
+  it("preserves every browser-visible computer and interface audio input", async () => {
+    setMediaDevices({
+      enumerateDevices: vi.fn(async () => [
+        { deviceId: "default", kind: "audioinput", label: "Default - Microphone Array" },
+        { deviceId: "built-in", kind: "audioinput", label: "Microphone Array (Realtek Audio)" },
+        { deviceId: "interface-1-2", kind: "audioinput", label: "Inputs 1-2 (Studio Interface)" },
+        { deviceId: "interface-3-4", kind: "audioinput", label: "Inputs 3-4 (Studio Interface)" }
+      ] as MediaDeviceInfo[])
+    });
+
+    const result = await browserDevicePlugin.detectDevices();
+
+    expect(result.microphones.map((microphone) => microphone.label)).toEqual([
+      "Default - Microphone Array",
+      "Microphone Array (Realtek Audio)",
+      "Inputs 1-2 (Studio Interface)",
+      "Inputs 3-4 (Studio Interface)"
+    ]);
+  });
+
+  it("surfaces the generic Windows name used by the connected USB interface", async () => {
+    setMediaDevices({
+      enumerateDevices: vi.fn(async () => [
+        { deviceId: "m-track-duo", groupId: "m-track-group", kind: "audioinput", label: "Line (2- USB AUDIO  CODEC)" }
+      ] as MediaDeviceInfo[])
+    });
+
+    const result = await browserDevicePlugin.detectDevices();
+
+    expect(result.microphones).toEqual([expect.objectContaining({
+      id: "m-track-duo",
+      label: "USB Audio Interface (Line (2- USB AUDIO CODEC))",
+      rawLabel: "Line (2- USB AUDIO  CODEC)",
+      groupId: "m-track-group",
+      audio: { interfaceLike: true }
+    })]);
+  });
+
   it("returns fallback camera options before labels are visible", async () => {
     setMediaDevices({
       enumerateDevices: vi.fn(async () => [

@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
+import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import { runOfflineAutoEdit } from "../shared/auto-edit";
 import type { TimelineDraft } from "../shared/timeline";
 import { markTimelineSaved } from "../shared/timeline";
@@ -17,6 +17,7 @@ export async function runAutoEdit(input: {
   draft: TimelineDraft;
   mode: AutoEditMode;
   practice?: boolean;
+  learningProfile?: AutoEditLearningProfile;
 }): Promise<AutoEditResult> {
   const episodeFolder = path.join(getEpisodesRoot(), input.episodeId);
   const activitySegments = input.practice ? [] : await analyzeEpisodeAudioActivity(episodeFolder).catch(async (error) => {
@@ -30,7 +31,8 @@ export async function runAutoEdit(input: {
     draft: input.draft,
     mode: input.mode,
     episodeId: input.episodeId,
-    activitySegments
+    activitySegments,
+    learningProfile: input.learningProfile
   });
   const folder = sessionFolder(input.episodeId);
   const savedDraft = markTimelineSaved(result.draft);

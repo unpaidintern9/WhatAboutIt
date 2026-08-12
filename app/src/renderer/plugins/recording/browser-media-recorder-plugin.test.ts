@@ -88,19 +88,33 @@ describe("BrowserMediaRecorderPlugin", () => {
     const activeStreams = {
       camera1: streamWith(new FakeTrack("video", "camera-1")),
       camera2: streamWith(new FakeTrack("video", "camera-2")),
+      camera3: streamWith(new FakeTrack("video", "camera-3")),
       morganMic: streamWith(new FakeTrack("audio", "morgan-mic"))
     };
     const plugin = new BrowserMediaRecorderPlugin({
-      getCameraStream: (deviceId) => deviceId === "camera-a" ? activeStreams.camera1 : deviceId === "camera-b" ? activeStreams.camera2 : undefined,
+      getCameraStream: (deviceId) => {
+        if (deviceId === "camera-a") return activeStreams.camera1;
+        if (deviceId === "camera-b") return activeStreams.camera2;
+        if (deviceId === "camera-c") return activeStreams.camera3;
+        return undefined;
+      },
       getMicrophoneStream: (deviceId) => deviceId === "mic-a" ? activeStreams.morganMic : undefined
     });
 
     await plugin.start({
       deviceDefaults: {
-        cameras: { camera1: "camera-a", camera2: "camera-b" },
+        cameras: { camera1: "camera-a", camera2: "camera-b", camera3: "camera-c" },
         cameraMicrophones: { camera1: "morganMic", camera2: "guestMic", camera3: "extraMic" },
         microphones: { morganMic: "mic-a" }
       }
+    });
+    expect(plugin.getHealth()).toMatchObject({
+      programActive: true,
+      activeCameraTracks: 3,
+      activeAudioTracks: 1,
+      expectedCameraTracks: 3,
+      expectedAudioTracks: 1,
+      warnings: []
     });
     const result = await plugin.stop();
 
@@ -109,6 +123,7 @@ describe("BrowserMediaRecorderPlugin", () => {
     expect(result.tracks).toEqual(expect.arrayContaining([
       expect.objectContaining({ slot: "camera1", kind: "camera" }),
       expect.objectContaining({ slot: "camera2", kind: "camera" }),
+      expect.objectContaining({ slot: "camera3", kind: "camera" }),
       expect.objectContaining({ slot: "morganMic", kind: "audio" })
     ]));
   });
@@ -136,5 +151,23 @@ describe("BrowserMediaRecorderPlugin", () => {
     await plugin.stop();
 
     expect(getMicrophoneStream).toHaveBeenCalledWith("guest-input");
+  });
+
+  it("blocks recording when the same physical source route is assigned twice", async () => {
+    const getUserMedia = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    const plugin = new BrowserMediaRecorderPlugin();
+
+    await expect(plugin.start({
+      deviceDefaults: {
+        cameras: { camera1: "sony-a", camera2: "sony-a" },
+        microphones: { morganMic: "audiobox", guestMic: "audiobox" },
+        microphoneChannels: { morganMic: "input-1", guestMic: "input-1" }
+      }
+    })).rejects.toThrow("Source routing needs attention");
+    expect(getUserMedia).not.toHaveBeenCalled();
   });
 });

@@ -33,10 +33,10 @@ import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } fro
 import { defaultExportSettings } from "../shared/export";
 import type { ReviewMediaInventory } from "../shared/review-media";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
-import { runOfflineAutoEdit } from "../shared/auto-edit";
+import { learnAutoEditProfile, runOfflineAutoEdit } from "../shared/auto-edit";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWorkspaceState } from "../shared/studio-workspace";
 import { defaultStudioWorkspaceState, studioPanelLabels, withStudioWorkspaceDefaults } from "../shared/studio-workspace";
-import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
+import { defaultDeviceDefaults, getDeviceAssignmentConflicts, withDeviceDefaults } from "../shared/device-config";
 import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
 import {
   createHardwareTestResults,
@@ -90,7 +90,7 @@ const fallbackSettings: StudioSettings = {
   deviceDefaults: defaultDeviceDefaults,
   exportSettings: defaultExportSettings,
   onboarding: { guidedTour: "show" },
-  ui: { sidebarCollapsed: false },
+  ui: { sidebarCollapsed: true },
   studioWorkspace: defaultStudioWorkspaceState.settings
 };
 
@@ -250,7 +250,7 @@ function getStudioBridge(): StudioBridge {
       cameras: [],
       audio: []
     }),
-    runAutoEdit: async (episodeId, draft, mode) => runOfflineAutoEdit({ episodeId, draft, mode, now }),
+    runAutoEdit: async (episodeId, draft, mode, _practice, learningProfile) => runOfflineAutoEdit({ episodeId, draft, mode, learningProfile, now }),
     createExport: async (request) => ({
       id: "review-export",
       episodeId: request.episodeId,
@@ -350,7 +350,7 @@ export default function App() {
       setSettings(hydratedSettings);
       setSelectedExportType(hydratedSettings.exportSettings?.defaultExportType ?? defaultExportSettings.defaultExportType);
       setSelectedQualityPreset(hydratedSettings.exportSettings?.qualityPreset ?? defaultExportSettings.qualityPreset);
-      setSidebarCollapsed(hydratedSettings.ui?.sidebarCollapsed ?? false);
+      setSidebarCollapsed(hydratedSettings.ui?.sidebarCollapsed ?? true);
       const tourParam = new URLSearchParams(window.location.search).get("tour");
       setShowTour(tourParam === "on" || (tourParam !== "off" && hydratedSettings.onboarding?.guidedTour !== "never"));
     });
@@ -460,6 +460,12 @@ export default function App() {
     setView("home");
   }
 
+  async function openEpisode(episode: EpisodeMetadata) {
+    setActiveEpisode(episode);
+    await loadReviewWorkspace(episode.id);
+    setView("timeline-review");
+  }
+
   useEffect(() => {
     if (!activeEpisode) {
       setPodcastTools(createDefaultPodcastToolsState());
@@ -496,8 +502,22 @@ export default function App() {
   async function saveTimelineDraftState(nextDraft: TimelineDraft) {
     setTimelineDraft(nextDraft);
     if (activeEpisode) {
-      setTimelineDraft(await studio.saveTimelineDraft(activeEpisode.id, nextDraft));
+      const savedDraft = await studio.saveTimelineDraft(activeEpisode.id, nextDraft);
+      setTimelineDraft(savedDraft);
+      return savedDraft;
     }
+    return nextDraft;
+  }
+
+  async function saveApprovedTimelineDraft() {
+    const savedDraft = await saveTimelineDraftState(markTimelineSaved(timelineDraft));
+    if (timelineDraft.editMode !== "manual") return;
+    const nextSettings: StudioSettings = {
+      ...settings,
+      autoEditLearning: learnAutoEditProfile(savedDraft, settings.autoEditLearning, autoEditMode)
+    };
+    setSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
   }
 
   async function runAutoEditFlow(practice = false) {
@@ -505,7 +525,7 @@ export default function App() {
     setAutoEditRunning(true);
     setView("auto-edit-review");
     try {
-      const result = await studio.runAutoEdit(activeEpisode.id, timelineDraft, autoEditMode, practice);
+      const result = await studio.runAutoEdit(activeEpisode.id, timelineDraft, autoEditMode, practice, settings.autoEditLearning);
       setAutoEditResult(result);
       setTimelineDraft(result.draft);
     } finally {
@@ -700,10 +720,9 @@ export default function App() {
 
   async function closeTour(preference: "skip" | "remind-later" | "never") {
     setShowTour(false);
-    if (preference === "skip") return;
     const nextSettings = {
       ...settings,
-      onboarding: { guidedTour: preference === "never" ? "never" : "remind-later" }
+      onboarding: { guidedTour: preference === "remind-later" ? "remind-later" : "never" }
     } satisfies StudioSettings;
     setSettings(nextSettings);
     await studio.saveSettings(nextSettings);
@@ -742,14 +761,6 @@ export default function App() {
     const level = await deviceService.sampleMicrophoneLevel(settings.deviceDefaults.microphones.morganMic);
     setMicrophoneLevel(level);
   }
-
-  useEffect(() => {
-    if (view !== "device-setup" && view !== "recording") return undefined;
-    const timer = window.setInterval(() => {
-      void testMicrophone();
-    }, 900);
-    return () => window.clearInterval(timer);
-  }, [settings.deviceDefaults.microphones.morganMic, view]);
 
   async function playTestSound() {
     await deviceService.playTestSound(settings.deviceDefaults.audioOutputId);
@@ -942,7 +953,8 @@ export default function App() {
 
   const selectedCameraReady = deviceDetection.cameras.some((camera) => camera.id === settings.deviceDefaults.cameras.camera1);
   const selectedMicReady = deviceDetection.microphones.some((microphone) => microphone.id === settings.deviceDefaults.microphones.morganMic);
-  const studioReady = selectedCameraReady && selectedMicReady;
+  const studioReady = selectedCameraReady && selectedMicReady && getDeviceAssignmentConflicts(settings.deviceDefaults).length === 0;
+  const reviewReady = Boolean(reviewMedia?.hasPlayableProgram || recordingSnapshot.status === "stopped");
 
   if (popOutPanelId) {
     return (
@@ -967,11 +979,11 @@ export default function App() {
     );
   }
 
-  const effectiveSidebarCollapsed = sidebarCollapsed && view !== "recording";
+  const effectiveSidebarCollapsed = sidebarCollapsed;
 
   return (
     <main className={`studio-shell ${effectiveSidebarCollapsed ? "sidebar-collapsed" : ""} ${view === "recording" ? "studio-shell--recording" : ""}`.trim()}>
-      <aside className="sidebar">
+      <aside className="sidebar" aria-label="What About It Studio navigation">
         <div className="brand-lockup">
           <div className="brand-badge">WAI</div>
           <div>
@@ -985,28 +997,31 @@ export default function App() {
         </button>
 
         <nav className="nav-stack" aria-label="Studio workflow">
-          <button className={view === "device-setup" ? "active" : ""} onClick={() => setView("device-setup")}>
+          <button data-label="Studio Setup" title={effectiveSidebarCollapsed ? "Studio Setup" : undefined} aria-current={view === "device-setup" ? "page" : undefined} className={view === "device-setup" ? "active" : ""} onClick={() => setView("device-setup")}>
             <Camera size={20} /> <span>Studio Setup</span>
           </button>
-          <button className={view === "recording" ? "active" : ""} onClick={() => setView("recording")}>
+          <button data-label="Record" title={effectiveSidebarCollapsed ? "Record" : undefined} aria-current={view === "recording" ? "page" : undefined} className={view === "recording" ? "active" : ""} onClick={() => setView("recording")}>
             <Circle size={20} /> <span>Record</span>
           </button>
-          <button className={view === "timeline-review" ? "active" : ""} onClick={() => setView("timeline-review")}>
+          <button data-label="Review" title={reviewReady ? (effectiveSidebarCollapsed ? "Review" : undefined) : "Record an episode first"} disabled={!reviewReady} aria-current={view === "timeline-review" ? "page" : undefined} className={view === "timeline-review" ? "active" : ""} onClick={() => {
+            if (activeEpisode) void loadReviewWorkspace(activeEpisode.id);
+            setView("timeline-review");
+          }}>
             <ListVideo size={20} /> <span>Review</span>
           </button>
-          <button className={view === "export" ? "active" : ""} onClick={() => setView("export")}>
+          <button data-label="Export" title={reviewReady ? (effectiveSidebarCollapsed ? "Export" : undefined) : "Record an episode first"} disabled={!reviewReady} aria-current={view === "export" ? "page" : undefined} className={view === "export" ? "active" : ""} onClick={() => setView("export")}>
             <Download size={20} /> <span>Export</span>
           </button>
         </nav>
 
         <nav className="nav-stack secondary" aria-label="More studio tools">
-          <button className={view === "learn" ? "active" : ""} onClick={() => setView("learn")}>
+          <button data-label="Learn" title={effectiveSidebarCollapsed ? "Learn" : undefined} aria-current={view === "learn" ? "page" : undefined} className={view === "learn" ? "active" : ""} onClick={() => setView("learn")}>
             <BookOpen size={20} /> <span>Learn</span>
           </button>
-          <button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
+          <button data-label="Settings" title={effectiveSidebarCollapsed ? "Settings" : undefined} aria-current={view === "settings" ? "page" : undefined} className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
             <Settings size={20} /> <span>Settings</span>
           </button>
-          <button className={view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "active" : ""} onClick={() => setView("practice")}>
+          <button data-label="More" title={effectiveSidebarCollapsed ? "More" : undefined} aria-current={view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "page" : undefined} className={view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "active" : ""} onClick={() => setView("practice")}>
             <Sparkles size={20} /> <span>More</span>
           </button>
         </nav>
@@ -1019,7 +1034,17 @@ export default function App() {
       </aside>
 
       <section className="workspace">
-        <JourneyProgress view={view} studioReady={studioReady} recordingComplete={recordingSnapshot.status === "stopped"} reviewReady={timelineDraft.tracks.length > 0} exportComplete={exportJob?.status === "complete"} />
+        <JourneyProgress
+          view={view}
+          studioReady={studioReady}
+          recordingComplete={recordingSnapshot.status === "stopped"}
+          reviewReady={reviewReady}
+          exportComplete={exportJob?.status === "complete"}
+          onNavigate={(nextView) => {
+            if (nextView === "timeline-review" && activeEpisode) void loadReviewWorkspace(activeEpisode.id);
+            setView(nextView);
+          }}
+        />
         {showTour && (
           <FirstRunSetup
             onClose={(preference) => void closeTour(preference)}
@@ -1029,7 +1054,7 @@ export default function App() {
             }}
           />
         )}
-        {view === "home" && <HomeView episodes={episodes} onNewEpisode={() => setView("new-episode")} onStudioSetup={() => setView("device-setup")} />}
+        {view === "home" && <HomeView episodes={episodes} onNewEpisode={() => setView("new-episode")} onStudioSetup={() => setView("device-setup")} onOpenEpisode={(episode) => void openEpisode(episode)} />}
         {view === "new-episode" && (
           <NewEpisodeView
             title={title}
@@ -1045,14 +1070,6 @@ export default function App() {
         )}
         {view === "device-setup" && (
           <div className="view-stack">
-            {studioReady && (
-              <SuccessPanel
-                title="Studio Ready!"
-                message="Your cameras and microphones are ready to go."
-                actionLabel="Start Recording"
-                onAction={() => setView("recording")}
-              />
-            )}
             <DeviceSetupWizard
               detection={deviceDetection}
               defaults={settings.deviceDefaults}
@@ -1078,7 +1095,7 @@ export default function App() {
             unfinishedSessions={unfinishedSessions}
             podcastTools={podcastTools}
             storageWarning={undefined}
-            onStart={() => void startRecording(false)}
+            onStart={() => startRecording(false)}
             onPause={() => void pauseRecording()}
             onResume={() => void resumeRecording()}
             onStop={async () => {
@@ -1117,8 +1134,11 @@ export default function App() {
             draft={timelineDraft}
             media={reviewMedia}
             onDraftChange={(nextDraft) => void saveTimelineDraftState(nextDraft)}
-            onSaveDraft={() => void saveTimelineDraftState(markTimelineSaved(timelineDraft))}
-            onExport={() => setView("export")}
+            onSaveDraft={() => void saveApprovedTimelineDraft()}
+            onExport={async () => {
+              await saveApprovedTimelineDraft();
+              setView("export");
+            }}
             onAutoEdit={() => void runAutoEditFlow(reviewMode)}
           />
         )}
@@ -1143,6 +1163,8 @@ export default function App() {
             onStartExport={() => void startExport(reviewMode)}
             onCancelExport={() => void cancelExport()}
             onOpenFolder={() => void openExportFolder()}
+            onBackToReview={() => setView("timeline-review")}
+            onFinish={() => setView("home")}
           />
         )}
         {view === "hardware-test" && (
@@ -1193,28 +1215,38 @@ function JourneyProgress({
   studioReady,
   recordingComplete,
   reviewReady,
-  exportComplete
+  exportComplete,
+  onNavigate
 }: {
   view: View;
   studioReady: boolean;
   recordingComplete: boolean;
   reviewReady: boolean;
   exportComplete: boolean;
+  onNavigate: (view: Extract<View, "device-setup" | "recording" | "timeline-review" | "export">) => void;
 }) {
-  const steps: Array<{ label: string; complete: boolean; active: boolean; locked?: boolean }> = [
-    { label: "Studio Setup", complete: studioReady, active: view === "home" || view === "new-episode" || view === "device-setup" },
-    { label: "Record", complete: recordingComplete, active: view === "recording" },
-    { label: "Review", complete: reviewReady && view !== "recording", active: view === "timeline-review" },
-    { label: "Export", complete: exportComplete, active: view === "export" }
+  const steps: Array<{ label: string; target: Extract<View, "device-setup" | "recording" | "timeline-review" | "export">; complete: boolean; active: boolean; locked?: boolean }> = [
+    { label: "Studio Setup", target: "device-setup", complete: studioReady, active: view === "new-episode" || view === "device-setup" },
+    { label: "Record", target: "recording", complete: recordingComplete, active: view === "recording" },
+    { label: "Review", target: "timeline-review", complete: reviewReady, active: view === "timeline-review" || view === "auto-edit-review", locked: !reviewReady },
+    { label: "Export", target: "export", complete: exportComplete, active: view === "export", locked: !reviewReady }
   ];
 
   return (
     <nav className="journey-progress" aria-label="Episode progress">
       {steps.map((step) => (
-        <span className={`${step.complete ? "complete" : ""} ${step.active ? "active" : ""} ${step.locked ? "locked" : ""}`} key={step.label}>
+        <button
+          type="button"
+          className={`${step.complete ? "complete" : ""} ${step.active ? "active" : ""} ${step.locked ? "locked" : ""}`}
+          disabled={step.locked}
+          aria-current={step.active ? "step" : undefined}
+          title={step.locked ? "Record an episode first" : `Go to ${step.label}`}
+          onClick={() => onNavigate(step.target)}
+          key={step.label}
+        >
           <i aria-hidden="true">{step.complete ? <CheckCircle2 size={18} /> : step.active ? <Circle size={14} /> : null}</i>
           {step.label}
-        </span>
+        </button>
       ))}
     </nav>
   );
@@ -1262,37 +1294,16 @@ function FirstRunSetup({
   );
 }
 
-function SuccessPanel({
-  title,
-  message,
-  actionLabel,
-  onAction
-}: {
-  title: string;
-  message: string;
-  actionLabel: string;
-  onAction: () => void;
-}) {
-  return (
-    <section className="success-panel">
-      <CheckCircle2 size={34} />
-      <div>
-        <h3>{title}</h3>
-        <p>{message}</p>
-      </div>
-      <Button variant="primary" icon={<ArrowRight size={20} />} onClick={onAction}>{actionLabel}</Button>
-    </section>
-  );
-}
-
 function HomeView({
   episodes,
   onNewEpisode,
-  onStudioSetup
+  onStudioSetup,
+  onOpenEpisode
 }: {
   episodes: EpisodeMetadata[];
   onNewEpisode: () => void;
   onStudioSetup: () => void;
+  onOpenEpisode: (episode: EpisodeMetadata) => void;
 }) {
   return (
     <div className="view-stack">
@@ -1324,13 +1335,13 @@ function HomeView({
           ) : (
             <div className="episode-list">
               {episodes.map((episode) => (
-                <article className="episode-card" key={episode.id}>
+                <button type="button" className="episode-card" onClick={() => onOpenEpisode(episode)} title={`Open ${episode.title}`} key={episode.id}>
                   <div>
                     <h4>{episode.title}</h4>
                     <p>{episode.guestName || "Solo episode"} - {new Date(episode.createdAt).toLocaleDateString()}</p>
                   </div>
                   <span>{episode.status}</span>
-                </article>
+                </button>
               ))}
             </div>
           )}

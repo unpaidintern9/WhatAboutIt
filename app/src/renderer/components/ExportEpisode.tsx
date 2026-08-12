@@ -1,5 +1,5 @@
 import { type ReactElement } from "react";
-import { CheckCircle2, ExternalLink, FileArchive, FileAudio, LoaderCircle, Lock, Play, ShieldCheck, Square, Video } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ExternalLink, FileArchive, FileAudio, Home, LoaderCircle, Lock, Play, ShieldCheck, Square, Video } from "lucide-react";
 import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../../shared/export";
 import { exportFriendlyErrorCopy, exportTypeLabels } from "../../shared/export";
 import { Button } from ".";
@@ -14,6 +14,8 @@ interface ExportEpisodeProps {
   onStartExport: () => void;
   onCancelExport: () => void;
   onOpenFolder: () => void;
+  onBackToReview: () => void;
+  onFinish: () => void;
 }
 
 const exportIcons: Record<ExportType, ReactElement> = {
@@ -21,6 +23,12 @@ const exportIcons: Record<ExportType, ReactElement> = {
   "audio-only": <FileAudio size={24} />,
   "archive-master": <FileArchive size={24} />,
   "social-clip-placeholder": <Lock size={24} />
+};
+
+const qualityCopy: Record<ExportQualityPreset, { title: string; detail: string; badge?: string }> = {
+  standard: { title: "Standard", detail: "720p video, 48 kHz audio - quickest shareable copy" },
+  high: { title: "High", detail: "1080p video, 320 kbps audio - best finished episode", badge: "Recommended" },
+  archive: { title: "Archive", detail: "1080p near-master with 24-bit PCM audio - largest file" }
 };
 
 export function ExportEpisode({
@@ -32,11 +40,16 @@ export function ExportEpisode({
   onQualityChange,
   onStartExport,
   onCancelExport,
-  onOpenFolder
+  onOpenFolder,
+  onBackToReview,
+  onFinish
 }: ExportEpisodeProps) {
   const isRunning = job?.status === "running" || job?.status === "queued";
   const isComplete = job?.status === "complete";
   const isError = job?.status === "error" || job?.status === "canceled";
+  const progress = job?.progress ?? 0;
+  const activeStage = isComplete ? 4 : progress >= 85 ? 3 : progress >= 45 ? 2 : progress >= 15 ? 1 : 0;
+  const stages = ["Prepare", "Mix sources", "Build video", "Verify file", "Done"];
 
   return (
     <section className="export-screen">
@@ -76,19 +89,23 @@ export function ExportEpisode({
         <div>
           <p className="signature">Keep it simple</p>
           <h3>Quality</h3>
-          <p className="soft-copy">Standard is great for most episodes. High is a bigger finished copy. Archive is for the keep-forever version.</p>
+          <p className="soft-copy">High is the best finished episode. Every full export also creates edited camera masters, separate 24-bit audio masters, and an edit decision list.</p>
         </div>
         <div className="quality-preset-row" aria-label="Quality preset">
-          {(["standard", "high", "archive"] as ExportQualityPreset[]).map((preset) => (
-            <button
-              type="button"
-              className={qualityPreset === preset ? "selected" : ""}
-              onClick={() => onQualityChange(preset)}
-              key={preset}
-            >
-              {preset[0].toUpperCase() + preset.slice(1)}
-            </button>
-          ))}
+          {(["standard", "high", "archive"] as ExportQualityPreset[]).map((preset) => {
+            const copy = qualityCopy[preset];
+            return (
+              <button
+                type="button"
+                className={qualityPreset === preset ? "selected" : ""}
+                onClick={() => onQualityChange(preset)}
+                key={preset}
+              >
+                <strong>{copy.title}{copy.badge ? <small>{copy.badge}</small> : null}</strong>
+                <span>{copy.detail}</span>
+              </button>
+            );
+          })}
         </div>
       </section>
 
@@ -100,6 +117,14 @@ export function ExportEpisode({
         <p className={`media-tools-status ${mediaToolsStatus?.ready ? "ready" : "needs-setup"}`}>
           {mediaToolsStatus?.message ?? "Checking local media tools..."}
         </p>
+        <div className="export-stage-strip" aria-label="Export stages">
+          {stages.map((stage, index) => (
+            <span className={index < activeStage || isComplete ? "complete" : index === activeStage && isRunning ? "active" : ""} key={stage}>
+              {index < activeStage || isComplete ? <CheckCircle2 size={15} /> : <i>{index + 1}</i>}
+              {stage}
+            </span>
+          ))}
+        </div>
         <div
           className={`export-progress-bar ${isRunning ? "running" : ""}`}
           role="progressbar"
@@ -121,14 +146,20 @@ export function ExportEpisode({
           </div>
         )}
         <div className="export-actions">
-          <Button variant="primary" icon={<Play size={20} />} disabled={isRunning || selectedType === "social-clip-placeholder"} onClick={onStartExport}>
-            {isRunning ? "Exporting" : "Export"}
+          <Button variant={isComplete ? "secondary" : "primary"} icon={<Play size={20} />} disabled={isRunning || selectedType === "social-clip-placeholder"} onClick={onStartExport}>
+            {isRunning ? "Exporting" : isComplete ? "Export again" : "Export"}
           </Button>
           <Button variant="secondary" icon={<Square size={18} />} disabled={!isRunning} onClick={onCancelExport}>
             Cancel export
           </Button>
-          <Button variant="secondary" icon={<ExternalLink size={18} />} disabled={!isComplete} onClick={onOpenFolder}>
+          <Button variant={isComplete ? "primary" : "secondary"} icon={<ExternalLink size={18} />} disabled={!isComplete} onClick={onOpenFolder}>
             Open export folder
+          </Button>
+          <Button variant="secondary" icon={<ArrowLeft size={18} />} disabled={isRunning} onClick={onBackToReview}>
+            Back to Review
+          </Button>
+          <Button variant="secondary" icon={<Home size={18} />} disabled={!isComplete} onClick={onFinish}>
+            Finish
           </Button>
         </div>
       </section>

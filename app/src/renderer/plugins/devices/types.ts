@@ -5,8 +5,13 @@ export type CameraSignalStatus = "good" | "weak" | "lost" | "unknown";
 export interface StudioDevice {
   id: string;
   label: string;
+  rawLabel?: string;
+  groupId?: string;
   kind: StudioDeviceKind;
   isDefault?: boolean;
+  audio?: {
+    interfaceLike: boolean;
+  };
   camera?: {
     connectionType: CameraConnectionType;
     signal: CameraSignalStatus;

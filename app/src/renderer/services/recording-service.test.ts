@@ -63,6 +63,27 @@ describe("RecordingService", () => {
     expect(window.studio.saveProgramRecording).toHaveBeenCalled();
   });
 
+  it("reports the active program and source recorder health", async () => {
+    installStudioMock();
+    const plugin: RecordingEnginePlugin = {
+      ...createPlugin(),
+      getHealth: () => ({
+        programActive: true,
+        activeCameraTracks: 2,
+        activeAudioTracks: 2,
+        expectedCameraTracks: 2,
+        expectedAudioTracks: 2,
+        warnings: []
+      })
+    };
+    const service = new RecordingService(plugin);
+
+    const snapshot = await service.start({ cameras: { camera1: "camera-a", camera2: "camera-b" }, microphones: { morganMic: "mic-a", guestMic: "mic-b" } });
+
+    expect(snapshot.health?.programActive).toBe(true);
+    expect(snapshot.localSaveMessage).toBe("Program plus 4 source tracks are actively recording");
+  });
+
   it("saves separate recorder tracks after the Program recording", async () => {
     installStudioMock();
     const plugin: RecordingEnginePlugin = {

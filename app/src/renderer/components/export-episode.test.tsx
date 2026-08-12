@@ -15,6 +15,8 @@ function render(job?: ExportJob) {
       onStartExport={vi.fn()}
       onCancelExport={vi.fn()}
       onOpenFolder={vi.fn()}
+      onBackToReview={vi.fn()}
+      onFinish={vi.fn()}
     />
   );
 }
@@ -34,6 +36,11 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("Social Clip");
     expect(markup).toContain("Saved for Version 2");
     expect(markup).toContain("Media tools are ready");
+    expect(markup).toContain("1080p video, 320 kbps audio");
+    expect(markup).toContain("Recommended");
+    expect(markup).toContain("separate 24-bit audio masters");
+    expect(markup).toContain("Back to Review");
+    expect(markup).toContain("Mix sources");
   });
 
   it("renders progress and complete state", () => {
@@ -56,6 +63,8 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("Open export folder");
     expect(markup).toContain("Your export includes");
     expect(markup).toContain("camera-1-with-morgan-mic.mp4");
+    expect(markup).toContain("Finish");
+    expect(markup).toContain("Export again");
   });
 
   it("renders live export percentage and stage", () => {
@@ -75,6 +84,7 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("Exporting your episode");
     expect(markup).toContain("38%");
     expect(markup).toContain('aria-valuenow="38"');
+    expect(markup).toContain('class="active"');
   });
 
   it("renders friendly export errors", () => {

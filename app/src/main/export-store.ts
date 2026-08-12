@@ -83,15 +83,30 @@ function outputFileName(type: ExportRequest["type"]) {
 
 function qualityArgs(type: ExportRequest["type"], preset: ExportRequest["qualityPreset"], includeVideoFilter = true) {
   if (type === "audio-only") {
-    return ["-vn", "-c:a", "aac", "-b:a", preset === "high" || preset === "archive" ? "192k" : "160k"];
+    return ["-vn", "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", preset === "high" || preset === "archive" ? "320k" : "192k"];
   }
 
   if (type === "archive-master") {
-    return [...(includeVideoFilter ? ["-vf", "fps=30"] : []), "-r", "30", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-c:a", "aac", "-b:a", "256k"];
+    return [...(includeVideoFilter ? ["-vf", videoOutputFilter(preset)] : []), "-r", "30", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s24le"];
   }
 
-  const crf = preset === "high" ? "20" : preset === "archive" ? "18" : "23";
-  return [...(includeVideoFilter ? ["-vf", "fps=30"] : []), "-r", "30", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", crf, "-c:a", "aac", "-b:a", preset === "high" ? "192k" : "160k"];
+  const crf = preset === "high" ? "16" : preset === "archive" ? "14" : "20";
+  const speed = preset === "high" || preset === "archive" ? "slow" : "veryfast";
+  const audioBitrate = preset === "standard" ? "192k" : "320k";
+  return [
+    ...(includeVideoFilter ? ["-vf", videoOutputFilter(preset)] : []),
+    "-r", "30", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", speed, "-crf", crf,
+    "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", audioBitrate
+  ];
+}
+
+function outputSize(preset: ExportRequest["qualityPreset"]) {
+  return preset === "high" || preset === "archive" ? { width: 1920, height: 1080 } : { width: 1280, height: 720 };
+}
+
+function videoOutputFilter(preset: ExportRequest["qualityPreset"]) {
+  const size = outputSize(preset);
+  return `scale=${size.width}:${size.height}:force_original_aspect_ratio=decrease,pad=${size.width}:${size.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30`;
 }
 
 async function createPracticeSource(episodeId: string) {
@@ -184,10 +199,10 @@ async function renderDraftExport(input: {
   let inputIndex = 1;
 
   for (const track of request.draft.tracks) {
-    if (!track.sourceAssetId || !track.includedInProgram) continue;
+    if (!track.sourceAssetId) continue;
     const filePath = sourcePathForTrack(request.episodeId, track);
     if (!filePath || !(await fileExists(filePath))) continue;
-    if (track.kind === "camera") cameraInputs.push({ track, filePath, inputIndex });
+    if (track.kind === "camera" && track.includedInProgram) cameraInputs.push({ track, filePath, inputIndex });
     if (track.kind === "microphone") audioInputs.push({ track, filePath, inputIndex });
     if (track.kind !== "camera" && track.kind !== "microphone") continue;
     inputArgs.push("-i", filePath);
@@ -197,7 +212,7 @@ async function renderDraftExport(input: {
   const hasDraftSources = cameraInputs.length > 0 || audioInputs.length > 0;
   const hasDraftDecisions = request.draft.cameraDecisions.length > 0
     || request.draft.editLog.length > 0
-    || request.draft.tracks.some((track) => track.kind === "microphone" && (track.volume !== 100 || !track.includedInProgram));
+    || request.draft.tracks.some(hasTrackAdjustments);
   if (!hasDraftSources || !hasDraftDecisions) return false;
 
   const filters: string[] = [];
@@ -215,17 +230,35 @@ async function renderDraftExport(input: {
   );
   const cameraByTrack = new Map(cameraInputs.map((item) => [item.track.id, item]));
   const videoLabels: string[] = [];
+  const programTrack = request.draft.tracks.find((track) => track.id === "program");
+  const size = outputSize(request.qualityPreset);
 
   if (request.type !== "audio-only") {
     for (const [index, range] of keepRanges.entries()) {
       const decision = [...request.draft.cameraDecisions].reverse().find((item) => item.startMs <= range.startMs);
       const camera = decision ? cameraByTrack.get(decision.cameraTrackId) : undefined;
       const midpoint = range.startMs + (range.endMs - range.startMs) / 2;
-      const chosen = camera && sourceAvailableAt(camera.track, request.draft.editLog, midpoint) ? camera.inputIndex : 0;
+      const chosenCamera = camera && sourceAvailableAt(camera.track, request.draft.editLog, midpoint) ? camera : undefined;
+      const chosen = chosenCamera?.inputIndex ?? 0;
+      const chosenTrack = chosenCamera?.track ?? programTrack;
+      const syncOffsetMs = chosenTrack?.syncOffsetMs ?? 0;
+      const sourceStartMs = Math.max(0, range.startMs + syncOffsetMs);
+      const sourceEndMs = Math.max(sourceStartMs + 1, range.endMs + syncOffsetMs);
+      const cropFilter = chosenTrack?.cropMode === "fill"
+        ? `scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,crop=${size.width}:${size.height}`
+        : `scale=${size.width}:${size.height}:force_original_aspect_ratio=decrease,pad=${size.width}:${size.height}:(ow-iw)/2:(oh-ih)/2`;
+      const pictureFilters = createVideoTreatment(chosenTrack, size);
+      const transitionFilter = createVideoTransitionFilter(
+        request.draft.cameraTransition,
+        request.draft.cameraTransitionMs,
+        index,
+        keepRanges.length,
+        range.endMs - range.startMs
+      );
       const label = `draftv${index}`;
       filters.push(
-        `[${chosen}:v:0]trim=start=${seconds(range.startMs)}:end=${seconds(range.endMs)},setpts=PTS-STARTPTS,` +
-        `scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30[${label}]`
+        `[${chosen}:v:0]trim=start=${seconds(sourceStartMs)}:end=${seconds(sourceEndMs)},setpts=PTS-STARTPTS,` +
+        `${cropFilter},${pictureFilters}${transitionFilter}setsar=1,fps=30[${label}]`
       );
       videoLabels.push(`[${label}]`);
     }
@@ -236,24 +269,36 @@ async function renderDraftExport(input: {
   }
 
   const audioLabels: string[] = [];
-  const audioSources = audioInputs.length > 0
-    ? audioInputs.map((item) => ({ inputIndex: item.inputIndex, track: item.track }))
+  const enabledAudioInputs = audioInputs.filter((item) => item.track.includedInProgram && !item.track.muted);
+  const anySolo = enabledAudioInputs.some((item) => item.track.solo);
+  const activeAudioInputs = anySolo ? enabledAudioInputs.filter((item) => item.track.solo) : enabledAudioInputs;
+  const allSeparateMicrophonesMuted = audioInputs.length > 0 && activeAudioInputs.length === 0;
+  const audioSources = activeAudioInputs.length > 0
+    ? activeAudioInputs.map((item) => ({ inputIndex: item.inputIndex, track: item.track }))
     : [{ inputIndex: 0, track: request.draft.tracks.find((track) => track.id === "program") }];
   for (const [index, source] of audioSources.entries()) {
     const label = `drafta${index}`;
     const trackEdits = editsForTrack(request.draft.editLog, source.track?.id ?? "program");
-    const volume = Math.max(0, Math.min(1.5, (source.track?.volume ?? 100) / 100));
+    const volume = allSeparateMicrophonesMuted ? 0 : Math.max(0, Math.min(1.5, (source.track?.volume ?? 100) / 100));
     const muteExpression = createMuteExpression(trackEdits, volume);
     const keepExpression = createKeepExpression(globalEdits);
+    const syncFilter = createAudioSyncFilter(source.track?.syncOffsetMs ?? 0);
+    const treatment = createAudioTreatment(source.track);
+    const panFilter = createPanFilter(source.track?.pan ?? 0);
+    const fadeFilter = createFadeFilter(source.track, request.draft.durationMs || input.durationMs);
     filters.push(
-      `[${source.inputIndex}:a:0]volume='${muteExpression}':eval=frame,` +
-      `${keepExpression ? `aselect='${keepExpression}',` : ""}asetpts=N/SR/TB,aresample=async=1:first_pts=0[${label}]`
+      `[${source.inputIndex}:a:0]${syncFilter}${treatment}volume='${muteExpression}':eval=frame,` +
+      `${keepExpression ? `aselect='${keepExpression}',` : ""}asetpts=N/SR/TB,aresample=48000:async=1:first_pts=0,` +
+      `aformat=sample_fmts=fltp:channel_layouts=stereo,${panFilter}${fadeFilter}${createLimiterFilter(source.track)}[${label}]`
     );
     audioLabels.push(`[${label}]`);
   }
+  const loudnessTarget = Math.max(-24, Math.min(-12, request.draft.loudnessTargetLufs ?? -16));
+  const truePeak = Math.max(-3, Math.min(-0.5, request.draft.truePeakDb ?? -1.5));
+  const loudnessFinish = `loudnorm=I=${loudnessTarget}:LRA=11:TP=${truePeak},aresample=48000`;
   filters.push(audioLabels.length === 1
-    ? `${audioLabels[0]}anull[aout]`
-    : `${audioLabels.join("")}amix=inputs=${audioLabels.length}:duration=longest,alimiter=limit=0.95[aout]`);
+    ? `${audioLabels[0]}${loudnessFinish}[aout]`
+    : `${audioLabels.join("")}amix=inputs=${audioLabels.length}:duration=longest,alimiter=limit=0.95,${loudnessFinish}[aout]`);
 
   const mapArgs = request.type === "audio-only" ? ["-map", "[aout]"] : ["-map", "[vout]", "-map", "[aout]"];
   const containerArgs = input.outputPath.endsWith(".mp4") ? ["-movflags", "+faststart"] : [];
@@ -281,22 +326,54 @@ function editsForTrack(edits: TimelineEditOperation[], trackId: string) {
   return edits.filter((edit) => (edit.targetTrackId ?? "program") === trackId);
 }
 
+function hasTrackAdjustments(track: TimelineTrack) {
+  return !track.includedInProgram
+    || track.muted
+    || track.solo
+    || track.volume !== 100
+    || track.pan !== 0
+    || track.fadeInMs > 0
+    || track.fadeOutMs > 0
+    || track.syncOffsetMs !== 0
+    || track.audioPreset !== "natural"
+    || track.noiseReduction !== 0
+    || track.noiseGateDb !== -80
+    || track.deEsser !== 0
+    || track.compression !== 0
+    || track.eqLowDb !== 0
+    || track.eqMidDb !== 0
+    || track.eqHighDb !== 0
+    || track.cropMode !== "fit"
+    || track.brightness !== 0
+    || track.contrast !== 100
+    || track.saturation !== 100
+    || track.temperature !== 0
+    || track.tint !== 0
+    || track.sharpness !== 0
+    || track.denoise !== 0
+    || track.zoom !== 100
+    || track.positionX !== 0
+    || track.positionY !== 0;
+}
+
 function sourceAvailableAt(track: TimelineTrack, edits: TimelineEditOperation[], timestampMs: number) {
   if (!track.includedInProgram) return false;
   return !editsForTrack(edits, track.id).some((edit) =>
     (edit.type === "trim-before" && timestampMs < edit.timestampMs)
+    || (edit.type === "trim-after" && timestampMs >= edit.timestampMs)
     || (edit.type === "delete-section" && timestampMs >= edit.timestampMs && timestampMs < (edit.endTimestampMs ?? edit.timestampMs + 15000))
   );
 }
 
 function createVideoRanges(durationMs: number, globalEdits: TimelineEditOperation[], decisionPoints: number[]) {
   const trimStart = Math.max(0, ...globalEdits.filter((edit) => edit.type === "trim-before").map((edit) => edit.timestampMs));
+  const trimEnd = Math.min(durationMs, ...globalEdits.filter((edit) => edit.type === "trim-after").map((edit) => edit.timestampMs), durationMs);
   const cuts = globalEdits.filter((edit) => edit.type === "delete-section").map((edit) => ({
     startMs: edit.timestampMs,
     endMs: Math.min(durationMs, edit.endTimestampMs ?? edit.timestampMs + 15000)
   }));
-  const boundaries = new Set([trimStart, durationMs, ...decisionPoints, ...cuts.flatMap((cut) => [cut.startMs, cut.endMs])]);
-  const ordered = [...boundaries].filter((value) => value >= trimStart && value <= durationMs).sort((a, b) => a - b);
+  const boundaries = new Set([trimStart, trimEnd, ...decisionPoints, ...cuts.flatMap((cut) => [cut.startMs, cut.endMs])]);
+  const ordered = [...boundaries].filter((value) => value >= trimStart && value <= trimEnd).sort((a, b) => a - b);
   return ordered.slice(0, -1).map((startMs, index) => ({ startMs, endMs: ordered[index + 1] }))
     .filter((range) => range.endMs > range.startMs && !cuts.some((cut) => range.startMs >= cut.startMs && range.endMs <= cut.endMs));
 }
@@ -305,6 +382,7 @@ function createMuteExpression(edits: TimelineEditOperation[], volume: number) {
   const muted: string[] = [];
   for (const edit of edits) {
     if (edit.type === "trim-before") muted.push(`lt(t,${seconds(edit.timestampMs)})`);
+    if (edit.type === "trim-after") muted.push(`gte(t,${seconds(edit.timestampMs)})`);
     if (edit.type === "delete-section") muted.push(`between(t,${seconds(edit.timestampMs)},${seconds(edit.endTimestampMs ?? edit.timestampMs + 15000)})`);
   }
   return muted.length > 0 ? `if(${muted.join("+")},0,${volume.toFixed(3)})` : volume.toFixed(3);
@@ -314,9 +392,102 @@ function createKeepExpression(edits: TimelineEditOperation[]) {
   const removed: string[] = [];
   for (const edit of edits) {
     if (edit.type === "trim-before") removed.push(`lt(t,${seconds(edit.timestampMs)})`);
+    if (edit.type === "trim-after") removed.push(`gte(t,${seconds(edit.timestampMs)})`);
     if (edit.type === "delete-section") removed.push(`between(t,${seconds(edit.timestampMs)},${seconds(edit.endTimestampMs ?? edit.timestampMs + 15000)})`);
   }
   return removed.length > 0 ? `not(${removed.join("+")})` : "";
+}
+
+function createAudioSyncFilter(syncOffsetMs: number) {
+  if (syncOffsetMs > 0) return `atrim=start=${seconds(syncOffsetMs)},asetpts=PTS-STARTPTS,`;
+  if (syncOffsetMs < 0) {
+    const delay = Math.abs(Math.round(syncOffsetMs));
+    return `adelay=${delay}|${delay},`;
+  }
+  return "";
+}
+
+function createAudioTreatment(track: TimelineTrack | undefined) {
+  const preset = track?.audioPreset ?? "natural";
+  const filters: string[] = [];
+  if (preset === "clean") filters.push("highpass=f=70", "lowpass=f=16000");
+  if (preset === "warm") filters.push("highpass=f=70", "equalizer=f=180:t=q:w=1:g=1.5");
+  if (preset === "broadcast") filters.push("highpass=f=80", "equalizer=f=3200:t=q:w=1:g=2");
+  if (track) {
+    if (track.noiseReduction > 0) filters.push(`afftdn=nr=${Math.max(0.01, track.noiseReduction * 0.65).toFixed(2)}:nf=-50:tn=1`);
+    if (track.noiseGateDb > -80) {
+      const threshold = Math.pow(10, track.noiseGateDb / 20);
+      filters.push(`agate=threshold=${threshold.toFixed(5)}:ratio=2.5:attack=15:release=220:range=0.08`);
+    }
+    if (track.deEsser > 0) filters.push(`equalizer=f=6500:t=q:w=1.2:g=${(-track.deEsser * 0.045).toFixed(2)}`);
+    if (track.eqLowDb !== 0) filters.push(`equalizer=f=120:t=q:w=0.8:g=${track.eqLowDb.toFixed(1)}`);
+    if (track.eqMidDb !== 0) filters.push(`equalizer=f=1200:t=q:w=1:g=${track.eqMidDb.toFixed(1)}`);
+    if (track.eqHighDb !== 0) filters.push(`equalizer=f=6000:t=q:w=0.8:g=${track.eqHighDb.toFixed(1)}`);
+    if (track.compression > 0) {
+      const ratio = 1.5 + track.compression * 0.045;
+      const threshold = 0.24 - track.compression * 0.0017;
+      filters.push(`acompressor=threshold=${Math.max(0.05, threshold).toFixed(3)}:ratio=${ratio.toFixed(2)}:attack=5:release=110:makeup=1.15`);
+    }
+  }
+  return filters.length > 0 ? `${filters.join(",")},` : "";
+}
+
+function createLimiterFilter(track: TimelineTrack | undefined) {
+  return track?.limiterEnabled ? ",alimiter=limit=0.95" : "";
+}
+
+function createVideoTreatment(track: TimelineTrack | undefined, size: { width: number; height: number }) {
+  const brightness = ((track?.brightness ?? 0) / 100).toFixed(2);
+  const contrast = ((track?.contrast ?? 100) / 100).toFixed(2);
+  const saturation = ((track?.saturation ?? 100) / 100).toFixed(2);
+  const temperature = ((track?.temperature ?? 0) * 0.0015).toFixed(3);
+  const tint = ((track?.tint ?? 0) * 0.001).toFixed(3);
+  const zoom = (track?.zoom ?? 100) / 100;
+  const scaledWidth = Math.max(size.width, Math.round(size.width * zoom));
+  const scaledHeight = Math.max(size.height, Math.round(size.height * zoom));
+  const x = (((track?.positionX ?? 0) + 100) / 200).toFixed(3);
+  const y = (((track?.positionY ?? 0) + 100) / 200).toFixed(3);
+  const filters = [
+    `scale=${scaledWidth}:${scaledHeight},crop=${size.width}:${size.height}:(iw-ow)*${x}:(ih-oh)*${y}`,
+    `eq=brightness=${brightness}:contrast=${contrast}:saturation=${saturation}`
+  ];
+  if (track?.temperature || track?.tint) filters.push(`colorbalance=rm=${temperature}:bm=${(-Number(temperature)).toFixed(3)}:gm=${tint}`);
+  if ((track?.denoise ?? 0) > 0) {
+    const strength = ((track?.denoise ?? 0) / 25).toFixed(2);
+    filters.push(`hqdn3d=${strength}:${strength}:${(Number(strength) * 1.5).toFixed(2)}:${(Number(strength) * 1.5).toFixed(2)}`);
+  }
+  if ((track?.sharpness ?? 0) > 0) filters.push(`unsharp=5:5:${((track?.sharpness ?? 0) * 0.015).toFixed(2)}:5:5:0`);
+  return `${filters.join(",")},`;
+}
+
+function createVideoTransitionFilter(
+  transition: "cut" | "fade",
+  transitionMs: number,
+  index: number,
+  count: number,
+  durationMs: number
+) {
+  if (transition !== "fade" || count < 2) return "";
+  const duration = Math.min(transitionMs, Math.max(100, durationMs / 3));
+  const filters: string[] = [];
+  if (index > 0) filters.push(`fade=t=in:st=0:d=${seconds(duration)}`);
+  if (index < count - 1) filters.push(`fade=t=out:st=${seconds(Math.max(0, durationMs - duration))}:d=${seconds(duration)}`);
+  return filters.length > 0 ? `${filters.join(",")},` : "";
+}
+
+function createPanFilter(pan: number) {
+  const normalized = Math.max(-1, Math.min(1, pan / 100));
+  const left = normalized > 0 ? 1 - normalized : 1;
+  const right = normalized < 0 ? 1 + normalized : 1;
+  return `pan=stereo|c0=${left.toFixed(3)}*c0|c1=${right.toFixed(3)}*c1`;
+}
+
+function createFadeFilter(track: TimelineTrack | undefined, durationMs: number) {
+  if (!track) return "";
+  const filters: string[] = [];
+  if (track.fadeInMs > 0) filters.push(`afade=t=in:st=0:d=${seconds(track.fadeInMs)}`);
+  if (track.fadeOutMs > 0) filters.push(`afade=t=out:st=${seconds(Math.max(0, durationMs - track.fadeOutMs))}:d=${seconds(track.fadeOutMs)}`);
+  return filters.length > 0 ? `,${filters.join(",")}` : "";
 }
 
 function seconds(milliseconds: number) {
@@ -368,8 +539,8 @@ async function createCameraMasters(
   }
 
   for (const [index, item] of available.entries()) {
-    const start = 62 + (index / Math.max(1, available.length)) * 28;
-    const width = 28 / Math.max(1, available.length);
+    const start = 62 + (index / Math.max(1, available.length)) * 18;
+    const width = 18 / Math.max(1, available.length);
     const outputPath = path.join(exportFolder(request.episodeId), item.relativeOutput);
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
     const durationMs = (await getMediaDurationMs(item.audioFile)) || sourceDurationMs;
@@ -384,6 +555,62 @@ async function createCameraMasters(
     });
     if (!(await validatePlayableMedia(outputPath, undefined, { video: true, audio: true, decode: true }))) {
       throw new Error(`${item.relativeOutput} could not be decoded with video and audio.`);
+    }
+    outputs.push(item.relativeOutput);
+  }
+  return outputs;
+}
+
+async function createAudioMasters(
+  request: ExportRequest,
+  running: ExportJob,
+  sourceDurationMs: number,
+  signal: AbortSignal,
+  report?: ExportProgressReporter
+) {
+  const outputs: string[] = [];
+  const tracks = request.draft.tracks.filter((track) => track.kind === "microphone" && track.sourceAssetId);
+  const available: Array<{ track: TimelineTrack; sourceFile: string; relativeOutput: string }> = [];
+  for (const track of tracks) {
+    const sourceFile = sourcePathForTrack(request.episodeId, track);
+    if (!sourceFile || !(await fileExists(sourceFile))) continue;
+    available.push({
+      track,
+      sourceFile,
+      relativeOutput: path.join("Audio Masters", `${track.sourceAssetId}-edited.wav`)
+    });
+  }
+
+  for (const [index, item] of available.entries()) {
+    const start = 81 + (index / Math.max(1, available.length)) * 12;
+    const width = 12 / Math.max(1, available.length);
+    const outputPath = path.join(exportFolder(request.episodeId), item.relativeOutput);
+    const trackEdits = editsForTrack(request.draft.editLog, item.track.id);
+    const globalEdits = editsForTrack(request.draft.editLog, "program");
+    const volume = Math.max(0, Math.min(1.5, item.track.volume / 100));
+    const muteExpression = createMuteExpression(trackEdits, volume);
+    const keepExpression = createKeepExpression(globalEdits);
+    const filters = [
+      createAudioSyncFilter(item.track.syncOffsetMs),
+      createAudioTreatment(item.track),
+      `volume='${muteExpression}':eval=frame,`,
+      keepExpression ? `aselect='${keepExpression}',` : "",
+      "asetpts=N/SR/TB,aresample=48000:async=1:first_pts=0,aformat=sample_fmts=fltp:channel_layouts=stereo,",
+      createPanFilter(item.track.pan),
+      createFadeFilter(item.track, request.draft.durationMs || sourceDurationMs),
+      createLimiterFilter(item.track)
+    ].join("");
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    await runFfmpegWithProgress(
+      ["-y", "-fflags", "+genpts", "-i", item.sourceFile, "-filter:a", filters, "-ar", "48000", "-ac", "2", "-c:a", "pcm_s24le", outputPath],
+      {
+        durationMs: sourceDurationMs,
+        signal,
+        onProgress: (progress) => updateRunningJob(running, start + (progress / 100) * width, `Building ${item.track.label} audio master`, report)
+      }
+    );
+    if (!(await validatePlayableMedia(outputPath, undefined, { audio: true, decode: true }))) {
+      throw new Error(`${item.relativeOutput} could not be decoded.`);
     }
     outputs.push(item.relativeOutput);
   }
@@ -458,8 +685,13 @@ export async function createExport(request: ExportRequest, report?: ExportProgre
     const cameraOutputs = request.type === "full-episode-video" && !request.practice
       ? await createCameraMasters(request, running, sourceDurationMs, controller.signal, report)
       : [];
+    const audioOutputs = (request.type === "full-episode-video" || request.type === "archive-master") && !request.practice
+      ? await createAudioMasters(request, running, sourceDurationMs, controller.signal, report)
+      : [];
     running = updateRunningJob(running, 95, "Finishing your export", report);
-    const outputFileNames = [fileName, ...cameraOutputs];
+    const editDecisionFile = "edit-decision-list.json";
+    await fs.writeFile(path.join(folder, editDecisionFile), JSON.stringify(request.draft, null, 2), "utf8");
+    const outputFileNames = [fileName, ...cameraOutputs, ...audioOutputs, editDecisionFile];
     const completeBase = completeExportJob(running, fileName);
     const completionMessage = renderedDraft
       ? `Export complete from your ${request.draft.editMode === "auto" ? "Auto Edit" : "manual"} draft`
@@ -477,6 +709,7 @@ export async function createExport(request: ExportRequest, report?: ExportProgre
       episodeId: request.episodeId,
       outputFileName: fileName,
       cameraOutputs,
+      audioOutputs,
       ffmpegVersion: tools.ffmpegVersion,
       ffprobeVersion: tools.ffprobeVersion
     });

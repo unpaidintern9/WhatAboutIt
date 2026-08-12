@@ -99,6 +99,31 @@ describe("DeviceSetupWizard", () => {
 
     expect(markup).toContain("Sony Camera (Imaging Edge)");
     expect(markup).toContain("Integrated Camera (13d3:540a)");
+    expect(markup).toContain("2 of 3 simultaneous camera feeds detected");
+    expect(markup).toContain("Windows exposes only 1 Imaging Edge feed");
+    expect(markup).toContain("USB Streaming or separate HDMI capture devices");
+  });
+
+  it("reports three unique Windows camera feeds as simultaneously available", () => {
+    const markup = renderToStaticMarkup(
+      <DeviceSetupWizard
+        {...baseProps}
+        detection={{
+          cameras: [
+            { id: "sony-one", label: "Sony Alpha 1", kind: "camera" },
+            { id: "sony-two", label: "Sony Alpha 2", kind: "camera" },
+            { id: "sony-three", label: "Sony Alpha 3", kind: "camera" }
+          ],
+          microphones: [],
+          speakers: [],
+          permissionNeeded: false
+        }}
+      />
+    );
+
+    expect(markup).toContain("3 of 3 simultaneous camera feeds detected");
+    expect(markup).toContain("Pick any three");
+    expect(markup).toContain("Each distinct Windows camera can be assigned to any camera slot");
   });
 
   it("renders unlabeled camera fallback options before permission", () => {
@@ -187,7 +212,11 @@ describe("DeviceSetupWizard", () => {
 
     expect(microphoneMarkup).toContain("Morgan Mic");
     expect(microphoneMarkup).toContain("Say something!");
-    expect(microphoneMarkup).toContain("We can&#x27;t hear you yet");
+    expect(microphoneMarkup).toContain("NO SIGNAL");
+    expect(microphoneMarkup).toContain("Automatic / combined input");
+    expect(microphoneMarkup).toContain("Physical Input 1 (left channel)");
+    expect(microphoneMarkup).toContain("Physical Input 2 (right channel)");
+    expect(microphoneMarkup).toContain("Input 16");
     expect(headphoneMarkup).toContain("Play Test Sound");
     expect(readyMarkup).toContain("Everything looks good");
   });

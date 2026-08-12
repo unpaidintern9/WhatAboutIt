@@ -1,7 +1,7 @@
 import type { DeviceDefaults } from "../../shared/types";
 import type { RecordingSession, RecordingState, RecordingStatus, RecordingTrackSaveResult } from "../../shared/recording";
 import { createInitialRecordingState, friendlyRecordingError } from "../../shared/recording";
-import type { RecordingEnginePlugin } from "../plugins/recording/types";
+import type { RecordingEngineHealth, RecordingEnginePlugin } from "../plugins/recording/types";
 
 export interface RecordingServiceSnapshot {
   status: RecordingStatus;
@@ -10,6 +10,7 @@ export interface RecordingServiceSnapshot {
   friendlyError?: string;
   localSaveMessage: string;
   trackStatuses: RecordingTrackSaveResult[];
+  health?: RecordingEngineHealth;
 }
 
 export interface RecordingStartOptions {
@@ -30,13 +31,23 @@ export class RecordingService {
   constructor(private readonly plugin: RecordingEnginePlugin) {}
 
   getSnapshot(): RecordingServiceSnapshot {
+    const health = this.plugin.getHealth?.();
+    const activeSources = (health?.activeCameraTracks ?? 0) + (health?.activeAudioTracks ?? 0);
+    const expectedSources = (health?.expectedCameraTracks ?? 0) + (health?.expectedAudioTracks ?? 0);
+    const missingSources = Math.max(0, expectedSources - activeSources);
+    const localSaveMessage = (this.status === "recording" || this.status === "paused") && health
+      ? health.warnings.length > 0 || missingSources > 0
+        ? `${activeSources} source tracks recording; ${Math.max(health.warnings.length, missingSources)} need attention`
+        : `Program plus ${activeSources} source tracks are actively recording`
+      : "Everything is saving locally";
     return {
       status: this.status,
       elapsedMs: this.elapsedMs(),
       session: this.session,
       friendlyError: this.friendlyError,
-      localSaveMessage: "Everything is saving locally",
-      trackStatuses: this.trackStatuses
+      localSaveMessage,
+      trackStatuses: this.trackStatuses,
+      health
     };
   }
 

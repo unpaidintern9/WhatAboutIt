@@ -5,7 +5,7 @@ import type { RecordingSession, RecordingSessionCreateInput, RecordingState, Rec
 import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
-import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
+import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
 import type { ReviewMediaInventory } from "../shared/review-media";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
@@ -28,7 +28,7 @@ declare global {
       loadTimelineDraft: (episodeId: string) => Promise<TimelineDraft | null>;
       saveTimelineDraft: (episodeId: string, draft: TimelineDraft) => Promise<TimelineDraft>;
       loadReviewMedia: (episodeId: string) => Promise<ReviewMediaInventory>;
-      runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean) => Promise<AutoEditResult>;
+      runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean, learningProfile?: AutoEditLearningProfile) => Promise<AutoEditResult>;
       createExport: (request: ExportRequest) => Promise<ExportJob>;
       onExportProgress?: (listener: (job: ExportJob) => void) => () => void;
       getMediaToolsStatus: () => Promise<MediaToolsStatus>;

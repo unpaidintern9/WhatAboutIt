@@ -21,20 +21,30 @@ describe("recording session metadata", () => {
   it("persists the selected device map and sync metadata", () => {
     const defaults = {
       cameras: { camera1: "camera-a", camera2: "camera-b" },
-      microphones: { morganMic: "mic-a", guestMic: "mic-b" },
+      microphones: { morganMic: "m-track", guestMic: "m-track" },
       microphoneChannels: { morganMic: "input-1" as const, guestMic: "input-2" as const },
+      microphoneNames: { morganMic: "Morgan", guestMic: "Susan" },
+      microphoneDeviceLabels: { morganMic: "Line (2- USB AUDIO CODEC)", guestMic: "Line (2- USB AUDIO CODEC)" },
       audioOutputId: "speaker-a"
     };
 
     expect(createDeviceMap(defaults).program).toEqual({
       cameraDeviceId: "camera-a",
-      microphoneDeviceId: "mic-a",
-      separateTracksWherePossible: false
+      microphoneDeviceId: "m-track",
+      separateTracksWherePossible: true
     });
     expect(createDeviceMap(defaults).microphoneChannels).toEqual({ morganMic: "input-1", guestMic: "input-2" });
+    expect(createDeviceMap(defaults).microphoneRoutes).toMatchObject({
+      morganMic: { deviceId: "m-track", channel: "input-1", displayName: "Morgan", role: "host" },
+      guestMic: { deviceId: "m-track", channel: "input-2", displayName: "Susan", role: "guest" }
+    });
     expect(createSyncMetadata(defaults, "2026-06-27T10:00:00.000Z").deviceStartTimestamps["camera-a"]).toBe(
       "2026-06-27T10:00:00.000Z"
     );
+    expect(createSyncMetadata(defaults, "2026-06-27T10:00:00.000Z").deviceStartTimestamps).toMatchObject({
+      "microphone:morganMic:input-1": "2026-06-27T10:00:00.000Z",
+      "microphone:guestMic:input-2": "2026-06-27T10:00:00.000Z"
+    });
   });
 
   it("uses friendly error language", () => {

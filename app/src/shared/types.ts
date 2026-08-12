@@ -1,5 +1,6 @@
 import type { ExportSettings } from "./export";
 import type { StudioWorkspaceSettings } from "./studio-workspace";
+import type { AutoEditLearningProfile } from "./auto-edit";
 
 export type EpisodeStatus = "draft" | "ready" | "recorded" | "exported";
 
@@ -28,11 +29,29 @@ export interface StudioSettings {
     sidebarCollapsed?: boolean;
   };
   studioWorkspace?: StudioWorkspaceSettings;
+  autoEditLearning?: AutoEditLearningProfile;
 }
 
 export type CameraSlotKey = "camera1" | "camera2" | "camera3";
 export type MicrophoneSlotKey = "morganMic" | "guestMic" | "extraMic";
-export type MicrophoneInputChannel = "mix" | "input-1" | "input-2";
+export type MicrophoneInputChannel =
+  | "mix"
+  | "input-1"
+  | "input-2"
+  | "input-3"
+  | "input-4"
+  | "input-5"
+  | "input-6"
+  | "input-7"
+  | "input-8"
+  | "input-9"
+  | "input-10"
+  | "input-11"
+  | "input-12"
+  | "input-13"
+  | "input-14"
+  | "input-15"
+  | "input-16";
 
 export interface DeviceDefaults {
   cameras: Partial<Record<CameraSlotKey, string>>;
@@ -40,6 +59,8 @@ export interface DeviceDefaults {
   cameraSettings?: Record<string, import("./camera-config").CameraAdvancedSettings>;
   microphones: Partial<Record<MicrophoneSlotKey, string>>;
   microphoneChannels?: Partial<Record<MicrophoneSlotKey, MicrophoneInputChannel>>;
+  microphoneNames?: Partial<Record<MicrophoneSlotKey, string>>;
+  microphoneDeviceLabels?: Partial<Record<MicrophoneSlotKey, string>>;
   audioOutputId?: string;
 }
 

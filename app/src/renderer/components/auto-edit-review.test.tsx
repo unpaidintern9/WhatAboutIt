@@ -16,7 +16,7 @@ describe("AutoEditReview", () => {
     expect(markup).toContain("Balanced");
     expect(markup).toContain("Fast Paced");
     expect(markup).toContain("Clip Hunter");
-    expect(markup).toContain("Checking recording");
+    expect(markup).toContain("Checking saved sources");
   });
 
   it("renders report results", () => {
@@ -36,5 +36,7 @@ describe("AutoEditReview", () => {
     expect(markup).toContain("Camera plan");
     expect(markup).toContain("Program stays on screen");
     expect(markup).toContain("Review-needed items");
+    expect(markup).toContain("podcast voice cleanup");
+    expect(markup).toContain("denoise, color balance, and sharpening");
   });
 });

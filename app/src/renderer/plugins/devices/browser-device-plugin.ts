@@ -1,6 +1,6 @@
 import type { DeviceDetectionResult, DevicePlugin, StudioDevice, StudioDeviceKind } from "./types";
 import { cameraProviders } from "../cameras/camera-provider-registry";
-import { createCenteredMonoStream, createStudioAudioContext, highQualityAudioConstraint, stopStudioMediaStream } from "../audio/studio-audio";
+import { createCenteredMonoStream, createStudioAudioContext, openAudioStreamWithFallback, stopStudioMediaStream } from "../audio/studio-audio";
 
 function deviceDebugEnabled() {
   try {
@@ -16,7 +16,11 @@ function logDeviceDebug(label: string, details: unknown) {
 }
 
 function friendlyDeviceLabel(device: MediaDeviceInfo, fallback: string) {
-  return device.label || fallback;
+  if (!device.label) return fallback;
+  if (device.kind === "audioinput" && /usb\s+audio\s+codec/i.test(device.label)) {
+    return `USB Audio Interface (${device.label.replace(/\s+/g, " ").trim()})`;
+  }
+  return device.label;
 }
 
 function toStudioDevice(device: MediaDeviceInfo, kind: StudioDeviceKind, index: number): StudioDevice {
@@ -25,8 +29,13 @@ function toStudioDevice(device: MediaDeviceInfo, kind: StudioDeviceKind, index: 
   return {
     id: device.deviceId,
     label: friendlyDeviceLabel(device, fallbackName),
+    rawLabel: device.label || undefined,
+    groupId: device.groupId || undefined,
     kind,
     isDefault: device.deviceId === "default",
+    audio: kind === "microphone" || kind === "speaker"
+      ? { interfaceLike: /usb|m-audio|m-track|audio.?box|interface|codec/i.test(device.label) }
+      : undefined,
     camera:
       kind === "camera"
         ? {
@@ -47,6 +56,19 @@ function mergeDevices(devices: StudioDevice[]) {
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
+  });
+}
+
+function disambiguateCameraLabels(devices: StudioDevice[]) {
+  const totals = new Map<string, number>();
+  for (const device of devices) totals.set(device.label, (totals.get(device.label) ?? 0) + 1);
+  const indexes = new Map<string, number>();
+
+  return devices.map((device) => {
+    if ((totals.get(device.label) ?? 0) < 2) return device;
+    const instance = (indexes.get(device.label) ?? 0) + 1;
+    indexes.set(device.label, instance);
+    return { ...device, label: `${device.label} ${instance}` };
   });
 }
 
@@ -79,7 +101,7 @@ async function enumerateStudioDevices(): Promise<DeviceDetectionResult> {
     const devices = await navigator.mediaDevices.enumerateDevices();
     const enumeratedCameras = devices.filter((device) => device.kind === "videoinput").map((device, index) => toStudioDevice(device, "camera", index));
     const providerCameras = await discoverProviderCameras();
-    const cameras = mergeDevices([...enumeratedCameras, ...providerCameras]);
+    const cameras = disambiguateCameraLabels(mergeDevices([...enumeratedCameras, ...providerCameras]));
     const microphones = devices.filter((device) => device.kind === "audioinput").map((device, index) => toStudioDevice(device, "microphone", index));
     const speakers = devices.filter((device) => device.kind === "audiooutput").map((device, index) => toStudioDevice(device, "speaker", index));
     const permissionNeeded = devices.some((device) => !device.label);
@@ -152,10 +174,7 @@ export const browserDevicePlugin: DevicePlugin = {
   async sampleMicrophoneLevel(deviceId?: string) {
     if (!navigator.mediaDevices?.getUserMedia || !window.AudioContext) return 0;
 
-    const rawStream = await navigator.mediaDevices.getUserMedia({
-      audio: highQualityAudioConstraint(deviceId),
-      video: false
-    });
+    const rawStream = await openBrowserAudioStream(deviceId);
     const stream = createCenteredMonoStream(rawStream);
 
     const audioContext = createStudioAudioContext();
@@ -209,9 +228,14 @@ export const browserDevicePlugin: DevicePlugin = {
 
   async openMicrophoneStream(deviceId?: string) {
     if (!navigator.mediaDevices?.getUserMedia || !deviceId) throw new Error("Mic needs attention");
-    return navigator.mediaDevices.getUserMedia({
-      audio: highQualityAudioConstraint(deviceId),
-      video: false
-    });
+    return openBrowserAudioStream(deviceId);
   }
 };
+
+function openBrowserAudioStream(deviceId?: string) {
+  if (!navigator.mediaDevices?.getUserMedia) throw new Error("Mic needs attention");
+  return openAudioStreamWithFallback(
+    (audio) => navigator.mediaDevices.getUserMedia({ audio, video: false }),
+    deviceId
+  );
+}

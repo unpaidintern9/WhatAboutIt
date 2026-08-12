@@ -99,6 +99,11 @@ export function AutoEditReview({ mode, result, running, onModeChange, onRun, onE
               <strong>Chapters created</strong>
               <span>{report.chaptersGenerated.length}</span>
             </article>
+            <article>
+              <ShieldCheck size={22} />
+              <strong>Style learning</strong>
+              <span>{report.learningSummary}</span>
+            </article>
           </section>
 
           <section className="auto-edit-review-grid">
@@ -107,7 +112,7 @@ export function AutoEditReview({ mode, result, running, onModeChange, onRun, onE
               title="Clip suggestions"
               items={report.clipsSuggested.map((clip) => `${clip.title}: ${formatRecordingTime(clip.startMs)} to ${formatRecordingTime(clip.endMs)}. ${clip.reason} Confidence: ${clip.confidence}.`)}
             />
-            <AutoEditList title="Changes made" items={report.changesMade.map((change) => `${change.label}. Reversible.`)} />
+            <AutoEditList title="Production polish and edit plan" items={report.changesMade.map((change) => `${change.label}. Reversible.`)} />
             <AutoEditList
               title="Camera plan"
               items={result.draft.cameraDecisions.length > 0

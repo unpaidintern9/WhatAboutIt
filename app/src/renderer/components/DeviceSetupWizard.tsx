@@ -1,9 +1,9 @@
 import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Headphones, HelpCircle, Mic2, RotateCcw, Search, Settings, ShieldCheck, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DeviceDefaults, MicrophoneInputChannel } from "../../shared/types";
-import { saveCameraSlot, saveMicrophoneInputChannel, saveMicrophoneSlot } from "../../shared/device-config";
+import { getDeviceAssignmentConflicts, getMicrophoneInputDisplay, microphoneInputChannelOptions, saveCameraSlot, saveMicrophoneDeviceRoute, saveMicrophoneInputChannel } from "../../shared/device-config";
 import { AudioMeter, Button } from ".";
-import { connectInputChannelSource, createStudioAudioContext, stopStudioMediaStream } from "../plugins/audio/studio-audio";
+import { calculateAudioLevel, connectInputChannelSource, createStudioAudioContext, getAudioStreamDiagnostics, stopStudioMediaStream } from "../plugins/audio/studio-audio";
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import { findDeviceLabel, getDeviceReadiness, getEmptyStateMessage } from "../services";
 
@@ -66,6 +66,8 @@ export function DeviceSetupWizard({
   onGoRecord
 }: DeviceSetupWizardProps) {
   const readyState = getDeviceReadiness(detection, defaults);
+  const assignmentConflicts = getDeviceAssignmentConflicts(defaults);
+  const cameraCapacity = getCameraCapacity(detection.cameras);
   const setupItems = [
     { label: "Pick Camera 1", ready: Boolean(defaults.cameras.camera1) },
     { label: "Pick Camera 2", ready: Boolean(defaults.cameras.camera2) },
@@ -74,24 +76,14 @@ export function DeviceSetupWizard({
     { label: "Test Mic", ready: microphoneLevel > 0 },
     { label: "Go Record", ready: readyState === "ready" }
   ];
+  const readyItemCount = setupItems.filter((item) => item.ready).length;
 
   function assignMicrophone(slot: (typeof microphoneSlots)[number]["key"], deviceId: string) {
-    const currentChannel = defaults.microphoneChannels?.[slot] ?? "mix";
-    const owner = microphoneSlots.find((candidate) => candidate.key !== slot
-      && defaults.microphones[candidate.key] === deviceId
-      && (defaults.microphoneChannels?.[candidate.key] ?? "mix") === currentChannel);
-    if (!owner || !deviceId) {
-      onDefaultsChange(saveMicrophoneSlot(defaults, slot, deviceId));
-      return;
-    }
-    const ownerChannel = defaults.microphoneChannels?.[owner.key] ?? "mix";
+    const routed = saveMicrophoneDeviceRoute(defaults, slot, deviceId);
+    const selectedDevice = detection.microphones.find((device) => device.id === deviceId);
     onDefaultsChange({
-      ...saveMicrophoneSlot(defaults, slot, deviceId),
-      microphoneChannels: {
-        ...defaults.microphoneChannels,
-        [owner.key]: ownerChannel === "mix" ? "input-1" : ownerChannel,
-        [slot]: ownerChannel === "input-2" ? "input-1" : "input-2"
-      }
+      ...routed,
+      microphoneDeviceLabels: { ...routed.microphoneDeviceLabels, [slot]: selectedDevice?.rawLabel ?? selectedDevice?.label }
     });
   }
 
@@ -119,11 +111,14 @@ export function DeviceSetupWizard({
   return (
     <section className="device-wizard">
       <div className="wizard-intro">
-        <p className="signature">Let's check your studio</p>
-        <h2>Studio Setup</h2>
-        <p className="soft-copy">
-          We will make sure your cameras, mics, and headphones are easy to pick before recording day.
-        </p>
+        <div className={`setup-intro-status ${readyState === "ready" ? "ready" : "needs-attention"}`}>
+          {readyState === "ready" ? <CheckCircle2 size={26} /> : <AlertTriangle size={26} />}
+          <div>
+            <p className="signature">Let's check your studio</p>
+            <h2>{readyState === "ready" ? "Your studio is ready" : "Let's check your gear"}</h2>
+            <p className="soft-copy">Pick sources, check the mic, then go straight to Record.</p>
+          </div>
+        </div>
         <div className="wizard-actions">
           <Button variant="secondary" onClick={onRefresh}>Check again</Button>
           {detection.permissionNeeded && (
@@ -150,14 +145,17 @@ export function DeviceSetupWizard({
         })}
       </nav>
 
-      <section className="setup-guide-card" aria-label="Studio Setup guide">
-        {setupItems.map((item) => (
-          <span className={item.ready ? "ready" : ""} key={item.label}>
-            {item.ready ? <CheckCircle2 size={16} /> : <CircleMarker />}
-            {item.label}
-          </span>
-        ))}
-      </section>
+      <details className="setup-guide-card">
+        <summary>Setup checklist <strong>{readyItemCount} of {setupItems.length}</strong></summary>
+        <div aria-label="Studio Setup guide">
+          {setupItems.map((item) => (
+            <span className={item.ready ? "ready" : ""} key={item.label}>
+              {item.ready ? <CheckCircle2 size={16} /> : <CircleMarker />}
+              {item.label}
+            </span>
+          ))}
+        </div>
+      </details>
 
       {currentStep === 0 && (
         <div className="wizard-panel">
@@ -172,6 +170,10 @@ export function DeviceSetupWizard({
                   label={slot.label}
                   selectedDeviceId={defaults.cameras[slot.key]}
                   devices={detection.cameras}
+                  disabledDeviceIds={cameraSlots
+                    .filter((candidate) => candidate.key !== slot.key)
+                    .map((candidate) => defaults.cameras[candidate.key])
+                    .filter((deviceId): deviceId is string => Boolean(deviceId))}
                   onChoose={(deviceId) => onDefaultsChange(saveCameraSlot(defaults, slot.key, deviceId))}
                   onRefresh={onRefresh}
                   onOpenCameraPreview={onOpenCameraPreview}
@@ -179,6 +181,23 @@ export function DeviceSetupWizard({
               ))}
             </div>
           )}
+          <div className={`camera-capacity-strip ${cameraCapacity.available >= 3 ? "ready" : "needs-attention"}`}>
+            {cameraCapacity.available >= 3 ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
+            <div>
+              <strong>{cameraCapacity.available} of 3 simultaneous camera feeds detected</strong>
+              <span>{cameraCapacity.message}</span>
+            </div>
+          </div>
+          {assignmentConflicts.some((conflict) => conflict.kind === "camera") ? (
+            <div className="camera-find-strip needs-attention">
+              <AlertTriangle size={18} />
+              <span>One camera feed was assigned twice. Pick a different Windows camera for each slot.</span>
+            </div>
+          ) : null}
+          <div className="camera-find-strip">
+            <CheckCircle2 size={18} />
+            <span>Each distinct Windows camera can be assigned to any camera slot.</span>
+          </div>
           <div className="camera-find-strip">
             <Button variant="secondary" icon={<Search size={20} />} onClick={onRefresh}>Find Cameras</Button>
             <span>Everything stays local while the studio looks for what is connected.</span>
@@ -189,12 +208,28 @@ export function DeviceSetupWizard({
       {currentStep === 1 && (
         <div className="wizard-panel">
           <WizardHeading title="Pick your microphones" message="Choose who each mic belongs to, then say something and watch the meter move." />
+          <div className={`audio-interface-strip ${detection.microphones.some((device) => device.audio?.interfaceLike) ? "ready" : "needs-attention"}`}>
+            {detection.microphones.some((device) => device.audio?.interfaceLike) ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
+            <div>
+              <strong>Audio interface</strong>
+              <span>{detection.microphones.find((device) => device.audio?.interfaceLike)?.label ?? "No USB audio interface detected"}</span>
+            </div>
+            <b>{detection.microphones.some((device) => device.audio?.interfaceLike) ? "Connected" : "Check USB cable"}</b>
+          </div>
           {detection.microphones.length === 0 ? (
             <FriendlyState title={getEmptyStateMessage("microphone")} message="Plug in a mic, make sure it is on, then check again." />
           ) : (
             <div className="device-slot-grid">
               {microphoneSlots.map((slot) => (
                 <DeviceSlot key={slot.key} label={slot.label}>
+                  <label className="device-select input-name-control">
+                    Name
+                    <input
+                      aria-label={`${slot.label} name`}
+                      value={defaults.microphoneNames?.[slot.key] ?? (slot.key === "morganMic" ? "Morgan" : slot.key === "guestMic" ? "Guest" : "Extra")}
+                      onChange={(event) => onDefaultsChange({ ...defaults, microphoneNames: { ...defaults.microphoneNames, [slot.key]: event.target.value } })}
+                    />
+                  </label>
                   <DeviceSelect
                     label={`Assign ${slot.label}`}
                     value={defaults.microphones[slot.key] ?? ""}
@@ -205,19 +240,21 @@ export function DeviceSetupWizard({
                   <InputChannelSelect
                     label={`${slot.label} interface input`}
                     value={defaults.microphoneChannels?.[slot.key] ?? "mix"}
+                    ownerName={defaults.microphoneNames?.[slot.key] ?? slot.label}
                     onChange={(channel) => assignInputChannel(slot.key, channel)}
+                  />
+                  <SetupMicFeedback
+                    deviceId={defaults.microphones[slot.key]}
+                    inputChannel={defaults.microphoneChannels?.[slot.key] ?? "mix"}
+                    onOpenMicrophoneStream={onOpenMicrophoneStream}
+                    fallbackLevel={slot.key === "morganMic" ? microphoneLevel : 0}
                   />
                 </DeviceSlot>
               ))}
               <div className="device-test-card">
                 <Button variant="primary" icon={<Mic2 size={20} />} onClick={onTestMicrophone}>Say something!</Button>
                 <AudioMeter label="Mic check" level={microphoneLevel} />
-                <SetupMicFeedback
-                  deviceId={defaults.microphones.morganMic}
-                  inputChannel={defaults.microphoneChannels?.morganMic ?? "mix"}
-                  onOpenMicrophoneStream={onOpenMicrophoneStream}
-                  fallbackLevel={microphoneLevel}
-                />
+                <p>Speak into each microphone. Each selected interface channel has its own live meter above.</p>
               </div>
             </div>
           )}
@@ -260,6 +297,7 @@ export function DeviceSetupWizard({
       )}
 
       <footer className="setup-next-action">
+        <span>{readyState === "ready" ? "Camera 1 and Morgan Mic are ready." : "Pick Camera 1 and Morgan Mic to continue."}</span>
         <Button variant="primary" icon={<ArrowRight size={20} />} onClick={onGoRecord}>Go to Record</Button>
       </footer>
     </section>
@@ -292,6 +330,7 @@ function CameraSetupCard({
   label,
   selectedDeviceId,
   devices,
+  disabledDeviceIds,
   onChoose,
   onRefresh,
   onOpenCameraPreview
@@ -299,12 +338,13 @@ function CameraSetupCard({
   label: string;
   selectedDeviceId?: string;
   devices: StudioDevice[];
+  disabledDeviceIds: string[];
   onChoose: (deviceId: string) => void;
   onRefresh: () => void;
   onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
 }) {
   const selectedDevice = devices.find((device) => device.id === selectedDeviceId);
-  const firstDevice = devices[0];
+  const firstDevice = devices.find((device) => !disabledDeviceIds.includes(device.id));
   const [previewStatus, setPreviewStatus] = useState<"idle" | "starting" | "live" | "ready" | "needs-attention" | "busy" | "permission">("idle");
   const [helpOpen, setHelpOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -397,6 +437,7 @@ function CameraSetupCard({
         label="Choose Camera"
         value={selectedDeviceId ?? ""}
         devices={devices}
+        disabledDeviceIds={disabledDeviceIds}
         emptyLabel="Choose Camera"
         onChange={onChoose}
       />
@@ -434,6 +475,8 @@ function SetupMicFeedback({
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
 }) {
   const [level, setLevel] = useState(fallbackLevel);
+  const [peak, setPeak] = useState(0);
+  const [inputStatus, setInputStatus] = useState("Checking input...");
 
   useEffect(() => {
     if (!deviceId || !window.AudioContext) {
@@ -449,24 +492,30 @@ function SetupMicFeedback({
     async function startMeter() {
       try {
         stream = await onOpenMicrophoneStream(deviceId);
+        const diagnostics = getAudioStreamDiagnostics(stream);
         audioContext = createStudioAudioContext();
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
         const samples = new Uint8Array(analyser.frequencyBinCount);
-        const routed = connectInputChannelSource(audioContext, source, inputChannel);
+        const routed = connectInputChannelSource(audioContext, source, inputChannel, diagnostics.channelCount);
         routed.output.connect(analyser);
+        setInputStatus(`${diagnostics.channelCount ?? "Unknown"} channel${diagnostics.channelCount === 1 ? "" : "s"} / ${diagnostics.sampleRate ?? "unknown"} Hz`);
 
         const tick = () => {
           if (canceled) return;
           analyser.getByteTimeDomainData(samples);
-          const volume = samples.reduce((total, sample) => total + Math.abs(sample - 128), 0) / Math.max(samples.length, 1);
-          setLevel(Math.min(100, Math.round(volume * 4)));
+          const measured = calculateAudioLevel(samples);
+          setLevel(measured.rms);
+          setPeak(measured.peak);
           frame = window.requestAnimationFrame(tick);
         };
 
         tick();
-      } catch {
+      } catch (error) {
         setLevel(0);
+        setPeak(0);
+        const message = String(error);
+        setInputStatus(message.includes("input channel") ? message.replace(/^Error:\s*/, "") : "Could not open this input");
       }
     }
 
@@ -480,12 +529,13 @@ function SetupMicFeedback({
     };
   }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream]);
 
-  const copy = level > 12 ? "We hear you" : level > 0 ? "Try speaking closer" : "We can't hear you yet";
+  const copy = peak >= 98 ? "CLIPPING" : level > 7 ? "ACTIVE" : level > 0 ? "CONNECTED / QUIET" : "NO SIGNAL";
 
   return (
     <div className={`setup-mic-feedback ${level > 12 ? "heard" : level > 0 ? "quiet" : "muted"}`} aria-live="polite">
       <AudioMeter label="Live mic level" level={level} />
       <p>{copy}</p>
+      <small>{inputStatus} / Peak {peak}%</small>
     </div>
   );
 }
@@ -493,21 +543,26 @@ function SetupMicFeedback({
 function InputChannelSelect({
   label,
   value,
+  ownerName,
   onChange
 }: {
   label: string;
   value: MicrophoneInputChannel;
+  ownerName: string;
   onChange: (channel: MicrophoneInputChannel) => void;
 }) {
+  const display = getMicrophoneInputDisplay(value);
   return (
-    <label className="device-select input-channel-select" title="Choose the physical jack on a multichannel USB interface. This works with any interface whose Windows driver exposes stereo inputs.">
-      Interface input
+    <label className="device-select input-channel-select" title="Choose the physical jack on a multichannel interface when its Windows driver exposes that channel to the app.">
+      Physical interface jack
       <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value as MicrophoneInputChannel)}>
-        <option value="mix">Stereo / automatic mix</option>
-        <option value="input-1">Input 1 / left</option>
-        <option value="input-2">Input 2 / right</option>
+        {microphoneInputChannelOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
       </select>
-      <small>Use Input 1 or 2 when two microphones share one USB interface.</small>
+      <span className={`physical-input-assignment ${value === "mix" ? "automatic" : "routed"}`}>
+        <strong>{display.short}</strong>
+        <b>{value === "mix" ? "Use for a laptop or one-mic device" : `Feeds ${ownerName || "this track"}`}</b>
+      </span>
+      <small>On the M-Track Duo, front jack 1 is Left and front jack 2 is Right.</small>
     </label>
   );
 }
@@ -516,12 +571,14 @@ function DeviceSelect({
   label,
   value,
   devices,
+  disabledDeviceIds = [],
   emptyLabel,
   onChange
 }: {
   label: string;
   value: string;
   devices: { id: string; label: string }[];
+  disabledDeviceIds?: string[];
   emptyLabel: string;
   onChange: (deviceId: string) => void;
 }) {
@@ -531,8 +588,8 @@ function DeviceSelect({
       <select value={value} onChange={(event) => onChange(event.target.value)}>
         <option value="">{emptyLabel}</option>
         {devices.map((device) => (
-          <option value={device.id} key={device.id}>
-            {device.label}
+          <option value={device.id} key={device.id} disabled={disabledDeviceIds.includes(device.id) && device.id !== value}>
+            {device.label}{disabledDeviceIds.includes(device.id) && device.id !== value ? " (in use)" : ""}
           </option>
         ))}
       </select>
@@ -603,9 +660,31 @@ function formatBattery(percent?: number) {
   return percent === undefined ? "Not available" : `${percent}%`;
 }
 
+function getCameraCapacity(devices: StudioDevice[]) {
+  const available = new Set(devices.map((device) => device.id).filter(Boolean)).size;
+  const imagingEdgeFeeds = devices.filter((device) => /imaging edge/i.test(device.label)).length;
+  if (imagingEdgeFeeds >= 3) {
+    return { available, message: `${imagingEdgeFeeds} distinct Imaging Edge feeds are available. Camera 1, 2, and 3 will record to separate synchronized tracks.` };
+  }
+  if (available >= 3) {
+    return { available, message: "Pick any three. Each feed will preview and record as its own synchronized camera track." };
+  }
+  if (imagingEdgeFeeds === 1) {
+    return {
+      available,
+      message: "Windows exposes only 1 Imaging Edge feed. One feed cannot create three tracks. Camera 2 and 3 need their own Windows video endpoints through USB Streaming or separate HDMI capture devices."
+    };
+  }
+  return {
+    available,
+    message: "Connect another camera by USB Streaming or HDMI capture, then choose Refresh Cameras."
+  };
+}
+
 function getReadinessCopy(state: ReturnType<typeof getDeviceReadiness>) {
   if (state === "needs-permission") return "We need permission before the app can see your camera and microphone names.";
   if (state === "needs-camera") return "Pick at least Camera 1 so the studio knows what to use first.";
   if (state === "needs-microphone") return "Pick Morgan Mic so the studio knows where Morgan's voice comes from.";
-  return "Your device choices are saved locally. Recording still comes in the next phase.";
+  if (state === "needs-routing") return "One source is assigned twice. Give each camera and interface input its own track.";
+  return "Your device choices are saved locally and ready for recording.";
 }

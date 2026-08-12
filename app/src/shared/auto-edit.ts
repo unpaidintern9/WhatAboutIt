@@ -1,4 +1,4 @@
-import type { TimelineDraft, TimelineEditOperation } from "./timeline";
+import type { TimelineDraft, TimelineEditOperation, TimelineTrack } from "./timeline";
 
 export type AutoEditMode = "gentle" | "balanced" | "fast-paced" | "clip-hunter";
 export type AutoEditStageId =
@@ -57,6 +57,17 @@ export interface AutoEditActivitySegment {
   averageDb: number;
 }
 
+export interface AutoEditLearningProfile {
+  sampleCount: number;
+  updatedAt: string;
+  preferredMode: AutoEditMode;
+  audioTreatment: Pick<TimelineTrack, "audioPreset" | "noiseReduction" | "noiseGateDb" | "deEsser" | "compression" | "eqLowDb" | "eqMidDb" | "eqHighDb">;
+  cameraTreatment: Pick<TimelineTrack, "cropMode" | "brightness" | "contrast" | "saturation" | "temperature" | "tint" | "sharpness" | "denoise" | "zoom" | "positionX" | "positionY">;
+  cameraTransition: TimelineDraft["cameraTransition"];
+  cameraTransitionMs: number;
+  minimumCameraHoldMs: number;
+}
+
 export interface AutoEditReport {
   id: string;
   episodeId?: string;
@@ -71,6 +82,7 @@ export interface AutoEditReport {
   changesMade: AutoEditChange[];
   audioWarnings: string[];
   reviewFlags: string[];
+  learningSummary?: string;
   originalRecordingSafe: true;
 }
 
@@ -81,17 +93,17 @@ export interface AutoEditResult {
 }
 
 export const autoEditModes: AutoEditModeDefinition[] = [
-  { id: "gentle", title: "Gentle", icon: "Flower", description: "Minimal cleanup. Preserve natural pacing." },
-  { id: "balanced", title: "Balanced", icon: "Zap", description: "Remove dead air, smooth pacing, and keep conversation natural." },
-  { id: "fast-paced", title: "Fast Paced", icon: "Rocket", description: "Tighter edits with a faster rhythm. Great for YouTube." },
-  { id: "clip-hunter", title: "Clip Hunter", icon: "Target", description: "Prioritize finding highlight moments and clip suggestions." }
+  { id: "gentle", title: "Gentle", icon: "Flower", description: "Light voice and picture polish. Preserve natural pacing." },
+  { id: "balanced", title: "Balanced", icon: "Zap", description: "Polish voices, smooth camera choices, and keep conversation natural." },
+  { id: "fast-paced", title: "Fast Paced", icon: "Rocket", description: "Stronger voice polish and direct camera cuts for a tighter rhythm." },
+  { id: "clip-hunter", title: "Clip Hunter", icon: "Target", description: "Polish the episode and prioritize strong highlight suggestions." }
 ];
 
 export const autoEditStageLabels: Record<AutoEditStageId, string> = {
-  recording: "Checking recording...",
-  transcript: "Finding the story...",
+  recording: "Checking saved sources...",
+  transcript: "Checking episode notes...",
   "audio-analysis": "Listening for cleanup spots...",
-  "speaker-detection": "Finding speakers...",
+  "speaker-detection": "Matching microphones to cameras...",
   "marker-analysis": "Reading your markers...",
   "timeline-decisions": "Choosing gentle draft edits...",
   "camera-decisions": "Planning camera moments...",
@@ -116,6 +128,7 @@ export function runOfflineAutoEdit(input: {
   now?: string;
   episodeId?: string;
   activitySegments?: AutoEditActivitySegment[];
+  learningProfile?: AutoEditLearningProfile;
 }): AutoEditResult {
   const mode = input.mode ?? "balanced";
   const now = input.now ?? new Date().toISOString();
@@ -130,7 +143,9 @@ export function runOfflineAutoEdit(input: {
     targetTrackId: "program",
     createdAt: now
   };
-  const cameraDecisions = createCameraDecisions(input.activitySegments ?? [], now);
+  const minimumCameraHoldMs = getMinimumCameraHoldMs(mode, input.learningProfile);
+  const cameraDecisions = createCameraDecisions(input.activitySegments ?? [], now, minimumCameraHoldMs);
+  const polishedTracks = input.draft.tracks.map((track) => applyAutoEditProductionPolish(track, mode, input.learningProfile));
   const chapters = createChapters(input.draft, originalLengthMs);
   const clips = createClipSuggestions(input.draft, originalLengthMs, mode);
   const report: AutoEditReport = {
@@ -148,12 +163,19 @@ export function runOfflineAutoEdit(input: {
       { id: "timing-safe", label: "Kept episode timing intact until you approve manual cuts", reversible: true },
       { id: "markers", label: "Kept all markers and manual edits", reversible: true },
       { id: "chapters", label: "Suggested chapter markers", reversible: true },
+      { id: "voice-polish", label: "Applied podcast voice cleanup, tone, dynamics, and output protection to every saved microphone", reversible: true },
+      { id: "camera-polish", label: "Applied conservative denoise, color balance, and sharpening to every saved camera", reversible: true },
+      ...(input.learningProfile ? [{ id: "learning-profile", label: `Used ${input.learningProfile.sampleCount} approved manual ${input.learningProfile.sampleCount === 1 ? "draft" : "drafts"} to match your production style`, reversible: true as const }] : []),
+      { id: "camera-transitions", label: mode === "gentle" ? "Added short soft fades between camera choices" : "Kept direct camera cuts for a clean conversational rhythm", reversible: true },
       cameraDecisions.length > 0
         ? { id: "camera-activity", label: `Planned ${cameraDecisions.length} camera changes from saved microphone activity`, reversible: true }
         : { id: "camera-program", label: "Kept the Program camera because separate microphone activity was unavailable", reversible: true }
     ],
-    audioWarnings: ["Listen through the mixed microphones before export"],
-    reviewFlags: ["Review automatic camera choices and suggested clips before sharing"],
+    audioWarnings: ["Listen through each polished microphone and the final mix before export"],
+    reviewFlags: ["Review automatic camera choices, voice cleanup, picture finishing, and suggested clips before sharing"],
+    learningSummary: input.learningProfile
+      ? `Learned from ${input.learningProfile.sampleCount} approved manual ${input.learningProfile.sampleCount === 1 ? "draft" : "drafts"}. Camera choices hold for at least ${(minimumCameraHoldMs / 1000).toFixed(1)} seconds.`
+      : "No approved manual drafts yet. Auto Edit used the selected production mode.",
     originalRecordingSafe: true
   };
   const draft: TimelineDraft = {
@@ -163,7 +185,10 @@ export function runOfflineAutoEdit(input: {
     updatedAt: now,
     durationMs: editedLengthMs,
     editMode: "auto",
+    tracks: polishedTracks,
     cameraDecisions: cameraDecisions.length > 0 ? cameraDecisions : input.draft.cameraDecisions,
+    cameraTransition: input.learningProfile?.cameraTransition ?? (mode === "gentle" ? "fade" : "cut"),
+    cameraTransitionMs: input.learningProfile?.cameraTransitionMs ?? (mode === "gentle" ? 300 : 180),
     editLog: [...input.draft.editLog, autoOperation],
     undoneEditLog: [],
     hasUnsavedChanges: true,
@@ -184,11 +209,35 @@ export function runOfflineAutoEdit(input: {
   };
 }
 
-function createCameraDecisions(activity: AutoEditActivitySegment[], now: string) {
+export function applyAutoEditProductionPolish(track: TimelineTrack, mode: AutoEditMode, learningProfile?: AutoEditLearningProfile): TimelineTrack {
+  if (track.kind === "microphone") {
+    const profile = {
+      gentle: { audioPreset: "clean" as const, noiseReduction: 12, noiseGateDb: -60, deEsser: 18, compression: 24, eqLowDb: 0, eqMidDb: 0, eqHighDb: 1 },
+      balanced: { audioPreset: "warm" as const, noiseReduction: 24, noiseGateDb: -54, deEsser: 32, compression: 45, eqLowDb: 1, eqMidDb: 0, eqHighDb: 1 },
+      "fast-paced": { audioPreset: "broadcast" as const, noiseReduction: 32, noiseGateDb: -50, deEsser: 42, compression: 62, eqLowDb: -1, eqMidDb: 1, eqHighDb: 2 },
+      "clip-hunter": { audioPreset: "broadcast" as const, noiseReduction: 28, noiseGateDb: -52, deEsser: 38, compression: 55, eqLowDb: 0, eqMidDb: 1, eqHighDb: 2 }
+    }[mode];
+    const learned = learningProfile?.audioTreatment;
+    return { ...track, ...blendTreatment(profile, learned, learningWeight(learningProfile)), limiterEnabled: true };
+  }
+  if (track.kind === "camera") {
+    const profile = {
+      gentle: { denoise: 8, sharpness: 10, contrast: 102, saturation: 101 },
+      balanced: { denoise: 14, sharpness: 18, contrast: 104, saturation: 103 },
+      "fast-paced": { denoise: 18, sharpness: 24, contrast: 108, saturation: 106 },
+      "clip-hunter": { denoise: 16, sharpness: 22, contrast: 106, saturation: 105 }
+    }[mode];
+    return { ...track, ...blendTreatment(profile, learningProfile?.cameraTreatment, learningWeight(learningProfile)) };
+  }
+  return track;
+}
+
+function createCameraDecisions(activity: AutoEditActivitySegment[], now: string, minimumCameraHoldMs: number) {
   const decisions: TimelineDraft["cameraDecisions"] = [];
   for (const segment of [...activity].sort((a, b) => a.startMs - b.startMs)) {
     const previous = decisions.at(-1);
     if (previous?.cameraTrackId === segment.cameraTrackId) continue;
+    if (previous && segment.startMs - previous.startMs < minimumCameraHoldMs) continue;
     decisions.push({
       id: `auto-camera-${segment.cameraTrackId}-${segment.startMs}-${now}`,
       cameraTrackId: segment.cameraTrackId,
@@ -198,6 +247,104 @@ function createCameraDecisions(activity: AutoEditActivitySegment[], now: string)
     });
   }
   return decisions;
+}
+
+export function learnAutoEditProfile(
+  draft: TimelineDraft,
+  previous?: AutoEditLearningProfile,
+  preferredMode: AutoEditMode = previous?.preferredMode ?? "balanced",
+  now = new Date().toISOString()
+): AutoEditLearningProfile {
+  const microphones = draft.tracks.filter((track) => track.kind === "microphone");
+  const cameras = draft.tracks.filter((track) => track.kind === "camera");
+  const audioTreatment = averageAudioTreatment(microphones);
+  const cameraTreatment = averageCameraTreatment(cameras);
+  const sampleCount = (previous?.sampleCount ?? 0) + 1;
+  const manualCuts = draft.cameraDecisions.filter((decision) => decision.source === "manual").sort((a, b) => a.startMs - b.startMs);
+  const gaps = manualCuts.slice(1).map((decision, index) => decision.startMs - manualCuts[index].startMs).filter((gap) => gap > 0);
+  const observedHold = gaps.length > 0 ? average(gaps) : previous?.minimumCameraHoldMs ?? 3500;
+  return {
+    sampleCount,
+    updatedAt: now,
+    preferredMode,
+    audioTreatment: previous ? mergeTreatment(previous.audioTreatment, audioTreatment, previous.sampleCount) : audioTreatment,
+    cameraTreatment: previous ? mergeTreatment(previous.cameraTreatment, cameraTreatment, previous.sampleCount) : cameraTreatment,
+    cameraTransition: draft.cameraTransition,
+    cameraTransitionMs: draft.cameraTransitionMs,
+    minimumCameraHoldMs: Math.round(Math.max(1500, Math.min(12000, observedHold)))
+  };
+}
+
+function getMinimumCameraHoldMs(mode: AutoEditMode, profile?: AutoEditLearningProfile) {
+  const modeHold = { gentle: 6000, balanced: 3500, "fast-paced": 1800, "clip-hunter": 2500 }[mode];
+  if (!profile) return modeHold;
+  const weight = learningWeight(profile);
+  return Math.round(modeHold * (1 - weight) + profile.minimumCameraHoldMs * weight);
+}
+
+function learningWeight(profile?: AutoEditLearningProfile) {
+  return profile ? Math.min(0.65, 0.2 + profile.sampleCount * 0.1) : 0;
+}
+
+function blendTreatment<T extends Record<string, string | number>>(base: T, learned: T | undefined, weight: number): T {
+  if (!learned || weight <= 0) return base;
+  return Object.fromEntries(Object.entries(base).map(([key, value]) => {
+    const learnedValue = learned[key];
+    if (typeof value === "number" && typeof learnedValue === "number") return [key, Math.round((value * (1 - weight) + learnedValue * weight) * 10) / 10];
+    return [key, weight >= 0.4 ? learnedValue : value];
+  })) as T;
+}
+
+function mergeTreatment<T extends Record<string, string | number>>(previous: T, current: T, previousSamples: number): T {
+  return Object.fromEntries(Object.entries(current).map(([key, value]) => {
+    const previousValue = previous[key];
+    if (typeof value === "number" && typeof previousValue === "number") return [key, Math.round(((previousValue * previousSamples + value) / (previousSamples + 1)) * 10) / 10];
+    return [key, value];
+  })) as T;
+}
+
+function averageAudioTreatment(tracks: TimelineTrack[]): AutoEditLearningProfile["audioTreatment"] {
+  const fallback = { audioPreset: "warm" as const, noiseReduction: 24, noiseGateDb: -54, deEsser: 32, compression: 45, eqLowDb: 1, eqMidDb: 0, eqHighDb: 1 };
+  if (tracks.length === 0) return fallback;
+  return {
+    audioPreset: mostCommon(tracks.map((track) => track.audioPreset)) ?? fallback.audioPreset,
+    noiseReduction: average(tracks.map((track) => track.noiseReduction)),
+    noiseGateDb: average(tracks.map((track) => track.noiseGateDb)),
+    deEsser: average(tracks.map((track) => track.deEsser)),
+    compression: average(tracks.map((track) => track.compression)),
+    eqLowDb: average(tracks.map((track) => track.eqLowDb)),
+    eqMidDb: average(tracks.map((track) => track.eqMidDb)),
+    eqHighDb: average(tracks.map((track) => track.eqHighDb))
+  };
+}
+
+function averageCameraTreatment(tracks: TimelineTrack[]): AutoEditLearningProfile["cameraTreatment"] {
+  const fallback = { cropMode: "fit" as const, brightness: 0, contrast: 104, saturation: 103, temperature: 0, tint: 0, sharpness: 18, denoise: 14, zoom: 100, positionX: 0, positionY: 0 };
+  if (tracks.length === 0) return fallback;
+  return {
+    cropMode: mostCommon(tracks.map((track) => track.cropMode)) ?? fallback.cropMode,
+    brightness: average(tracks.map((track) => track.brightness)),
+    contrast: average(tracks.map((track) => track.contrast)),
+    saturation: average(tracks.map((track) => track.saturation)),
+    temperature: average(tracks.map((track) => track.temperature)),
+    tint: average(tracks.map((track) => track.tint)),
+    sharpness: average(tracks.map((track) => track.sharpness)),
+    denoise: average(tracks.map((track) => track.denoise)),
+    zoom: average(tracks.map((track) => track.zoom)),
+    positionX: average(tracks.map((track) => track.positionX)),
+    positionY: average(tracks.map((track) => track.positionY))
+  };
+}
+
+function average(values: number[]) {
+  return values.length === 0 ? 0 : Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10;
+}
+
+function mostCommon<T extends string>(values: T[]): T | undefined {
+  return values.reduce<{ value?: T; count: number }>((winner, value) => {
+    const count = values.filter((candidate) => candidate === value).length;
+    return count > winner.count ? { value, count } : winner;
+  }, { count: 0 }).value;
 }
 
 function createChapters(draft: TimelineDraft, durationMs: number): AutoEditChapter[] {

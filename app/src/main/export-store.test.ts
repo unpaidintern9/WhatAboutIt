@@ -90,6 +90,24 @@ describe("export store", () => {
     expect(await validatePlayableMedia(outputPath)).toBe(true);
   }, 20000);
 
+  it("renders the high preset as a real 1080p video", async () => {
+    const { createExport } = await import("./export-store");
+    const { runFfprobe } = await import("./ffmpeg-tools");
+    const job = await createExport({
+      episodeId: "episode-high",
+      type: "full-episode-video",
+      qualityPreset: "high",
+      practice: true,
+      draft: createTimelineDraft({ episodeId: "episode-high", deviceDefaults: { cameras: {}, microphones: {} } })
+    });
+    const outputPath = path.join(mockPaths.episodesRoot, "episode-high", "Exports", job.outputFileName ?? "");
+    const probe = await runFfprobe(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", outputPath]);
+    const streams = (JSON.parse(probe.stdout) as { streams: Array<{ width: number; height: number }> }).streams;
+
+    expect(job.status).toBe("complete");
+    expect(streams[0]).toEqual({ width: 1920, height: 1080 });
+  }, 30000);
+
   it("exports a playable file from an existing program recording", async () => {
     const { createExport } = await import("./export-store");
     const { runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");
@@ -179,6 +197,8 @@ describe("export store", () => {
 
     expect(job.status).toBe("complete");
     expect(job.outputFileNames).toContain(path.join("Camera Masters", "camera-1-with-morgan-mic.mp4"));
+    expect(job.outputFileNames).toContain(path.join("Audio Masters", "morgan-mic-edited.wav"));
+    expect(job.outputFileNames).toContain("edit-decision-list.json");
     expect(progress[0]).toBe(0);
     expect(progress.some((value) => value > 0 && value < 100)).toBe(true);
     expect(progress.at(-1)).toBe(100);
@@ -281,7 +301,48 @@ describe("export store", () => {
           { id: "camera-a", cameraTrackId: "camera-camera1", startMs: 0, source: "manual", reason: "Open on Morgan" },
           { id: "camera-b", cameraTrackId: "camera-camera2", startMs: 1000, source: "manual", reason: "Cut to Guest" }
         ],
-        tracks: draft.tracks.map((track) => track.id === "mic-guestMic" ? { ...track, volume: 60 } : track)
+        cameraTransition: "fade",
+        cameraTransitionMs: 180,
+        tracks: draft.tracks.map((track) => {
+          if (track.id === "mic-morganMic") {
+            return {
+              ...track,
+              audioPreset: "broadcast" as const,
+              volume: 92,
+              pan: -12,
+              fadeInMs: 80,
+              fadeOutMs: 100,
+              noiseReduction: 18,
+              noiseGateDb: -58,
+              deEsser: 20,
+              compression: 35,
+              eqLowDb: -1,
+              eqMidDb: 2,
+              eqHighDb: 1,
+              limiterEnabled: true
+            };
+          }
+          if (track.id === "mic-guestMic") {
+            return { ...track, audioPreset: "warm" as const, volume: 68, pan: 12, syncOffsetMs: 20 };
+          }
+          if (track.id === "camera-camera2") {
+            return {
+              ...track,
+              cropMode: "fill" as const,
+              brightness: 4,
+              contrast: 108,
+              saturation: 105,
+              temperature: 8,
+              tint: -4,
+              denoise: 10,
+              sharpness: 12,
+              zoom: 112,
+              positionX: 14,
+              positionY: -8
+            };
+          }
+          return track;
+        })
       }
     });
     const summary = JSON.parse(await fs.readFile(path.join(mockPaths.episodesRoot, "episode-edited", "Exports", "export-summary.json"), "utf8")) as { message: string };
@@ -292,7 +353,12 @@ describe("export store", () => {
     expect(job.status, JSON.stringify(exportError)).toBe("complete");
     expect(job.message).toContain("manual draft");
     expect(summary.message).toContain("manual draft");
+    expect(job.outputFileNames).toContain(path.join("Audio Masters", "morgan-mic-edited.wav"));
+    expect(job.outputFileNames).toContain(path.join("Audio Masters", "guest-mic-edited.wav"));
+    expect(job.outputFileNames).toContain("edit-decision-list.json");
     expect(await validatePlayableMedia(outputPath, undefined, { video: true, audio: true, decode: true })).toBe(true);
+    expect(await validatePlayableMedia(path.join(episodeFolder, "Exports", "Audio Masters", "morgan-mic-edited.wav"), undefined, { audio: true, decode: true })).toBe(true);
+    expect(await validatePlayableMedia(path.join(episodeFolder, "Exports", "Audio Masters", "guest-mic-edited.wav"), undefined, { audio: true, decode: true })).toBe(true);
   }, 30000);
 
   it("returns a friendly media tools setup state when FFmpeg is unavailable", async () => {
