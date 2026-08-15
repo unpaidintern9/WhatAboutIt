@@ -8,6 +8,7 @@ export interface ReviewMediaAsset {
   kind: ReviewMediaKind;
   relativePath: string;
   filePath?: string;
+  originalFilePath?: string;
   playbackUrl?: string;
   waveformUrl?: string;
   reviewProxyPath?: string;

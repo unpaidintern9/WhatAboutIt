@@ -5191,7 +5191,22 @@ input[type="range"] {
 }
 
 .edit-transport {
-  grid-template-columns: auto auto auto auto minmax(120px, 1fr);
+  grid-template-columns: repeat(7, auto) minmax(120px, 1fr);
+}
+
+.edit-playback-speed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 900;
+}
+
+.edit-playback-speed select {
+  min-height: 34px;
+  color: var(--color-text);
+  background: var(--color-cards);
+  border: 1px solid color-mix(in srgb, var(--color-accent), transparent 52%);
+  border-radius: var(--component-border-radius);
 }
 
 .edit-direct-toolbar {
@@ -7175,7 +7190,7 @@ input[type="range"] {
 }
 
 .edit-transport {
-  grid-template-columns: auto auto auto auto minmax(120px, 1fr);
+  grid-template-columns: repeat(7, auto) minmax(120px, 1fr);
 }
 
 .edit-command-bar .edit-button-grid {

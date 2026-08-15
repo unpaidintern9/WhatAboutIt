@@ -148,6 +148,35 @@ describe("export store", () => {
     expect(await validatePlayableMedia(outputPath)).toBe(true);
   }, 20000);
 
+  it("exports from the protected Camera 1 original when Program is an imported proxy", async () => {
+    const { createExport } = await import("./export-store");
+    const { getMediaDurationMs, runFfmpeg } = await import("./ffmpeg-tools");
+    const episodeId = "episode-original-master";
+    const episodeFolder = path.join(mockPaths.episodesRoot, episodeId);
+    const originalPath = path.join(episodeFolder, "Originals", "camera-1.mp4");
+    const programPath = path.join(episodeFolder, "Program", "program.webm");
+    const sessionFolder = path.join(episodeFolder, "Session");
+    await Promise.all([fs.mkdir(path.dirname(originalPath), { recursive: true }), fs.mkdir(path.dirname(programPath), { recursive: true }), fs.mkdir(sessionFolder, { recursive: true })]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=24", "-f", "lavfi", "-i", "sine=frequency=550:sample_rate=48000", "-t", "1.5", "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-shortest", originalPath]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "0.5", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", programPath]);
+    await fs.writeFile(path.join(sessionFolder, "program-from-camera-1.json"), JSON.stringify({ source: "camera-1" }));
+    await fs.writeFile(path.join(sessionFolder, "imported-media.json"), JSON.stringify({
+      version: 1,
+      assets: { "camera-1": { relativePath: path.join("Originals", "camera-1.mp4"), importedAt: "2026-08-15T12:00:00.000Z" } }
+    }));
+
+    const job = await createExport({
+      episodeId,
+      type: "full-episode-video",
+      qualityPreset: "standard",
+      draft: createTimelineDraft({ episodeId, durationMs: 1500, deviceDefaults: { cameras: {}, microphones: {} } })
+    });
+    const outputPath = path.join(episodeFolder, "Exports", job.outputFileName ?? "");
+
+    expect(job.status).toBe("complete");
+    expect(await getMediaDurationMs(outputPath)).toBeGreaterThan(1200);
+  }, 30000);
+
   it("renders Program-only timeline cuts instead of copying the unchanged recording", async () => {
     const { createExport } = await import("./export-store");
     const { getMediaDurationMs, runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");
@@ -183,6 +212,49 @@ describe("export store", () => {
     expect(durationMs).toBeGreaterThan(800);
     expect(durationMs).toBeLessThan(1300);
   }, 30000);
+
+  it("exports the selected range as a vertical social clip", async () => {
+    const { createExport } = await import("./export-store");
+    const { getMediaDurationMs, runFfmpeg, runFfprobe, validatePlayableMedia } = await import("./ffmpeg-tools");
+    const episodeId = "episode-social-clip";
+    const programFolder = path.join(mockPaths.episodesRoot, episodeId, "Program");
+    const sourcePath = path.join(programFolder, "program.webm");
+    await fs.mkdir(programFolder, { recursive: true });
+    await runFfmpeg([
+      "-y", "-f", "lavfi", "-i", "testsrc=size=640x360:rate=24",
+      "-f", "lavfi", "-i", "sine=frequency=550:sample_rate=48000",
+      "-t", "2", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", sourcePath
+    ]);
+    const draft = createTimelineDraft({ episodeId, durationMs: 2000, deviceDefaults: { cameras: {}, microphones: {} } });
+    draft.selection = { timestampMs: 500, endTimestampMs: 1500, trackId: "program", source: "timeline" };
+
+    const job = await createExport({ episodeId, type: "social-clip-placeholder", qualityPreset: "standard", draft });
+    const outputPath = path.join(mockPaths.episodesRoot, episodeId, "Exports", job.outputFileName ?? "");
+    const probe = await runFfprobe(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", outputPath]);
+    const streams = (JSON.parse(probe.stdout) as { streams: Array<{ width: number; height: number }> }).streams;
+
+    expect(job.status).toBe("complete");
+    expect(job.outputFileName).toBe("what-about-it-social-clip.mp4");
+    expect(streams[0]).toEqual({ width: 1080, height: 1920 });
+    expect(await getMediaDurationMs(outputPath)).toBeLessThan(1300);
+    expect(await validatePlayableMedia(outputPath, undefined, { video: true, audio: true, decode: true })).toBe(true);
+  }, 30000);
+
+  it("explains that a social clip needs a selected timeline range", async () => {
+    const { createExport } = await import("./export-store");
+    const { runFfmpeg } = await import("./ffmpeg-tools");
+    const episodeId = "episode-social-missing-range";
+    const programFolder = path.join(mockPaths.episodesRoot, episodeId, "Program");
+    await fs.mkdir(programFolder, { recursive: true });
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24", "-f", "lavfi", "-i", "sine=frequency=550:sample_rate=48000", "-t", "0.5", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", path.join(programFolder, "program.webm")]);
+    const draft = createTimelineDraft({ episodeId, durationMs: 500, deviceDefaults: { cameras: {}, microphones: {} } });
+
+    const job = await createExport({ episodeId, type: "social-clip-placeholder", qualityPreset: "standard", draft });
+
+    expect(job.status).toBe("error");
+    expect(job.error).toBe("clip-range-missing");
+    expect(job.message).toContain("Select a timeline range");
+  }, 20000);
 
   it("reports live progress and creates camera masters with their routed microphone", async () => {
     const { createExport } = await import("./export-store");

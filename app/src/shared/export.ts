@@ -49,6 +49,7 @@ export type ExportFriendlyError =
   | "recording-missing"
   | "media-tools-missing"
   | "not-enough-space"
+  | "clip-range-missing"
   | "canceled"
   | "needs-attention";
 
@@ -87,8 +88,7 @@ export const exportTypeLabels: Record<ExportType, { title: string; description: 
   },
   "social-clip-placeholder": {
     title: "Social Clip",
-    description: "Saved for Version 2",
-    locked: true
+    description: "Vertical video from the selected timeline range"
   }
 };
 
@@ -96,6 +96,7 @@ export const exportFriendlyErrorCopy: Record<ExportFriendlyError, string> = {
   "recording-missing": "We couldn't find the recording file",
   "media-tools-missing": "Media tools need setup before export",
   "not-enough-space": "There isn't enough space",
+  "clip-range-missing": "Select a timeline range before exporting a social clip",
   canceled: "Export was canceled",
   "needs-attention": "Something needs attention before export"
 };
