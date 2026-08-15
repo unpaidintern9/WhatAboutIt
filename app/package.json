@@ -76,7 +76,7 @@
       "target": [
         "nsis"
       ],
-      "artifactName": "${productName}-${version}-Windows.${ext}"
+      "artifactName": "What-About-It-Studio-${version}-Windows.${ext}"
     },
     "nsis": {
       "createDesktopShortcut": true,
