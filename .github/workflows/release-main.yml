@@ -60,6 +60,7 @@ jobs:
           if ($installers.Count -ne 1) { throw "Expected one Windows installer, found $($installers.Count)." }
           if ($blockMaps.Count -ne 1) { throw "Expected one installer block map, found $($blockMaps.Count)." }
           if (-not $manifest) { throw "The updater manifest release/latest.yml was not generated." }
+          if ((Get-Content $manifest.FullName -Raw) -notmatch [regex]::Escape($installers[0].Name)) { throw "The updater manifest does not point to $($installers[0].Name)." }
 
           gh release create $tag --repo "${{ github.repository }}" --title "What About It Studio $version" --notes "Automated Windows studio update $version." --prerelease --verify-tag
           gh release upload $tag $installers[0].FullName $blockMaps[0].FullName $manifest.FullName --repo "${{ github.repository }}" --clobber
