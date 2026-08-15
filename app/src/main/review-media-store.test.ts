@@ -153,7 +153,10 @@ describe("review media store", () => {
     expect(await fs.readFile(path.join(mockPaths.episodesRoot, episodeId, "Originals", "camera-1.mp4"))).toEqual(await fs.readFile(sourcePath));
     await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Cameras", "camera-1.webm"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Program", "program.webm"))).resolves.toBeTruthy();
-    expect(await fs.readFile(path.join(mockPaths.episodesRoot, episodeId, "Session", "imported-media.json"), "utf8")).toContain(path.join("Originals", "camera-1.mp4"));
+    const manifest = JSON.parse(await fs.readFile(path.join(mockPaths.episodesRoot, episodeId, "Session", "imported-media.json"), "utf8")) as {
+      assets: Record<string, { relativePath: string }>;
+    };
+    expect(manifest.assets["camera-1"].relativePath).toBe(path.join("Originals", "camera-1.mp4"));
   }, 20000);
 
   it("ignores imported-original manifest paths outside the episode", async () => {
