@@ -36,6 +36,14 @@ jobs:
       - name: Give this main build a newer app version
         shell: pwsh
         run: npm version "0.2.${{ github.run_number }}" --no-git-tag-version
+      - name: Create the matching GitHub release tag
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "v$version" "${{ github.sha }}"
+          git push origin "v$version"
       - name: Build the compiled Electron application
         run: npm run build
       - name: Build installer and publish GitHub prerelease
