@@ -36,6 +36,8 @@ jobs:
       - name: Give this main build a newer app version
         shell: pwsh
         run: npm version "0.2.${{ github.run_number }}" --no-git-tag-version
+      - name: Build the compiled Electron application
+        run: npm run build
       - name: Build installer and publish GitHub prerelease
         shell: pwsh
         run: npx electron-builder --win nsis --publish always

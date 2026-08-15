@@ -60,10 +60,20 @@ export async function analyzeEpisodeAudioActivity(episodeFolder: string): Promis
 }
 
 export async function analyzeEpisodeSilence(episodeFolder: string): Promise<AutoEditSilenceSegment[]> {
-  const source = await firstExistingAudioSource([path.join(episodeFolder, "Audio", "morgan-mic.m4a"), path.join(episodeFolder, "Program", "program.webm")]);
-  if (!source) return [];
-  const result = await runFfmpeg(["-hide_banner", "-i", source, "-af", "silencedetect=noise=-42dB:d=0.8", "-f", "null", "-"]);
+  const microphoneSources = await existingAudioSources((Object.keys(microphoneFiles) as MicrophoneSlotKey[]).map((slot) => path.join(episodeFolder, "Audio", microphoneFiles[slot])));
+  const sources = microphoneSources.length > 0 ? microphoneSources : await existingAudioSources([path.join(episodeFolder, "Program", "program.webm")]);
+  if (sources.length === 0) return [];
+  const result = await runFfmpeg(createSilenceAnalysisArguments(sources));
   return parseSilenceSegments(result.stderr);
+}
+
+export function createSilenceAnalysisArguments(sources: string[]) {
+  const inputArguments = sources.flatMap((source) => ["-i", source]);
+  const silenceFilter = "silencedetect=noise=-42dB:d=0.8";
+  if (sources.length === 1) return ["-hide_banner", ...inputArguments, "-af", silenceFilter, "-f", "null", "-"];
+
+  const inputLabels = sources.map((_, index) => `[${index}:a]`).join("");
+  return ["-hide_banner", ...inputArguments, "-filter_complex", `${inputLabels}amix=inputs=${sources.length}:duration=longest:dropout_transition=0:normalize=0,${silenceFilter}`, "-f", "null", "-"];
 }
 
 export function parseSilenceSegments(output: string): AutoEditSilenceSegment[] {
@@ -162,14 +172,15 @@ async function loadRoutes(episodeFolder: string): Promise<Partial<Record<CameraS
   }
 }
 
-async function firstExistingAudioSource(paths: string[]) {
+async function existingAudioSources(paths: string[]) {
+  const sources: string[] = [];
   for (const filePath of paths) {
     try {
       await fs.access(filePath);
-      return filePath;
+      sources.push(filePath);
     } catch {
       // Try the next recorded source.
     }
   }
-  return undefined;
+  return sources;
 }

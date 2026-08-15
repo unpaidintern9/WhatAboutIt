@@ -60,6 +60,7 @@ import { formatRecordingTime } from "../services";
 interface TimelineReviewProps {
   draft: TimelineDraft;
   media?: ReviewMediaInventory;
+  saveState?: "saved" | "saving" | "failed";
   onDraftChange: (draft: TimelineDraft) => void;
   onSaveDraft: () => void;
   onExport: () => void;
@@ -83,7 +84,7 @@ const audioPresetCopy: Record<TimelineAudioPreset, { label: string; help: string
 
 type TimelineTool = "select" | "split";
 
-export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExport, onAutoEdit, onImportMedia, onAutoSync }: TimelineReviewProps) {
+export function TimelineReview({ draft, media, saveState = "saved", onDraftChange, onSaveDraft, onExport, onAutoEdit, onImportMedia, onAutoSync }: TimelineReviewProps) {
   const videoAssets = useMemo(() => (media ? [media.program, ...media.cameras] : []), [media]);
   const editableTracks = useMemo(() => draft.tracks.filter((track) => track.kind !== "markers"), [draft.tracks]);
   const [selectedVideoId, setSelectedVideoId] = useState("program");
@@ -132,6 +133,7 @@ export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExp
   const readyCameraCount = media?.cameras.filter((asset) => asset.status === "ready").length ?? 0;
   const readyMicCount = media?.audio.filter((asset) => asset.status === "ready").length ?? 0;
   const hasSelectedRange = draft.selection?.endTimestampMs !== undefined && rangeEndMs > rangeStartMs;
+  const saveStatusLabel = saveState === "saving" ? "Saving draft…" : saveState === "failed" ? "Save failed — retry" : draft.hasUnsavedChanges ? "Draft changed" : "Draft saved";
   const liveVideoStyle: CSSProperties | undefined =
     selectedVideoTrack?.kind === "camera"
       ? {
@@ -470,8 +472,8 @@ export function TimelineReview({ draft, media, onDraftChange, onSaveDraft, onExp
           <span>
             <ShieldCheck size={17} /> Originals safe
           </span>
-          <span className={draft.hasUnsavedChanges ? "needs-attention" : "ready"}>
-            <Save size={17} /> {draft.hasUnsavedChanges ? "Draft changed" : "Draft saved"}
+          <span className={saveState === "failed" || draft.hasUnsavedChanges ? "needs-attention" : "ready"} role="status" aria-live="polite">
+            <Save size={17} /> {saveStatusLabel}
           </span>
         </div>
       </header>

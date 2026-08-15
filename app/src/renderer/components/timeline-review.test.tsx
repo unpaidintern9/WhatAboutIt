@@ -190,6 +190,17 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Apply to all cameras");
   });
 
+  it("shows saving failures instead of claiming the draft was saved", () => {
+    const draft = createTimelineDraft({
+      deviceDefaults: { cameras: {}, microphones: {} }
+    });
+    const markup = renderToStaticMarkup(<TimelineReview draft={{ ...draft, hasUnsavedChanges: true }} saveState="failed" onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+
+    expect(markup).toContain("Save failed — retry");
+    expect(markup).not.toContain("Draft saved");
+    expect(markup).toContain('role="status"');
+  });
+
   it("creates a real timeline range by dragging across a track", () => {
     const draft = createTimelineDraft({
       deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },

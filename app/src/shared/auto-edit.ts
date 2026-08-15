@@ -1,4 +1,4 @@
-import { commitTimelineDraftChange, type TimelineDraft, type TimelineEditOperation, type TimelineTrack } from "./timeline";
+import { commitTimelineDraftChange, type TimelineCameraDecision, type TimelineDraft, type TimelineEditOperation, type TimelineTrack } from "./timeline";
 
 export type AutoEditMode = "gentle" | "balanced" | "fast-paced" | "clip-hunter";
 export type AutoEditStageId = "recording" | "transcript" | "audio-analysis" | "speaker-detection" | "marker-analysis" | "timeline-decisions" | "camera-decisions" | "draft-timeline" | "review" | "export-ready";
@@ -160,6 +160,7 @@ export function runOfflineAutoEdit(input: { draft: TimelineDraft; mode?: AutoEdi
   };
   const minimumCameraHoldMs = getMinimumCameraHoldMs(mode, input.learningProfile);
   const cameraDecisions = createCameraDecisions(input.activitySegments ?? [], now, minimumCameraHoldMs);
+  const mergedCameraDecisions = mergeAutoCameraDecisions(input.draft.cameraDecisions, cameraDecisions);
   const silenceOperations: TimelineEditOperation[] = silenceSuggestions.map((segment) => ({
     id: segment.id,
     type: "delete-section",
@@ -251,7 +252,7 @@ export function runOfflineAutoEdit(input: { draft: TimelineDraft; mode?: AutoEdi
     durationMs: originalLengthMs,
     editMode: "auto",
     tracks: polishedTracks,
-    cameraDecisions: cameraDecisions.length > 0 ? cameraDecisions : input.draft.cameraDecisions,
+    cameraDecisions: mergedCameraDecisions,
     cameraTransition: input.learningProfile?.cameraTransition ?? (mode === "gentle" ? "fade" : "cut"),
     cameraTransitionMs: input.learningProfile?.cameraTransitionMs ?? (mode === "gentle" ? 300 : 180),
     editLog: [...input.draft.editLog, ...silenceOperations, autoOperation],
@@ -273,6 +274,15 @@ export function runOfflineAutoEdit(input: { draft: TimelineDraft; mode?: AutoEdi
     draft,
     stages: createAutoEditStages()
   };
+}
+
+export function mergeAutoCameraDecisions(existing: TimelineCameraDecision[], generated: TimelineCameraDecision[]) {
+  const manualDecisions = existing.filter((decision) => decision.source === "manual").sort((left, right) => left.startMs - right.startMs);
+  if (manualDecisions.length === 0) return generated.length > 0 ? generated : existing;
+
+  const firstManualStartMs = manualDecisions[0].startMs;
+  const unclaimedAutomaticDecisions = generated.filter((decision) => decision.startMs < firstManualStartMs);
+  return [...unclaimedAutomaticDecisions, ...manualDecisions].sort((left, right) => left.startMs - right.startMs);
 }
 
 export function applyAutoEditProductionPolish(track: TimelineTrack, mode: AutoEditMode, learningProfile?: AutoEditLearningProfile): TimelineTrack {

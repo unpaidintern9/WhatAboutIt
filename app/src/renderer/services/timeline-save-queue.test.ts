@@ -25,10 +25,48 @@ describe("TimelineSaveQueue", () => {
     expect(order).toEqual([first.version, second.version]);
     expect(applyLatest).toHaveBeenCalledTimes(1);
     expect(applyLatest).toHaveBeenCalledWith(
+      "episode-a",
       expect.objectContaining({
         version: second.version,
         hasUnsavedChanges: false
       })
     );
+  });
+
+  it("keeps latest-save tracking isolated by episode", async () => {
+    const draftA = createTimelineDraft({
+      episodeId: "episode-a",
+      deviceDefaults: { cameras: {}, microphones: {} }
+    });
+    const draftB = createTimelineDraft({
+      episodeId: "episode-b",
+      deviceDefaults: { cameras: {}, microphones: {} }
+    });
+    const applyLatest = vi.fn();
+    const queue = new TimelineSaveQueue(
+      async (episodeId, draft) => ({
+        ...draft,
+        episodeId,
+        hasUnsavedChanges: false
+      }),
+      applyLatest
+    );
+
+    await Promise.all([queue.enqueue("episode-a", draftA), queue.enqueue("episode-b", draftB)]);
+
+    expect(applyLatest).toHaveBeenCalledWith("episode-a", expect.objectContaining({ episodeId: "episode-a" }));
+    expect(applyLatest).toHaveBeenCalledWith("episode-b", expect.objectContaining({ episodeId: "episode-b" }));
+  });
+
+  it("refuses to save a stale draft into a different episode", async () => {
+    const draftA = createTimelineDraft({
+      episodeId: "episode-a",
+      deviceDefaults: { cameras: {}, microphones: {} }
+    });
+    const save = vi.fn();
+    const queue = new TimelineSaveQueue(save, vi.fn());
+
+    await expect(queue.enqueue("episode-b", draftA)).rejects.toThrow("Refusing to save draft for episode-a into episode episode-b");
+    expect(save).not.toHaveBeenCalled();
   });
 });

@@ -34,7 +34,10 @@ describe("timeline store", () => {
     const { saveTimelineDraft, loadTimelineDraft } = await import("./timeline-store");
     const draft = applyTimelineEdit(
       selectTimelinePoint(
-        createTimelineDraft({ episodeId: "episode-a", deviceDefaults: { cameras: {}, microphones: {} } }),
+        createTimelineDraft({
+          episodeId: "episode-a",
+          deviceDefaults: { cameras: {}, microphones: {} }
+        }),
         { timestampMs: 12000, source: "timeline" }
       ),
       "split"
@@ -47,5 +50,35 @@ describe("timeline store", () => {
     expect(saved.hasUnsavedChanges).toBe(false);
     expect(loaded?.editLog[0].label).toBe("Split here");
     await expect(fs.stat(path.join(mockPaths.episodesRoot, "episode-a", "Session", "draft-timeline.json"))).resolves.toBeTruthy();
+  });
+
+  it("recovers the previous good draft when the primary save is damaged", async () => {
+    const { saveTimelineDraft, loadTimelineDraft } = await import("./timeline-store");
+    const first = createTimelineDraft({
+      episodeId: "episode-a",
+      deviceDefaults: { cameras: {}, microphones: {} },
+      durationMs: 10000
+    });
+    const second = { ...first, durationMs: 20000, version: first.version + 1 };
+    const filePath = path.join(mockPaths.episodesRoot, "episode-a", "Session", "draft-timeline.json");
+
+    await saveTimelineDraft("episode-a", first);
+    await saveTimelineDraft("episode-a", second);
+    await fs.writeFile(filePath, "{damaged", "utf8");
+
+    await expect(loadTimelineDraft("episode-a")).resolves.toMatchObject({
+      episodeId: "episode-a",
+      durationMs: 10000
+    });
+  });
+
+  it("refuses to cross-save a draft into another episode", async () => {
+    const { saveTimelineDraft } = await import("./timeline-store");
+    const draft = createTimelineDraft({
+      episodeId: "episode-a",
+      deviceDefaults: { cameras: {}, microphones: {} }
+    });
+
+    await expect(saveTimelineDraft("episode-b", draft)).rejects.toThrow("Refusing to save draft for episode-a into episode episode-b");
   });
 });
