@@ -5,7 +5,7 @@ import type { RecordingSession } from "../shared/recording";
 import type { PodcastToolsState, SoundSlot } from "../shared/podcast-tools";
 import { createDefaultPodcastToolsState, createLiveMarker, withPodcastToolDefaults } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
-import { createTimelineDraft, markTimelineSaved, setTimelineEditOperationEnabled, syncTimelineTracksWithMedia, updateTimelineSyncOffsets, withTimelineDraftDefaults } from "../shared/timeline";
+import { createTimelineDraft, setTimelineEditOperationEnabled, syncTimelineTracksWithMedia, updateTimelineSyncOffsets, withTimelineDraftDefaults } from "../shared/timeline";
 import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
 import { defaultExportSettings } from "../shared/export";
 import type { ReviewMediaImportSlot, ReviewMediaInventory } from "../shared/review-media";
@@ -31,6 +31,7 @@ import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
 type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "auto-edit-review" | "export" | "hardware-test" | "settings" | "learn" | "practice" | "theme-editor";
+type TimelineSaveState = "saved" | "saving" | "failed";
 type WorkspaceBridge = Required<Pick<Window["studio"], "getWorkspaceState" | "saveWorkspaceState" | "getDisplays" | "openWorkspacePanel" | "closeWorkspacePanel" | "moveWorkspacePanel" | "applyWorkspaceLayout" | "resetWorkspaceLayout">>;
 type StudioBridge = Window["studio"] & WorkspaceBridge;
 
@@ -326,7 +327,12 @@ export default function App() {
   const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | undefined>();
   const [autoEditRunning, setAutoEditRunning] = useState(false);
   const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus>(() => createInitialAppUpdateStatus("0.2.0", false));
+  const [timelineSaveState, setTimelineSaveState] = useState<TimelineSaveState>("saved");
   const timelineAutosaveTimerRef = useRef<number | undefined>(undefined);
+  const pendingTimelineSaveRef = useRef<{ episodeId: string; draft: TimelineDraft } | undefined>(undefined);
+  const episodeLoadSequenceRef = useRef(0);
+  const activeEpisodeRef = useRef(activeEpisode);
+  activeEpisodeRef.current = activeEpisode;
   const [hardwareTestStep, setHardwareTestStep] = useState<HardwareTestStep>("cameras");
   const [hardwareTestResults, setHardwareTestResults] = useState<HardwareTestResults>(() => createHardwareTestResults());
   const [hardwareTestMessage, setHardwareTestMessage] = useState("Real hardware only. Nothing passes until the studio can actually see it.");
@@ -354,7 +360,20 @@ export default function App() {
     [deviceService]
   );
   const exportService = useMemo(() => new ExportService(studio), [studio]);
-  const timelineSaveQueue = useMemo(() => new TimelineSaveQueue((episodeId, draft) => studio.saveTimelineDraft(episodeId, draft), setTimelineDraft), [studio]);
+  const timelineSaveQueue = useMemo(
+    () =>
+      new TimelineSaveQueue(
+        (episodeId, draft) => studio.saveTimelineDraft(episodeId, draft),
+        (episodeId, savedDraft) => {
+          if (activeEpisodeRef.current?.id !== episodeId) return;
+          const pending = pendingTimelineSaveRef.current;
+          if (pending?.episodeId === episodeId && pending.draft.version > savedDraft.version) return;
+          setTimelineDraft((current) => (current.episodeId === episodeId ? savedDraft : current));
+          setTimelineSaveState("saved");
+        }
+      ),
+    [studio]
+  );
   const openCameraPreview = useCallback((deviceId?: string) => deviceService.openCameraPreview(deviceId), [deviceService]);
   const openMicrophoneStream = useCallback((deviceId?: string) => deviceService.openMicrophoneStream(deviceId), [deviceService]);
   const releaseCameraPreview = useCallback(
@@ -488,6 +507,11 @@ export default function App() {
   }
 
   async function createEpisode() {
+    try {
+      await flushPendingTimelineSave();
+    } catch {
+      return;
+    }
     const episode = await studio.createEpisode({
       title,
       guestName,
@@ -502,35 +526,47 @@ export default function App() {
   }
 
   async function openEpisode(episode: EpisodeMetadata) {
+    try {
+      await flushPendingTimelineSave();
+    } catch {
+      return;
+    }
     setActiveEpisode(episode);
-    await loadReviewWorkspace(episode.id);
     setView("timeline-review");
   }
 
   useEffect(() => {
+    const sequence = ++episodeLoadSequenceRef.current;
     if (!activeEpisode) {
       setPodcastTools(createDefaultPodcastToolsState());
       setReviewMedia(undefined);
       return;
     }
 
-    void studio.loadPodcastTools(activeEpisode.id).then((state) => setPodcastTools(withPodcastToolDefaults(state, activeEpisode.id)));
-    void loadReviewWorkspace(activeEpisode.id);
+    void loadReviewWorkspace(activeEpisode.id, sequence);
   }, [activeEpisode, studio]);
 
-  async function loadReviewWorkspace(episodeId: string) {
-    if (timelineAutosaveTimerRef.current) window.clearTimeout(timelineAutosaveTimerRef.current);
-    timelineAutosaveTimerRef.current = undefined;
-    const fallback = createTimelineDraft({
-      episodeId,
-      recordingSessionId: recordingSnapshot.session?.id,
-      deviceDefaults: settings.deviceDefaults,
-      markers: podcastTools.markers,
-      durationMs: recordingSnapshot.elapsedMs
-    });
-    const [savedDraft, inventory] = await Promise.all([studio.loadTimelineDraft(episodeId), studio.loadReviewMedia(episodeId)]);
-    setReviewMedia(inventory);
-    setTimelineDraft(syncTimelineTracksWithMedia(withTimelineDraftDefaults(savedDraft, fallback), inventory));
+  async function loadReviewWorkspace(episodeId: string, sequence = ++episodeLoadSequenceRef.current) {
+    try {
+      const [tools, savedDraft, inventory] = await Promise.all([studio.loadPodcastTools(episodeId), studio.loadTimelineDraft(episodeId), studio.loadReviewMedia(episodeId)]);
+      if (sequence !== episodeLoadSequenceRef.current || activeEpisodeRef.current?.id !== episodeId) return;
+      const hydratedTools = withPodcastToolDefaults(tools, episodeId);
+      const fallback = createTimelineDraft({
+        episodeId,
+        recordingSessionId: recordingSnapshot.session?.id,
+        deviceDefaults: settings.deviceDefaults,
+        markers: hydratedTools.markers,
+        durationMs: recordingSnapshot.elapsedMs
+      });
+      setPodcastTools(hydratedTools);
+      setReviewMedia(inventory);
+      setTimelineDraft(syncTimelineTracksWithMedia(withTimelineDraftDefaults(savedDraft, fallback), inventory));
+      setTimelineSaveState("saved");
+    } catch (error) {
+      if (sequence !== episodeLoadSequenceRef.current || activeEpisodeRef.current?.id !== episodeId) return;
+      setTimelineSaveState("failed");
+      setWorkspaceMessage(error instanceof Error ? error.message : "The episode draft could not be loaded.");
+    }
   }
 
   async function loadReviewMediaForEpisode(episodeId: string) {
@@ -558,42 +594,75 @@ export default function App() {
   }
 
   function enqueueTimelineSave(episodeId: string, nextDraft: TimelineDraft) {
+    if (activeEpisodeRef.current?.id === episodeId) setTimelineSaveState("saving");
     return timelineSaveQueue.enqueue(episodeId, nextDraft);
   }
 
   function queueTimelineDraftChange(nextDraft: TimelineDraft) {
-    setTimelineDraft(nextDraft);
     if (!activeEpisode) return;
-    if (timelineAutosaveTimerRef.current) window.clearTimeout(timelineAutosaveTimerRef.current);
+    if (nextDraft.episodeId && nextDraft.episodeId !== activeEpisode.id) {
+      setTimelineSaveState("failed");
+      return;
+    }
     const episodeId = activeEpisode.id;
+    const episodeDraft = { ...nextDraft, episodeId, hasUnsavedChanges: true };
+    setTimelineDraft(episodeDraft);
+    setTimelineSaveState("saved");
+    if (timelineAutosaveTimerRef.current) window.clearTimeout(timelineAutosaveTimerRef.current);
+    pendingTimelineSaveRef.current = { episodeId, draft: episodeDraft };
     timelineAutosaveTimerRef.current = window.setTimeout(() => {
       timelineAutosaveTimerRef.current = undefined;
-      void enqueueTimelineSave(episodeId, nextDraft).catch(() => {
-        setTimelineDraft((current) => ({
-          ...current,
-          hasUnsavedChanges: true
-        }));
-      });
+      void flushPendingTimelineSave().catch(() => undefined);
     }, 500);
   }
 
-  async function saveTimelineDraftState(nextDraft: TimelineDraft) {
-    setTimelineDraft(nextDraft);
+  async function flushPendingTimelineSave() {
+    const pending = pendingTimelineSaveRef.current;
+    if (!pending) return undefined;
     if (timelineAutosaveTimerRef.current) window.clearTimeout(timelineAutosaveTimerRef.current);
     timelineAutosaveTimerRef.current = undefined;
+    try {
+      const savedDraft = await enqueueTimelineSave(pending.episodeId, pending.draft);
+      if (pendingTimelineSaveRef.current?.episodeId === pending.episodeId && pendingTimelineSaveRef.current.draft.version === pending.draft.version) {
+        pendingTimelineSaveRef.current = undefined;
+      }
+      return savedDraft;
+    } catch (error) {
+      if (activeEpisodeRef.current?.id === pending.episodeId) {
+        setTimelineSaveState("failed");
+        setTimelineDraft((current) => (current.episodeId === pending.episodeId ? { ...current, hasUnsavedChanges: true } : current));
+      }
+      throw error;
+    }
+  }
+
+  async function saveTimelineDraftState(nextDraft: TimelineDraft) {
     if (!activeEpisode) return nextDraft;
-    return enqueueTimelineSave(activeEpisode.id, nextDraft);
+    if (nextDraft.episodeId && nextDraft.episodeId !== activeEpisode.id) {
+      setTimelineSaveState("failed");
+      throw new Error(`Refusing to save draft for ${nextDraft.episodeId} into episode ${activeEpisode.id}.`);
+    }
+    const episodeDraft = { ...nextDraft, episodeId: activeEpisode.id, hasUnsavedChanges: true };
+    setTimelineDraft(episodeDraft);
+    pendingTimelineSaveRef.current = { episodeId: activeEpisode.id, draft: episodeDraft };
+    return (await flushPendingTimelineSave()) ?? episodeDraft;
   }
 
   async function saveApprovedTimelineDraft() {
-    const savedDraft = await saveTimelineDraftState(markTimelineSaved(timelineDraft));
-    if (timelineDraft.editMode !== "manual") return;
+    let savedDraft: TimelineDraft;
+    try {
+      savedDraft = await saveTimelineDraftState(timelineDraft);
+    } catch {
+      return false;
+    }
+    if (timelineDraft.editMode !== "manual") return true;
     const nextSettings: StudioSettings = {
       ...settings,
       autoEditLearning: learnAutoEditProfile(savedDraft, settings.autoEditLearning, autoEditMode)
     };
     setSettings(nextSettings);
     await studio.saveSettings(nextSettings);
+    return true;
   }
 
   async function checkForAppUpdate() {
@@ -962,6 +1031,7 @@ export default function App() {
   }
 
   async function createHardwareTestEpisode() {
+    await flushPendingTimelineSave();
     const episode = await studio.createEpisode({
       title: `Hardware Test ${new Date().toLocaleString()}`,
       description: "Real camera and microphone validation recording."
@@ -1060,6 +1130,7 @@ export default function App() {
     setRecordingSnapshot(nextSnapshot);
 
     if (nextSnapshot.session?.episodeId && nextSnapshot.session.episodeId !== activeEpisode?.id) {
+      await flushPendingTimelineSave();
       const latestEpisodes = await studio.listEpisodes();
       setEpisodes(latestEpisodes);
       setActiveEpisode(latestEpisodes.find((episode) => episode.id === nextSnapshot.session?.episodeId) ?? activeEpisode);
@@ -1160,10 +1231,7 @@ export default function App() {
             disabled={!reviewReady}
             aria-current={view === "timeline-review" ? "page" : undefined}
             className={view === "timeline-review" ? "active" : ""}
-            onClick={() => {
-              if (activeEpisode) void loadReviewWorkspace(activeEpisode.id);
-              setView("timeline-review");
-            }}
+            onClick={() => setView("timeline-review")}
           >
             <ListVideo size={20} /> <span>Review</span>
           </button>
@@ -1207,7 +1275,6 @@ export default function App() {
           reviewReady={reviewReady}
           exportComplete={exportJob?.status === "complete"}
           onNavigate={(nextView) => {
-            if (nextView === "timeline-review" && activeEpisode) void loadReviewWorkspace(activeEpisode.id);
             setView(nextView);
           }}
         />
@@ -1263,9 +1330,6 @@ export default function App() {
             }}
             onDismissRecovery={() => setUnfinishedSessions([])}
             onNext={() => {
-              if (activeEpisode) {
-                void loadReviewWorkspace(activeEpisode.id);
-              }
               setView("timeline-review");
             }}
             onDefaultsChange={(defaults) => void saveDeviceDefaults(defaults)}
@@ -1285,10 +1349,11 @@ export default function App() {
           <TimelineReview
             draft={timelineDraft}
             media={reviewMedia}
+            saveState={timelineSaveState}
             onDraftChange={queueTimelineDraftChange}
             onSaveDraft={() => void saveApprovedTimelineDraft()}
             onExport={async () => {
-              await saveApprovedTimelineDraft();
+              if (!(await saveApprovedTimelineDraft())) return;
               setView("export");
             }}
             onAutoEdit={() => void runAutoEditFlow(reviewMode)}

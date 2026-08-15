@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveActivitySegments, parseEbur128Levels, parseSilenceSegments } from "./audio-activity-analysis";
+import { createSilenceAnalysisArguments, deriveActivitySegments, parseEbur128Levels, parseSilenceSegments } from "./audio-activity-analysis";
 
 describe("audio activity analysis", () => {
   it("parses real ebur128 frame log lines", () => {
@@ -42,18 +42,17 @@ describe("audio activity analysis", () => {
   });
 
   it("parses complete silence ranges from ffmpeg output", () => {
-    expect(
-      parseSilenceSegments(
-        [
-          "[silencedetect] silence_start: 4.2",
-          "[silencedetect] silence_end: 7.6 | silence_duration: 3.4",
-          "[silencedetect] silence_start: 15",
-          "[silencedetect] silence_end: 17.5 | silence_duration: 2.5"
-        ].join("\n")
-      )
-    ).toEqual([
+    expect(parseSilenceSegments(["[silencedetect] silence_start: 4.2", "[silencedetect] silence_end: 7.6 | silence_duration: 3.4", "[silencedetect] silence_start: 15", "[silencedetect] silence_end: 17.5 | silence_duration: 2.5"].join("\n"))).toEqual([
       { startMs: 4200, endMs: 7600 },
       { startMs: 15000, endMs: 17500 }
     ]);
+  });
+
+  it("mixes every saved microphone before declaring the whole conversation silent", () => {
+    const argumentsList = createSilenceAnalysisArguments(["morgan-mic.m4a", "guest-mic.m4a", "extra-mic.m4a"]);
+
+    expect(argumentsList).toEqual(expect.arrayContaining(["-i", "morgan-mic.m4a", "-i", "guest-mic.m4a", "-i", "extra-mic.m4a", "-filter_complex"]));
+    expect(argumentsList.join(" ")).toContain("[0:a][1:a][2:a]amix=inputs=3");
+    expect(argumentsList.join(" ")).toContain("silencedetect=noise=-42dB:d=0.8");
   });
 });

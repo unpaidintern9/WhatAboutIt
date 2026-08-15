@@ -99,6 +99,46 @@ describe("offline auto edit", () => {
     expect(result.report.chaptersGenerated.map((chapter) => chapter.title)).toContain("Sponsor");
   });
 
+  it("keeps manual camera choices authoritative when Auto Edit runs", () => {
+    const draft = createTimelineDraft({
+      deviceDefaults: {
+        cameras: { camera1: "camera-a", camera2: "camera-b" },
+        microphones: { morganMic: "mic-a", guestMic: "mic-b" }
+      },
+      durationMs: 20000
+    });
+    const manualDecision = {
+      id: "manual-camera-5000",
+      cameraTrackId: "camera-camera1",
+      startMs: 5000,
+      source: "manual" as const,
+      reason: "Morgan chose this angle"
+    };
+    const result = runOfflineAutoEdit({
+      draft: { ...draft, cameraDecisions: [manualDecision] },
+      mode: "balanced",
+      activitySegments: [
+        {
+          startMs: 0,
+          endMs: 4000,
+          microphoneTrackId: "mic-morganMic",
+          cameraTrackId: "camera-camera1",
+          averageDb: -18
+        },
+        {
+          startMs: 8000,
+          endMs: 12000,
+          microphoneTrackId: "mic-guestMic",
+          cameraTrackId: "camera-camera2",
+          averageDb: -14
+        }
+      ]
+    });
+
+    expect(result.draft.cameraDecisions).toEqual([expect.objectContaining({ startMs: 0, source: "auto" }), manualDecision]);
+    expect(result.draft.cameraDecisions).not.toEqual(expect.arrayContaining([expect.objectContaining({ startMs: 8000 })]));
+  });
+
   it("learns production treatment from an explicitly approved manual draft", () => {
     const base = createTimelineDraft({
       deviceDefaults: {
