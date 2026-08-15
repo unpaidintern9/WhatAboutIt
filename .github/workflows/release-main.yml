@@ -46,8 +46,27 @@ jobs:
           git push origin "v$version"
       - name: Build the compiled Electron application
         run: npm run build
-      - name: Build installer and publish GitHub prerelease
+      - name: Build Windows installer
         shell: pwsh
-        run: npx electron-builder --win nsis --publish always
+        run: npx electron-builder --win nsis --publish never
+      - name: Publish and verify GitHub prerelease assets
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          $tag = "v$version"
+          $installers = @(Get-ChildItem -Path release -Filter "*.exe" -File)
+          $blockMaps = @(Get-ChildItem -Path release -Filter "*.exe.blockmap" -File)
+          $manifest = Get-Item -Path release/latest.yml -ErrorAction SilentlyContinue
+          if ($installers.Count -ne 1) { throw "Expected one Windows installer, found $($installers.Count)." }
+          if ($blockMaps.Count -ne 1) { throw "Expected one installer block map, found $($blockMaps.Count)." }
+          if (-not $manifest) { throw "The updater manifest release/latest.yml was not generated." }
+
+          gh release create $tag --repo "${{ github.repository }}" --title "What About It Studio $version" --notes "Automated Windows studio update $version." --prerelease --verify-tag
+          gh release upload $tag $installers[0].FullName $blockMaps[0].FullName $manifest.FullName --repo "${{ github.repository }}" --clobber
+
+          $assetNames = @(gh release view $tag --repo "${{ github.repository }}" --json assets --jq '.assets[].name')
+          foreach ($requiredAsset in @($installers[0].Name, $blockMaps[0].Name, $manifest.Name)) {
+            if ($assetNames -notcontains $requiredAsset) { throw "Published release is missing $requiredAsset." }
+          }
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
