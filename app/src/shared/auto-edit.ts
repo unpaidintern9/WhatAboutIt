@@ -224,7 +224,7 @@ export function runOfflineAutoEdit(input: { draft: TimelineDraft; mode?: AutoEdi
         : []),
       {
         id: "camera-transitions",
-        label: mode === "gentle" ? "Added short soft fades between camera choices" : "Kept direct camera cuts for a clean conversational rhythm",
+        label: mode === "gentle" ? "Added short fades through black between camera choices" : "Kept direct camera cuts for a clean conversational rhythm",
         reversible: true
       },
       cameraDecisions.length > 0
@@ -255,7 +255,11 @@ export function runOfflineAutoEdit(input: { draft: TimelineDraft; mode?: AutoEdi
     cameraDecisions: mergedCameraDecisions,
     cameraTransition: input.learningProfile?.cameraTransition ?? (mode === "gentle" ? "fade" : "cut"),
     cameraTransitionMs: input.learningProfile?.cameraTransitionMs ?? (mode === "gentle" ? 300 : 180),
-    editLog: [...input.draft.editLog, ...silenceOperations, autoOperation],
+    editLog: [
+      ...input.draft.editLog.filter((operation) => operation.type !== "auto-edit-suggestion" && !operation.id.startsWith("auto-silence-")),
+      ...silenceOperations,
+      autoOperation
+    ],
     undoneEditLog: [],
     hasUnsavedChanges: true,
     autoEdit: {

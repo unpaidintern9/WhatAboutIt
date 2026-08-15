@@ -151,4 +151,29 @@ describe("review media store", () => {
     await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Cameras", "camera-1.webm"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Program", "program.webm"))).resolves.toBeTruthy();
   }, 20000);
+
+  it("only reports high sync confidence for several tightly matching sound moments", async () => {
+    const { alignSoundOnsets } = await import("./review-media-store");
+
+    expect(alignSoundOnsets([1000, 5000, 9100], [1750, 5750, 9850])).toMatchObject({
+      offsetMs: 750,
+      confidence: "high",
+      matchCount: 3,
+      maxErrorMs: 0
+    });
+    expect(alignSoundOnsets([1000], [1750])).toMatchObject({
+      offsetMs: 750,
+      confidence: "review",
+      matchCount: 1
+    });
+  });
+
+  it("chooses the repeated sync offset despite unrelated camera sounds", async () => {
+    const { alignSoundOnsets } = await import("./review-media-store");
+    const result = alignSoundOnsets([1000, 5000, 9000, 14000], [200, 2220, 6210, 10230, 15210, 28000]);
+
+    expect(result?.offsetMs).toBeGreaterThanOrEqual(1200);
+    expect(result?.offsetMs).toBeLessThanOrEqual(1230);
+    expect(result?.confidence).toBe("high");
+  });
 });

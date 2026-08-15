@@ -2,7 +2,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { shell } from "electron";
 import type { ExportJob, ExportRequest } from "../shared/export";
-import type { TimelineEditOperation, TimelineTrack } from "../shared/timeline";
+import { isTimelineTrackAvailableAt, type TimelineEditOperation, type TimelineTrack } from "../shared/timeline";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
 import { completeExportJob, createExportJob, createExportSummary, failExportJob, cancelExportJob } from "../shared/export";
 import { getEpisodesRoot } from "./config-service";
@@ -209,11 +209,10 @@ async function renderDraftExport(input: {
     inputIndex += 1;
   }
 
-  const hasDraftSources = cameraInputs.length > 0 || audioInputs.length > 0;
   const hasDraftDecisions = request.draft.cameraDecisions.length > 0
     || request.draft.editLog.length > 0
     || request.draft.tracks.some(hasTrackAdjustments);
-  if (!hasDraftSources || !hasDraftDecisions) return false;
+  if (!hasDraftDecisions) return false;
 
   const filters: string[] = [];
   const globalEdits = editsForTrack(request.draft.editLog, "program");
@@ -228,6 +227,7 @@ async function renderDraftExport(input: {
     globalEdits,
     [...request.draft.cameraDecisions.map((decision) => decision.startMs), ...cameraEditPoints]
   );
+  const editedDurationMs = keepRanges.reduce((total, range) => total + range.endMs - range.startMs, 0);
   const cameraByTrack = new Map(cameraInputs.map((item) => [item.track.id, item]));
   const videoLabels: string[] = [];
   const programTrack = request.draft.tracks.find((track) => track.id === "program");
@@ -238,7 +238,7 @@ async function renderDraftExport(input: {
       const decision = [...request.draft.cameraDecisions].reverse().find((item) => item.startMs <= range.startMs);
       const camera = decision ? cameraByTrack.get(decision.cameraTrackId) : undefined;
       const midpoint = range.startMs + (range.endMs - range.startMs) / 2;
-      const chosenCamera = camera && sourceAvailableAt(camera.track, request.draft.editLog, midpoint) ? camera : undefined;
+      const chosenCamera = camera && isTimelineTrackAvailableAt(request.draft, camera.track.id, midpoint) ? camera : undefined;
       const chosen = chosenCamera?.inputIndex ?? 0;
       const chosenTrack = chosenCamera?.track ?? programTrack;
       const syncOffsetMs = chosenTrack?.syncOffsetMs ?? 0;
@@ -303,7 +303,7 @@ async function renderDraftExport(input: {
   const mapArgs = request.type === "audio-only" ? ["-map", "[aout]"] : ["-map", "[vout]", "-map", "[aout]"];
   const containerArgs = input.outputPath.endsWith(".mp4") ? ["-movflags", "+faststart"] : [];
   await runFfmpegWithProgress(
-    [...inputArgs, "-filter_complex", filters.join(";"), ...mapArgs, ...qualityArgs(request.type, request.qualityPreset, false), ...containerArgs, input.outputPath],
+    [...inputArgs, "-filter_complex", filters.join(";"), ...mapArgs, ...qualityArgs(request.type, request.qualityPreset, false), "-t", seconds(editedDurationMs), ...containerArgs, input.outputPath],
     { durationMs: input.durationMs, signal: input.signal, onProgress: input.onProgress }
   );
   return true;
@@ -354,15 +354,6 @@ function hasTrackAdjustments(track: TimelineTrack) {
     || track.zoom !== 100
     || track.positionX !== 0
     || track.positionY !== 0;
-}
-
-function sourceAvailableAt(track: TimelineTrack, edits: TimelineEditOperation[], timestampMs: number) {
-  if (!track.includedInProgram) return false;
-  return !editsForTrack(edits, track.id).some((edit) =>
-    (edit.type === "trim-before" && timestampMs < edit.timestampMs)
-    || (edit.type === "trim-after" && timestampMs >= edit.timestampMs)
-    || (edit.type === "delete-section" && timestampMs >= edit.timestampMs && timestampMs < (edit.endTimestampMs ?? edit.timestampMs + 15000))
-  );
 }
 
 function createVideoRanges(durationMs: number, globalEdits: TimelineEditOperation[], decisionPoints: number[]) {

@@ -81,4 +81,24 @@ describe("timeline store", () => {
 
     await expect(saveTimelineDraft("episode-b", draft)).rejects.toThrow("Refusing to save draft for episode-a into episode episode-b");
   });
+
+  it("keeps undo history in memory without persisting large snapshots", async () => {
+    const { saveTimelineDraft, loadTimelineDraft } = await import("./timeline-store");
+    const draft = applyTimelineEdit(
+      selectTimelinePoint(createTimelineDraft({
+        episodeId: "episode-history",
+        deviceDefaults: { cameras: {}, microphones: {} },
+        durationMs: 30000
+      }), { timestampMs: 5000, source: "timeline" }),
+      "split"
+    );
+
+    const saved = await saveTimelineDraft("episode-history", draft);
+    const loaded = await loadTimelineDraft("episode-history");
+
+    expect(saved.history).toHaveLength(1);
+    expect(loaded?.history).toEqual([]);
+    expect(loaded?.redoHistory).toEqual([]);
+    expect(loaded?.editLog).toHaveLength(1);
+  });
 });

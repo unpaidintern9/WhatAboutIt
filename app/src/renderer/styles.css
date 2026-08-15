@@ -2121,6 +2121,14 @@ input[type="range"] {
   flex-wrap: wrap;
 }
 
+.auto-edit-error {
+  padding: var(--space-md) var(--space-lg);
+  border: var(--component-border-width) var(--component-border-style) var(--color-danger);
+  border-radius: var(--component-border-radius);
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-cards));
+  font-weight: 800;
+}
+
 .auto-edit-summary-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

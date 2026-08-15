@@ -42,4 +42,14 @@ describe("AutoEditReview", () => {
     expect(markup).toContain("Review edited playback");
     expect(markup).toContain("Long pauses");
   });
+
+  it("shows a recoverable error without claiming the draft changed", () => {
+    const markup = renderToStaticMarkup(
+      <AutoEditReview mode="balanced" running={false} error="Audio analysis failed." onModeChange={vi.fn()} onRun={vi.fn()} onReview={vi.fn()} onExport={vi.fn()} onToggleSilenceCut={vi.fn()} />
+    );
+
+    expect(markup).toContain("Auto Edit stopped: Audio analysis failed.");
+    expect(markup).toContain("Your current draft was not replaced");
+    expect(markup).toContain('role="alert"');
+  });
 });

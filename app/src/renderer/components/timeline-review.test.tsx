@@ -168,6 +168,7 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Compression");
     expect(markup).toContain("Three-band tone");
     expect(markup).toContain("Output protection On");
+    expect(markup).toContain("Voice cleanup, tone, fades, and output protection are rendered in the final export");
     expect(markup).toContain("Apply to all mics");
     expect(markup).toContain("Reset track");
   });
@@ -186,8 +187,11 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Sharpness");
     expect(markup).toContain("Camera changes");
     expect(markup).toContain("Clean cut");
-    expect(markup).toContain("Soft fade");
+    expect(markup).toContain("Fade through black");
+    expect(markup).toContain("rendered in the final export");
     expect(markup).toContain("Apply to all cameras");
+    expect(markup).toContain('min="-30000"');
+    expect(markup).toContain('max="30000"');
   });
 
   it("shows saving failures instead of claiming the draft was saved", () => {

@@ -243,4 +243,28 @@ describe("offline auto edit", () => {
       ])
     );
   });
+
+  it("replaces prior automatic pause cuts when Auto Edit runs again", () => {
+    const draft = createTimelineDraft({
+      deviceDefaults: { cameras: {}, microphones: {} },
+      durationMs: 60000
+    });
+    const first = runOfflineAutoEdit({
+      draft,
+      mode: "balanced",
+      now: "2026-06-27T10:00:00.000Z",
+      silenceSegments: [{ startMs: 12000, endMs: 16000 }]
+    });
+    const rerun = runOfflineAutoEdit({
+      draft: first.draft,
+      mode: "gentle",
+      now: "2026-06-27T10:01:00.000Z",
+      silenceSegments: [{ startMs: 22000, endMs: 27000 }]
+    });
+
+    expect(rerun.draft.editLog.filter((operation) => operation.id.startsWith("auto-silence-"))).toHaveLength(1);
+    expect(rerun.draft.editLog.filter((operation) => operation.type === "auto-edit-suggestion")).toHaveLength(1);
+    expect(rerun.draft.editLog.some((operation) => operation.timestampMs === 12300)).toBe(false);
+    expect(rerun.draft.editLog.some((operation) => operation.timestampMs === 22450)).toBe(true);
+  });
 });
