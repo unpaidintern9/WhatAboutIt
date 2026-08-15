@@ -6,6 +6,7 @@ import {
   createTimelineDraft,
   getTimelineSegments,
   getNextPlayableTimelineTime,
+  isTimelineTrackAvailableAt,
   lockedTimelineTools,
   markTimelineSaved,
   redoTimelineEdit,
@@ -323,6 +324,19 @@ describe("timeline draft", () => {
 
     expect(getNextPlayableTimelineTime(cut, 15000)).toBe(20000);
     expect(getNextPlayableTimelineTime(cut, 25000)).toBe(25000);
+  });
+
+  it("uses camera source edits to decide whether an angle is available", () => {
+    const base = setTimelineRange(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), 10000, 20000, "camera-camera1");
+    const cut = applyTimelineEdit(base, "delete-section");
+
+    expect(isTimelineTrackAvailableAt(cut, "camera-camera1", 5000)).toBe(true);
+    expect(isTimelineTrackAvailableAt(cut, "camera-camera1", 15000)).toBe(false);
+    expect(isTimelineTrackAvailableAt(cut, "camera-camera1", 25000)).toBe(true);
+    expect(isTimelineTrackAvailableAt({
+      ...cut,
+      tracks: cut.tracks.map((track) => track.id === "camera-camera1" ? { ...track, includedInProgram: false } : track)
+    }, "camera-camera1", 5000)).toBe(false);
   });
 
   it("restores the original draft by clearing edit history", () => {

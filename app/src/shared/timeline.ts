@@ -585,6 +585,17 @@ export function getActiveCameraTrackId(draft: TimelineDraft, timestampMs: number
   return [...draft.cameraDecisions].filter((decision) => decision.startMs <= timestampMs).sort((left, right) => right.startMs - left.startMs)[0]?.cameraTrackId;
 }
 
+export function isTimelineTrackAvailableAt(draft: TimelineDraft, trackId: string, timestampMs: number): boolean {
+  const track = draft.tracks.find((candidate) => candidate.id === trackId);
+  if (!track?.includedInProgram) return false;
+  return !draft.editLog.some((edit) => {
+    if ((edit.targetTrackId ?? "program") !== trackId) return false;
+    return (edit.type === "trim-before" && timestampMs < edit.timestampMs)
+      || (edit.type === "trim-after" && timestampMs >= edit.timestampMs)
+      || (edit.type === "delete-section" && timestampMs >= edit.timestampMs && timestampMs < (edit.endTimestampMs ?? edit.timestampMs + 15000));
+  });
+}
+
 export function addCameraDecision(draft: TimelineDraft, cameraTrackId: string, source: TimelineCameraDecision["source"] = "manual", reason = "Camera selected for the combined episode", now = new Date().toISOString()): TimelineDraft {
   const track = draft.tracks.find((candidate) => candidate.id === cameraTrackId && candidate.kind === "camera");
   if (!track) return draft;

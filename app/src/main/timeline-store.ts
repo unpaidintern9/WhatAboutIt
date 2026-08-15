@@ -72,10 +72,15 @@ export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft)
     episodeId,
     nonDestructive: true as const
   });
+  const persistedDraft = {
+    ...nextDraft,
+    history: [],
+    redoHistory: []
+  };
   let temporaryHandle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
     temporaryHandle = await fs.open(temporaryPath, "wx");
-    await temporaryHandle.writeFile(JSON.stringify(nextDraft, null, 2), "utf8");
+    await temporaryHandle.writeFile(JSON.stringify(persistedDraft, null, 2), "utf8");
     await temporaryHandle.sync();
     await temporaryHandle.close();
     temporaryHandle = undefined;

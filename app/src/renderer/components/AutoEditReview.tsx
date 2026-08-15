@@ -8,6 +8,7 @@ interface AutoEditReviewProps {
   mode: AutoEditMode;
   result?: AutoEditResult;
   running: boolean;
+  error?: string;
   onModeChange: (mode: AutoEditMode) => void;
   onRun: () => void;
   onReview: () => void;
@@ -22,7 +23,7 @@ const modeIcons = {
   "clip-hunter": <Target size={24} />
 };
 
-export function AutoEditReview({ mode, result, running, onModeChange, onRun, onReview, onExport, onToggleSilenceCut }: AutoEditReviewProps) {
+export function AutoEditReview({ mode, result, running, error, onModeChange, onRun, onReview, onExport, onToggleSilenceCut }: AutoEditReviewProps) {
   const stages = running ? createAutoEditStages("timeline-decisions") : (result?.stages ?? createAutoEditStages());
   const report = result?.report;
 
@@ -63,6 +64,7 @@ export function AutoEditReview({ mode, result, running, onModeChange, onRun, onR
             </span>
           ))}
         </div>
+        {error ? <p className="auto-edit-error" role="alert">Auto Edit stopped: {error} Your current draft was not replaced. You can try again.</p> : null}
         <div className="auto-edit-actions">
           <Button variant="primary" icon={<Sparkles size={20} />} disabled={running} onClick={onRun}>
             Auto Edit

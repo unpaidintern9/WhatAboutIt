@@ -261,30 +261,91 @@ export async function analyzeReviewMediaSync(episodeId: string): Promise<ReviewM
       confidence: "review",
       message: "Add the main audio before automatic sync."
     };
-  const referenceOnset = await detectFirstSoundMs(referencePath);
+  const referenceOnsets = await detectSoundOnsetsMs(referencePath);
+  if (referenceOnsets.length === 0)
+    return {
+      offsetsMs: {},
+      confidence: "review",
+      message: "Automatic sync could not find a clear sound in the main audio. Use Sync nudge to line up a clap or spoken word."
+    };
   const offsetsMs: Record<string, number> = {};
+  const cameraConfidence: Array<ReviewMediaSyncResult["confidence"]> = [];
   for (const index of [1, 2, 3]) {
     const cameraPath = path.join(episodeFolder, "Cameras", `camera-${index}.webm`);
     try {
       await fs.access(cameraPath);
-      const cameraOnset = await detectFirstSoundMs(cameraPath);
-      offsetsMs[`camera-camera${index}`] = Math.max(-30000, Math.min(30000, cameraOnset - referenceOnset));
+      const alignment = alignSoundOnsets(referenceOnsets, await detectSoundOnsetsMs(cameraPath));
+      if (!alignment) continue;
+      offsetsMs[`camera-camera${index}`] = alignment.offsetMs;
+      cameraConfidence.push(alignment.confidence);
     } catch {
       // Missing cameras remain untouched.
     }
   }
   const count = Object.keys(offsetsMs).length;
+  const confidence = count > 0 && cameraConfidence.every((value) => value === "high") ? "high" : "review";
   return {
     offsetsMs,
-    confidence: count > 1 ? "high" : "review",
-    message: count > 0 ? `Aligned ${count} camera ${count === 1 ? "track" : "tracks"} to the first clear sound. Review the clap or first spoken word.` : "No camera audio was available for automatic sync."
+    confidence,
+    message: count > 0
+      ? confidence === "high"
+        ? `Aligned ${count} camera ${count === 1 ? "track" : "tracks"} from multiple matching sound moments.`
+        : `Aligned ${count} camera ${count === 1 ? "track" : "tracks"} from the clearest sound available. Review a clap or spoken word and use Sync nudge if needed.`
+      : "No clear camera audio was available for automatic sync."
   };
 }
 
-async function detectFirstSoundMs(filePath: string) {
-  const result = await runFfmpeg(["-hide_banner", "-i", filePath, "-af", "silencedetect=noise=-35dB:d=0.15", "-t", "30", "-f", "null", "-"]);
-  const initialSilence = /silence_start:\s*0(?:\.0+)?[\s\S]*?silence_end:\s*([\d.]+)/.exec(result.stderr);
-  return initialSilence ? Math.round(Number(initialSilence[1]) * 1000) : 0;
+export function alignSoundOnsets(referenceOnsetsMs: number[], cameraOnsetsMs: number[]) {
+  const candidates = referenceOnsetsMs.flatMap((reference) =>
+    cameraOnsetsMs.map((camera) => camera - reference).filter((offset) => Math.abs(offset) <= 30000)
+  );
+  if (candidates.length === 0) return undefined;
+  const scored = candidates.map((candidate) => {
+    const possibleMatches = referenceOnsetsMs.flatMap((reference, referenceIndex) =>
+      cameraOnsetsMs.map((camera, cameraIndex) => ({
+        referenceIndex,
+        cameraIndex,
+        difference: camera - reference,
+        errorMs: Math.abs(camera - reference - candidate)
+      }))
+    ).filter((match) => match.errorMs <= 250).sort((left, right) => left.errorMs - right.errorMs);
+    const usedReferences = new Set<number>();
+    const usedCameras = new Set<number>();
+    const matches = possibleMatches.filter((match) => {
+      if (usedReferences.has(match.referenceIndex) || usedCameras.has(match.cameraIndex)) return false;
+      usedReferences.add(match.referenceIndex);
+      usedCameras.add(match.cameraIndex);
+      return true;
+    });
+    const differences = matches.map((match) => match.difference);
+    const errors = differences.map((difference) => Math.abs(difference - candidate));
+    const matchedReferenceTimes = matches.map((match) => referenceOnsetsMs[match.referenceIndex]);
+    return {
+      candidate,
+      differences,
+      matchCount: differences.length,
+      matchSpanMs: matchedReferenceTimes.length > 1 ? Math.max(...matchedReferenceTimes) - Math.min(...matchedReferenceTimes) : 0,
+      averageErrorMs: errors.length > 0 ? errors.reduce((total, error) => total + error, 0) / errors.length : Number.POSITIVE_INFINITY,
+      maxErrorMs: errors.length > 0 ? Math.max(...errors) : Number.POSITIVE_INFINITY
+    };
+  }).sort((left, right) => right.matchCount - left.matchCount || left.averageErrorMs - right.averageErrorMs);
+  const best = scored[0];
+  const orderedDifferences = [...best.differences].sort((left, right) => left - right);
+  const offsetMs = Math.round(orderedDifferences[Math.floor(orderedDifferences.length / 2)] ?? best.candidate);
+  return {
+    offsetMs: Math.max(-30000, Math.min(30000, offsetMs)),
+    confidence: best.matchCount >= 3 && best.matchSpanMs >= 1000 && best.maxErrorMs <= 120 ? "high" as const : "review" as const,
+    matchCount: best.matchCount,
+    maxErrorMs: Math.round(best.maxErrorMs)
+  };
+}
+
+async function detectSoundOnsetsMs(filePath: string) {
+  const result = await runFfmpeg(["-hide_banner", "-i", filePath, "-af", "silencedetect=noise=-35dB:d=0.15", "-t", "120", "-f", "null", "-"]);
+  const silenceStarts = [...result.stderr.matchAll(/silence_start:\s*([\d.]+)/g)].map((match) => Number(match[1]) * 1000);
+  const silenceEnds = [...result.stderr.matchAll(/silence_end:\s*([\d.]+)/g)].map((match) => Math.round(Number(match[1]) * 1000));
+  const beginsWithSound = silenceStarts.length === 0 || silenceStarts[0] > 50;
+  return [...(beginsWithSound ? [0] : []), ...silenceEnds].filter((value) => Number.isFinite(value)).slice(0, 12);
 }
 
 async function firstExistingPath(paths: string[]) {

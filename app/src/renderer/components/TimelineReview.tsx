@@ -42,6 +42,7 @@ import {
   getActiveCameraTrackId,
   getNextPlayableTimelineTime,
   getTimelineSegments,
+  isTimelineTrackAvailableAt,
   redoTimelineEdit,
   resetTimelineTrackControls,
   restoreOriginalTimeline,
@@ -100,7 +101,8 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
   const programAudioRefs = useRef(new Map<string, HTMLAudioElement>());
   const multicamVideoRefs = useRef(new Map<string, HTMLVideoElement>());
   const resumePlaybackRef = useRef(false);
-  const activeCameraTrackId = selectedVideoId === "program" ? getActiveCameraTrackId(draft, playheadMs) : undefined;
+  const decidedCameraTrackId = selectedVideoId === "program" ? getActiveCameraTrackId(draft, playheadMs) : undefined;
+  const activeCameraTrackId = decidedCameraTrackId && isTimelineTrackAvailableAt(draft, decidedCameraTrackId, playheadMs) ? decidedCameraTrackId : undefined;
   const activeCameraTrack = draft.tracks.find((track) => track.id === activeCameraTrackId);
   const activeProgramAsset = activeCameraTrack?.sourceAssetId ? videoAssets.find((asset) => asset.id === activeCameraTrack.sourceAssetId && asset.status === "ready") : undefined;
   const selectedVideo = activeProgramAsset ?? videoAssets.find((asset) => asset.id === selectedVideoId) ?? videoAssets.find((asset) => asset.status === "ready") ?? videoAssets[0];
@@ -1125,6 +1127,7 @@ function TrackInspector({
           </label>
           <details className="editor-tool-group" open>
             <summary>Voice cleanup</summary>
+            <small>Voice cleanup, tone, fades, and output protection are rendered in the final export.</small>
             <InspectorRange label="Noise cleanup" value={track.noiseReduction} min={0} max={100} suffix="%" onChange={(noiseReduction) => onUpdate(track, { noiseReduction })} />
             <InspectorRange label="Noise gate" value={track.noiseGateDb} min={-80} max={-20} suffix={track.noiseGateDb === -80 ? " Off" : " dB"} onChange={(noiseGateDb) => onUpdate(track, { noiseGateDb })} />
             <InspectorRange label="De-ess" value={track.deEsser} min={0} max={100} suffix="%" onChange={(deEsser) => onUpdate(track, { deEsser })} />
@@ -1170,6 +1173,7 @@ function TrackInspector({
           <InspectorRange label="Color" value={track.saturation} min={0} max={200} suffix="%" onChange={(saturation) => onUpdate(track, { saturation })} />
           <details className="editor-tool-group">
             <summary>Camera finishing</summary>
+            <small>These finishing controls are rendered in the final export.</small>
             <InspectorRange label="Temperature" value={track.temperature} min={-100} max={100} onChange={(temperature) => onUpdate(track, { temperature })} />
             <InspectorRange label="Tint" value={track.tint} min={-100} max={100} onChange={(tint) => onUpdate(track, { tint })} />
             <InspectorRange label="Video denoise" value={track.denoise} min={0} max={100} suffix="%" onChange={(denoise) => onUpdate(track, { denoise })} />
@@ -1182,7 +1186,7 @@ function TrackInspector({
                 Clean cut
               </button>
               <button type="button" className={draft.cameraTransition === "fade" ? "selected" : ""} onClick={() => onTransitionChange("fade", draft.cameraTransitionMs)}>
-                Soft fade
+                Fade through black
               </button>
             </div>
             {draft.cameraTransition === "fade" ? <InspectorRange label="Fade length" value={draft.cameraTransitionMs} min={100} max={1000} step={50} suffix="ms" onChange={(durationMs) => onTransitionChange("fade", durationMs)} /> : null}
@@ -1192,7 +1196,7 @@ function TrackInspector({
 
       {isAudio || isVideo ? (
         <>
-          <InspectorRange label="Sync nudge" value={track.syncOffsetMs} min={-2000} max={2000} step={10} suffix="ms" onChange={(syncOffsetMs) => onUpdate(track, { syncOffsetMs })} />
+          <InspectorRange label="Sync nudge" value={track.syncOffsetMs} min={-30000} max={30000} step={10} suffix="ms" onChange={(syncOffsetMs) => onUpdate(track, { syncOffsetMs })} />
           <div className="inspector-utility-actions">
             <button type="button" onClick={onApplyTreatment} title={`Copy this ${isAudio ? "voice treatment" : "camera look"} to matching tracks`}>
               <SlidersHorizontal size={16} /> Apply to all {isAudio ? "mics" : "cameras"}

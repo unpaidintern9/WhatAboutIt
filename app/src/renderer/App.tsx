@@ -326,6 +326,7 @@ export default function App() {
   const [autoEditMode, setAutoEditMode] = useState<AutoEditMode>("balanced");
   const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | undefined>();
   const [autoEditRunning, setAutoEditRunning] = useState(false);
+  const [autoEditError, setAutoEditError] = useState<string | undefined>();
   const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus>(() => createInitialAppUpdateStatus("0.2.0", false));
   const [timelineSaveState, setTimelineSaveState] = useState<TimelineSaveState>("saved");
   const timelineAutosaveTimerRef = useRef<number | undefined>(undefined);
@@ -679,12 +680,15 @@ export default function App() {
 
   async function runAutoEditFlow(practice = false) {
     if (!activeEpisode) return;
+    setAutoEditError(undefined);
     setAutoEditRunning(true);
     setView("auto-edit-review");
     try {
       const result = await studio.runAutoEdit(activeEpisode.id, timelineDraft, autoEditMode, practice, settings.autoEditLearning);
       setAutoEditResult(result);
       setTimelineDraft(result.draft);
+    } catch (error) {
+      setAutoEditError(error instanceof Error ? error.message : "Auto Edit could not finish. Your existing draft is still safe.");
     } finally {
       setAutoEditRunning(false);
     }
@@ -1366,6 +1370,7 @@ export default function App() {
             mode={autoEditMode}
             result={autoEditResult}
             running={autoEditRunning}
+            error={autoEditError}
             onModeChange={setAutoEditMode}
             onRun={() => void runAutoEditFlow(reviewMode)}
             onReview={() => setView("timeline-review")}

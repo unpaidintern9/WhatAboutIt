@@ -148,6 +148,42 @@ describe("export store", () => {
     expect(await validatePlayableMedia(outputPath)).toBe(true);
   }, 20000);
 
+  it("renders Program-only timeline cuts instead of copying the unchanged recording", async () => {
+    const { createExport } = await import("./export-store");
+    const { getMediaDurationMs, runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");
+    const episodeId = "episode-program-cut";
+    const programFolder = path.join(mockPaths.episodesRoot, episodeId, "Program");
+    const sourcePath = path.join(programFolder, "program.webm");
+    await fs.mkdir(programFolder, { recursive: true });
+    await runFfmpeg([
+      "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24",
+      "-f", "lavfi", "-i", "sine=frequency=550:sample_rate=48000",
+      "-t", "2", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", sourcePath
+    ]);
+    const base = createTimelineDraft({ episodeId, durationMs: 2000, deviceDefaults: { cameras: {}, microphones: {} } });
+    const draft = {
+      ...base,
+      editLog: [{
+        id: "program-cut",
+        type: "delete-section" as const,
+        label: "Cut this section",
+        timestampMs: 500,
+        endTimestampMs: 1500,
+        targetTrackId: "program",
+        createdAt: "2026-08-15T12:00:00.000Z"
+      }]
+    };
+
+    const job = await createExport({ episodeId, type: "full-episode-video", qualityPreset: "standard", draft });
+    const outputPath = path.join(mockPaths.episodesRoot, episodeId, "Exports", job.outputFileName ?? "");
+    const durationMs = await getMediaDurationMs(outputPath);
+
+    expect(job.status).toBe("complete");
+    expect(await validatePlayableMedia(outputPath)).toBe(true);
+    expect(durationMs).toBeGreaterThan(800);
+    expect(durationMs).toBeLessThan(1300);
+  }, 30000);
+
   it("reports live progress and creates camera masters with their routed microphone", async () => {
     const { createExport } = await import("./export-store");
     const { runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");
