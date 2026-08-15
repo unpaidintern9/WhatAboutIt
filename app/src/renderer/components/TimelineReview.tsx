@@ -7,6 +7,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  FastForward,
   Gauge,
   Grid2X2,
   GripVertical,
@@ -19,6 +20,7 @@ import {
   Play,
   Plus,
   Redo2,
+  Rewind,
   RotateCcw,
   Save,
   Scissors,
@@ -92,8 +94,9 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
   const [playheadMs, setPlayheadMs] = useState(draft.selection?.timestampMs ?? 0);
   const [timelineTool, setTimelineTool] = useState<TimelineTool>("select");
   const [timelineZoom, setTimelineZoom] = useState(100);
+  const [playbackRate, setPlaybackRate] = useState(1);
   const [snapEnabled, setSnapEnabled] = useState(true);
-  const [mediaSetupMessage, setMediaSetupMessage] = useState("Add up to three camera files and the main podcast audio, then sync them together.");
+  const [mediaSetupMessage, setMediaSetupMessage] = useState("Add up to three camera files and the main podcast audio. Full-quality originals stay protected while lighter copies keep editing responsive.");
   const [mediaSetupBusy, setMediaSetupBusy] = useState<ReviewMediaImportSlot | "sync">();
   const [showMulticam, setShowMulticam] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -157,6 +160,13 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
     const nextTime = Math.max(0, (playheadMs + selectedVideoOffsetMs) / 1000);
     if (video.readyState >= 1) video.currentTime = Math.min(nextTime, Number.isFinite(video.duration) ? video.duration : nextTime);
   }, [selectedVideo?.playbackUrl, selectedVideoOffsetMs]);
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = playbackRate;
+    if (pairedAudioRef.current) pairedAudioRef.current.playbackRate = playbackRate;
+    for (const audio of programAudioRefs.current.values()) audio.playbackRate = playbackRate;
+    for (const video of multicamVideoRefs.current.values()) video.playbackRate = playbackRate;
+  }, [playbackRate]);
 
   useEffect(
     () => () => {
@@ -256,6 +266,7 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
       const track = draft.tracks.find((candidate) => candidate.sourceAssetId === camera.id);
       const targetSeconds = Math.max(0, (timestampMs + (track?.syncOffsetMs ?? 0)) / 1000);
       if (Math.abs(video.currentTime - targetSeconds) > 0.18) video.currentTime = targetSeconds;
+      video.playbackRate = playbackRate;
       if (play && showMulticam) void video.play().catch(() => undefined);
     }
   }
@@ -267,6 +278,7 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
       const targetSeconds = Math.max(0, (timestampMs + track.syncOffsetMs) / 1000);
       if (Math.abs(audio.currentTime - targetSeconds) > 0.12) audio.currentTime = targetSeconds;
       audio.volume = Math.max(0, Math.min(1, track.volume / 100));
+      audio.playbackRate = playbackRate;
       if (play) void audio.play().catch(() => undefined);
     }
   }
@@ -295,6 +307,7 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
     if (!audio) return;
     if (Math.abs(audio.currentTime - timelineTime / 1000) > 0.2) audio.currentTime = timelineTime / 1000;
     audio.volume = video.volume;
+    audio.playbackRate = playbackRate;
     if (play) void audio.play().catch(() => undefined);
   }
 
@@ -303,6 +316,7 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
     if (!video) return;
     const target = Math.max(0, (playheadMs + selectedVideoOffsetMs) / 1000);
     video.currentTime = Math.min(target, Number.isFinite(video.duration) ? video.duration : target);
+    video.playbackRate = playbackRate;
     if (resumePlaybackRef.current) void video.play().catch(() => undefined);
   }
 
@@ -414,8 +428,8 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
 
   useEffect(() => {
     function handleEditorKey(event: KeyboardEvent) {
-      const target = event.target as HTMLElement | null;
-      if (target?.matches("input, select, textarea, [contenteditable='true']")) return;
+      const target = event.target;
+      if (target instanceof Element && target.matches("input, select, textarea, [contenteditable='true']")) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         onDraftChange(event.shiftKey ? redoTimelineEdit(draft) : undoTimelineEdit(draft));
@@ -430,6 +444,22 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
         event.preventDefault();
         if (videoRef.current?.paused) void playSelectedVideo();
         else pauseSelectedVideo();
+        return;
+      }
+      if (event.key.toLowerCase() === "j") {
+        event.preventDefault();
+        seek(playheadMs - 5000);
+        return;
+      }
+      if (event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        if (videoRef.current?.paused) void playSelectedVideo();
+        else pauseSelectedVideo();
+        return;
+      }
+      if (event.key.toLowerCase() === "l") {
+        event.preventDefault();
+        seek(playheadMs + 5000);
         return;
       }
       if (event.key.toLowerCase() === "s" && !event.ctrlKey && !event.metaKey) {
@@ -659,6 +689,18 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
             <button type="button" disabled={selectedVideo?.status !== "ready"} onClick={pauseSelectedVideo} title="Pause playback">
               <Pause size={17} /> Pause
             </button>
+            <button type="button" disabled={selectedVideo?.status !== "ready"} onClick={() => seek(playheadMs - 5000)} title="Go back 5 seconds (J)">
+              <Rewind size={17} /> <kbd>J</kbd> 5s
+            </button>
+            <button type="button" disabled={selectedVideo?.status !== "ready"} onClick={() => seek(playheadMs + 5000)} title="Go forward 5 seconds (L)">
+              <FastForward size={17} /> <kbd>L</kbd> 5s
+            </button>
+            <label className="edit-playback-speed">
+              <span>Speed</span>
+              <select aria-label="Playback speed" value={playbackRate} onChange={(event) => setPlaybackRate(Number(event.target.value))}>
+                {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => <option value={rate} key={rate}>{rate}×</option>)}
+              </select>
+            </label>
             <button type="button" disabled={!draft.markers.some((marker) => marker.timestampMs > playheadMs + 250)} onClick={() => seekMarker(1)} title="Next marker">
               Marker <ChevronRight size={17} />
             </button>

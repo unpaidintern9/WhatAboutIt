@@ -147,10 +147,27 @@ describe("review media store", () => {
     const inventory = await importReviewMediaFile(episodeId, "camera-1", sourcePath);
 
     expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.status).toBe("ready");
+    expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.originalFilePath).toBe(path.join(mockPaths.episodesRoot, episodeId, "Originals", "camera-1.mp4"));
     expect(inventory.program.status).toBe("ready");
+    await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Originals", "camera-1.mp4"))).resolves.toBeTruthy();
+    expect(await fs.readFile(path.join(mockPaths.episodesRoot, episodeId, "Originals", "camera-1.mp4"))).toEqual(await fs.readFile(sourcePath));
     await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Cameras", "camera-1.webm"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Program", "program.webm"))).resolves.toBeTruthy();
+    expect(await fs.readFile(path.join(mockPaths.episodesRoot, episodeId, "Session", "imported-media.json"), "utf8")).toContain(path.join("Originals", "camera-1.mp4"));
   }, 20000);
+
+  it("ignores imported-original manifest paths outside the episode", async () => {
+    const { loadImportedOriginalPaths } = await import("./review-media-store");
+    const episodeId = "episode-safe-paths";
+    const sessionFolder = path.join(mockPaths.episodesRoot, episodeId, "Session");
+    await fs.mkdir(sessionFolder, { recursive: true });
+    await fs.writeFile(path.join(sessionFolder, "imported-media.json"), JSON.stringify({
+      version: 1,
+      assets: { "camera-1": { relativePath: path.join("..", "..", "outside.mp4"), importedAt: "now" } }
+    }));
+
+    await expect(loadImportedOriginalPaths(episodeId)).resolves.toEqual({});
+  });
 
   it("only reports high sync confidence for several tightly matching sound moments", async () => {
     const { alignSoundOnsets } = await import("./review-media-store");

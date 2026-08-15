@@ -83,6 +83,7 @@ describe("TimelineReview", () => {
     expect(markup).toContain("camera choices from saved mic activity");
     expect(markup).toContain("Highlight");
     expect(markup).toContain("Synchronized episode timeline");
+    expect(markup).toContain("Full-quality originals stay protected");
     expect(markup).toContain("Timeline editing tools");
     expect(markup).toContain("Select, scrub, or drag a range");
     expect(markup).toContain("Set range start at the playhead");
@@ -101,6 +102,9 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Save &amp; Export");
     expect(markup).toContain("Previous marker");
     expect(markup).toContain("Next marker");
+    expect(markup).toContain("Go back 5 seconds (J)");
+    expect(markup).toContain("Go forward 5 seconds (L)");
+    expect(markup).toContain('aria-label="Playback speed"');
     expect(markup).toContain("Edit history");
     expect(markup).toContain("Manual Edit");
     expect(markup).toContain("Draft saved");
@@ -266,6 +270,31 @@ describe("TimelineReview", () => {
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
       editLog: [expect.objectContaining({ type: "split", timestampMs: 15000, targetTrackId: "program" })]
     }));
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("supports J and L transport shortcuts for fast podcast review", () => {
+    const draft = {
+      ...createTimelineDraft({
+        deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+        durationMs: 30000
+      }),
+      selection: { timestampMs: 10000, trackId: "program", source: "timeline" as const }
+    };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(<TimelineReview draft={draft} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+    });
+    const playhead = host.querySelector('input[aria-label="Episode playhead"]') as HTMLInputElement;
+
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "j", bubbles: true })));
+    expect(playhead.value).toBe("5000");
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "l", bubbles: true })));
+    expect(playhead.value).toBe("10000");
+
     act(() => root.unmount());
     host.remove();
   });

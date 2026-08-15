@@ -242,7 +242,7 @@ app.whenReady().then(async () => {
     return {
       canceled: false,
       inventory: await importReviewMediaFile(input.episodeId, input.slot, result.filePaths[0]),
-      message: `${input.slot.startsWith("camera-") ? input.slot.replace("camera-", "Camera ") : "Main audio"} imported successfully.`
+      message: `${input.slot.startsWith("camera-") ? input.slot.replace("camera-", "Camera ") : "Main audio"} imported. The full-quality original is protected and a lighter editing copy is ready.`
     };
   });
   ipcMain.handle("review-media:auto-sync", (_event, episodeId: string) => analyzeReviewMediaSync(episodeId));

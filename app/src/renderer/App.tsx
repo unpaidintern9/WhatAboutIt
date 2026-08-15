@@ -1384,6 +1384,7 @@ export default function App() {
             qualityPreset={selectedQualityPreset}
             job={exportJob}
             mediaToolsStatus={mediaToolsStatus}
+            selectedRangeMs={timelineDraft.selection?.endTimestampMs === undefined ? undefined : timelineDraft.selection.endTimestampMs - timelineDraft.selection.timestampMs}
             onTypeChange={(type) => void changeExportType(type)}
             onQualityChange={(preset) => void changeQualityPreset(preset)}
             onStartExport={() => void startExport(reviewMode)}

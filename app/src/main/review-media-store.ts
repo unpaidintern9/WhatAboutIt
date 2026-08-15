@@ -29,6 +29,11 @@ interface DeviceMapFile {
   cameraMicrophones?: Partial<Record<CameraSlotKey, MicrophoneSlotKey>>;
 }
 
+interface ImportedMediaManifest {
+  version: 1;
+  assets: Partial<Record<ReviewMediaImportSlot, { relativePath: string; importedAt: string }>>;
+}
+
 const fallbackCameraMicrophones: Record<CameraSlotKey, MicrophoneSlotKey> = {
   camera1: "morganMic",
   camera2: "guestMic",
@@ -100,8 +105,12 @@ const expectedAssets: Array<Omit<ReviewMediaAsset, "status" | "message">> = [
 
 export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInventory> {
   const episodeFolder = path.join(getEpisodesRoot(), episodeId);
+  const originalPaths = await loadImportedOriginalPaths(episodeId);
   const fallbackDurationMs = await loadRecordingDuration(episodeFolder);
-  const assets = await Promise.all(expectedAssets.map((asset) => inspectAsset(episodeFolder, asset, fallbackDurationMs)));
+  const assets = await Promise.all(expectedAssets.map(async (asset) => ({
+    ...(await inspectAsset(episodeFolder, asset, fallbackDurationMs)),
+    originalFilePath: originalPaths[asset.id as ReviewMediaImportSlot]
+  })));
   const rawProgram = assets.find((asset) => asset.kind === "program") ?? missingAsset(episodeFolder, expectedAssets[0]);
   const cameraMicrophones = await loadCameraMicrophones(episodeFolder);
   const rawCameras = assets
@@ -190,19 +199,31 @@ export async function importReviewMediaFile(episodeId: string, slot: ReviewMedia
   const targetPath = path.join(episodeFolder, target.relativePath);
   const extension = path.extname(targetPath);
   const temporaryPath = `${targetPath.slice(0, -extension.length)}.importing${extension}`;
+  const sourceExtension = /^\.[a-z0-9]{1,8}$/i.test(path.extname(sourceFilePath)) ? path.extname(sourceFilePath).toLowerCase() : ".media";
+  const originalPath = path.join(episodeFolder, "Originals", `${slot}${sourceExtension}`);
+  const temporaryOriginalPath = `${originalPath}.importing`;
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  await fs.mkdir(path.dirname(originalPath), { recursive: true });
   await fs.rm(temporaryPath, { force: true });
+  await fs.rm(temporaryOriginalPath, { force: true });
   try {
+    await fs.copyFile(sourceFilePath, temporaryOriginalPath);
+    if (!(await validatePlayableMedia(temporaryOriginalPath, undefined, target.kind === "video" ? { video: true } : { audio: true }))) {
+      throw new Error(`${target.label} original could not be decoded.`);
+    }
     if (target.kind === "video") {
-      await runFfmpeg(["-y", "-i", sourceFilePath, "-map", "0:v:0", "-map", "0:a?", "-c:v", "libvpx-vp9", "-crf", "28", "-b:v", "0", "-deadline", "good", "-cpu-used", "4", "-c:a", "libopus", "-b:a", "160k", temporaryPath]);
+      await runFfmpeg(["-y", "-nostats", "-i", temporaryOriginalPath, "-map", "0:v:0", "-map", "0:a?", "-vf", "scale='min(1280,iw)':-2", "-c:v", "libvpx-vp9", "-crf", "34", "-b:v", "0", "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1", "-c:a", "libopus", "-b:a", "128k", temporaryPath]);
     } else {
-      await runFfmpeg(["-y", "-i", sourceFilePath, "-vn", "-c:a", "aac", "-b:a", "192k", temporaryPath]);
+      await runFfmpeg(["-y", "-nostats", "-i", temporaryOriginalPath, "-vn", "-c:a", "aac", "-b:a", "160k", temporaryPath]);
     }
     if (!(await validatePlayableMedia(temporaryPath, undefined, target.kind === "video" ? { video: true } : { audio: true }))) {
       throw new Error(`${target.label} could not be decoded after import.`);
     }
+    await backupExistingImportedMedia(episodeFolder, originalPath, `${slot}-original`);
+    await fs.rename(temporaryOriginalPath, originalPath);
     await backupExistingImportedMedia(episodeFolder, targetPath, slot);
     await fs.rename(temporaryPath, targetPath);
+    await saveImportedOriginalPath(episodeId, slot, originalPath);
     if (slot === "camera-1") {
       const programPath = path.join(episodeFolder, "Program", "program.webm");
       const fallbackMarkerPath = path.join(episodeFolder, "Session", "program-from-camera-1.json");
@@ -234,8 +255,57 @@ export async function importReviewMediaFile(episodeId: string, slot: ReviewMedia
     return loadReviewMedia(episodeId);
   } catch (error) {
     await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+    await fs.rm(temporaryOriginalPath, { force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+export async function loadImportedOriginalPaths(episodeId: string): Promise<Partial<Record<ReviewMediaImportSlot, string>>> {
+  const episodeFolder = path.join(getEpisodesRoot(), episodeId);
+  try {
+    const manifest = JSON.parse(await fs.readFile(path.join(episodeFolder, "Session", "imported-media.json"), "utf8")) as ImportedMediaManifest;
+    const resolved: Partial<Record<ReviewMediaImportSlot, string>> = {};
+    for (const [slot, asset] of Object.entries(manifest.assets) as Array<[ReviewMediaImportSlot, { relativePath: string }]>) {
+      const candidate = path.resolve(episodeFolder, asset.relativePath);
+      if (candidate !== episodeFolder && candidate.startsWith(`${episodeFolder}${path.sep}`)) {
+        try {
+          await fs.access(candidate);
+          resolved[slot] = candidate;
+        } catch {
+          // A missing original falls back to the editor copy.
+        }
+      }
+    }
+    return resolved;
+  } catch {
+    return {};
+  }
+}
+
+async function saveImportedOriginalPath(episodeId: string, slot: ReviewMediaImportSlot, originalPath: string) {
+  const episodeFolder = path.join(getEpisodesRoot(), episodeId);
+  const sessionFolder = path.join(episodeFolder, "Session");
+  const manifestPath = path.join(sessionFolder, "imported-media.json");
+  await fs.mkdir(sessionFolder, { recursive: true });
+  let manifest: ImportedMediaManifest = { version: 1, assets: {} };
+  try {
+    manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as ImportedMediaManifest;
+  } catch {
+    // First imported source creates the manifest.
+  }
+  const nextManifest: ImportedMediaManifest = {
+    version: 1,
+    assets: {
+      ...manifest.assets,
+      [slot]: {
+        relativePath: path.relative(episodeFolder, originalPath),
+        importedAt: new Date().toISOString()
+      }
+    }
+  };
+  const temporaryPath = `${manifestPath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(temporaryPath, JSON.stringify(nextManifest, null, 2), "utf8");
+  await fs.rename(temporaryPath, manifestPath);
 }
 
 async function backupExistingImportedMedia(episodeFolder: string, filePath: string, label: string) {
@@ -374,10 +444,10 @@ async function ensureReviewProxy(episodeFolder: string, asset: ReviewMediaAsset,
     await fs.mkdir(proxyFolder, { recursive: true });
     if (await proxyNeedsRefresh(proxyPath, proxySources)) {
       const args = pairedAudioFile
-        ? ["-y", "-fflags", "+genpts", "-i", sourceFile, "-i", pairedAudioFile, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "libopus", "-b:a", "160k", proxyPath]
+        ? ["-y", "-nostats", "-fflags", "+genpts", "-i", sourceFile, "-i", pairedAudioFile, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "libopus", "-b:a", "160k", proxyPath]
         : asset.kind === "program"
-          ? ["-y", "-fflags", "+genpts", "-i", sourceFile, "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", proxyPath]
-          : ["-y", "-fflags", "+genpts", "-i", sourceFile, "-map", "0:v:0", "-an", "-c:v", "copy", proxyPath];
+          ? ["-y", "-nostats", "-fflags", "+genpts", "-i", sourceFile, "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", proxyPath]
+          : ["-y", "-nostats", "-fflags", "+genpts", "-i", sourceFile, "-map", "0:v:0", "-an", "-c:v", "copy", proxyPath];
       await runFfmpeg(args);
     }
     const requirements = {

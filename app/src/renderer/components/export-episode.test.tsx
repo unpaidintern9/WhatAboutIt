@@ -34,13 +34,27 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("Audio file for podcast platforms");
     expect(markup).toContain("Archive Master");
     expect(markup).toContain("Social Clip");
-    expect(markup).toContain("Saved for Version 2");
+    expect(markup).toContain("Vertical video from the selected timeline range");
     expect(markup).toContain("Media tools are ready");
     expect(markup).toContain("1080p video, 320 kbps audio");
     expect(markup).toContain("Recommended");
     expect(markup).toContain("separate 24-bit audio masters");
     expect(markup).toContain("Back to Review");
     expect(markup).toContain("Mix sources");
+  });
+
+  it("requires a selected range for social clips and describes a ready vertical clip", () => {
+    const missingRange = renderToStaticMarkup(
+      <ExportEpisode selectedType="social-clip-placeholder" qualityPreset="high" mediaToolsStatus={{ ready: true, message: "Media tools are ready" }} onTypeChange={vi.fn()} onQualityChange={vi.fn()} onStartExport={vi.fn()} onCancelExport={vi.fn()} onOpenFolder={vi.fn()} onBackToReview={vi.fn()} onFinish={vi.fn()} />
+    );
+    const ready = renderToStaticMarkup(
+      <ExportEpisode selectedType="social-clip-placeholder" selectedRangeMs={12500} qualityPreset="high" mediaToolsStatus={{ ready: true, message: "Media tools are ready" }} onTypeChange={vi.fn()} onQualityChange={vi.fn()} onStartExport={vi.fn()} onCancelExport={vi.fn()} onOpenFolder={vi.fn()} onBackToReview={vi.fn()} onFinish={vi.fn()} />
+    );
+
+    expect(missingRange).toContain("drag across the Program timeline");
+    expect(missingRange).toContain("disabled");
+    expect(ready).toContain("Selected clip: 12.5 seconds");
+    expect(ready).toContain("1080×1920 vertical video");
   });
 
   it("renders progress and complete state", () => {

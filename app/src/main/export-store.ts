@@ -8,6 +8,7 @@ import { completeExportJob, createExportJob, createExportSummary, failExportJob,
 import { getEpisodesRoot } from "./config-service";
 import { detectMediaTools, getMediaDurationMs, requireMediaTools, runFfmpeg, runFfmpegWithProgress, validatePlayableMedia } from "./ffmpeg-tools";
 import { logger } from "./logger";
+import { loadImportedOriginalPaths } from "./review-media-store";
 
 type ExportProgressReporter = (job: ExportJob) => void;
 
@@ -57,15 +58,17 @@ async function writeExportArtifacts(job: ExportJob) {
 }
 
 async function hasProgramRecording(episodeId: string) {
-  try {
-    await fs.access(path.join(programFolder(episodeId), "program.webm"));
-    return true;
-  } catch {
-    return false;
-  }
+  return Boolean(await findProgramRecording(episodeId));
 }
 
 async function findProgramRecording(episodeId: string) {
+  const originals = await loadImportedOriginalPaths(episodeId);
+  try {
+    await fs.access(path.join(episodeFolder(episodeId), "Session", "program-from-camera-1.json"));
+    if (originals["camera-1"]) return originals["camera-1"];
+  } catch {
+    // A recorded Program file is preferred unless Camera 1 created the fallback.
+  }
   try {
     const recording = path.join(programFolder(episodeId), "program.webm");
     await fs.access(recording);
@@ -78,6 +81,7 @@ async function findProgramRecording(episodeId: string) {
 function outputFileName(type: ExportRequest["type"]) {
   if (type === "audio-only") return "what-about-it-audio-only.m4a";
   if (type === "archive-master") return "what-about-it-archive-master.mkv";
+  if (type === "social-clip-placeholder") return "what-about-it-social-clip.mp4";
   return "what-about-it-full-episode-video.mp4";
 }
 
@@ -87,26 +91,29 @@ function qualityArgs(type: ExportRequest["type"], preset: ExportRequest["quality
   }
 
   if (type === "archive-master") {
-    return [...(includeVideoFilter ? ["-vf", videoOutputFilter(preset)] : []), "-r", "30", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s24le"];
+    return [...(includeVideoFilter ? ["-vf", videoOutputFilter(preset, type)] : []), "-r", "30", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s24le"];
   }
 
   const crf = preset === "high" ? "16" : preset === "archive" ? "14" : "20";
   const speed = preset === "high" || preset === "archive" ? "slow" : "veryfast";
   const audioBitrate = preset === "standard" ? "192k" : "320k";
   return [
-    ...(includeVideoFilter ? ["-vf", videoOutputFilter(preset)] : []),
+    ...(includeVideoFilter ? ["-vf", videoOutputFilter(preset, type)] : []),
     "-r", "30", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", speed, "-crf", crf,
     "-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", audioBitrate
   ];
 }
 
-function outputSize(preset: ExportRequest["qualityPreset"]) {
+function outputSize(preset: ExportRequest["qualityPreset"], type?: ExportRequest["type"]) {
+  if (type === "social-clip-placeholder") return { width: 1080, height: 1920 };
   return preset === "high" || preset === "archive" ? { width: 1920, height: 1080 } : { width: 1280, height: 720 };
 }
 
-function videoOutputFilter(preset: ExportRequest["qualityPreset"]) {
-  const size = outputSize(preset);
-  return `scale=${size.width}:${size.height}:force_original_aspect_ratio=decrease,pad=${size.width}:${size.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30`;
+function videoOutputFilter(preset: ExportRequest["qualityPreset"], type?: ExportRequest["type"]) {
+  const size = outputSize(preset, type);
+  return type === "social-clip-placeholder"
+    ? `scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,crop=${size.width}:${size.height},setsar=1,fps=30`
+    : `scale=${size.width}:${size.height}:force_original_aspect_ratio=decrease,pad=${size.width}:${size.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=30`;
 }
 
 async function createPracticeSource(episodeId: string) {
@@ -196,11 +203,12 @@ async function renderDraftExport(input: {
   const inputArgs = ["-y", "-fflags", "+genpts", "-i", input.sourceFile];
   const cameraInputs: DraftInput[] = [];
   const audioInputs: DraftInput[] = [];
+  const originalSources = await loadImportedOriginalPaths(request.episodeId);
   let inputIndex = 1;
 
   for (const track of request.draft.tracks) {
     if (!track.sourceAssetId) continue;
-    const filePath = sourcePathForTrack(request.episodeId, track);
+    const filePath = sourcePathForTrack(request.episodeId, track, originalSources);
     if (!filePath || !(await fileExists(filePath))) continue;
     if (track.kind === "camera" && track.includedInProgram) cameraInputs.push({ track, filePath, inputIndex });
     if (track.kind === "microphone") audioInputs.push({ track, filePath, inputIndex });
@@ -211,11 +219,23 @@ async function renderDraftExport(input: {
 
   const hasDraftDecisions = request.draft.cameraDecisions.length > 0
     || request.draft.editLog.length > 0
-    || request.draft.tracks.some(hasTrackAdjustments);
+    || request.draft.tracks.some(hasTrackAdjustments)
+    || request.type === "social-clip-placeholder";
   if (!hasDraftDecisions) return false;
 
   const filters: string[] = [];
-  const globalEdits = editsForTrack(request.draft.editLog, "program");
+  const selectedClipRange = request.type === "social-clip-placeholder" && request.draft.selection?.endTimestampMs !== undefined
+    ? { startMs: request.draft.selection.timestampMs, endMs: request.draft.selection.endTimestampMs }
+    : undefined;
+  const globalEdits = [
+    ...editsForTrack(request.draft.editLog, "program"),
+    ...(selectedClipRange
+      ? [
+          { id: "social-clip-in", type: "trim-before" as const, label: "Social clip start", timestampMs: selectedClipRange.startMs, targetTrackId: "program", createdAt: request.draft.updatedAt },
+          { id: "social-clip-out", type: "trim-after" as const, label: "Social clip end", timestampMs: selectedClipRange.endMs, targetTrackId: "program", createdAt: request.draft.updatedAt }
+        ]
+      : [])
+  ];
   const cameraEditPoints = request.draft.editLog.flatMap((edit) => {
     const target = request.draft.tracks.find((track) => track.id === edit.targetTrackId);
     return target?.kind === "camera"
@@ -231,7 +251,7 @@ async function renderDraftExport(input: {
   const cameraByTrack = new Map(cameraInputs.map((item) => [item.track.id, item]));
   const videoLabels: string[] = [];
   const programTrack = request.draft.tracks.find((track) => track.id === "program");
-  const size = outputSize(request.qualityPreset);
+  const size = outputSize(request.qualityPreset, request.type);
 
   if (request.type !== "audio-only") {
     for (const [index, range] of keepRanges.entries()) {
@@ -244,7 +264,7 @@ async function renderDraftExport(input: {
       const syncOffsetMs = chosenTrack?.syncOffsetMs ?? 0;
       const sourceStartMs = Math.max(0, range.startMs + syncOffsetMs);
       const sourceEndMs = Math.max(sourceStartMs + 1, range.endMs + syncOffsetMs);
-      const cropFilter = chosenTrack?.cropMode === "fill"
+      const cropFilter = request.type === "social-clip-placeholder" || chosenTrack?.cropMode === "fill"
         ? `scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,crop=${size.width}:${size.height}`
         : `scale=${size.width}:${size.height}:force_original_aspect_ratio=decrease,pad=${size.width}:${size.height}:(ow-iw)/2:(oh-ih)/2`;
       const pictureFilters = createVideoTreatment(chosenTrack, size);
@@ -309,7 +329,9 @@ async function renderDraftExport(input: {
   return true;
 }
 
-function sourcePathForTrack(episodeId: string, track: TimelineTrack) {
+function sourcePathForTrack(episodeId: string, track: TimelineTrack, originalSources: Awaited<ReturnType<typeof loadImportedOriginalPaths>> = {}) {
+  const original = track.sourceAssetId ? originalSources[track.sourceAssetId as keyof typeof originalSources] : undefined;
+  if (original) return original;
   if (track.kind === "camera" && /^camera-[123]$/.test(track.sourceAssetId ?? "")) {
     return path.join(episodeFolder(episodeId), "Cameras", `${track.sourceAssetId}.webm`);
   }
@@ -505,6 +527,7 @@ async function createCameraMasters(
   report?: ExportProgressReporter
 ) {
   const outputs: string[] = [];
+  const originalSources = await loadImportedOriginalPaths(request.episodeId);
   const available: Array<{ cameraSlot: CameraSlotKey; sourceFile: string; audioFile: string; relativeOutput: string }> = [];
   let savedRoutes: Partial<Record<CameraSlotKey, MicrophoneSlotKey>>;
   try {
@@ -517,7 +540,8 @@ async function createCameraMasters(
   }
   for (const cameraSlot of ["camera1", "camera2", "camera3"] as CameraSlotKey[]) {
     const cameraNumber = cameraSlot.at(-1);
-    const sourceFile = path.join(episodeFolder(request.episodeId), "Cameras", `camera-${cameraNumber}.webm`);
+    const sourceFile = originalSources[`camera-${cameraNumber}` as keyof typeof originalSources]
+      ?? path.join(episodeFolder(request.episodeId), "Cameras", `camera-${cameraNumber}.webm`);
     const microphoneSlot = savedRoutes[cameraSlot] ?? request.deviceDefaults?.cameraMicrophones?.[cameraSlot] ?? fallbackCameraMicrophones[cameraSlot];
     const audioFile = path.join(episodeFolder(request.episodeId), "Audio", microphoneFileNames[microphoneSlot]);
     if (!(await fileExists(sourceFile)) || !(await fileExists(audioFile))) continue;
@@ -560,10 +584,11 @@ async function createAudioMasters(
   report?: ExportProgressReporter
 ) {
   const outputs: string[] = [];
+  const originalSources = await loadImportedOriginalPaths(request.episodeId);
   const tracks = request.draft.tracks.filter((track) => track.kind === "microphone" && track.sourceAssetId);
   const available: Array<{ track: TimelineTrack; sourceFile: string; relativeOutput: string }> = [];
   for (const track of tracks) {
-    const sourceFile = sourcePathForTrack(request.episodeId, track);
+    const sourceFile = sourcePathForTrack(request.episodeId, track, originalSources);
     if (!sourceFile || !(await fileExists(sourceFile))) continue;
     available.push({
       track,
@@ -626,6 +651,13 @@ export async function createExport(request: ExportRequest, report?: ExportProgre
     await writeExportArtifacts(failed);
     report?.(failed);
     await logger.warning("ExportService", "Media tools missing for export.", { episodeId: request.episodeId });
+    return failed;
+  }
+
+  if (request.type === "social-clip-placeholder" && (request.draft.selection?.endTimestampMs === undefined || request.draft.selection.endTimestampMs <= request.draft.selection.timestampMs)) {
+    const failed = failExportJob(running, "clip-range-missing");
+    await writeExportArtifacts(failed);
+    report?.(failed);
     return failed;
   }
 
