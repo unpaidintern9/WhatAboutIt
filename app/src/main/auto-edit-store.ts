@@ -6,32 +6,38 @@ import type { TimelineDraft } from "../shared/timeline";
 import { markTimelineSaved } from "../shared/timeline";
 import { getEpisodesRoot } from "./config-service";
 import { logger } from "./logger";
-import { analyzeEpisodeAudioActivity } from "./audio-activity-analysis";
+import { analyzeEpisodeAudioActivity, analyzeEpisodeSilence } from "./audio-activity-analysis";
 
 function sessionFolder(episodeId: string) {
   return path.join(getEpisodesRoot(), episodeId, "Session");
 }
 
-export async function runAutoEdit(input: {
-  episodeId: string;
-  draft: TimelineDraft;
-  mode: AutoEditMode;
-  practice?: boolean;
-  learningProfile?: AutoEditLearningProfile;
-}): Promise<AutoEditResult> {
+export async function runAutoEdit(input: { episodeId: string; draft: TimelineDraft; mode: AutoEditMode; practice?: boolean; learningProfile?: AutoEditLearningProfile }): Promise<AutoEditResult> {
   const episodeFolder = path.join(getEpisodesRoot(), input.episodeId);
-  const activitySegments = input.practice ? [] : await analyzeEpisodeAudioActivity(episodeFolder).catch(async (error) => {
-    await logger.warning("AutoEditService", "Microphone activity analysis was unavailable; keeping the existing camera plan.", {
-      episodeId: input.episodeId,
-      error: String(error)
-    });
-    return [];
-  });
+  const activitySegments = input.practice
+    ? []
+    : await analyzeEpisodeAudioActivity(episodeFolder).catch(async (error) => {
+        await logger.warning("AutoEditService", "Microphone activity analysis was unavailable; keeping the existing camera plan.", {
+          episodeId: input.episodeId,
+          error: String(error)
+        });
+        return [];
+      });
+  const silenceSegments = input.practice
+    ? []
+    : await analyzeEpisodeSilence(episodeFolder).catch(async (error) => {
+        await logger.warning("AutoEditService", "Silence analysis was unavailable; no automatic timing cuts were made.", {
+          episodeId: input.episodeId,
+          error: String(error)
+        });
+        return [];
+      });
   const result = runOfflineAutoEdit({
     draft: input.draft,
     mode: input.mode,
     episodeId: input.episodeId,
     activitySegments,
+    silenceSegments,
     learningProfile: input.learningProfile
   });
   const folder = sessionFolder(input.episodeId);

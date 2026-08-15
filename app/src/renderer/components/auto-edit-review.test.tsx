@@ -6,9 +6,7 @@ import { AutoEditReview } from "./AutoEditReview";
 
 describe("AutoEditReview", () => {
   it("renders modes, progress, and friendly safe copy", () => {
-    const markup = renderToStaticMarkup(
-      <AutoEditReview mode="balanced" running={false} onModeChange={vi.fn()} onRun={vi.fn()} onExport={vi.fn()} />
-    );
+    const markup = renderToStaticMarkup(<AutoEditReview mode="balanced" running={false} onModeChange={vi.fn()} onRun={vi.fn()} onReview={vi.fn()} onExport={vi.fn()} onToggleSilenceCut={vi.fn()} />);
 
     expect(markup).toContain("Auto Edit");
     expect(markup).toContain("polished first draft");
@@ -21,12 +19,15 @@ describe("AutoEditReview", () => {
 
   it("renders report results", () => {
     const result = runOfflineAutoEdit({
-      draft: createTimelineDraft({ deviceDefaults: { cameras: {}, microphones: {} }, durationMs: 120000 }),
+      draft: createTimelineDraft({
+        deviceDefaults: { cameras: {}, microphones: {} },
+        durationMs: 120000
+      }),
       mode: "balanced",
       now: "2026-06-27T10:00:00.000Z"
     });
     const markup = renderToStaticMarkup(
-      <AutoEditReview mode="balanced" running={false} result={result} onModeChange={vi.fn()} onRun={vi.fn()} onExport={vi.fn()} />
+      <AutoEditReview mode="balanced" running={false} result={result} onModeChange={vi.fn()} onRun={vi.fn()} onReview={vi.fn()} onExport={vi.fn()} onToggleSilenceCut={vi.fn()} />
     );
 
     expect(markup).toContain("Your first draft is ready");
@@ -38,5 +39,7 @@ describe("AutoEditReview", () => {
     expect(markup).toContain("Review-needed items");
     expect(markup).toContain("podcast voice cleanup");
     expect(markup).toContain("denoise, color balance, and sharpening");
+    expect(markup).toContain("Review edited playback");
+    expect(markup).toContain("Long pauses");
   });
 });

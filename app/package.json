@@ -1,8 +1,13 @@
 {
   "name": "what-about-it-studio",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "Offline-first desktop studio for the What About It? podcast.",
+  "author": "What About It Studio",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/unpaidintern9/WhatAboutIt.git"
+  },
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
@@ -34,6 +39,7 @@
     "@ffmpeg-installer/ffmpeg": "^1.1.0",
     "@ffprobe-installer/ffprobe": "^2.1.2",
     "@vitejs/plugin-react": "^5.0.0",
+    "electron-updater": "^6.8.9",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
@@ -88,6 +94,12 @@
         "AppImage"
       ],
       "artifactName": "${productName}-${version}-Linux.${ext}"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "unpaidintern9",
+      "repo": "WhatAboutIt",
+      "releaseType": "prerelease"
     }
   }
 }

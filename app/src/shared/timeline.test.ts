@@ -5,6 +5,7 @@ import {
   applyTimelineEdit,
   createTimelineDraft,
   getTimelineSegments,
+  getNextPlayableTimelineTime,
   lockedTimelineTools,
   markTimelineSaved,
   redoTimelineEdit,
@@ -27,7 +28,11 @@ describe("timeline draft", () => {
   };
 
   it("creates a non-destructive draft with review tracks", () => {
-    const draft = createTimelineDraft({ episodeId: "episode-a", deviceDefaults, durationMs: 90000 });
+    const draft = createTimelineDraft({
+      episodeId: "episode-a",
+      deviceDefaults,
+      durationMs: 90000
+    });
 
     expect(draft.nonDestructive).toBe(true);
     expect(draft.version).toBe(1);
@@ -41,7 +46,14 @@ describe("timeline draft", () => {
   it("renders markers with timestamps in the draft", () => {
     const draft = createTimelineDraft({
       deviceDefaults,
-      markers: [{ id: "marker-a", label: "Funny", timestampMs: 12000, createdAt: "2026-06-27T10:00:00.000Z" }]
+      markers: [
+        {
+          id: "marker-a",
+          label: "Funny",
+          timestampMs: 12000,
+          createdAt: "2026-06-27T10:00:00.000Z"
+        }
+      ]
     });
 
     expect(draft.markers[0].label).toBe("Funny");
@@ -72,14 +84,22 @@ describe("timeline draft", () => {
 
     expect(edited.nonDestructive).toBe(true);
     expect(edited.version).toBe(2);
-    expect(edited.editLog[0]).toMatchObject({ type: "trim-before", label: "Trim before here", timestampMs: 12000 });
+    expect(edited.editLog[0]).toMatchObject({
+      type: "trim-before",
+      label: "Trim before here",
+      timestampMs: 12000
+    });
     expect(edited.hasUnsavedChanges).toBe(true);
   });
 
   it("targets manual edits to one selected camera or microphone", () => {
     const base = createTimelineDraft({ deviceDefaults, durationMs: 60000 });
     const selected = selectTimelineTrack(base, "mic-guestMic");
-    const positioned = selectTimelinePoint(selected, { timestampMs: 8000, source: "timeline", trackId: "mic-guestMic" });
+    const positioned = selectTimelinePoint(selected, {
+      timestampMs: 8000,
+      source: "timeline",
+      trackId: "mic-guestMic"
+    });
     const edited = applyTimelineEdit(positioned, "delete-section");
 
     expect(edited.editLog[0].targetTrackId).toBe("mic-guestMic");
@@ -92,11 +112,18 @@ describe("timeline draft", () => {
       source: "timeline",
       trackId: "camera-camera2"
     });
-    const mixed = updateTimelineTrackMix(base, "mic-guestMic", { volume: 82, includedInProgram: true });
+    const mixed = updateTimelineTrackMix(base, "mic-guestMic", {
+      volume: 82,
+      includedInProgram: true
+    });
     const switched = addCameraDecision(mixed, "camera-camera2", "manual", "Guest is speaking");
 
     expect(mixed.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(82);
-    expect(switched.cameraDecisions[0]).toMatchObject({ cameraTrackId: "camera-camera2", startMs: 12000, source: "manual" });
+    expect(switched.cameraDecisions[0]).toMatchObject({
+      cameraTrackId: "camera-camera2",
+      startMs: 12000,
+      source: "manual"
+    });
   });
 
   it("stores industry-standard source controls with safe limits", () => {
@@ -177,7 +204,11 @@ describe("timeline draft", () => {
 
   it("copies treatment across matching source tracks and resets one source", () => {
     const base = createTimelineDraft({ deviceDefaults, durationMs: 60000 });
-    const tuned = updateTimelineTrackMix(base, "mic-morganMic", { compression: 68, noiseReduction: 42, volume: 87 });
+    const tuned = updateTimelineTrackMix(base, "mic-morganMic", {
+      compression: 68,
+      noiseReduction: 42,
+      volume: 87
+    });
     const copied = applyTimelineTrackTreatmentToKind(tuned, "mic-morganMic");
     const reset = resetTimelineTrackControls(copied, "mic-guestMic");
 
@@ -191,8 +222,15 @@ describe("timeline draft", () => {
     const mastered = updateTimelineMastering(base, -14, -1);
     const clamped = updateTimelineMastering(mastered, -30, 0);
 
-    expect(mastered).toMatchObject({ loudnessTargetLufs: -14, truePeakDb: -1, hasUnsavedChanges: true });
-    expect(clamped).toMatchObject({ loudnessTargetLufs: -24, truePeakDb: -0.5 });
+    expect(mastered).toMatchObject({
+      loudnessTargetLufs: -14,
+      truePeakDb: -1,
+      hasUnsavedChanges: true
+    });
+    expect(clamped).toMatchObject({
+      loudnessTargetLufs: -24,
+      truePeakDb: -0.5
+    });
   });
 
   it("uses an exact In and Out range for source cuts", () => {
@@ -201,7 +239,11 @@ describe("timeline draft", () => {
     const edited = applyTimelineEdit(ranged, "delete-section", "2026-06-27T10:00:00.000Z");
     const segments = getTimelineSegments(edited, "mic-guestMic");
 
-    expect(edited.editLog[0]).toMatchObject({ timestampMs: 8000, endTimestampMs: 13250, targetTrackId: "mic-guestMic" });
+    expect(edited.editLog[0]).toMatchObject({
+      timestampMs: 8000,
+      endTimestampMs: 13250,
+      targetTrackId: "mic-guestMic"
+    });
     expect(segments.find((segment) => segment.startMs === 8000 && segment.endMs === 13250)?.removed).toBe(true);
   });
 
@@ -241,6 +283,46 @@ describe("timeline draft", () => {
     expect(undone.undoneEditLog).toHaveLength(1);
     expect(redone.editLog).toHaveLength(1);
     expect(redone.undoneEditLog).toHaveLength(0);
+  });
+
+  it("undoes and redoes camera decisions and track controls, not just log entries", () => {
+    const base = selectTimelinePoint(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), {
+      timestampMs: 12000,
+      source: "timeline"
+    });
+    const switched = addCameraDecision(base, "camera-camera2", "manual", "Use guest camera", "2026-06-27T10:00:00.000Z");
+    const adjusted = updateTimelineTrackMix(switched, "mic-guestMic", { volume: 72 }, "2026-06-27T10:00:02.000Z");
+
+    const undoLevel = undoTimelineEdit(adjusted, "2026-06-27T10:00:03.000Z");
+    const undoCamera = undoTimelineEdit(undoLevel, "2026-06-27T10:00:04.000Z");
+    const redoCamera = redoTimelineEdit(undoCamera, "2026-06-27T10:00:05.000Z");
+
+    expect(undoLevel.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(100);
+    expect(undoLevel.cameraDecisions).toHaveLength(1);
+    expect(undoCamera.cameraDecisions).toHaveLength(0);
+    expect(redoCamera.cameraDecisions[0]).toMatchObject({
+      cameraTrackId: "camera-camera2",
+      startMs: 12000
+    });
+  });
+
+  it("coalesces a fast slider gesture into one undo step", () => {
+    const base = createTimelineDraft({ deviceDefaults });
+    const first = updateTimelineTrackMix(base, "mic-guestMic", { volume: 90 }, "2026-06-27T10:00:00.000Z");
+    const second = updateTimelineTrackMix(first, "mic-guestMic", { volume: 75 }, "2026-06-27T10:00:00.500Z");
+    const undone = undoTimelineEdit(second);
+
+    expect(second.history).toHaveLength(1);
+    expect(second.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(75);
+    expect(undone.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(100);
+  });
+
+  it("skips removed Program ranges during edited preview playback", () => {
+    const base = setTimelineRange(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), 10000, 20000, "program");
+    const cut = applyTimelineEdit(base, "delete-section");
+
+    expect(getNextPlayableTimelineTime(cut, 15000)).toBe(20000);
+    expect(getNextPlayableTimelineTime(cut, 25000)).toBe(25000);
   });
 
   it("restores the original draft by clearing edit history", () => {

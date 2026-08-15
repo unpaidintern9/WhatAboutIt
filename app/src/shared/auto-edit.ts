@@ -1,17 +1,7 @@
-import type { TimelineDraft, TimelineEditOperation, TimelineTrack } from "./timeline";
+import { commitTimelineDraftChange, type TimelineDraft, type TimelineEditOperation, type TimelineTrack } from "./timeline";
 
 export type AutoEditMode = "gentle" | "balanced" | "fast-paced" | "clip-hunter";
-export type AutoEditStageId =
-  | "recording"
-  | "transcript"
-  | "audio-analysis"
-  | "speaker-detection"
-  | "marker-analysis"
-  | "timeline-decisions"
-  | "camera-decisions"
-  | "draft-timeline"
-  | "review"
-  | "export-ready";
+export type AutoEditStageId = "recording" | "transcript" | "audio-analysis" | "speaker-detection" | "marker-analysis" | "timeline-decisions" | "camera-decisions" | "draft-timeline" | "review" | "export-ready";
 export type AutoEditStageStatus = "waiting" | "running" | "complete";
 export type AutoEditConfidence = "High" | "Medium" | "Needs review";
 
@@ -57,6 +47,16 @@ export interface AutoEditActivitySegment {
   averageDb: number;
 }
 
+export interface AutoEditSilenceSegment {
+  startMs: number;
+  endMs: number;
+}
+
+export interface AutoEditSilenceSuggestion extends AutoEditSilenceSegment {
+  id: string;
+  accepted: boolean;
+}
+
 export interface AutoEditLearningProfile {
   sampleCount: number;
   updatedAt: string;
@@ -77,6 +77,7 @@ export interface AutoEditReport {
   editedLengthMs: number;
   runtimeReductionMs: number;
   silenceRemovedMs: number;
+  silenceSuggestions: AutoEditSilenceSuggestion[];
   chaptersGenerated: AutoEditChapter[];
   clipsSuggested: AutoEditClipSuggestion[];
   changesMade: AutoEditChange[];
@@ -93,10 +94,30 @@ export interface AutoEditResult {
 }
 
 export const autoEditModes: AutoEditModeDefinition[] = [
-  { id: "gentle", title: "Gentle", icon: "Flower", description: "Light voice and picture polish. Preserve natural pacing." },
-  { id: "balanced", title: "Balanced", icon: "Zap", description: "Polish voices, smooth camera choices, and keep conversation natural." },
-  { id: "fast-paced", title: "Fast Paced", icon: "Rocket", description: "Stronger voice polish and direct camera cuts for a tighter rhythm." },
-  { id: "clip-hunter", title: "Clip Hunter", icon: "Target", description: "Polish the episode and prioritize strong highlight suggestions." }
+  {
+    id: "gentle",
+    title: "Gentle",
+    icon: "Flower",
+    description: "Light voice and picture polish. Preserve natural pacing."
+  },
+  {
+    id: "balanced",
+    title: "Balanced",
+    icon: "Zap",
+    description: "Polish voices, smooth camera choices, and keep conversation natural."
+  },
+  {
+    id: "fast-paced",
+    title: "Fast Paced",
+    icon: "Rocket",
+    description: "Stronger voice polish and direct camera cuts for a tighter rhythm."
+  },
+  {
+    id: "clip-hunter",
+    title: "Clip Hunter",
+    icon: "Target",
+    description: "Polish the episode and prioritize strong highlight suggestions."
+  }
 ];
 
 export const autoEditStageLabels: Record<AutoEditStageId, string> = {
@@ -122,19 +143,13 @@ export function createAutoEditStages(activeStage?: AutoEditStageId): AutoEditSta
   }));
 }
 
-export function runOfflineAutoEdit(input: {
-  draft: TimelineDraft;
-  mode?: AutoEditMode;
-  now?: string;
-  episodeId?: string;
-  activitySegments?: AutoEditActivitySegment[];
-  learningProfile?: AutoEditLearningProfile;
-}): AutoEditResult {
+export function runOfflineAutoEdit(input: { draft: TimelineDraft; mode?: AutoEditMode; now?: string; episodeId?: string; activitySegments?: AutoEditActivitySegment[]; silenceSegments?: AutoEditSilenceSegment[]; learningProfile?: AutoEditLearningProfile }): AutoEditResult {
   const mode = input.mode ?? "balanced";
   const now = input.now ?? new Date().toISOString();
   const originalLengthMs = Math.max(input.draft.durationMs, 0);
-  const silenceRemovedMs = 0;
-  const editedLengthMs = originalLengthMs;
+  const silenceSuggestions = createSilenceSuggestions(input.silenceSegments ?? [], mode, originalLengthMs);
+  const silenceRemovedMs = silenceSuggestions.reduce((total, segment) => total + segment.endMs - segment.startMs, 0);
+  const editedLengthMs = Math.max(0, originalLengthMs - silenceRemovedMs);
   const autoOperation: TimelineEditOperation = {
     id: `auto-edit-${mode}-${now}`,
     type: "auto-edit-suggestion",
@@ -145,6 +160,15 @@ export function runOfflineAutoEdit(input: {
   };
   const minimumCameraHoldMs = getMinimumCameraHoldMs(mode, input.learningProfile);
   const cameraDecisions = createCameraDecisions(input.activitySegments ?? [], now, minimumCameraHoldMs);
+  const silenceOperations: TimelineEditOperation[] = silenceSuggestions.map((segment) => ({
+    id: segment.id,
+    type: "delete-section",
+    label: "Remove long pause",
+    timestampMs: segment.startMs,
+    endTimestampMs: segment.endMs,
+    targetTrackId: "program",
+    createdAt: now
+  }));
   const polishedTracks = input.draft.tracks.map((track) => applyAutoEditProductionPolish(track, mode, input.learningProfile));
   const chapters = createChapters(input.draft, originalLengthMs);
   const clips = createClipSuggestions(input.draft, originalLengthMs, mode);
@@ -157,19 +181,62 @@ export function runOfflineAutoEdit(input: {
     editedLengthMs,
     runtimeReductionMs: silenceRemovedMs,
     silenceRemovedMs,
+    silenceSuggestions,
     chaptersGenerated: chapters,
     clipsSuggested: clips,
     changesMade: [
-      { id: "timing-safe", label: "Kept episode timing intact until you approve manual cuts", reversible: true },
-      { id: "markers", label: "Kept all markers and manual edits", reversible: true },
+      silenceSuggestions.length > 0
+        ? {
+            id: "timing-pauses",
+            label: `Removed ${silenceSuggestions.length} long ${silenceSuggestions.length === 1 ? "pause" : "pauses"} for review`,
+            reversible: true
+          }
+        : {
+            id: "timing-safe",
+            label: "Kept episode timing intact because no long pauses were detected",
+            reversible: true
+          },
+      {
+        id: "markers",
+        label: "Kept all markers and manual edits",
+        reversible: true
+      },
       { id: "chapters", label: "Suggested chapter markers", reversible: true },
-      { id: "voice-polish", label: "Applied podcast voice cleanup, tone, dynamics, and output protection to every saved microphone", reversible: true },
-      { id: "camera-polish", label: "Applied conservative denoise, color balance, and sharpening to every saved camera", reversible: true },
-      ...(input.learningProfile ? [{ id: "learning-profile", label: `Used ${input.learningProfile.sampleCount} approved manual ${input.learningProfile.sampleCount === 1 ? "draft" : "drafts"} to match your production style`, reversible: true as const }] : []),
-      { id: "camera-transitions", label: mode === "gentle" ? "Added short soft fades between camera choices" : "Kept direct camera cuts for a clean conversational rhythm", reversible: true },
+      {
+        id: "voice-polish",
+        label: "Applied podcast voice cleanup, tone, dynamics, and output protection to every saved microphone",
+        reversible: true
+      },
+      {
+        id: "camera-polish",
+        label: "Applied conservative denoise, color balance, and sharpening to every saved camera",
+        reversible: true
+      },
+      ...(input.learningProfile
+        ? [
+            {
+              id: "learning-profile",
+              label: `Used ${input.learningProfile.sampleCount} approved manual ${input.learningProfile.sampleCount === 1 ? "draft" : "drafts"} to match your production style`,
+              reversible: true as const
+            }
+          ]
+        : []),
+      {
+        id: "camera-transitions",
+        label: mode === "gentle" ? "Added short soft fades between camera choices" : "Kept direct camera cuts for a clean conversational rhythm",
+        reversible: true
+      },
       cameraDecisions.length > 0
-        ? { id: "camera-activity", label: `Planned ${cameraDecisions.length} camera changes from saved microphone activity`, reversible: true }
-        : { id: "camera-program", label: "Kept the Program camera because separate microphone activity was unavailable", reversible: true }
+        ? {
+            id: "camera-activity",
+            label: `Planned ${cameraDecisions.length} camera changes from saved microphone activity`,
+            reversible: true
+          }
+        : {
+            id: "camera-program",
+            label: "Kept the Program camera because separate microphone activity was unavailable",
+            reversible: true
+          }
     ],
     audioWarnings: ["Listen through each polished microphone and the final mix before export"],
     reviewFlags: ["Review automatic camera choices, voice cleanup, picture finishing, and suggested clips before sharing"],
@@ -178,18 +245,16 @@ export function runOfflineAutoEdit(input: {
       : "No approved manual drafts yet. Auto Edit used the selected production mode.",
     originalRecordingSafe: true
   };
-  const draft: TimelineDraft = {
+  const proposedDraft: TimelineDraft = {
     ...input.draft,
     episodeId: input.episodeId ?? input.draft.episodeId,
-    version: input.draft.version + 1,
-    updatedAt: now,
-    durationMs: editedLengthMs,
+    durationMs: originalLengthMs,
     editMode: "auto",
     tracks: polishedTracks,
     cameraDecisions: cameraDecisions.length > 0 ? cameraDecisions : input.draft.cameraDecisions,
     cameraTransition: input.learningProfile?.cameraTransition ?? (mode === "gentle" ? "fade" : "cut"),
     cameraTransitionMs: input.learningProfile?.cameraTransitionMs ?? (mode === "gentle" ? 300 : 180),
-    editLog: [...input.draft.editLog, autoOperation],
+    editLog: [...input.draft.editLog, ...silenceOperations, autoOperation],
     undoneEditLog: [],
     hasUnsavedChanges: true,
     autoEdit: {
@@ -201,6 +266,7 @@ export function runOfflineAutoEdit(input: {
     },
     nonDestructive: true
   };
+  const draft = commitTimelineDraftChange(input.draft, proposedDraft, `Auto Edit draft (${mode})`, now);
 
   return {
     report,
@@ -212,22 +278,75 @@ export function runOfflineAutoEdit(input: {
 export function applyAutoEditProductionPolish(track: TimelineTrack, mode: AutoEditMode, learningProfile?: AutoEditLearningProfile): TimelineTrack {
   if (track.kind === "microphone") {
     const profile = {
-      gentle: { audioPreset: "clean" as const, noiseReduction: 12, noiseGateDb: -60, deEsser: 18, compression: 24, eqLowDb: 0, eqMidDb: 0, eqHighDb: 1 },
-      balanced: { audioPreset: "warm" as const, noiseReduction: 24, noiseGateDb: -54, deEsser: 32, compression: 45, eqLowDb: 1, eqMidDb: 0, eqHighDb: 1 },
-      "fast-paced": { audioPreset: "broadcast" as const, noiseReduction: 32, noiseGateDb: -50, deEsser: 42, compression: 62, eqLowDb: -1, eqMidDb: 1, eqHighDb: 2 },
-      "clip-hunter": { audioPreset: "broadcast" as const, noiseReduction: 28, noiseGateDb: -52, deEsser: 38, compression: 55, eqLowDb: 0, eqMidDb: 1, eqHighDb: 2 }
+      gentle: {
+        audioPreset: "clean" as const,
+        noiseReduction: 12,
+        noiseGateDb: -60,
+        deEsser: 18,
+        compression: 24,
+        eqLowDb: 0,
+        eqMidDb: 0,
+        eqHighDb: 1
+      },
+      balanced: {
+        audioPreset: "warm" as const,
+        noiseReduction: 24,
+        noiseGateDb: -54,
+        deEsser: 32,
+        compression: 45,
+        eqLowDb: 1,
+        eqMidDb: 0,
+        eqHighDb: 1
+      },
+      "fast-paced": {
+        audioPreset: "broadcast" as const,
+        noiseReduction: 32,
+        noiseGateDb: -50,
+        deEsser: 42,
+        compression: 62,
+        eqLowDb: -1,
+        eqMidDb: 1,
+        eqHighDb: 2
+      },
+      "clip-hunter": {
+        audioPreset: "broadcast" as const,
+        noiseReduction: 28,
+        noiseGateDb: -52,
+        deEsser: 38,
+        compression: 55,
+        eqLowDb: 0,
+        eqMidDb: 1,
+        eqHighDb: 2
+      }
     }[mode];
     const learned = learningProfile?.audioTreatment;
-    return { ...track, ...blendTreatment(profile, learned, learningWeight(learningProfile)), limiterEnabled: true };
+    return {
+      ...track,
+      ...blendTreatment(profile, learned, learningWeight(learningProfile)),
+      limiterEnabled: true
+    };
   }
   if (track.kind === "camera") {
     const profile = {
       gentle: { denoise: 8, sharpness: 10, contrast: 102, saturation: 101 },
       balanced: { denoise: 14, sharpness: 18, contrast: 104, saturation: 103 },
-      "fast-paced": { denoise: 18, sharpness: 24, contrast: 108, saturation: 106 },
-      "clip-hunter": { denoise: 16, sharpness: 22, contrast: 106, saturation: 105 }
+      "fast-paced": {
+        denoise: 18,
+        sharpness: 24,
+        contrast: 108,
+        saturation: 106
+      },
+      "clip-hunter": {
+        denoise: 16,
+        sharpness: 22,
+        contrast: 106,
+        saturation: 105
+      }
     }[mode];
-    return { ...track, ...blendTreatment(profile, learningProfile?.cameraTreatment, learningWeight(learningProfile)) };
+    return {
+      ...track,
+      ...blendTreatment(profile, learningProfile?.cameraTreatment, learningWeight(learningProfile))
+    };
   }
   return track;
 }
@@ -249,20 +368,37 @@ function createCameraDecisions(activity: AutoEditActivitySegment[], now: string,
   return decisions;
 }
 
-export function learnAutoEditProfile(
-  draft: TimelineDraft,
-  previous?: AutoEditLearningProfile,
-  preferredMode: AutoEditMode = previous?.preferredMode ?? "balanced",
-  now = new Date().toISOString()
-): AutoEditLearningProfile {
+function createSilenceSuggestions(segments: AutoEditSilenceSegment[], mode: AutoEditMode, durationMs: number): AutoEditSilenceSuggestion[] {
+  const minimumDurationMs = {
+    gentle: 2500,
+    balanced: 1600,
+    "fast-paced": 900,
+    "clip-hunter": 1800
+  }[mode];
+  const breathingRoomMs = mode === "fast-paced" ? 180 : mode === "gentle" ? 450 : 300;
+  return segments
+    .filter((segment) => segment.endMs - segment.startMs >= minimumDurationMs)
+    .map((segment, index) => ({
+      id: `auto-silence-${index}-${Math.round(segment.startMs)}`,
+      startMs: Math.max(0, Math.round(segment.startMs + breathingRoomMs)),
+      endMs: Math.min(durationMs, Math.round(segment.endMs - breathingRoomMs)),
+      accepted: true
+    }))
+    .filter((segment) => segment.endMs - segment.startMs >= 400);
+}
+
+export function learnAutoEditProfile(draft: TimelineDraft, previous?: AutoEditLearningProfile, preferredMode: AutoEditMode = previous?.preferredMode ?? "balanced", now = new Date().toISOString()): AutoEditLearningProfile {
   const microphones = draft.tracks.filter((track) => track.kind === "microphone");
   const cameras = draft.tracks.filter((track) => track.kind === "camera");
   const audioTreatment = averageAudioTreatment(microphones);
   const cameraTreatment = averageCameraTreatment(cameras);
   const sampleCount = (previous?.sampleCount ?? 0) + 1;
   const manualCuts = draft.cameraDecisions.filter((decision) => decision.source === "manual").sort((a, b) => a.startMs - b.startMs);
-  const gaps = manualCuts.slice(1).map((decision, index) => decision.startMs - manualCuts[index].startMs).filter((gap) => gap > 0);
-  const observedHold = gaps.length > 0 ? average(gaps) : previous?.minimumCameraHoldMs ?? 3500;
+  const gaps = manualCuts
+    .slice(1)
+    .map((decision, index) => decision.startMs - manualCuts[index].startMs)
+    .filter((gap) => gap > 0);
+  const observedHold = gaps.length > 0 ? average(gaps) : (previous?.minimumCameraHoldMs ?? 3500);
   return {
     sampleCount,
     updatedAt: now,
@@ -276,7 +412,12 @@ export function learnAutoEditProfile(
 }
 
 function getMinimumCameraHoldMs(mode: AutoEditMode, profile?: AutoEditLearningProfile) {
-  const modeHold = { gentle: 6000, balanced: 3500, "fast-paced": 1800, "clip-hunter": 2500 }[mode];
+  const modeHold = {
+    gentle: 6000,
+    balanced: 3500,
+    "fast-paced": 1800,
+    "clip-hunter": 2500
+  }[mode];
   if (!profile) return modeHold;
   const weight = learningWeight(profile);
   return Math.round(modeHold * (1 - weight) + profile.minimumCameraHoldMs * weight);
@@ -288,23 +429,36 @@ function learningWeight(profile?: AutoEditLearningProfile) {
 
 function blendTreatment<T extends Record<string, string | number>>(base: T, learned: T | undefined, weight: number): T {
   if (!learned || weight <= 0) return base;
-  return Object.fromEntries(Object.entries(base).map(([key, value]) => {
-    const learnedValue = learned[key];
-    if (typeof value === "number" && typeof learnedValue === "number") return [key, Math.round((value * (1 - weight) + learnedValue * weight) * 10) / 10];
-    return [key, weight >= 0.4 ? learnedValue : value];
-  })) as T;
+  return Object.fromEntries(
+    Object.entries(base).map(([key, value]) => {
+      const learnedValue = learned[key];
+      if (typeof value === "number" && typeof learnedValue === "number") return [key, Math.round((value * (1 - weight) + learnedValue * weight) * 10) / 10];
+      return [key, weight >= 0.4 ? learnedValue : value];
+    })
+  ) as T;
 }
 
 function mergeTreatment<T extends Record<string, string | number>>(previous: T, current: T, previousSamples: number): T {
-  return Object.fromEntries(Object.entries(current).map(([key, value]) => {
-    const previousValue = previous[key];
-    if (typeof value === "number" && typeof previousValue === "number") return [key, Math.round(((previousValue * previousSamples + value) / (previousSamples + 1)) * 10) / 10];
-    return [key, value];
-  })) as T;
+  return Object.fromEntries(
+    Object.entries(current).map(([key, value]) => {
+      const previousValue = previous[key];
+      if (typeof value === "number" && typeof previousValue === "number") return [key, Math.round(((previousValue * previousSamples + value) / (previousSamples + 1)) * 10) / 10];
+      return [key, value];
+    })
+  ) as T;
 }
 
 function averageAudioTreatment(tracks: TimelineTrack[]): AutoEditLearningProfile["audioTreatment"] {
-  const fallback = { audioPreset: "warm" as const, noiseReduction: 24, noiseGateDb: -54, deEsser: 32, compression: 45, eqLowDb: 1, eqMidDb: 0, eqHighDb: 1 };
+  const fallback = {
+    audioPreset: "warm" as const,
+    noiseReduction: 24,
+    noiseGateDb: -54,
+    deEsser: 32,
+    compression: 45,
+    eqLowDb: 1,
+    eqMidDb: 0,
+    eqHighDb: 1
+  };
   if (tracks.length === 0) return fallback;
   return {
     audioPreset: mostCommon(tracks.map((track) => track.audioPreset)) ?? fallback.audioPreset,
@@ -319,7 +473,19 @@ function averageAudioTreatment(tracks: TimelineTrack[]): AutoEditLearningProfile
 }
 
 function averageCameraTreatment(tracks: TimelineTrack[]): AutoEditLearningProfile["cameraTreatment"] {
-  const fallback = { cropMode: "fit" as const, brightness: 0, contrast: 104, saturation: 103, temperature: 0, tint: 0, sharpness: 18, denoise: 14, zoom: 100, positionX: 0, positionY: 0 };
+  const fallback = {
+    cropMode: "fit" as const,
+    brightness: 0,
+    contrast: 104,
+    saturation: 103,
+    temperature: 0,
+    tint: 0,
+    sharpness: 18,
+    denoise: 14,
+    zoom: 100,
+    positionX: 0,
+    positionY: 0
+  };
   if (tracks.length === 0) return fallback;
   return {
     cropMode: mostCommon(tracks.map((track) => track.cropMode)) ?? fallback.cropMode,
@@ -341,22 +507,45 @@ function average(values: number[]) {
 }
 
 function mostCommon<T extends string>(values: T[]): T | undefined {
-  return values.reduce<{ value?: T; count: number }>((winner, value) => {
-    const count = values.filter((candidate) => candidate === value).length;
-    return count > winner.count ? { value, count } : winner;
-  }, { count: 0 }).value;
+  return values.reduce<{ value?: T; count: number }>(
+    (winner, value) => {
+      const count = values.filter((candidate) => candidate === value).length;
+      return count > winner.count ? { value, count } : winner;
+    },
+    { count: 0 }
+  ).value;
 }
 
 function createChapters(draft: TimelineDraft, durationMs: number): AutoEditChapter[] {
   const base = [
     { id: "chapter-intro", title: "Intro", timestampMs: 0 },
-    { id: "chapter-story", title: "Guest Story", timestampMs: Math.round(durationMs * 0.18) },
-    { id: "chapter-discussion", title: "Main Discussion", timestampMs: Math.round(durationMs * 0.42) },
-    { id: "chapter-closing", title: "Closing", timestampMs: Math.round(durationMs * 0.86) }
+    {
+      id: "chapter-story",
+      title: "Guest Story",
+      timestampMs: Math.round(durationMs * 0.18)
+    },
+    {
+      id: "chapter-discussion",
+      title: "Main Discussion",
+      timestampMs: Math.round(durationMs * 0.42)
+    },
+    {
+      id: "chapter-closing",
+      title: "Closing",
+      timestampMs: Math.round(durationMs * 0.86)
+    }
   ];
   const hasSponsor = draft.markers.some((marker) => marker.label.toLowerCase().includes("sponsor"));
   return hasSponsor
-    ? [...base.slice(0, 3), { id: "chapter-sponsor", title: "Sponsor", timestampMs: Math.round(durationMs * 0.68) }, base[3]]
+    ? [
+        ...base.slice(0, 3),
+        {
+          id: "chapter-sponsor",
+          title: "Sponsor",
+          timestampMs: Math.round(durationMs * 0.68)
+        },
+        base[3]
+      ]
     : base;
 }
 
@@ -367,7 +556,7 @@ function createClipSuggestions(draft: TimelineDraft, durationMs: number, mode: A
     endMs: Math.min(durationMs, marker.timestampMs + 35000),
     title: `${marker.label} moment`,
     reason: "This matched a marker Morgan saved while recording.",
-    confidence: index === 0 ? "High" as const : "Medium" as const
+    confidence: index === 0 ? ("High" as const) : ("Medium" as const)
   }));
 
   if (markerClips.length > 0) return markerClips;

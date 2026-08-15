@@ -1,6 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import type { ReviewMediaAsset, ReviewMediaInventory, ReviewMediaKind } from "../shared/review-media";
+import type { ReviewMediaAsset, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaKind, ReviewMediaSyncResult } from "../shared/review-media";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
 import { runFfmpeg, runFfprobe, validatePlayableMedia } from "./ffmpeg-tools";
@@ -54,13 +54,48 @@ export function configureMediaPlaybackBaseUrl(baseUrl: string) {
 }
 
 const expectedAssets: Array<Omit<ReviewMediaAsset, "status" | "message">> = [
-  { id: "program", label: "Program video", kind: "program", relativePath: path.join("Program", "program.webm") },
-  { id: "camera-1", label: "Camera 1", kind: "camera", relativePath: path.join("Cameras", "camera-1.webm") },
-  { id: "camera-2", label: "Camera 2", kind: "camera", relativePath: path.join("Cameras", "camera-2.webm") },
-  { id: "camera-3", label: "Camera 3", kind: "camera", relativePath: path.join("Cameras", "camera-3.webm") },
-  { id: "morgan-mic", label: "Morgan Mic", kind: "audio", relativePath: path.join("Audio", "morgan-mic.m4a") },
-  { id: "guest-mic", label: "Guest Mic", kind: "audio", relativePath: path.join("Audio", "guest-mic.m4a") },
-  { id: "extra-mic", label: "Extra Mic", kind: "audio", relativePath: path.join("Audio", "extra-mic.m4a") }
+  {
+    id: "program",
+    label: "Program video",
+    kind: "program",
+    relativePath: path.join("Program", "program.webm")
+  },
+  {
+    id: "camera-1",
+    label: "Camera 1",
+    kind: "camera",
+    relativePath: path.join("Cameras", "camera-1.webm")
+  },
+  {
+    id: "camera-2",
+    label: "Camera 2",
+    kind: "camera",
+    relativePath: path.join("Cameras", "camera-2.webm")
+  },
+  {
+    id: "camera-3",
+    label: "Camera 3",
+    kind: "camera",
+    relativePath: path.join("Cameras", "camera-3.webm")
+  },
+  {
+    id: "morgan-mic",
+    label: "Morgan Mic",
+    kind: "audio",
+    relativePath: path.join("Audio", "morgan-mic.m4a")
+  },
+  {
+    id: "guest-mic",
+    label: "Guest Mic",
+    kind: "audio",
+    relativePath: path.join("Audio", "guest-mic.m4a")
+  },
+  {
+    id: "extra-mic",
+    label: "Extra Mic",
+    kind: "audio",
+    relativePath: path.join("Audio", "extra-mic.m4a")
+  }
 ];
 
 export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInventory> {
@@ -69,16 +104,18 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
   const assets = await Promise.all(expectedAssets.map((asset) => inspectAsset(episodeFolder, asset, fallbackDurationMs)));
   const rawProgram = assets.find((asset) => asset.kind === "program") ?? missingAsset(episodeFolder, expectedAssets[0]);
   const cameraMicrophones = await loadCameraMicrophones(episodeFolder);
-  const rawCameras = assets.filter((asset) => asset.kind === "camera").map((asset, index) => {
-    const cameraSlot = `camera${index + 1}` as CameraSlotKey;
-    const microphoneSlot = cameraMicrophones[cameraSlot] ?? fallbackCameraMicrophones[cameraSlot];
-    return {
-      ...asset,
-      pairedAudioId: microphoneAssetIds[microphoneSlot],
-      pairedAudioLabel: microphoneLabels[microphoneSlot]
-    };
-  });
-  const audio = assets.filter((asset) => asset.kind === "audio");
+  const rawCameras = assets
+    .filter((asset) => asset.kind === "camera")
+    .map((asset, index) => {
+      const cameraSlot = `camera${index + 1}` as CameraSlotKey;
+      const microphoneSlot = cameraMicrophones[cameraSlot] ?? fallbackCameraMicrophones[cameraSlot];
+      return {
+        ...asset,
+        pairedAudioId: microphoneAssetIds[microphoneSlot],
+        pairedAudioLabel: microphoneLabels[microphoneSlot]
+      };
+    });
+  const audio = await Promise.all(assets.filter((asset) => asset.kind === "audio").map((asset) => ensureAudioWaveform(episodeFolder, asset)));
   const program = await ensureReviewProxy(episodeFolder, rawProgram);
   const cameras: ReviewMediaAsset[] = [];
   for (const camera of rawCameras) {
@@ -99,11 +136,170 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
   };
 }
 
-async function ensureReviewProxy(
-  episodeFolder: string,
-  asset: ReviewMediaAsset,
-  pairedAudio?: ReviewMediaAsset
-): Promise<ReviewMediaAsset> {
+async function ensureAudioWaveform(episodeFolder: string, asset: ReviewMediaAsset): Promise<ReviewMediaAsset> {
+  if (asset.status !== "ready" || !asset.filePath) return asset;
+  const waveformPath = path.join(episodeFolder, "Session", "Review", `${asset.id}-waveform.png`);
+  try {
+    await fs.mkdir(path.dirname(waveformPath), { recursive: true });
+    if (await proxyNeedsRefresh(waveformPath, [asset.filePath])) {
+      await runFfmpeg(["-y", "-i", asset.filePath, "-filter_complex", "aformat=channel_layouts=mono,showwavespic=s=1400x120:colors=white", "-frames:v", "1", waveformPath]);
+    }
+    return { ...asset, waveformUrl: pathToPlaybackUrl(waveformPath) };
+  } catch (error) {
+    await logger.warning("ReviewMedia", "Audio waveform could not be prepared.", { filePath: asset.filePath, error: String(error) });
+    return asset;
+  }
+}
+
+const importTargets: Record<ReviewMediaImportSlot, { relativePath: string; kind: "video" | "audio"; label: string }> = {
+  "camera-1": {
+    relativePath: path.join("Cameras", "camera-1.webm"),
+    kind: "video",
+    label: "Camera 1"
+  },
+  "camera-2": {
+    relativePath: path.join("Cameras", "camera-2.webm"),
+    kind: "video",
+    label: "Camera 2"
+  },
+  "camera-3": {
+    relativePath: path.join("Cameras", "camera-3.webm"),
+    kind: "video",
+    label: "Camera 3"
+  },
+  "morgan-mic": {
+    relativePath: path.join("Audio", "morgan-mic.m4a"),
+    kind: "audio",
+    label: "Main Audio"
+  },
+  "guest-mic": {
+    relativePath: path.join("Audio", "guest-mic.m4a"),
+    kind: "audio",
+    label: "Guest Mic"
+  },
+  "extra-mic": {
+    relativePath: path.join("Audio", "extra-mic.m4a"),
+    kind: "audio",
+    label: "Extra Mic"
+  }
+};
+
+export async function importReviewMediaFile(episodeId: string, slot: ReviewMediaImportSlot, sourceFilePath: string) {
+  const target = importTargets[slot];
+  const episodeFolder = path.join(getEpisodesRoot(), episodeId);
+  const targetPath = path.join(episodeFolder, target.relativePath);
+  const extension = path.extname(targetPath);
+  const temporaryPath = `${targetPath.slice(0, -extension.length)}.importing${extension}`;
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  await fs.rm(temporaryPath, { force: true });
+  try {
+    if (target.kind === "video") {
+      await runFfmpeg(["-y", "-i", sourceFilePath, "-map", "0:v:0", "-map", "0:a?", "-c:v", "libvpx-vp9", "-crf", "28", "-b:v", "0", "-deadline", "good", "-cpu-used", "4", "-c:a", "libopus", "-b:a", "160k", temporaryPath]);
+    } else {
+      await runFfmpeg(["-y", "-i", sourceFilePath, "-vn", "-c:a", "aac", "-b:a", "192k", temporaryPath]);
+    }
+    if (!(await validatePlayableMedia(temporaryPath, undefined, target.kind === "video" ? { video: true } : { audio: true }))) {
+      throw new Error(`${target.label} could not be decoded after import.`);
+    }
+    await backupExistingImportedMedia(episodeFolder, targetPath, slot);
+    await fs.rename(temporaryPath, targetPath);
+    if (slot === "camera-1") {
+      const programPath = path.join(episodeFolder, "Program", "program.webm");
+      const fallbackMarkerPath = path.join(episodeFolder, "Session", "program-from-camera-1.json");
+      let shouldRefreshProgram = false;
+      try {
+        await fs.access(fallbackMarkerPath);
+        shouldRefreshProgram = true;
+      } catch {
+        try {
+          await fs.access(programPath);
+        } catch {
+          shouldRefreshProgram = true;
+        }
+      }
+      if (shouldRefreshProgram) {
+        await fs.mkdir(path.dirname(programPath), { recursive: true });
+        await backupExistingImportedMedia(episodeFolder, programPath, "program-fallback");
+        await fs.copyFile(targetPath, programPath);
+        await fs.mkdir(path.dirname(fallbackMarkerPath), { recursive: true });
+        await fs.writeFile(fallbackMarkerPath, JSON.stringify({ source: "camera-1", updatedAt: new Date().toISOString() }, null, 2), "utf8");
+      }
+    }
+    await logger.info("ReviewMedia", "Imported episode media.", {
+      episodeId,
+      slot,
+      sourceFilePath,
+      targetPath
+    });
+    return loadReviewMedia(episodeId);
+  } catch (error) {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function backupExistingImportedMedia(episodeFolder: string, filePath: string, label: string) {
+  try {
+    await fs.access(filePath);
+    const backupFolder = path.join(episodeFolder, "Backup", "Imported Media");
+    await fs.mkdir(backupFolder, { recursive: true });
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const extension = path.extname(filePath);
+    await fs.copyFile(filePath, path.join(backupFolder, `${label}-${timestamp}${extension}`));
+  } catch {
+    // There is nothing to back up on the first import.
+  }
+}
+
+export async function analyzeReviewMediaSync(episodeId: string): Promise<ReviewMediaSyncResult> {
+  const episodeFolder = path.join(getEpisodesRoot(), episodeId);
+  const referenceCandidates = [path.join(episodeFolder, "Audio", "morgan-mic.m4a"), path.join(episodeFolder, "Program", "program.webm")];
+  const referencePath = await firstExistingPath(referenceCandidates);
+  if (!referencePath)
+    return {
+      offsetsMs: {},
+      confidence: "review",
+      message: "Add the main audio before automatic sync."
+    };
+  const referenceOnset = await detectFirstSoundMs(referencePath);
+  const offsetsMs: Record<string, number> = {};
+  for (const index of [1, 2, 3]) {
+    const cameraPath = path.join(episodeFolder, "Cameras", `camera-${index}.webm`);
+    try {
+      await fs.access(cameraPath);
+      const cameraOnset = await detectFirstSoundMs(cameraPath);
+      offsetsMs[`camera-camera${index}`] = Math.max(-30000, Math.min(30000, cameraOnset - referenceOnset));
+    } catch {
+      // Missing cameras remain untouched.
+    }
+  }
+  const count = Object.keys(offsetsMs).length;
+  return {
+    offsetsMs,
+    confidence: count > 1 ? "high" : "review",
+    message: count > 0 ? `Aligned ${count} camera ${count === 1 ? "track" : "tracks"} to the first clear sound. Review the clap or first spoken word.` : "No camera audio was available for automatic sync."
+  };
+}
+
+async function detectFirstSoundMs(filePath: string) {
+  const result = await runFfmpeg(["-hide_banner", "-i", filePath, "-af", "silencedetect=noise=-35dB:d=0.15", "-t", "30", "-f", "null", "-"]);
+  const initialSilence = /silence_start:\s*0(?:\.0+)?[\s\S]*?silence_end:\s*([\d.]+)/.exec(result.stderr);
+  return initialSilence ? Math.round(Number(initialSilence[1]) * 1000) : 0;
+}
+
+async function firstExistingPath(paths: string[]) {
+  for (const filePath of paths) {
+    try {
+      await fs.access(filePath);
+      return filePath;
+    } catch {
+      // Try the next reference source.
+    }
+  }
+  return undefined;
+}
+
+async function ensureReviewProxy(episodeFolder: string, asset: ReviewMediaAsset, pairedAudio?: ReviewMediaAsset): Promise<ReviewMediaAsset> {
   if (asset.status !== "ready" || !asset.filePath) return asset;
   const sourceFile = asset.filePath;
   const proxyFolder = path.join(episodeFolder, "Session", "Review");
@@ -117,18 +313,16 @@ async function ensureReviewProxy(
     await fs.mkdir(proxyFolder, { recursive: true });
     if (await proxyNeedsRefresh(proxyPath, proxySources)) {
       const args = pairedAudioFile
-        ? [
-            "-y", "-fflags", "+genpts", "-i", sourceFile,
-            "-i", pairedAudioFile,
-            "-map", "0:v:0", "-map", "1:a:0",
-            "-c:v", "copy", "-c:a", "libopus", "-b:a", "160k", proxyPath
-          ]
+        ? ["-y", "-fflags", "+genpts", "-i", sourceFile, "-i", pairedAudioFile, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "libopus", "-b:a", "160k", proxyPath]
         : asset.kind === "program"
           ? ["-y", "-fflags", "+genpts", "-i", sourceFile, "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", proxyPath]
           : ["-y", "-fflags", "+genpts", "-i", sourceFile, "-map", "0:v:0", "-an", "-c:v", "copy", proxyPath];
       await runFfmpeg(args);
     }
-    const requirements = { video: true, audio: asset.kind === "program" || Boolean(usablePairedAudio) };
+    const requirements = {
+      video: true,
+      audio: asset.kind === "program" || Boolean(usablePairedAudio)
+    };
     if (!(await validatePlayableMedia(proxyPath, undefined, requirements))) throw new Error("Review proxy validation failed.");
     const probe = await probeMedia(proxyPath);
     const duration = Number(probe.format?.duration ?? 0);
@@ -165,11 +359,7 @@ async function loadCameraMicrophones(episodeFolder: string) {
   }
 }
 
-async function inspectAsset(
-  episodeFolder: string,
-  asset: Omit<ReviewMediaAsset, "status" | "message">,
-  fallbackDurationMs?: number
-): Promise<ReviewMediaAsset> {
+async function inspectAsset(episodeFolder: string, asset: Omit<ReviewMediaAsset, "status" | "message">, fallbackDurationMs?: number): Promise<ReviewMediaAsset> {
   const filePath = path.join(episodeFolder, asset.relativePath);
 
   try {
@@ -209,9 +399,7 @@ async function loadRecordingDuration(episodeFolder: string) {
   try {
     const statePath = path.join(episodeFolder, "Session", "recording-state.json");
     const state = JSON.parse(await fs.readFile(statePath, "utf8")) as RecordingStateFile;
-    return typeof state.elapsedMs === "number" && Number.isFinite(state.elapsedMs) && state.elapsedMs > 0
-      ? Math.round(state.elapsedMs)
-      : undefined;
+    return typeof state.elapsedMs === "number" && Number.isFinite(state.elapsedMs) && state.elapsedMs > 0 ? Math.round(state.elapsedMs) : undefined;
   } catch {
     return undefined;
   }
@@ -227,15 +415,7 @@ function missingAsset(episodeFolder: string, asset: Omit<ReviewMediaAsset, "stat
 }
 
 async function probeMedia(filePath: string): Promise<MediaProbeResult> {
-  const result = await runFfprobe([
-    "-v",
-    "error",
-    "-show_entries",
-    "format=duration,size:stream=codec_type,codec_name,width,height,sample_rate,channels",
-    "-of",
-    "json",
-    filePath
-  ]);
+  const result = await runFfprobe(["-v", "error", "-show_entries", "format=duration,size:stream=codec_type,codec_name,width,height,sample_rate,channels", "-of", "json", filePath]);
   return JSON.parse(result.stdout) as MediaProbeResult;
 }
 

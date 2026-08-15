@@ -1,54 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  ArrowLeft,
-  ArrowRight,
-  BookOpen,
-  Brush,
-  Camera,
-  CheckCircle2,
-  Clapperboard,
-  Circle,
-  Compass,
-  Download,
-  FolderOpen,
-  Headphones,
-  HardDrive,
-  Mic2,
-  Plus,
-  Scissors,
-  Settings,
-  ShieldCheck,
-  Sparkles,
-  ListVideo,
-  Wand2,
-  X
-} from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Brush, Camera, CheckCircle2, Clapperboard, Circle, Compass, Download, FolderOpen, Headphones, HardDrive, Mic2, Plus, RefreshCw, Scissors, Settings, ShieldCheck, Sparkles, ListVideo, Wand2, X } from "lucide-react";
 import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
 import type { RecordingSession } from "../shared/recording";
 import type { PodcastToolsState, SoundSlot } from "../shared/podcast-tools";
 import { createDefaultPodcastToolsState, createLiveMarker, withPodcastToolDefaults } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
-import { createTimelineDraft, markTimelineSaved, syncTimelineTracksWithMedia, withTimelineDraftDefaults } from "../shared/timeline";
+import { createTimelineDraft, markTimelineSaved, setTimelineEditOperationEnabled, syncTimelineTracksWithMedia, updateTimelineSyncOffsets, withTimelineDraftDefaults } from "../shared/timeline";
 import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
 import { defaultExportSettings } from "../shared/export";
-import type { ReviewMediaInventory } from "../shared/review-media";
+import type { ReviewMediaImportSlot, ReviewMediaInventory } from "../shared/review-media";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import { learnAutoEditProfile, runOfflineAutoEdit } from "../shared/auto-edit";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWorkspaceState } from "../shared/studio-workspace";
 import { defaultStudioWorkspaceState, studioPanelLabels, withStudioWorkspaceDefaults } from "../shared/studio-workspace";
+import type { AppUpdateStatus } from "../shared/app-update";
+import { createInitialAppUpdateStatus } from "../shared/app-update";
 import { defaultDeviceDefaults, getDeviceAssignmentConflicts, withDeviceDefaults } from "../shared/device-config";
 import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
-import {
-  createHardwareTestResults,
-  didDeviceDisconnectDuringRecording,
-  getHardwareDeviceReadiness,
-  getExportTestStatus,
-  getFriendlyHardwareFailureMessage,
-  getNextHardwareTestStep,
-  getRecordingTestStatus,
-  type DiagnosticsBundleResult,
-  type HardwareDeviceSummary
-} from "../shared/hardware-test";
+import { createHardwareTestResults, didDeviceDisconnectDuringRecording, getHardwareDeviceReadiness, getExportTestStatus, getFriendlyHardwareFailureMessage, getNextHardwareTestStep, getRecordingTestStatus, type DiagnosticsBundleResult, type HardwareDeviceSummary } from "../shared/hardware-test";
 import type { StorageStatus } from "../shared/diagnostics";
 import { AutoEditReview, Button, CameraPreview, DeviceSetupWizard, ExportEpisode, RecordingStudio, TimelineReview } from "./components";
 import { AudioMeter } from "./components";
@@ -57,23 +26,12 @@ import { browserDevicePlugin } from "./plugins/devices/browser-device-plugin";
 import { BrowserMediaRecorderPlugin } from "./plugins/recording/browser-media-recorder-plugin";
 import type { DeviceDetectionResult } from "./plugins/devices/types";
 import { DeviceService, ExportService, RecordingService, formatRecordingTime, type RecordingServiceSnapshot } from "./services";
+import { TimelineSaveQueue } from "./services/timeline-save-queue";
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
 type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "auto-edit-review" | "export" | "hardware-test" | "settings" | "learn" | "practice" | "theme-editor";
-type WorkspaceBridge = Required<
-  Pick<
-    Window["studio"],
-    | "getWorkspaceState"
-    | "saveWorkspaceState"
-    | "getDisplays"
-    | "openWorkspacePanel"
-    | "closeWorkspacePanel"
-    | "moveWorkspacePanel"
-    | "applyWorkspaceLayout"
-    | "resetWorkspaceLayout"
-  >
->;
+type WorkspaceBridge = Required<Pick<Window["studio"], "getWorkspaceState" | "saveWorkspaceState" | "getDisplays" | "openWorkspacePanel" | "closeWorkspacePanel" | "moveWorkspacePanel" | "applyWorkspaceLayout" | "resetWorkspaceLayout">>;
 type StudioBridge = Window["studio"] & WorkspaceBridge;
 
 function getInitialView(): View {
@@ -132,13 +90,50 @@ function createWorkspaceBridgeFallback(): WorkspaceBridge {
     getWorkspaceState: async () => defaultStudioWorkspaceState,
     saveWorkspaceState: async (state) => state,
     getDisplays: async () => [
-      { id: 1, label: "Primary monitor", primary: true, bounds: { x: 0, y: 0, width: 1440, height: 900 }, workArea: { x: 0, y: 0, width: 1440, height: 860 }, scaleFactor: 1 },
-      { id: 2, label: "Monitor 2", primary: false, bounds: { x: 1440, y: 0, width: 1920, height: 1080 }, workArea: { x: 1440, y: 0, width: 1920, height: 1040 }, scaleFactor: 1 }
+      {
+        id: 1,
+        label: "Primary monitor",
+        primary: true,
+        bounds: { x: 0, y: 0, width: 1440, height: 900 },
+        workArea: { x: 0, y: 0, width: 1440, height: 860 },
+        scaleFactor: 1
+      },
+      {
+        id: 2,
+        label: "Monitor 2",
+        primary: false,
+        bounds: { x: 1440, y: 0, width: 1920, height: 1080 },
+        workArea: { x: 1440, y: 0, width: 1920, height: 1040 },
+        scaleFactor: 1
+      }
     ],
-    openWorkspacePanel: async (panelId, input) => ({ panelId, isPoppedOut: true, displayId: input?.displayId, collapsed: false, fullscreen: Boolean(input?.fullscreen) }),
-    closeWorkspacePanel: async (panelId) => ({ panelId, isPoppedOut: false, collapsed: false, fullscreen: false }),
-    moveWorkspacePanel: async (panelId, displayId) => ({ panelId, isPoppedOut: true, displayId, collapsed: false, fullscreen: false }),
-    applyWorkspaceLayout: async (layoutId) => ({ ...defaultStudioWorkspaceState, settings: { ...defaultStudioWorkspaceState.settings, activeLayoutId: layoutId } }),
+    openWorkspacePanel: async (panelId, input) => ({
+      panelId,
+      isPoppedOut: true,
+      displayId: input?.displayId,
+      collapsed: false,
+      fullscreen: Boolean(input?.fullscreen)
+    }),
+    closeWorkspacePanel: async (panelId) => ({
+      panelId,
+      isPoppedOut: false,
+      collapsed: false,
+      fullscreen: false
+    }),
+    moveWorkspacePanel: async (panelId, displayId) => ({
+      panelId,
+      isPoppedOut: true,
+      displayId,
+      collapsed: false,
+      fullscreen: false
+    }),
+    applyWorkspaceLayout: async (layoutId) => ({
+      ...defaultStudioWorkspaceState,
+      settings: {
+        ...defaultStudioWorkspaceState.settings,
+        activeLayoutId: layoutId
+      }
+    }),
     resetWorkspaceLayout: async () => defaultStudioWorkspaceState
   };
 }
@@ -226,8 +221,20 @@ function getStudioBridge(): StudioBridge {
         recordingSessionId: "review-session",
         deviceDefaults: demoSettings.deviceDefaults,
         markers: [
-          { id: "marker-funny", label: "Funny", timestampMs: 18000, createdAt: now, recordingSessionId: "review-session" },
-          { id: "marker-highlight", label: "Highlight", timestampMs: 52000, createdAt: now, recordingSessionId: "review-session" }
+          {
+            id: "marker-funny",
+            label: "Funny",
+            timestampMs: 18000,
+            createdAt: now,
+            recordingSessionId: "review-session"
+          },
+          {
+            id: "marker-highlight",
+            label: "Highlight",
+            timestampMs: 52000,
+            createdAt: now,
+            recordingSessionId: "review-session"
+          }
         ],
         durationMs: 112000,
         now
@@ -264,11 +271,25 @@ function getStudioBridge(): StudioBridge {
       message: "Export complete",
       outputFileName: "what-about-it-full-episode-video.mp4"
     }),
-    getMediaToolsStatus: async () => ({ ready: true, message: "Media tools are ready" }),
-    cancelExport: async (_episodeId, job) => ({ ...job, status: "canceled", error: "canceled", message: "Export was canceled" }),
+    getMediaToolsStatus: async () => ({
+      ready: true,
+      message: "Media tools are ready"
+    }),
+    cancelExport: async (_episodeId, job) => ({
+      ...job,
+      status: "canceled",
+      error: "canceled",
+      message: "Export was canceled"
+    }),
     openExportFolder: async () => "review-only/Exports",
-    createDiagnosticsBundle: async () => ({ folderPath: "review-only/diagnostics", files: ["app-info.json"] }),
-    getStorageStatus: async () => ({ message: "Storage check ready", availableBytes: 1024 * 1024 * 1024 })
+    createDiagnosticsBundle: async () => ({
+      folderPath: "review-only/diagnostics",
+      files: ["app-info.json"]
+    }),
+    getStorageStatus: async () => ({
+      message: "Storage check ready",
+      availableBytes: 1024 * 1024 * 1024
+    })
   };
 }
 
@@ -295,9 +316,7 @@ export default function App() {
   const [description, setDescription] = useState("");
   const [showTour, setShowTour] = useState(false);
   const [podcastTools, setPodcastTools] = useState<PodcastToolsState>(() => createDefaultPodcastToolsState());
-  const [timelineDraft, setTimelineDraft] = useState<TimelineDraft>(() =>
-    createTimelineDraft({ deviceDefaults: defaultDeviceDefaults })
-  );
+  const [timelineDraft, setTimelineDraft] = useState<TimelineDraft>(() => createTimelineDraft({ deviceDefaults: defaultDeviceDefaults }));
   const [selectedExportType, setSelectedExportType] = useState<ExportType>(defaultExportSettings.defaultExportType);
   const [selectedQualityPreset, setSelectedQualityPreset] = useState<ExportQualityPreset>(defaultExportSettings.qualityPreset);
   const [exportJob, setExportJob] = useState<ExportJob | undefined>();
@@ -306,6 +325,8 @@ export default function App() {
   const [autoEditMode, setAutoEditMode] = useState<AutoEditMode>("balanced");
   const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | undefined>();
   const [autoEditRunning, setAutoEditRunning] = useState(false);
+  const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus>(() => createInitialAppUpdateStatus("0.2.0", false));
+  const timelineAutosaveTimerRef = useRef<number | undefined>(undefined);
   const [hardwareTestStep, setHardwareTestStep] = useState<HardwareTestStep>("cameras");
   const [hardwareTestResults, setHardwareTestResults] = useState<HardwareTestResults>(() => createHardwareTestResults());
   const [hardwareTestMessage, setHardwareTestMessage] = useState("Real hardware only. Nothing passes until the studio can actually see it.");
@@ -324,21 +345,30 @@ export default function App() {
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
   const recordingService = useMemo(
     () =>
-      new RecordingService(new BrowserMediaRecorderPlugin({
-        getCameraStream: (deviceId) => deviceService.getActiveCameraStream(deviceId),
-        getMicrophoneStream: (deviceId) => deviceService.getActiveMicrophoneStream(deviceId)
-      })),
+      new RecordingService(
+        new BrowserMediaRecorderPlugin({
+          getCameraStream: (deviceId) => deviceService.getActiveCameraStream(deviceId),
+          getMicrophoneStream: (deviceId) => deviceService.getActiveMicrophoneStream(deviceId)
+        })
+      ),
     [deviceService]
   );
   const exportService = useMemo(() => new ExportService(studio), [studio]);
+  const timelineSaveQueue = useMemo(() => new TimelineSaveQueue((episodeId, draft) => studio.saveTimelineDraft(episodeId, draft), setTimelineDraft), [studio]);
   const openCameraPreview = useCallback((deviceId?: string) => deviceService.openCameraPreview(deviceId), [deviceService]);
   const openMicrophoneStream = useCallback((deviceId?: string) => deviceService.openMicrophoneStream(deviceId), [deviceService]);
-  const releaseCameraPreview = useCallback((deviceId?: string, stream?: MediaStream) => {
-    deviceService.releaseStream("camera", deviceId, stream);
-  }, [deviceService]);
-  const releaseMicrophoneStream = useCallback((deviceId?: string, stream?: MediaStream) => {
-    deviceService.releaseStream("microphone", deviceId, stream);
-  }, [deviceService]);
+  const releaseCameraPreview = useCallback(
+    (deviceId?: string, stream?: MediaStream) => {
+      deviceService.releaseStream("camera", deviceId, stream);
+    },
+    [deviceService]
+  );
+  const releaseMicrophoneStream = useCallback(
+    (deviceId?: string, stream?: MediaStream) => {
+      deviceService.releaseStream("microphone", deviceId, stream);
+    },
+    [deviceService]
+  );
 
   useEffect(() => {
     applyTheme(activeTheme);
@@ -370,6 +400,11 @@ export default function App() {
   useEffect(() => {
     void studio.getMediaToolsStatus().then(setMediaToolsStatus);
     void studio.getStorageStatus().then(setStorageStatus);
+  }, [studio]);
+
+  useEffect(() => {
+    void studio.getAppUpdateStatus?.().then(setAppUpdateStatus);
+    return studio.onAppUpdateStatus?.(setAppUpdateStatus);
   }, [studio]);
 
   useEffect(() => exportService.subscribe(setExportJob), [exportService]);
@@ -427,11 +462,13 @@ export default function App() {
         });
         const readiness = getHardwareDeviceReadiness(settings.deviceDefaults, devices);
         setDeviceChangeState(disconnected ? "disconnected" : readiness.summary === "Everything Ready" ? "ready" : "needs-attention");
-        setHardwareTestResults(createHardwareTestResults({
-          cameraReady: readiness.cameraReady,
-          morganMicReady: readiness.morganMicReady,
-          exportStatus: exportJob?.status
-        }));
+        setHardwareTestResults(
+          createHardwareTestResults({
+            cameraReady: readiness.cameraReady,
+            morganMicReady: readiness.morganMicReady,
+            exportStatus: exportJob?.status
+          })
+        );
 
         if (disconnected) {
           setHardwareTestMessage("A device disconnected, so we stopped safely. Check the cable, then try again.");
@@ -451,7 +488,11 @@ export default function App() {
   }
 
   async function createEpisode() {
-    const episode = await studio.createEpisode({ title, guestName, description });
+    const episode = await studio.createEpisode({
+      title,
+      guestName,
+      description
+    });
     setTitle("");
     setGuestName("");
     setDescription("");
@@ -478,6 +519,8 @@ export default function App() {
   }, [activeEpisode, studio]);
 
   async function loadReviewWorkspace(episodeId: string) {
+    if (timelineAutosaveTimerRef.current) window.clearTimeout(timelineAutosaveTimerRef.current);
+    timelineAutosaveTimerRef.current = undefined;
     const fallback = createTimelineDraft({
       episodeId,
       recordingSessionId: recordingSnapshot.session?.id,
@@ -485,10 +528,7 @@ export default function App() {
       markers: podcastTools.markers,
       durationMs: recordingSnapshot.elapsedMs
     });
-    const [savedDraft, inventory] = await Promise.all([
-      studio.loadTimelineDraft(episodeId),
-      studio.loadReviewMedia(episodeId)
-    ]);
+    const [savedDraft, inventory] = await Promise.all([studio.loadTimelineDraft(episodeId), studio.loadReviewMedia(episodeId)]);
     setReviewMedia(inventory);
     setTimelineDraft(syncTimelineTracksWithMedia(withTimelineDraftDefaults(savedDraft, fallback), inventory));
   }
@@ -496,17 +536,53 @@ export default function App() {
   async function loadReviewMediaForEpisode(episodeId: string) {
     const inventory = await studio.loadReviewMedia(episodeId);
     setReviewMedia(inventory);
-    setTimelineDraft((current) => current.episodeId === episodeId ? syncTimelineTracksWithMedia(current, inventory) : current);
+    setTimelineDraft((current) => (current.episodeId === episodeId ? syncTimelineTracksWithMedia(current, inventory) : current));
+  }
+
+  async function importEpisodeMedia(slot: ReviewMediaImportSlot) {
+    if (!activeEpisode || !studio.importReviewMedia) return "Open an episode in the installed app before importing media.";
+    const result = await studio.importReviewMedia(activeEpisode.id, slot);
+    setReviewMedia(result.inventory);
+    if (!result.canceled) {
+      const durationMs = [result.inventory.program, ...result.inventory.cameras, ...result.inventory.audio].reduce((maximum, asset) => Math.max(maximum, asset.durationMs ?? 0), timelineDraft.durationMs);
+      queueTimelineDraftChange(syncTimelineTracksWithMedia({ ...timelineDraft, durationMs }, result.inventory));
+    }
+    return result.message;
+  }
+
+  async function autoSyncEpisodeMedia() {
+    if (!activeEpisode || !studio.autoSyncReviewMedia) return "Automatic sync is available in the installed app.";
+    const result = await studio.autoSyncReviewMedia(activeEpisode.id);
+    if (Object.keys(result.offsetsMs).length > 0) queueTimelineDraftChange(updateTimelineSyncOffsets(timelineDraft, result.offsetsMs));
+    return result.message;
+  }
+
+  function enqueueTimelineSave(episodeId: string, nextDraft: TimelineDraft) {
+    return timelineSaveQueue.enqueue(episodeId, nextDraft);
+  }
+
+  function queueTimelineDraftChange(nextDraft: TimelineDraft) {
+    setTimelineDraft(nextDraft);
+    if (!activeEpisode) return;
+    if (timelineAutosaveTimerRef.current) window.clearTimeout(timelineAutosaveTimerRef.current);
+    const episodeId = activeEpisode.id;
+    timelineAutosaveTimerRef.current = window.setTimeout(() => {
+      timelineAutosaveTimerRef.current = undefined;
+      void enqueueTimelineSave(episodeId, nextDraft).catch(() => {
+        setTimelineDraft((current) => ({
+          ...current,
+          hasUnsavedChanges: true
+        }));
+      });
+    }, 500);
   }
 
   async function saveTimelineDraftState(nextDraft: TimelineDraft) {
     setTimelineDraft(nextDraft);
-    if (activeEpisode) {
-      const savedDraft = await studio.saveTimelineDraft(activeEpisode.id, nextDraft);
-      setTimelineDraft(savedDraft);
-      return savedDraft;
-    }
-    return nextDraft;
+    if (timelineAutosaveTimerRef.current) window.clearTimeout(timelineAutosaveTimerRef.current);
+    timelineAutosaveTimerRef.current = undefined;
+    if (!activeEpisode) return nextDraft;
+    return enqueueTimelineSave(activeEpisode.id, nextDraft);
   }
 
   async function saveApprovedTimelineDraft() {
@@ -520,6 +596,18 @@ export default function App() {
     await studio.saveSettings(nextSettings);
   }
 
+  async function checkForAppUpdate() {
+    if (studio.checkForAppUpdate) setAppUpdateStatus(await studio.checkForAppUpdate());
+  }
+
+  async function downloadAppUpdate() {
+    if (studio.downloadAppUpdate) setAppUpdateStatus(await studio.downloadAppUpdate());
+  }
+
+  async function installAppUpdate() {
+    await studio.installAppUpdate?.();
+  }
+
   async function runAutoEditFlow(practice = false) {
     if (!activeEpisode) return;
     setAutoEditRunning(true);
@@ -531,6 +619,38 @@ export default function App() {
     } finally {
       setAutoEditRunning(false);
     }
+  }
+
+  function toggleAutoEditSilenceCut(suggestionId: string) {
+    if (!autoEditResult) return;
+    const suggestion = autoEditResult.report.silenceSuggestions.find((item) => item.id === suggestionId);
+    if (!suggestion) return;
+    const accepted = !suggestion.accepted;
+    const operation = {
+      id: suggestion.id,
+      type: "delete-section" as const,
+      label: "Remove long pause",
+      timestampMs: suggestion.startMs,
+      endTimestampMs: suggestion.endMs,
+      targetTrackId: "program",
+      createdAt: autoEditResult.report.createdAt
+    };
+    const nextDraft = setTimelineEditOperationEnabled(autoEditResult.draft, operation, accepted);
+    const silenceSuggestions = autoEditResult.report.silenceSuggestions.map((item) => (item.id === suggestionId ? { ...item, accepted } : item));
+    const silenceRemovedMs = silenceSuggestions.filter((item) => item.accepted).reduce((total, item) => total + item.endMs - item.startMs, 0);
+    const nextResult: AutoEditResult = {
+      ...autoEditResult,
+      draft: nextDraft,
+      report: {
+        ...autoEditResult.report,
+        silenceSuggestions,
+        silenceRemovedMs,
+        runtimeReductionMs: silenceRemovedMs,
+        editedLengthMs: Math.max(0, autoEditResult.report.originalLengthMs - silenceRemovedMs)
+      }
+    };
+    setAutoEditResult(nextResult);
+    queueTimelineDraftChange(nextDraft);
   }
 
   async function startExport(practice = false) {
@@ -551,15 +671,16 @@ export default function App() {
       type: selectedExportType,
       qualityPreset: selectedQualityPreset,
       deviceDefaults: settings.deviceDefaults,
-      draft: timelineDraft.episodeId === episodeId
-        ? timelineDraft
-        : createTimelineDraft({
-            episodeId,
-            recordingSessionId: recordingSnapshot.session?.id,
-            deviceDefaults: settings.deviceDefaults,
-            markers: podcastTools.markers,
-            durationMs: recordingSnapshot.elapsedMs
-          }),
+      draft:
+        timelineDraft.episodeId === episodeId
+          ? timelineDraft
+          : createTimelineDraft({
+              episodeId,
+              recordingSessionId: recordingSnapshot.session?.id,
+              deviceDefaults: settings.deviceDefaults,
+              markers: podcastTools.markers,
+              durationMs: recordingSnapshot.elapsedMs
+            }),
       practice
     });
     setExportJob(job);
@@ -692,7 +813,11 @@ export default function App() {
   async function saveWorkspaceSettings(patch: Partial<NonNullable<StudioSettings["studioWorkspace"]>>) {
     const nextSettings = {
       ...settings,
-      studioWorkspace: { ...defaultStudioWorkspaceState.settings, ...settings.studioWorkspace, ...patch }
+      studioWorkspace: {
+        ...defaultStudioWorkspaceState.settings,
+        ...settings.studioWorkspace,
+        ...patch
+      }
     };
     setSettings(nextSettings);
     await studio.saveSettings(nextSettings);
@@ -713,7 +838,10 @@ export default function App() {
   async function toggleSidebarCollapsed() {
     const nextCollapsed = !sidebarCollapsed;
     setSidebarCollapsed(nextCollapsed);
-    const nextSettings = { ...settings, ui: { ...settings.ui, sidebarCollapsed: nextCollapsed } };
+    const nextSettings = {
+      ...settings,
+      ui: { ...settings.ui, sidebarCollapsed: nextCollapsed }
+    };
     setSettings(nextSettings);
     await studio.saveSettings(nextSettings);
   }
@@ -722,7 +850,9 @@ export default function App() {
     setShowTour(false);
     const nextSettings = {
       ...settings,
-      onboarding: { guidedTour: preference === "remind-later" ? "remind-later" : "never" }
+      onboarding: {
+        guidedTour: preference === "remind-later" ? "remind-later" : "never"
+      }
     } satisfies StudioSettings;
     setSettings(nextSettings);
     await studio.saveSettings(nextSettings);
@@ -732,8 +862,31 @@ export default function App() {
     if (reviewMode) {
       const demoDetection = {
         cameras: [
-          { id: "demo-camera-1", label: "Main Studio Camera", kind: "camera", camera: { connectionType: "usb", signal: "good", autoReconnect: true, maxResolution: "Auto", maxFps: 30 } },
-          { id: "demo-camera-2", label: "Side Angle Camera", kind: "camera", camera: { connectionType: "wireless", signal: "good", batteryPercent: 86, autoReconnect: true, maxResolution: "Auto", maxFps: 30 } }
+          {
+            id: "demo-camera-1",
+            label: "Main Studio Camera",
+            kind: "camera",
+            camera: {
+              connectionType: "usb",
+              signal: "good",
+              autoReconnect: true,
+              maxResolution: "Auto",
+              maxFps: 30
+            }
+          },
+          {
+            id: "demo-camera-2",
+            label: "Side Angle Camera",
+            kind: "camera",
+            camera: {
+              connectionType: "wireless",
+              signal: "good",
+              batteryPercent: 86,
+              autoReconnect: true,
+              maxResolution: "Auto",
+              maxFps: 30
+            }
+          }
         ],
         microphones: [{ id: "demo-mic-1", label: "Morgan Mic", kind: "microphone" }],
         speakers: [{ id: "demo-speakers", label: "Studio Headphones", kind: "speaker" }],
@@ -857,11 +1010,7 @@ export default function App() {
     await refreshUnfinishedSessions();
     await refreshEpisodes();
     updateHardwareResults();
-    setHardwareTestMessage(
-      nextSnapshot.status === "stopped"
-        ? message
-        : getFriendlyHardwareFailureMessage("recording")
-    );
+    setHardwareTestMessage(nextSnapshot.status === "stopped" ? message : getFriendlyHardwareFailureMessage("recording"));
     setHardwareTestStep("export");
   }
 
@@ -894,9 +1043,7 @@ export default function App() {
     });
     setExportJob(job);
     updateHardwareResults(job.status);
-    setHardwareTestMessage(
-      job.status === "complete" ? "Export test complete. The finished copy is saved locally." : getFriendlyHardwareFailureMessage("export")
-    );
+    setHardwareTestMessage(job.status === "complete" ? "Export test complete. The finished copy is saved locally." : getFriendlyHardwareFailureMessage("export"));
     setHardwareTestStep("results");
   }
 
@@ -988,7 +1135,11 @@ export default function App() {
           <div className="brand-badge">WAI</div>
           <div>
             <p className="eyebrow">Studio</p>
-            <h1><span>What</span><span>About</span><span>It?</span></h1>
+            <h1>
+              <span>What</span>
+              <span>About</span>
+              <span>It?</span>
+            </h1>
           </div>
         </div>
         <button className="sidebar-toggle" type="button" onClick={() => void toggleSidebarCollapsed()} aria-label={effectiveSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}>
@@ -1003,10 +1154,17 @@ export default function App() {
           <button data-label="Record" title={effectiveSidebarCollapsed ? "Record" : undefined} aria-current={view === "recording" ? "page" : undefined} className={view === "recording" ? "active" : ""} onClick={() => setView("recording")}>
             <Circle size={20} /> <span>Record</span>
           </button>
-          <button data-label="Review" title={reviewReady ? (effectiveSidebarCollapsed ? "Review" : undefined) : "Record an episode first"} disabled={!reviewReady} aria-current={view === "timeline-review" ? "page" : undefined} className={view === "timeline-review" ? "active" : ""} onClick={() => {
-            if (activeEpisode) void loadReviewWorkspace(activeEpisode.id);
-            setView("timeline-review");
-          }}>
+          <button
+            data-label="Review"
+            title={reviewReady ? (effectiveSidebarCollapsed ? "Review" : undefined) : "Record an episode first"}
+            disabled={!reviewReady}
+            aria-current={view === "timeline-review" ? "page" : undefined}
+            className={view === "timeline-review" ? "active" : ""}
+            onClick={() => {
+              if (activeEpisode) void loadReviewWorkspace(activeEpisode.id);
+              setView("timeline-review");
+            }}
+          >
             <ListVideo size={20} /> <span>Review</span>
           </button>
           <button data-label="Export" title={reviewReady ? (effectiveSidebarCollapsed ? "Export" : undefined) : "Record an episode first"} disabled={!reviewReady} aria-current={view === "export" ? "page" : undefined} className={view === "export" ? "active" : ""} onClick={() => setView("export")}>
@@ -1021,13 +1179,21 @@ export default function App() {
           <button data-label="Settings" title={effectiveSidebarCollapsed ? "Settings" : undefined} aria-current={view === "settings" ? "page" : undefined} className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}>
             <Settings size={20} /> <span>Settings</span>
           </button>
-          <button data-label="More" title={effectiveSidebarCollapsed ? "More" : undefined} aria-current={view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "page" : undefined} className={view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "active" : ""} onClick={() => setView("practice")}>
+          <button
+            data-label="More"
+            title={effectiveSidebarCollapsed ? "More" : undefined}
+            aria-current={view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "page" : undefined}
+            className={view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "active" : ""}
+            onClick={() => setView("practice")}
+          >
             <Sparkles size={20} /> <span>More</span>
           </button>
         </nav>
 
         <div className="phase-note sidebar-persona">
-          <span className="sidebar-persona-avatar" aria-hidden="true">M</span>
+          <span className="sidebar-persona-avatar" aria-hidden="true">
+            M
+          </span>
           <strong>Morgan McGaughey</strong>
           <small>What About It? Studio</small>
         </div>
@@ -1055,19 +1221,7 @@ export default function App() {
           />
         )}
         {view === "home" && <HomeView episodes={episodes} onNewEpisode={() => setView("new-episode")} onStudioSetup={() => setView("device-setup")} onOpenEpisode={(episode) => void openEpisode(episode)} />}
-        {view === "new-episode" && (
-          <NewEpisodeView
-            title={title}
-            guestName={guestName}
-            description={description}
-            setTitle={setTitle}
-            setGuestName={setGuestName}
-            setDescription={setDescription}
-            createEpisode={createEpisode}
-            onBack={() => setView("home")}
-            onNext={() => setView("device-setup")}
-          />
-        )}
+        {view === "new-episode" && <NewEpisodeView title={title} guestName={guestName} description={description} setTitle={setTitle} setGuestName={setGuestName} setDescription={setDescription} createEpisode={createEpisode} onBack={() => setView("home")} onNext={() => setView("device-setup")} />}
         {view === "device-setup" && (
           <div className="view-stack">
             <DeviceSetupWizard
@@ -1122,9 +1276,7 @@ export default function App() {
             onReleaseCameraPreview={releaseCameraPreview}
             onReleaseMicrophoneStream={releaseMicrophoneStream}
             displays={displays}
-            poppedOutPanels={Object.fromEntries(
-              Object.entries(workspaceState.windows).map(([panelId, state]) => [panelId, Boolean(state?.isPoppedOut)])
-            ) as Partial<Record<StudioPanelId, boolean>>}
+            poppedOutPanels={Object.fromEntries(Object.entries(workspaceState.windows).map(([panelId, state]) => [panelId, Boolean(state?.isPoppedOut)])) as Partial<Record<StudioPanelId, boolean>>}
             onPopOutPanel={(panelId, displayId, fullscreen) => void openWorkspacePanel(panelId, displayId, fullscreen)}
             onReturnPanel={(panelId) => void returnWorkspacePanel(panelId)}
           />
@@ -1133,13 +1285,15 @@ export default function App() {
           <TimelineReview
             draft={timelineDraft}
             media={reviewMedia}
-            onDraftChange={(nextDraft) => void saveTimelineDraftState(nextDraft)}
+            onDraftChange={queueTimelineDraftChange}
             onSaveDraft={() => void saveApprovedTimelineDraft()}
             onExport={async () => {
               await saveApprovedTimelineDraft();
               setView("export");
             }}
             onAutoEdit={() => void runAutoEditFlow(reviewMode)}
+            onImportMedia={importEpisodeMedia}
+            onAutoSync={autoSyncEpisodeMedia}
           />
         )}
         {view === "auto-edit-review" && (
@@ -1149,7 +1303,9 @@ export default function App() {
             running={autoEditRunning}
             onModeChange={setAutoEditMode}
             onRun={() => void runAutoEditFlow(reviewMode)}
+            onReview={() => setView("timeline-review")}
             onExport={() => setView("export")}
+            onToggleSilenceCut={toggleAutoEditSilenceCut}
           />
         )}
         {view === "export" && (
@@ -1188,9 +1344,7 @@ export default function App() {
             onCreateDiagnostics={() => void createHardwareDiagnostics()}
           />
         )}
-        {view === "theme-editor" && (
-          <ThemeEditorView activeThemeId={settings.activeThemeId} changeTheme={changeTheme} />
-        )}
+        {view === "theme-editor" && <ThemeEditorView activeThemeId={settings.activeThemeId} changeTheme={changeTheme} />}
         {view === "learn" && <LearnStudioView />}
         {view === "practice" && <PracticeModeView />}
         {view === "settings" && (
@@ -1200,9 +1354,13 @@ export default function App() {
             displays={displays}
             workspaceState={workspaceState}
             workspaceMessage={workspaceMessage}
+            appUpdateStatus={appUpdateStatus}
             onWorkspaceSettingsChange={(patch) => void saveWorkspaceSettings(patch)}
             onApplyLayout={(layoutId) => void applyWorkspaceLayout(layoutId)}
             onResetLayout={() => void resetWorkspaceLayout()}
+            onCheckForUpdate={() => void checkForAppUpdate()}
+            onDownloadUpdate={() => void downloadAppUpdate()}
+            onInstallUpdate={() => void installAppUpdate()}
           />
         )}
       </section>
@@ -1225,11 +1383,39 @@ function JourneyProgress({
   exportComplete: boolean;
   onNavigate: (view: Extract<View, "device-setup" | "recording" | "timeline-review" | "export">) => void;
 }) {
-  const steps: Array<{ label: string; target: Extract<View, "device-setup" | "recording" | "timeline-review" | "export">; complete: boolean; active: boolean; locked?: boolean }> = [
-    { label: "Studio Setup", target: "device-setup", complete: studioReady, active: view === "new-episode" || view === "device-setup" },
-    { label: "Record", target: "recording", complete: recordingComplete, active: view === "recording" },
-    { label: "Review", target: "timeline-review", complete: reviewReady, active: view === "timeline-review" || view === "auto-edit-review", locked: !reviewReady },
-    { label: "Export", target: "export", complete: exportComplete, active: view === "export", locked: !reviewReady }
+  const steps: Array<{
+    label: string;
+    target: Extract<View, "device-setup" | "recording" | "timeline-review" | "export">;
+    complete: boolean;
+    active: boolean;
+    locked?: boolean;
+  }> = [
+    {
+      label: "Studio Setup",
+      target: "device-setup",
+      complete: studioReady,
+      active: view === "new-episode" || view === "device-setup"
+    },
+    {
+      label: "Record",
+      target: "recording",
+      complete: recordingComplete,
+      active: view === "recording"
+    },
+    {
+      label: "Review",
+      target: "timeline-review",
+      complete: reviewReady,
+      active: view === "timeline-review" || view === "auto-edit-review",
+      locked: !reviewReady
+    },
+    {
+      label: "Export",
+      target: "export",
+      complete: exportComplete,
+      active: view === "export",
+      locked: !reviewReady
+    }
   ];
 
   return (
@@ -1252,20 +1438,8 @@ function JourneyProgress({
   );
 }
 
-function FirstRunSetup({
-  onClose,
-  onHardwareTest
-}: {
-  onClose: (preference: "skip" | "remind-later" | "never") => void;
-  onHardwareTest: () => void;
-}) {
-  const topics = [
-    "Check cameras and microphones before the first episode.",
-    "Run a 30-second recording test with real gear.",
-    "Export a local MP4 test copy.",
-    "Save diagnostics locally if anything needs attention.",
-    "Everything stays on this computer."
-  ];
+function FirstRunSetup({ onClose, onHardwareTest }: { onClose: (preference: "skip" | "remind-later" | "never") => void; onHardwareTest: () => void }) {
+  const topics = ["Check cameras and microphones before the first episode.", "Run a 30-second recording test with real gear.", "Export a local MP4 test copy.", "Save diagnostics locally if anything needs attention.", "Everything stays on this computer."];
 
   return (
     <section className="tour-card" role="dialog" aria-label="First run setup">
@@ -1275,46 +1449,44 @@ function FirstRunSetup({
       <div>
         <p className="signature">Welcome to beta</p>
         <h2>Let's check the studio first.</h2>
-        <p className="soft-copy">
-          Start with Hardware Test Mode so the app can confirm your camera, microphone, export, and diagnostics are ready.
-        </p>
+        <p className="soft-copy">Start with Hardware Test Mode so the app can confirm your camera, microphone, export, and diagnostics are ready.</p>
       </div>
       <div className="tour-topic-grid">
         {topics.map((topic) => (
-          <span key={topic}><Compass size={18} /> {topic}</span>
+          <span key={topic}>
+            <Compass size={18} /> {topic}
+          </span>
         ))}
       </div>
       <div className="tour-actions">
-        <Button variant="primary" icon={<ShieldCheck size={20} />} onClick={onHardwareTest}>Run Hardware Test</Button>
-        <Button variant="secondary" icon={<ArrowRight size={20} />} onClick={() => onClose("skip")}>Start with Home</Button>
-        <Button variant="secondary" onClick={() => onClose("remind-later")}>Remind Me Later</Button>
-        <Button variant="secondary" onClick={() => onClose("never")}>Never Show Again</Button>
+        <Button variant="primary" icon={<ShieldCheck size={20} />} onClick={onHardwareTest}>
+          Run Hardware Test
+        </Button>
+        <Button variant="secondary" icon={<ArrowRight size={20} />} onClick={() => onClose("skip")}>
+          Start with Home
+        </Button>
+        <Button variant="secondary" onClick={() => onClose("remind-later")}>
+          Remind Me Later
+        </Button>
+        <Button variant="secondary" onClick={() => onClose("never")}>
+          Never Show Again
+        </Button>
       </div>
     </section>
   );
 }
 
-function HomeView({
-  episodes,
-  onNewEpisode,
-  onStudioSetup,
-  onOpenEpisode
-}: {
-  episodes: EpisodeMetadata[];
-  onNewEpisode: () => void;
-  onStudioSetup: () => void;
-  onOpenEpisode: (episode: EpisodeMetadata) => void;
-}) {
+function HomeView({ episodes, onNewEpisode, onStudioSetup, onOpenEpisode }: { episodes: EpisodeMetadata[]; onNewEpisode: () => void; onStudioSetup: () => void; onOpenEpisode: (episode: EpisodeMetadata) => void }) {
   return (
     <div className="view-stack">
       <section className="hero-panel">
         <div>
           <p className="signature">Morgan's offline podcast room</p>
           <h2>Ready when you are.</h2>
-          <p className="hero-copy">
-            Start with a new episode. Then I will walk you through setup, recording, and what comes next.
-          </p>
-          <Button variant="primary" icon={<Plus size={24} />} onClick={onNewEpisode}>New Episode</Button>
+          <p className="hero-copy">Start with a new episode. Then I will walk you through setup, recording, and what comes next.</p>
+          <Button variant="primary" icon={<Plus size={24} />} onClick={onNewEpisode}>
+            New Episode
+          </Button>
         </div>
         <CameraPreviewWall />
       </section>
@@ -1330,7 +1502,9 @@ function HomeView({
               <p className="signature">Looks like this is your first episode.</p>
               <h4>Let's create something awesome.</h4>
               <p>Start a local episode and this list will fill itself in.</p>
-              <Button variant="primary" icon={<Plus size={20} />} onClick={onNewEpisode}>New Episode</Button>
+              <Button variant="primary" icon={<Plus size={20} />} onClick={onNewEpisode}>
+                New Episode
+              </Button>
             </div>
           ) : (
             <div className="episode-list">
@@ -1338,7 +1512,9 @@ function HomeView({
                 <button type="button" className="episode-card" onClick={() => onOpenEpisode(episode)} title={`Open ${episode.title}`} key={episode.id}>
                   <div>
                     <h4>{episode.title}</h4>
-                    <p>{episode.guestName || "Solo episode"} - {new Date(episode.createdAt).toLocaleDateString()}</p>
+                    <p>
+                      {episode.guestName || "Solo episode"} - {new Date(episode.createdAt).toLocaleDateString()}
+                    </p>
                   </div>
                   <span>{episode.status}</span>
                 </button>
@@ -1353,29 +1529,27 @@ function HomeView({
             <Wand2 size={22} />
           </div>
           <div className="locked-tools">
-            <span><Camera size={18} /> Studio Setup is ready</span>
-            <span><Mic2 size={18} /> Mic check is ready</span>
-            <span><Circle size={18} /> Recording foundation is ready</span>
+            <span>
+              <Camera size={18} /> Studio Setup is ready
+            </span>
+            <span>
+              <Mic2 size={18} /> Mic check is ready
+            </span>
+            <span>
+              <Circle size={18} /> Recording foundation is ready
+            </span>
           </div>
           <p>Next best move: check the studio, record, review, Auto Edit, then export a local finished copy.</p>
-          <Button variant="secondary" icon={<ArrowRight size={20} />} onClick={onStudioSetup}>Go to Studio Setup</Button>
+          <Button variant="secondary" icon={<ArrowRight size={20} />} onClick={onStudioSetup}>
+            Go to Studio Setup
+          </Button>
         </div>
       </section>
     </div>
   );
 }
 
-function NewEpisodeView(props: {
-  title: string;
-  guestName: string;
-  description: string;
-  setTitle: (value: string) => void;
-  setGuestName: (value: string) => void;
-  setDescription: (value: string) => void;
-  createEpisode: () => Promise<void>;
-  onBack: () => void;
-  onNext: () => void;
-}) {
+function NewEpisodeView(props: { title: string; guestName: string; description: string; setTitle: (value: string) => void; setGuestName: (value: string) => void; setDescription: (value: string) => void; createEpisode: () => Promise<void>; onBack: () => void; onNext: () => void }) {
   return (
     <section className="form-panel">
       <p className="signature">Let's get this one on the books</p>
@@ -1393,7 +1567,9 @@ function NewEpisodeView(props: {
         <textarea value={props.description} onChange={(event) => props.setDescription(event.target.value)} placeholder="Big idea, segment notes, or anything Morgan wants handy." />
       </label>
       <div className="form-actions">
-        <Button variant="secondary" icon={<ArrowLeft size={20} />} onClick={props.onBack}>Back Home</Button>
+        <Button variant="secondary" icon={<ArrowLeft size={20} />} onClick={props.onBack}>
+          Back Home
+        </Button>
         <Button variant="primary" icon={<Plus size={22} />} disabled={!props.title.trim()} onClick={() => void props.createEpisode().then(props.onNext)}>
           Create Episode and Check Studio
         </Button>
@@ -1429,9 +1605,7 @@ function ThemeEditorView({ activeThemeId, changeTheme }: { activeThemeId: string
       <div className="panel">
         <p className="signature">Make the whole room yours</p>
         <h2>Theme Editor</h2>
-        <p className="soft-copy">
-          Pick a finished look now. Custom controls will arrive only when they can protect the studio's theme files.
-        </p>
+        <p className="soft-copy">Pick a finished look now. Custom controls will arrive only when they can protect the studio's theme files.</p>
         <div className="theme-editor-status" aria-live="polite">
           <Brush size={20} />
           <span>{editorMessage}</span>
@@ -1511,9 +1685,7 @@ function HardwareTestModeView({
   const isRecording = recordingSnapshot.status === "recording" || recordingSnapshot.status === "paused";
   const needsAttention = Object.values(results).some((result) => result.status === "needs-attention" || result.status === "disconnected");
   const summary = needsAttention ? "Needs Attention" : "Everything Ready";
-  const storageCopy = storageStatus?.availableBytes
-    ? `${Math.floor(storageStatus.availableBytes / 1024 / 1024 / 1024)} GB available`
-    : storageStatus?.message ?? "Storage check waiting";
+  const storageCopy = storageStatus?.availableBytes ? `${Math.floor(storageStatus.availableBytes / 1024 / 1024 / 1024)} GB available` : (storageStatus?.message ?? "Storage check waiting");
 
   return (
     <section className="hardware-test-screen">
@@ -1521,9 +1693,7 @@ function HardwareTestModeView({
         <div>
           <p className="signature">Real gear check</p>
           <h2>Let's test the studio for real</h2>
-          <p className="soft-copy">
-            This mode only passes when your actual camera, microphone, recording, and export path work on this computer.
-          </p>
+          <p className="soft-copy">This mode only passes when your actual camera, microphone, recording, and export path work on this computer.</p>
         </div>
         <ShieldCheck size={54} aria-hidden="true" />
       </div>
@@ -1547,11 +1717,7 @@ function HardwareTestModeView({
           ["export", "Step 4", "Export the test"],
           ["results", "Step 5", "Results"]
         ].map(([stepId, eyebrow, label]) => (
-          <button
-            className={step === stepId ? "active" : ""}
-            key={stepId}
-            onClick={() => onStepChange(stepId as HardwareTestStep)}
-          >
+          <button className={step === stepId ? "active" : ""} key={stepId} onClick={() => onStepChange(stepId as HardwareTestStep)}>
             <span>{eyebrow}</span>
             {label}
           </button>
@@ -1633,9 +1799,7 @@ function HardwareTestModeView({
             <Button variant="primary" icon={<Download size={22} />} onClick={onExport}>
               Export test
             </Button>
-            <p className={`hardware-inline-status ${exportStatus}`}>
-              {exportJob?.message ?? mediaToolsStatus?.message ?? "Export is waiting for the test recording."}
-            </p>
+            <p className={`hardware-inline-status ${exportStatus}`}>{exportJob?.message ?? mediaToolsStatus?.message ?? "Export is waiting for the test recording."}</p>
           </>
         )}
 
@@ -1650,9 +1814,7 @@ function HardwareTestModeView({
         )}
 
         <p className="hardware-test-message">{message}</p>
-        {diagnosticsBundle && (
-          <p className="hardware-test-message">Diagnostics saved: {diagnosticsBundle.folderPath}</p>
-        )}
+        {diagnosticsBundle && <p className="hardware-test-message">Diagnostics saved: {diagnosticsBundle.folderPath}</p>}
         {step !== "results" && (
           <Button variant="secondary" icon={<ArrowRight size={22} />} onClick={() => onStepChange(getNextHardwareTestStep(step))}>
             Next step
@@ -1679,37 +1841,105 @@ function SettingsView({
   displays,
   workspaceState,
   workspaceMessage,
+  appUpdateStatus,
   onWorkspaceSettingsChange,
   onApplyLayout,
-  onResetLayout
+  onResetLayout,
+  onCheckForUpdate,
+  onDownloadUpdate,
+  onInstallUpdate
 }: {
   settings: StudioSettings;
   activeThemeName: string;
   displays: StudioDisplayInfo[];
   workspaceState: StudioWorkspaceState;
   workspaceMessage: string;
+  appUpdateStatus: AppUpdateStatus;
   onWorkspaceSettingsChange: (patch: Partial<NonNullable<StudioSettings["studioWorkspace"]>>) => void;
   onApplyLayout: (layoutId: StudioLayoutProfileId) => void;
   onResetLayout: () => void;
+  onCheckForUpdate: () => void;
+  onDownloadUpdate: () => void;
+  onInstallUpdate: () => void;
 }) {
-  const workspaceSettings = { ...defaultStudioWorkspaceState.settings, ...settings.studioWorkspace };
+  const workspaceSettings = {
+    ...defaultStudioWorkspaceState.settings,
+    ...settings.studioWorkspace
+  };
   const secondaryDisplays = displays.filter((display) => !display.primary);
   return (
     <section className="panel settings-panel">
       <p className="signature">Local by default</p>
       <h2>Settings</h2>
       <dl>
-        <div><dt>Active theme</dt><dd>{activeThemeName}</dd></div>
-        <div><dt>Episode folder</dt><dd>{settings.defaultEpisodeFolderName}</dd></div>
-        <div><dt>Practice Mode</dt><dd>{settings.practiceModeEnabled ? "On" : "Off"}</dd></div>
-        <div><dt>Camera 1</dt><dd>{settings.deviceDefaults.cameras.camera1 ? "Saved" : "Not picked yet"}</dd></div>
-        <div><dt>Morgan Mic</dt><dd>{settings.deviceDefaults.microphones.morganMic ? "Saved" : "Not picked yet"}</dd></div>
-        <div><dt>Storage</dt><dd>Local Documents folder</dd></div>
-        <div><dt>Default export folder</dt><dd>{settings.exportSettings.defaultExportFolder}</dd></div>
-        <div><dt>Default export type</dt><dd>{settings.exportSettings.defaultExportType}</dd></div>
-        <div><dt>Export quality</dt><dd>{settings.exportSettings.qualityPreset}</dd></div>
-        <div><dt>Monitors</dt><dd>{displays.length || 1} detected</dd></div>
+        <div>
+          <dt>Active theme</dt>
+          <dd>{activeThemeName}</dd>
+        </div>
+        <div>
+          <dt>Episode folder</dt>
+          <dd>{settings.defaultEpisodeFolderName}</dd>
+        </div>
+        <div>
+          <dt>Practice Mode</dt>
+          <dd>{settings.practiceModeEnabled ? "On" : "Off"}</dd>
+        </div>
+        <div>
+          <dt>Camera 1</dt>
+          <dd>{settings.deviceDefaults.cameras.camera1 ? "Saved" : "Not picked yet"}</dd>
+        </div>
+        <div>
+          <dt>Morgan Mic</dt>
+          <dd>{settings.deviceDefaults.microphones.morganMic ? "Saved" : "Not picked yet"}</dd>
+        </div>
+        <div>
+          <dt>Storage</dt>
+          <dd>Local Documents folder</dd>
+        </div>
+        <div>
+          <dt>Default export folder</dt>
+          <dd>{settings.exportSettings.defaultExportFolder}</dd>
+        </div>
+        <div>
+          <dt>Default export type</dt>
+          <dd>{settings.exportSettings.defaultExportType}</dd>
+        </div>
+        <div>
+          <dt>Export quality</dt>
+          <dd>{settings.exportSettings.qualityPreset}</dd>
+        </div>
+        <div>
+          <dt>Monitors</dt>
+          <dd>{displays.length || 1} detected</dd>
+        </div>
       </dl>
+      <section className={`app-update-panel ${appUpdateStatus.state}`} aria-live="polite">
+        <div className="app-update-copy">
+          <p className="signature">App updates</p>
+          <h3>Keep Morgan's studio current</h3>
+          <p>{appUpdateStatus.message}</p>
+          <small>
+            Installed version {appUpdateStatus.currentVersion}
+            {appUpdateStatus.availableVersion ? ` · Available ${appUpdateStatus.availableVersion}` : ""}
+          </small>
+        </div>
+        {appUpdateStatus.state === "downloading" ? <progress aria-label="Update download progress" max="100" value={appUpdateStatus.downloadPercent ?? 0} /> : null}
+        <div className="app-update-actions">
+          {appUpdateStatus.state === "available" ? (
+            <Button variant="primary" icon={<Download size={18} />} onClick={onDownloadUpdate}>
+              Download update
+            </Button>
+          ) : appUpdateStatus.state === "ready" ? (
+            <Button variant="primary" icon={<RefreshCw size={18} />} onClick={onInstallUpdate}>
+              Restart and install
+            </Button>
+          ) : (
+            <Button variant="secondary" icon={<RefreshCw size={18} />} disabled={appUpdateStatus.state === "checking" || appUpdateStatus.state === "downloading" || appUpdateStatus.state === "disabled"} onClick={onCheckForUpdate}>
+              {appUpdateStatus.state === "checking" ? "Checking…" : "Check for updates"}
+            </Button>
+          )}
+        </div>
+      </section>
       <div className="workspace-settings-panel">
         <p className="signature">Studio Workspace</p>
         <h3>Multi-monitor workspace</h3>
@@ -1719,7 +1949,11 @@ function SettingsView({
             <input
               type="checkbox"
               checked={workspaceSettings.rememberWindowPositions}
-              onChange={(event) => onWorkspaceSettingsChange({ rememberWindowPositions: event.target.checked })}
+              onChange={(event) =>
+                onWorkspaceSettingsChange({
+                  rememberWindowPositions: event.target.checked
+                })
+              }
             />
             Remember window positions
           </label>
@@ -1727,7 +1961,11 @@ function SettingsView({
             <input
               type="checkbox"
               checked={workspaceSettings.launchWithSavedLayout}
-              onChange={(event) => onWorkspaceSettingsChange({ launchWithSavedLayout: event.target.checked })}
+              onChange={(event) =>
+                onWorkspaceSettingsChange({
+                  launchWithSavedLayout: event.target.checked
+                })
+              }
             />
             Launch with saved layout
           </label>
@@ -1735,11 +1973,17 @@ function SettingsView({
             Default monitor
             <select
               value={workspaceSettings.defaultMonitorId ?? ""}
-              onChange={(event) => onWorkspaceSettingsChange({ defaultMonitorId: event.target.value ? Number(event.target.value) : undefined })}
+              onChange={(event) =>
+                onWorkspaceSettingsChange({
+                  defaultMonitorId: event.target.value ? Number(event.target.value) : undefined
+                })
+              }
             >
               <option value="">Primary monitor</option>
               {secondaryDisplays.map((display, index) => (
-                <option value={display.id} key={display.id}>Monitor {index + 2}</option>
+                <option value={display.id} key={display.id}>
+                  Monitor {index + 2}
+                </option>
               ))}
             </select>
           </label>
@@ -1758,7 +2002,9 @@ function SettingsView({
               {layout.name}
             </button>
           ))}
-          <button type="button" onClick={onResetLayout}>Reset layout</button>
+          <button type="button" onClick={onResetLayout}>
+            Reset layout
+          </button>
         </div>
       </div>
     </section>
@@ -1839,24 +2085,50 @@ function PracticeModeView() {
     <section className="panel practice-panel">
       <p className="signature">Try it without touching real gear</p>
       <h2>Practice Mode</h2>
-      <p className="soft-copy">
-        Walk through the recording room tools with branded practice screens. No fake people photos and no real media files.
-      </p>
+      <p className="soft-copy">Walk through the recording room tools with branded practice screens. No fake people photos and no real media files.</p>
       <div className="practice-steps">
-        <span><Plus size={20} /> Practice starting a new episode</span>
-        <span><Camera size={20} /> Practice Studio Setup with safe sample screens</span>
-        <span><Circle size={20} /> Press Practice on the Record screen</span>
-        <span><Mic2 size={20} /> Practice pause and resume</span>
-        <span><BookOpen size={20} /> Try the teleprompter and sponsor script</span>
-        <span><Clapperboard size={20} /> Tap soundboard buttons without playing real files</span>
-        <span><Camera size={20} /> Switch camera layouts safely</span>
-        <span><Sparkles size={20} /> Mark funny, highlight, and fix-later moments</span>
-        <span><ListVideo size={20} /> Practice timeline review with fake markers</span>
-        <span><Sparkles size={20} /> Practice Auto Edit with sample timeline data</span>
-        <span><Scissors size={20} /> Practice safe trim, split, undo, redo, and restore original</span>
-        <span><Download size={20} /> Practice exporting a finished copy without real media</span>
-        <span><Headphones size={20} /> Learn that everything saves locally</span>
-        <span><Clapperboard size={20} /> Try the recovery message without risking real media</span>
+        <span>
+          <Plus size={20} /> Practice starting a new episode
+        </span>
+        <span>
+          <Camera size={20} /> Practice Studio Setup with safe sample screens
+        </span>
+        <span>
+          <Circle size={20} /> Press Practice on the Record screen
+        </span>
+        <span>
+          <Mic2 size={20} /> Practice pause and resume
+        </span>
+        <span>
+          <BookOpen size={20} /> Try the teleprompter and sponsor script
+        </span>
+        <span>
+          <Clapperboard size={20} /> Tap soundboard buttons without playing real files
+        </span>
+        <span>
+          <Camera size={20} /> Switch camera layouts safely
+        </span>
+        <span>
+          <Sparkles size={20} /> Mark funny, highlight, and fix-later moments
+        </span>
+        <span>
+          <ListVideo size={20} /> Practice timeline review with fake markers
+        </span>
+        <span>
+          <Sparkles size={20} /> Practice Auto Edit with sample timeline data
+        </span>
+        <span>
+          <Scissors size={20} /> Practice safe trim, split, undo, redo, and restore original
+        </span>
+        <span>
+          <Download size={20} /> Practice exporting a finished copy without real media
+        </span>
+        <span>
+          <Headphones size={20} /> Learn that everything saves locally
+        </span>
+        <span>
+          <Clapperboard size={20} /> Try the recovery message without risking real media
+        </span>
       </div>
     </section>
   );

@@ -28,6 +28,14 @@ Development launch and the existing desktop shortcut workflow remain available.
 - Desktop shortcut: enabled
 - Start Menu shortcut: enabled
 - Shortcut name: `What About It Studio`
+- Update source: GitHub Releases for `unpaidintern9/WhatAboutIt`
+- Update channel: prerelease builds produced from verified `main`
+
+## In-App Update Flow
+
+Open **Settings → App updates** and choose **Check for updates**. When a newer verified release exists, the app shows **Download update**, reports progress, and then offers **Restart and install**.
+
+Development launches intentionally disable the updater. Update checks only run in the packaged application, and they never modify episode folders.
 
 ## Icon Status
 
