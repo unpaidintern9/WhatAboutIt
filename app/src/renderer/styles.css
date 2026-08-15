@@ -11,10 +11,7 @@ body {
   min-width: var(--space-minShellWidth);
   min-height: var(--space-minShellHeight);
   color: var(--color-text);
-  background:
-    linear-gradient(rgba(26, 17, 16, calc(0.85 - var(--texture-intensity, 0.5) * 0.2)), rgba(26, 17, 16, 0.92)),
-    var(--texture-active),
-    var(--color-background);
+  background: linear-gradient(rgba(26, 17, 16, calc(0.85 - var(--texture-intensity, 0.5) * 0.2)), rgba(26, 17, 16, 0.92)), var(--texture-active), var(--color-background);
   font-family: var(--font-body);
   font-weight: var(--font-body-weight);
   letter-spacing: var(--letter-spacing);
@@ -54,16 +51,15 @@ button:disabled {
   gap: var(--space-sidebar);
   padding: var(--space-sidebar);
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.24)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.24)), var(--texture-active), var(--color-secondary);
   border-right: 3px double var(--color-accent);
 }
 
 .brand-lockup {
   display: grid;
-  grid-template-columns: calc(var(--space-xxl) + var(--space-xxl) + var(--space-sm)) 1fr;
+  grid-template-columns:
+    calc(var(--space-xxl) + var(--space-xxl) + var(--space-sm))
+    1fr;
   gap: var(--space-lg);
   align-items: center;
 }
@@ -149,7 +145,9 @@ h3 {
   background: rgba(255, 244, 220, 0.08);
   border: 1px solid rgba(255, 244, 220, 0.18);
   border-radius: var(--component-border-radius);
-  transition: transform var(--component-transition-speed), background var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    background var(--component-transition-speed);
 }
 
 .nav-stack button:hover,
@@ -204,20 +202,14 @@ h3 {
   grid-template-columns: 250px minmax(0, 1fr);
   min-height: 100vh;
   overflow: visible;
-  background:
-    linear-gradient(rgba(70, 10, 8, 0.12), rgba(20, 11, 9, 0.18)),
-    var(--texture-active),
-    var(--color-primary);
+  background: linear-gradient(rgba(70, 10, 8, 0.12), rgba(20, 11, 9, 0.18)), var(--texture-active), var(--color-primary);
 }
 
 .studio-shell--recording .sidebar {
   gap: 18px;
   min-height: 100vh;
   padding: 24px 14px;
-  background:
-    linear-gradient(rgba(78, 9, 8, 0.78), rgba(113, 16, 12, 0.72)),
-    var(--texture-active),
-    var(--color-primary);
+  background: linear-gradient(rgba(78, 9, 8, 0.78), rgba(113, 16, 12, 0.72)), var(--texture-active), var(--color-primary);
   border: 4px double color-mix(in srgb, var(--color-accent), #000 20%);
   border-radius: 12px 0 0 12px;
 }
@@ -270,10 +262,7 @@ h3 {
 .studio-shell--recording .nav-stack button:hover,
 .studio-shell--recording .nav-stack button.active {
   color: var(--color-text);
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.54)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.54)), var(--texture-active), var(--color-surface);
   transform: translateY(-1px);
 }
 
@@ -299,8 +288,7 @@ h3 {
   width: 128px;
   height: 128px;
   color: var(--color-primary);
-  background:
-    radial-gradient(circle at 50% 30%, var(--color-accent), color-mix(in srgb, var(--color-surface), #000 12%));
+  background: radial-gradient(circle at 50% 30%, var(--color-accent), color-mix(in srgb, var(--color-surface), #000 12%));
   border: 4px double color-mix(in srgb, var(--color-accent), #000 18%);
   border-radius: 999px;
   font-family: var(--font-display);
@@ -327,10 +315,7 @@ h3 {
   gap: 0;
   padding: 12px;
   overflow: visible;
-  background:
-    linear-gradient(rgba(247, 212, 158, 0.82), rgba(236, 184, 120, 0.7)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(247, 212, 158, 0.82), rgba(236, 184, 120, 0.7)), var(--texture-active), var(--color-surface);
   border: 4px double color-mix(in srgb, var(--color-primary), #000 22%);
   border-left: 0;
 }
@@ -340,18 +325,12 @@ h3 {
 }
 
 .studio-shell:not(.studio-shell--recording) .workspace {
-  background:
-    linear-gradient(rgba(247, 212, 158, 0.86), rgba(188, 108, 54, 0.28)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(247, 212, 158, 0.86), rgba(188, 108, 54, 0.28)), var(--texture-active), var(--color-surface);
   border-left: 4px double color-mix(in srgb, var(--color-primary), #000 22%);
 }
 
 .studio-shell:not(.studio-shell--recording) .sidebar {
-  background:
-    linear-gradient(rgba(78, 9, 8, 0.78), rgba(113, 16, 12, 0.72)),
-    var(--texture-active),
-    var(--color-primary);
+  background: linear-gradient(rgba(78, 9, 8, 0.78), rgba(113, 16, 12, 0.72)), var(--texture-active), var(--color-primary);
   border-right: 4px double color-mix(in srgb, var(--color-accent), #000 18%);
 }
 
@@ -391,10 +370,7 @@ h3 {
 .success-panel,
 .empty-state-card,
 .recording-complete-card {
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)), var(--texture-active), var(--color-surface);
   border: 2px var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -431,7 +407,9 @@ h3 {
   border-radius: var(--component-border-radius);
   box-shadow: var(--component-button-shadow);
   font-weight: 900;
-  transition: transform var(--component-transition-speed), box-shadow var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    box-shadow var(--component-transition-speed);
 }
 
 .primary-action:hover,
@@ -451,9 +429,7 @@ h3 {
   place-items: center;
   min-height: var(--space-previewHeight);
   color: var(--color-mutedText);
-  background:
-    linear-gradient(135deg, rgba(0, 0, 0, 0.08), rgba(255, 255, 255, 0.16)),
-    var(--color-cards);
+  background: linear-gradient(135deg, rgba(0, 0, 0, 0.08), rgba(255, 255, 255, 0.16)), var(--color-cards);
   border: 2px dashed var(--color-border);
   border-radius: var(--component-card-radius);
 }
@@ -496,10 +472,7 @@ h3 {
   min-height: var(--space-controlHeight);
   padding: var(--space-md);
   color: var(--color-mutedText);
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.46)),
-    var(--texture-active),
-    var(--color-cards);
+  background: linear-gradient(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.46)), var(--texture-active), var(--color-cards);
   border: var(--component-border-width) var(--component-border-style) color-mix(in srgb, var(--color-border), transparent 20%);
   border-radius: var(--component-border-radius);
   font-weight: 900;
@@ -523,10 +496,7 @@ h3 {
 
 .journey-progress span.complete {
   color: var(--color-text);
-  background:
-    linear-gradient(rgba(255, 244, 220, 0.9), rgba(230, 184, 126, 0.74)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 244, 220, 0.9), rgba(230, 184, 126, 0.74)), var(--texture-active), var(--color-surface);
   border-color: var(--color-accent);
 }
 
@@ -737,7 +707,10 @@ select:focus {
   border: 2px solid;
   border-radius: var(--component-card-radius);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.12);
-  transition: transform var(--component-transition-speed), box-shadow var(--component-transition-speed), filter var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    box-shadow var(--component-transition-speed),
+    filter var(--component-transition-speed);
 }
 
 .theme-tile:hover,
@@ -811,6 +784,59 @@ select:focus {
   margin: 0;
 }
 
+.settings-panel .app-update-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-lg);
+  margin-top: var(--space-lg);
+  padding: var(--space-lg);
+  background: color-mix(in srgb, var(--color-cards), var(--color-primary) 7%);
+  border: var(--component-border-width) solid var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+}
+
+.settings-panel .app-update-copy,
+.settings-panel .app-update-actions {
+  display: grid;
+  justify-content: initial;
+  gap: var(--space-xs);
+  padding: 0;
+  border: 0;
+}
+
+.app-update-copy h3,
+.app-update-copy p {
+  margin: 0;
+}
+
+.app-update-copy small {
+  color: var(--color-mutedText);
+  font-weight: 800;
+}
+
+.app-update-panel.available,
+.app-update-panel.ready {
+  border-color: var(--color-success);
+}
+
+.app-update-panel.error {
+  border-color: var(--color-danger);
+}
+
+.app-update-panel progress {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: var(--color-primary);
+}
+
+@media (max-width: 720px) {
+  .settings-panel .app-update-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .settings-panel div {
   display: flex;
   justify-content: space-between;
@@ -859,7 +885,9 @@ dd {
   background: var(--color-cards);
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-border-radius);
-  transition: transform var(--component-transition-speed), background var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    background var(--component-transition-speed);
 }
 
 .wai-button-secondary:hover,
@@ -923,10 +951,7 @@ dd {
   width: max-content;
   max-width: 220px;
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(12, 10, 9, 0.94), rgba(24, 18, 15, 0.96)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(12, 10, 9, 0.94), rgba(24, 18, 15, 0.96)), var(--texture-active), var(--color-secondary);
   border: 1px solid color-mix(in srgb, var(--color-accent), #000 30%);
   border-radius: 6px;
   box-shadow: var(--component-shadow);
@@ -938,7 +963,9 @@ dd {
   text-align: left;
   text-transform: none;
   transform: translate(-50%, 4px);
-  transition: opacity var(--component-transition-speed), transform var(--component-transition-speed);
+  transition:
+    opacity var(--component-transition-speed),
+    transform var(--component-transition-speed);
 }
 
 .wai-tooltip:hover span[role="tooltip"],
@@ -961,10 +988,7 @@ dd {
 .practice-steps span,
 .readiness-card,
 .friendly-state {
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.64)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.64)), var(--texture-active), var(--color-surface);
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -1000,7 +1024,9 @@ dd {
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-card-radius);
   text-align: left;
-  transition: transform var(--component-transition-speed), background var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    background var(--component-transition-speed);
 }
 
 .wizard-steps button span {
@@ -1026,10 +1052,7 @@ dd {
 .setup-next-action,
 .studio-ready-summary,
 .secondary-studio-tools {
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.56)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.56)), var(--texture-active), var(--color-surface);
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -1158,10 +1181,7 @@ dd {
   min-width: 240px;
   padding: var(--space-md);
   color: var(--color-text);
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.74)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.74)), var(--texture-active), var(--color-surface);
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -1190,10 +1210,7 @@ dd {
   min-height: 180px;
   overflow: hidden;
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28)), var(--texture-active), var(--color-secondary);
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
 }
@@ -1389,10 +1406,7 @@ dd {
 .recording-timer,
 .local-save-note,
 .mic-status-card {
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.64)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.64)), var(--texture-active), var(--color-surface);
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -1411,10 +1425,7 @@ dd {
   place-items: center;
   min-height: calc(var(--space-controlHeight) * 2);
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.24)),
-    var(--texture-active),
-    var(--color-primary);
+  background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.24)), var(--texture-active), var(--color-primary);
 }
 
 .recording-timer span {
@@ -1444,10 +1455,7 @@ dd {
 
 .local-save-note {
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.16)),
-    var(--texture-active),
-    var(--color-success);
+  background: linear-gradient(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.16)), var(--texture-active), var(--color-success);
 }
 
 .recovery-banner svg {
@@ -1466,10 +1474,7 @@ dd {
 }
 
 .tool-section {
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)), var(--texture-active), var(--color-surface);
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -1518,10 +1523,7 @@ dd {
 
 .teleprompter-card.dark textarea {
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.28)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.28)), var(--texture-active), var(--color-secondary);
 }
 
 .teleprompter-card.light textarea {
@@ -1574,7 +1576,9 @@ input[type="range"] {
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-border-radius);
   text-align: left;
-  transition: transform var(--component-transition-speed), background var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    background var(--component-transition-speed);
 }
 
 .soundboard-grid button.playing,
@@ -1657,10 +1661,7 @@ input[type="range"] {
 .auto-edit-summary-grid,
 .auto-edit-review-grid,
 .locked-editing-tools {
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)), var(--texture-active), var(--color-surface);
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -1785,7 +1786,10 @@ input[type="range"] {
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-border-radius);
   cursor: pointer;
-  transition: transform var(--animation-speed), border-color var(--animation-speed), background var(--animation-speed);
+  transition:
+    transform var(--animation-speed),
+    border-color var(--animation-speed),
+    background var(--animation-speed);
 }
 
 .review-source-tabs button:hover,
@@ -1936,7 +1940,9 @@ input[type="range"] {
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-border-radius);
   text-align: left;
-  transition: transform var(--component-transition-speed), background var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    background var(--component-transition-speed);
 }
 
 .hardware-test-steps button.active,
@@ -2042,7 +2048,9 @@ input[type="range"] {
   box-shadow: var(--component-button-shadow);
   text-align: left;
   cursor: pointer;
-  transition: transform var(--animation-speed), border-color var(--animation-speed);
+  transition:
+    transform var(--animation-speed),
+    border-color var(--animation-speed);
 }
 
 .auto-edit-mode-grid button:hover,
@@ -2156,6 +2164,63 @@ input[type="range"] {
   font-weight: 900;
 }
 
+.auto-edit-silence-review {
+  display: grid;
+  gap: var(--space-md);
+  margin: 0 var(--space-xl) var(--space-xl);
+  padding: var(--space-lg);
+  background: var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border-radius: var(--component-card-radius);
+}
+
+.auto-edit-silence-list {
+  display: grid;
+  gap: 8px;
+}
+
+.auto-edit-silence-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: 9px;
+  background: color-mix(in srgb, var(--color-background), transparent 30%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.auto-edit-silence-list > div.rejected {
+  opacity: 0.68;
+}
+
+.auto-edit-silence-list span {
+  display: grid;
+  gap: 2px;
+}
+
+.auto-edit-silence-list small {
+  color: var(--color-mutedText);
+}
+
+.auto-edit-silence-list button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 10px;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
+.auto-edit-silence-list button[aria-pressed="true"] {
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+}
+
 .export-option-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2175,7 +2240,9 @@ input[type="range"] {
   box-shadow: var(--component-button-shadow);
   text-align: left;
   cursor: pointer;
-  transition: transform var(--animation-speed), border-color var(--animation-speed);
+  transition:
+    transform var(--animation-speed),
+    border-color var(--animation-speed);
 }
 
 .export-option-card:hover,
@@ -2401,7 +2468,9 @@ input[type="range"] {
   border: 0;
   text-align: left;
   cursor: pointer;
-  transition: transform var(--animation-speed), filter var(--animation-speed);
+  transition:
+    transform var(--animation-speed),
+    filter var(--animation-speed);
 }
 
 .timeline-track:hover,
@@ -2426,8 +2495,7 @@ input[type="range"] {
   grid-column: 2;
   display: block;
   min-height: calc(var(--space-controlHeight) * 0.82);
-  background:
-    linear-gradient(90deg, var(--color-primary), color-mix(in srgb, var(--color-accent), var(--color-cards) 35%));
+  background: linear-gradient(90deg, var(--color-primary), color-mix(in srgb, var(--color-accent), var(--color-cards) 35%));
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-border-radius);
   box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--color-cards), transparent 80%);
@@ -2661,10 +2729,7 @@ input[type="range"] {
   align-content: start;
   padding: var(--space-lg);
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.24)),
-    var(--texture-active),
-    var(--color-primary);
+  background: linear-gradient(rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.24)), var(--texture-active), var(--color-primary);
   border: 3px double var(--color-accent);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -2676,10 +2741,7 @@ input[type="range"] {
   min-height: 140px;
   padding: var(--space-lg);
   text-align: center;
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.58)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.58)), var(--texture-active), var(--color-surface);
   color: var(--color-primary);
   border: 4px double var(--color-border);
   border-radius: var(--component-card-radius);
@@ -2749,10 +2811,7 @@ input[type="range"] {
 .ripped-paper-card,
 .vintage-panel,
 .torn-edge-header {
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.58)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.58)), var(--texture-active), var(--color-surface);
 }
 
 .ripped-paper-card {
@@ -2768,9 +2827,7 @@ input[type="range"] {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background:
-    linear-gradient(135deg, transparent 0 12px, color-mix(in srgb, var(--color-border), transparent 70%) 12px 14px, transparent 14px),
-    linear-gradient(315deg, transparent 0 14px, color-mix(in srgb, var(--color-border), transparent 72%) 14px 16px, transparent 16px);
+  background: linear-gradient(135deg, transparent 0 12px, color-mix(in srgb, var(--color-border), transparent 70%) 12px 14px, transparent 14px), linear-gradient(315deg, transparent 0 14px, color-mix(in srgb, var(--color-border), transparent 72%) 14px 16px, transparent 16px);
   opacity: calc(var(--texture-intensity, 0.5) * 0.55);
 }
 
@@ -2798,12 +2855,17 @@ input[type="range"] {
   display: grid;
   gap: var(--space-sm);
   min-width: 0;
-  transition: transform var(--component-transition-speed), box-shadow var(--component-transition-speed), border-color var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    box-shadow var(--component-transition-speed),
+    border-color var(--component-transition-speed);
 }
 
 .camera-live-card.live {
   border-color: var(--color-success);
-  box-shadow: var(--component-shadow), 0 0 0 2px color-mix(in srgb, var(--color-success), transparent 64%);
+  box-shadow:
+    var(--component-shadow),
+    0 0 0 2px color-mix(in srgb, var(--color-success), transparent 64%);
 }
 
 .camera-live-card.needs-attention {
@@ -2865,7 +2927,10 @@ input[type="range"] {
   background: var(--color-cards);
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-border-radius);
-  transition: transform var(--component-transition-speed), background var(--component-transition-speed), border-color var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    background var(--component-transition-speed),
+    border-color var(--component-transition-speed);
 }
 
 .camera-live-top button:hover,
@@ -2883,10 +2948,7 @@ input[type="range"] {
   aspect-ratio: 16 / 8.4;
   overflow: hidden;
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.24), rgba(0, 0, 0, 0.34)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(0, 0, 0, 0.24), rgba(0, 0, 0, 0.34)), var(--texture-active), var(--color-secondary);
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-card-radius);
 }
@@ -3110,10 +3172,7 @@ input[type="range"] {
   position: static;
   z-index: auto;
   padding: var(--space-sm);
-  background:
-    linear-gradient(rgba(20, 12, 9, 0.9), rgba(14, 10, 9, 0.95)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(20, 12, 9, 0.9), rgba(14, 10, 9, 0.95)), var(--texture-active), var(--color-secondary);
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -3128,14 +3187,13 @@ input[type="range"] {
   min-height: 42px;
   padding: var(--space-sm) var(--space-md);
   color: var(--color-text);
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.48)),
-    var(--texture-active),
-    var(--color-cards);
+  background: linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.48)), var(--texture-active), var(--color-cards);
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
   text-transform: uppercase;
-  transition: transform var(--component-transition-speed), background var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    background var(--component-transition-speed);
 }
 
 .rustic-button:hover,
@@ -3294,9 +3352,7 @@ input[type="range"] {
   min-height: 100vh;
   padding: var(--space-md);
   color: var(--color-text);
-  background:
-    linear-gradient(135deg, color-mix(in srgb, var(--color-background), #000 12%), var(--color-surface)),
-    var(--texture-active);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-background), #000 12%), var(--color-surface)), var(--texture-active);
 }
 
 .popout-titlebar {
@@ -3482,7 +3538,9 @@ input[type="range"] {
   border-radius: var(--component-border-radius);
   font-size: var(--font-small-size);
   font-weight: 900;
-  transition: transform var(--component-transition-speed), background var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    background var(--component-transition-speed);
 }
 
 .channel-buttons button:hover,
@@ -3512,7 +3570,9 @@ input[type="range"] {
 
 .soundboard-grid.live button.playing {
   border-color: var(--color-success);
-  box-shadow: var(--component-button-shadow), 0 0 0 2px color-mix(in srgb, var(--color-success), transparent 72%);
+  box-shadow:
+    var(--component-button-shadow),
+    0 0 0 2px color-mix(in srgb, var(--color-success), transparent 72%);
 }
 
 .sound-wave {
@@ -3589,16 +3649,16 @@ input[type="range"] {
 
 .teleprompter-panel textarea {
   scroll-behavior: smooth;
-  transition: min-height var(--component-transition-speed), background var(--component-transition-speed), color var(--component-transition-speed);
+  transition:
+    min-height var(--component-transition-speed),
+    background var(--component-transition-speed),
+    color var(--component-transition-speed);
 }
 
 .teleprompter-panel textarea.focus-mode {
   min-height: 260px;
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.32)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.32)), var(--texture-active), var(--color-secondary);
   font-size: 1.35rem;
   line-height: 1.55;
 }
@@ -3607,18 +3667,12 @@ input[type="range"] {
   flex: 1 1 140px;
   min-height: calc(var(--space-controlHeight) * 1.55);
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.16)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.16)), var(--texture-active), var(--color-secondary);
   box-shadow: var(--component-button-shadow);
 }
 
 .studio-control-button.record {
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.16)),
-    var(--texture-active),
-    var(--color-primary);
+  background: linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.16)), var(--texture-active), var(--color-primary);
 }
 
 .studio-control-button:disabled {
@@ -3656,10 +3710,7 @@ input[type="range"] {
   gap: var(--space-sm);
   padding: var(--space-sm);
   color: var(--color-inverseText);
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.18)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.18)), var(--texture-active), var(--color-secondary);
   border: 3px double var(--color-accent);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -3698,10 +3749,7 @@ input[type="range"] {
 .reference-studio-board .torn-edge-header {
   min-height: 82px;
   padding: 12px 16px;
-  background:
-    linear-gradient(rgba(255, 245, 220, 0.82), rgba(239, 197, 139, 0.58)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 245, 220, 0.82), rgba(239, 197, 139, 0.58)), var(--texture-active), var(--color-surface);
   border-radius: 8px 8px 0 0;
 }
 
@@ -3789,10 +3837,7 @@ input[type="range"] {
   height: clamp(340px, 42vh, 420px);
   min-height: 0;
   overflow: hidden;
-  background:
-    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28)), var(--texture-active), var(--color-secondary);
   border: 3px solid var(--color-border);
   border-radius: 8px;
 }
@@ -3892,10 +3937,7 @@ input[type="range"] {
   grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 5px;
   padding: 8px 12px;
-  background:
-    linear-gradient(rgba(13, 13, 12, 0.92), rgba(23, 22, 20, 0.94)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(13, 13, 12, 0.92), rgba(23, 22, 20, 0.94)), var(--texture-active), var(--color-secondary);
 }
 
 .reference-studio-board .layout-row .rustic-button {
@@ -3925,10 +3967,7 @@ input[type="range"] {
 .studio-side-stack .compact-side-panel {
   overflow: hidden;
   color: var(--color-accent);
-  background:
-    linear-gradient(rgba(9, 10, 10, 0.88), rgba(19, 19, 18, 0.92)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(9, 10, 10, 0.88), rgba(19, 19, 18, 0.92)), var(--texture-active), var(--color-secondary);
   border: 3px solid var(--color-border);
   border-radius: 8px;
   box-shadow: none;
@@ -3944,10 +3983,7 @@ input[type="range"] {
   min-height: 34px;
   padding: 7px 12px;
   color: var(--color-accent);
-  background:
-    linear-gradient(rgba(164, 24, 18, 0.92), rgba(120, 17, 13, 0.92)),
-    var(--texture-active),
-    var(--color-primary);
+  background: linear-gradient(rgba(164, 24, 18, 0.92), rgba(120, 17, 13, 0.92)), var(--texture-active), var(--color-primary);
 }
 
 .reference-console-row .vintage-panel-heading h3,
@@ -4011,9 +4047,7 @@ input[type="range"] {
   gap: 10px;
   min-height: 360px;
   padding: 12px;
-  background:
-    linear-gradient(180deg, rgba(255, 244, 220, 0.08), rgba(0, 0, 0, 0.1)),
-    rgba(255, 244, 220, 0.04);
+  background: linear-gradient(180deg, rgba(255, 244, 220, 0.08), rgba(0, 0, 0, 0.1)), rgba(255, 244, 220, 0.04);
   border: 1px solid color-mix(in srgb, var(--color-accent), transparent 42%);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
 }
@@ -4122,10 +4156,7 @@ input[type="range"] {
   min-height: 34px;
   padding: 5px 6px;
   color: var(--color-text);
-  background:
-    linear-gradient(rgba(255, 244, 220, 0.94), rgba(230, 184, 126, 0.78)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 244, 220, 0.94), rgba(230, 184, 126, 0.78)), var(--texture-active), var(--color-surface);
   border-color: color-mix(in srgb, var(--color-accent), #000 42%);
   border-radius: 999px;
   font-family: var(--font-heading);
@@ -4135,10 +4166,7 @@ input[type="range"] {
 
 .reference-console-row .channel-buttons button.selected {
   color: var(--color-accent);
-  background:
-    linear-gradient(rgba(174, 24, 18, 0.95), rgba(108, 13, 10, 0.95)),
-    var(--texture-active),
-    var(--color-primary);
+  background: linear-gradient(rgba(174, 24, 18, 0.95), rgba(108, 13, 10, 0.95)), var(--texture-active), var(--color-primary);
 }
 
 .reference-console-row .channel-buttons button svg {
@@ -4366,10 +4394,7 @@ input[type="range"] {
   justify-content: flex-start;
   padding: 12px 18px;
   color: var(--color-accent);
-  background:
-    linear-gradient(rgba(150, 18, 13, 0.88), rgba(108, 13, 10, 0.94)),
-    var(--texture-active),
-    var(--color-primary);
+  background: linear-gradient(rgba(150, 18, 13, 0.88), rgba(108, 13, 10, 0.94)), var(--texture-active), var(--color-primary);
   border: 3px solid var(--color-border);
   border-radius: 8px;
   box-shadow: inset 0 0 0 2px rgba(255, 244, 220, 0.08);
@@ -4379,10 +4404,7 @@ input[type="range"] {
 .reference-studio-board .studio-control-button:nth-child(2),
 .reference-studio-board .studio-control-button:nth-child(4) {
   color: var(--color-text);
-  background:
-    linear-gradient(rgba(255, 244, 220, 0.9), rgba(232, 185, 126, 0.72)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 244, 220, 0.9), rgba(232, 185, 126, 0.72)), var(--texture-active), var(--color-surface);
 }
 
 .reference-studio-board .studio-control-button svg {
@@ -4873,10 +4895,7 @@ input[type="range"] {
   position: absolute;
   inset: -6px;
   z-index: -1;
-  background:
-    linear-gradient(rgba(20, 12, 9, 0.12), rgba(20, 12, 9, 0.18)),
-    var(--texture-active),
-    transparent;
+  background: linear-gradient(rgba(20, 12, 9, 0.12), rgba(20, 12, 9, 0.18)), var(--texture-active), transparent;
   border-radius: 10px;
   pointer-events: none;
 }
@@ -4897,9 +4916,7 @@ input[type="range"] {
   height: 94px;
   margin-inline: auto;
   color: var(--color-accent);
-  background:
-    radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--color-primary), #fff 7%), var(--color-primary)),
-    var(--texture-active);
+  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--color-primary), #fff 7%), var(--color-primary)), var(--texture-active);
   border: 4px double color-mix(in srgb, var(--color-accent), #000 18%);
 }
 
@@ -4934,10 +4951,7 @@ input[type="range"] {
 .studio-shell:not(.studio-shell--recording) .nav-stack button:hover,
 .studio-shell:not(.studio-shell--recording) .nav-stack button.active {
   color: var(--color-text);
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.54)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.54)), var(--texture-active), var(--color-surface);
 }
 
 .studio-shell:not(.studio-shell--recording) .wizard-intro,
@@ -4946,29 +4960,20 @@ input[type="range"] {
 .studio-shell:not(.studio-shell--recording) .setup-next-action,
 .studio-shell:not(.studio-shell--recording) .studio-ready-summary,
 .studio-shell:not(.studio-shell--recording) .secondary-studio-tools {
-  background:
-    linear-gradient(rgba(255, 244, 220, 0.92), rgba(236, 184, 126, 0.68)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 244, 220, 0.92), rgba(236, 184, 126, 0.68)), var(--texture-active), var(--color-surface);
   border: 3px solid var(--color-border);
   border-radius: 8px;
   box-shadow: var(--component-shadow);
 }
 
 .studio-shell:not(.studio-shell--recording) .wizard-intro {
-  background:
-    linear-gradient(rgba(255, 244, 220, 0.96), rgba(247, 212, 158, 0.72)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 244, 220, 0.96), rgba(247, 212, 158, 0.72)), var(--texture-active), var(--color-surface);
 }
 
 .studio-shell:not(.studio-shell--recording) .wizard-steps button,
 .studio-shell:not(.studio-shell--recording) .setup-guide-card span {
   color: var(--color-text);
-  background:
-    linear-gradient(rgba(255, 244, 220, 0.92), rgba(230, 184, 126, 0.74)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 244, 220, 0.92), rgba(230, 184, 126, 0.74)), var(--texture-active), var(--color-surface);
   border: 2px solid var(--color-border);
   border-radius: 8px;
 }
@@ -4977,10 +4982,7 @@ input[type="range"] {
 .studio-shell:not(.studio-shell--recording) .wizard-steps button:hover,
 .studio-shell:not(.studio-shell--recording) .setup-guide-card span.ready {
   color: var(--color-accent);
-  background:
-    linear-gradient(rgba(160, 20, 15, 0.94), rgba(104, 13, 10, 0.95)),
-    var(--texture-active),
-    var(--color-primary);
+  background: linear-gradient(rgba(160, 20, 15, 0.94), rgba(104, 13, 10, 0.95)), var(--texture-active), var(--color-primary);
   border-color: var(--color-accent);
 }
 
@@ -5012,10 +5014,7 @@ input[type="range"] {
   width: 100%;
   min-width: 0;
   min-height: clamp(135px, 13vw, 180px);
-  background:
-    linear-gradient(rgba(5, 5, 5, 0.24), rgba(15, 9, 8, 0.34)),
-    var(--texture-active),
-    var(--color-secondary);
+  background: linear-gradient(rgba(5, 5, 5, 0.24), rgba(15, 9, 8, 0.34)), var(--texture-active), var(--color-secondary);
   border-radius: 8px;
 }
 
@@ -5025,24 +5024,51 @@ input[type="range"] {
 }
 
 @keyframes livePulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.68; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.68;
+  }
 }
 
 @keyframes studioPulse {
-  0%, 100% { box-shadow: var(--component-shadow); }
-  50% { box-shadow: var(--component-shadow), 0 0 0 4px color-mix(in srgb, var(--color-danger), transparent 62%); }
+  0%,
+  100% {
+    box-shadow: var(--component-shadow);
+  }
+  50% {
+    box-shadow:
+      var(--component-shadow),
+      0 0 0 4px color-mix(in srgb, var(--color-danger), transparent 62%);
+  }
 }
 
 @keyframes reconnectBreath {
-  0%, 100% { filter: saturate(1); }
-  50% { filter: saturate(1.12); }
+  0%,
+  100% {
+    filter: saturate(1);
+  }
+  50% {
+    filter: saturate(1.12);
+  }
 }
 
 @keyframes markerSaved {
-  0% { opacity: 0; transform: translateY(8px); }
-  12%, 82% { opacity: 1; transform: translateY(0); }
-  100% { opacity: 0; transform: translateY(-4px); }
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  12%,
+  82% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
 }
 
 @media (max-width: 1100px) {
@@ -5166,10 +5192,7 @@ input[type="range"] {
   gap: 8px;
   align-items: center;
   padding: 8px;
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.54)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.54)), var(--texture-active), var(--color-surface);
   border: var(--component-border-width) var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -5314,9 +5337,7 @@ input[type="range"] {
   overflow: hidden;
   padding: 0 5px;
   color: var(--color-inverseText);
-  background:
-    linear-gradient(90deg, transparent 0 10%, rgba(255, 255, 255, 0.07) 10% 11%, transparent 11% 24%, rgba(255, 255, 255, 0.07) 24% 25%, transparent 25%),
-    var(--color-primary);
+  background: linear-gradient(90deg, transparent 0 10%, rgba(255, 255, 255, 0.07) 10% 11%, transparent 11% 24%, rgba(255, 255, 255, 0.07) 24% 25%, transparent 25%), var(--color-primary);
   border: 1px solid color-mix(in srgb, var(--color-accent), transparent 35%);
   border-radius: 3px;
   font-size: 0.62rem;
@@ -5326,9 +5347,7 @@ input[type="range"] {
 
 .edit-track-lane.camera .timeline-clip {
   color: var(--color-text);
-  background:
-    linear-gradient(90deg, transparent 0 13%, rgba(255, 255, 255, 0.2) 13% 14%, transparent 14% 30%, rgba(255, 255, 255, 0.2) 30% 31%, transparent 31%),
-    color-mix(in srgb, var(--color-accent), var(--color-cards) 48%);
+  background: linear-gradient(90deg, transparent 0 13%, rgba(255, 255, 255, 0.2) 13% 14%, transparent 14% 30%, rgba(255, 255, 255, 0.2) 30% 31%, transparent 31%), color-mix(in srgb, var(--color-accent), var(--color-cards) 48%);
 }
 
 .edit-track-lane.camera .timeline-clip[draggable="true"] {
@@ -5340,9 +5359,7 @@ input[type="range"] {
 }
 
 .edit-track-lane.microphone .timeline-clip {
-  background:
-    linear-gradient(180deg, transparent 44%, rgba(255, 255, 255, 0.35) 45% 55%, transparent 56%),
-    color-mix(in srgb, var(--color-success), var(--color-background) 35%);
+  background: linear-gradient(180deg, transparent 44%, rgba(255, 255, 255, 0.35) 45% 55%, transparent 56%), color-mix(in srgb, var(--color-success), var(--color-background) 35%);
 }
 
 .edit-track-clips > .timeline-clip.removed {
@@ -5791,10 +5808,7 @@ input[type="range"] {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding: 8px;
-  background:
-    linear-gradient(rgba(247, 212, 158, 0.94), rgba(236, 184, 120, 0.9)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(247, 212, 158, 0.94), rgba(236, 184, 120, 0.9)), var(--texture-active), var(--color-surface);
   border: 2px solid color-mix(in srgb, var(--color-border), transparent 18%);
   border-radius: var(--component-border-radius);
   box-shadow: 0 7px 16px rgba(35, 16, 10, 0.15);
@@ -5808,14 +5822,14 @@ input[type="range"] {
   min-height: 44px;
   padding: 8px 12px;
   color: var(--color-mutedText);
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.52)),
-    var(--texture-active),
-    var(--color-cards);
+  background: linear-gradient(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.52)), var(--texture-active), var(--color-cards);
   border: 1px solid color-mix(in srgb, var(--color-border), transparent 20%);
   border-radius: var(--component-border-radius);
   font-weight: 900;
-  transition: transform var(--component-transition-speed), background var(--component-transition-speed), color var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    background var(--component-transition-speed),
+    color var(--component-transition-speed);
 }
 
 .journey-progress button:not(:disabled):hover {
@@ -5853,7 +5867,10 @@ input[type="range"] {
   color: var(--color-text);
   font: inherit;
   text-align: left;
-  transition: transform var(--component-transition-speed), box-shadow var(--component-transition-speed), border-color var(--component-transition-speed);
+  transition:
+    transform var(--component-transition-speed),
+    box-shadow var(--component-transition-speed),
+    border-color var(--component-transition-speed);
 }
 
 .episode-card:hover,
@@ -5975,7 +5992,9 @@ input[type="range"] {
 }
 
 @keyframes studio-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .export-stage-strip {
@@ -6071,6 +6090,87 @@ input[type="range"] {
   padding-bottom: var(--space-3xl);
 }
 
+.editor-media-setup {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  background: var(--color-cards);
+  border: var(--component-border-width) solid var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+}
+
+.editor-media-setup-heading,
+.editor-media-setup-heading > div,
+.editor-media-slots > div,
+.editor-media-slots > div > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-media-setup-heading {
+  justify-content: space-between;
+}
+
+.editor-media-setup-heading > div {
+  align-items: baseline;
+}
+
+.editor-media-setup-heading p,
+.editor-media-setup-heading h3,
+.editor-media-message {
+  margin: 0;
+}
+
+.editor-media-setup-heading > button,
+.editor-media-slots button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 10px;
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
+.editor-media-slots {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.editor-media-slots > div {
+  display: grid;
+  align-items: stretch;
+  padding: 9px;
+  background: color-mix(in srgb, var(--color-background), transparent 25%);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.editor-media-slots > div.ready {
+  border-style: solid;
+  border-color: var(--color-success);
+}
+
+.editor-media-slots small,
+.editor-media-message {
+  color: var(--color-mutedText);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+@media (max-width: 920px) {
+  .editor-media-slots {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .edit-studio-header,
 .edit-studio-workspace,
 .edit-range-toolbar,
@@ -6088,10 +6188,7 @@ input[type="range"] {
   justify-content: space-between;
   gap: var(--space-xl);
   padding: var(--space-lg) var(--space-xl);
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.58)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.58)), var(--texture-active), var(--color-surface);
 }
 
 .edit-studio-header h2 {
@@ -6163,6 +6260,83 @@ input[type="range"] {
 
 .edit-source-monitor .review-source-tabs {
   grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.monitor-view-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.monitor-view-switch button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 5px 9px;
+  color: var(--color-accent);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid color-mix(in srgb, var(--color-accent), transparent 60%);
+  border-radius: var(--component-border-radius);
+  font-weight: 900;
+}
+
+.monitor-view-switch button.selected {
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+  border-color: var(--color-accent);
+}
+
+.monitor-view-switch > span {
+  margin-left: auto;
+  color: color-mix(in srgb, var(--color-accent), transparent 25%);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.multicam-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.multicam-grid > button {
+  position: relative;
+  display: grid;
+  gap: 5px;
+  overflow: hidden;
+  padding: 5px;
+  color: var(--color-accent);
+  background: #050505;
+  border: 2px solid transparent;
+  border-radius: var(--component-border-radius);
+}
+
+.multicam-grid > button.active {
+  border-color: var(--color-warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-warning), transparent 65%);
+}
+
+.multicam-grid video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #000;
+}
+
+.multicam-grid strong {
+  text-align: left;
+}
+
+.multicam-grid kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  min-height: 20px;
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+  border: 1px solid var(--color-accent);
+  border-radius: 4px;
 }
 
 .edit-source-monitor .review-source-tabs button {
@@ -6637,6 +6811,13 @@ input[type="range"] {
   padding: 5px;
 }
 
+.edit-track-clips.has-waveform {
+  background-image: linear-gradient(rgba(5, 5, 5, 0.38), rgba(5, 5, 5, 0.38)), var(--waveform-image);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 100% 82%;
+}
+
 .edit-track-clips > button {
   position: relative;
   min-width: 2px;
@@ -6664,6 +6845,18 @@ input[type="range"] {
   color: color-mix(in srgb, var(--color-accent), transparent 45%);
   background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0 7px, rgba(255, 255, 255, 0.09) 7px 14px);
   text-decoration: line-through;
+}
+
+.edit-track-lane.program .timeline-clip.camera-camera1 {
+  background: color-mix(in srgb, var(--color-primary), #2455ff 28%);
+}
+
+.edit-track-lane.program .timeline-clip.camera-camera2 {
+  background: color-mix(in srgb, var(--color-primary), #b93cff 34%);
+}
+
+.edit-track-lane.program .timeline-clip.camera-camera3 {
+  background: color-mix(in srgb, var(--color-primary), #f08a24 34%);
 }
 
 .edit-track-clips > button:hover,
@@ -6728,10 +6921,7 @@ input[type="range"] {
   gap: var(--space-md);
   align-items: center;
   padding: 10px;
-  background:
-    linear-gradient(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.58)),
-    var(--texture-active),
-    var(--color-surface);
+  background: linear-gradient(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.58)), var(--texture-active), var(--color-surface);
 }
 
 .edit-command-bar > div:first-child {
@@ -6891,9 +7081,7 @@ input[type="range"] {
   height: 52px;
   margin-inline: auto;
   color: var(--color-accent);
-  background:
-    radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--color-primary), #fff 7%), var(--color-primary)),
-    var(--texture-active);
+  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--color-primary), #fff 7%), var(--color-primary)), var(--texture-active);
   border: 3px double color-mix(in srgb, var(--color-accent), #000 18%);
   font-size: 0.78rem;
 }
@@ -6938,7 +7126,9 @@ input[type="range"] {
   pointer-events: none;
   opacity: 0;
   transform: translate(-4px, -50%);
-  transition: opacity var(--component-transition-speed), transform var(--component-transition-speed);
+  transition:
+    opacity var(--component-transition-speed),
+    transform var(--component-transition-speed);
 }
 
 .studio-shell.sidebar-collapsed .nav-stack button:hover::after,

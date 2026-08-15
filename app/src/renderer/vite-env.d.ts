@@ -7,8 +7,9 @@ import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
-import type { ReviewMediaInventory } from "../shared/review-media";
+import type { ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaSyncResult } from "../shared/review-media";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
+import type { AppUpdateStatus } from "../shared/app-update";
 
 declare global {
   interface Window {
@@ -28,6 +29,8 @@ declare global {
       loadTimelineDraft: (episodeId: string) => Promise<TimelineDraft | null>;
       saveTimelineDraft: (episodeId: string, draft: TimelineDraft) => Promise<TimelineDraft>;
       loadReviewMedia: (episodeId: string) => Promise<ReviewMediaInventory>;
+      importReviewMedia?: (episodeId: string, slot: ReviewMediaImportSlot) => Promise<ReviewMediaImportResult>;
+      autoSyncReviewMedia?: (episodeId: string) => Promise<ReviewMediaSyncResult>;
       runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean, learningProfile?: AutoEditLearningProfile) => Promise<AutoEditResult>;
       createExport: (request: ExportRequest) => Promise<ExportJob>;
       onExportProgress?: (listener: (job: ExportJob) => void) => () => void;
@@ -39,11 +42,23 @@ declare global {
       getWorkspaceState?: () => Promise<StudioWorkspaceState>;
       saveWorkspaceState?: (state: StudioWorkspaceState) => Promise<StudioWorkspaceState>;
       getDisplays?: () => Promise<StudioDisplayInfo[]>;
-      openWorkspacePanel?: (panelId: StudioPanelId, input?: { episodeId?: string; displayId?: number; fullscreen?: boolean }) => Promise<StudioWindowState>;
+      openWorkspacePanel?: (
+        panelId: StudioPanelId,
+        input?: {
+          episodeId?: string;
+          displayId?: number;
+          fullscreen?: boolean;
+        }
+      ) => Promise<StudioWindowState>;
       closeWorkspacePanel?: (panelId: StudioPanelId) => Promise<StudioWindowState>;
       moveWorkspacePanel?: (panelId: StudioPanelId, displayId: number) => Promise<StudioWindowState>;
       applyWorkspaceLayout?: (layoutId: StudioLayoutProfileId, episodeId?: string) => Promise<StudioWorkspaceState>;
       resetWorkspaceLayout?: () => Promise<StudioWorkspaceState>;
+      getAppUpdateStatus?: () => Promise<AppUpdateStatus>;
+      checkForAppUpdate?: () => Promise<AppUpdateStatus>;
+      downloadAppUpdate?: () => Promise<AppUpdateStatus>;
+      installAppUpdate?: () => Promise<boolean>;
+      onAppUpdateStatus?: (listener: (status: AppUpdateStatus) => void) => () => void;
     };
   }
 }

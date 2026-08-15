@@ -116,4 +116,39 @@ describe("review media store", () => {
 
     probeSpy.mockRestore();
   });
+
+  it("imports an external camera file into Camera 1 and creates the Program fallback", async () => {
+    const { runFfmpeg } = await import("./ffmpeg-tools");
+    const { importReviewMediaFile } = await import("./review-media-store");
+    const episodeId = "episode-import";
+    const sourcePath = path.join(mockPaths.episodesRoot, "phone-camera.mp4");
+    await runFfmpeg([
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc=size=320x180:rate=24",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=440:sample_rate=48000",
+      "-t",
+      "0.5",
+      "-c:v",
+      "libx264",
+      "-preset",
+      "ultrafast",
+      "-c:a",
+      "aac",
+      "-shortest",
+      sourcePath
+    ]);
+
+    const inventory = await importReviewMediaFile(episodeId, "camera-1", sourcePath);
+
+    expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.status).toBe("ready");
+    expect(inventory.program.status).toBe("ready");
+    await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Cameras", "camera-1.webm"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Program", "program.webm"))).resolves.toBeTruthy();
+  }, 20000);
 });

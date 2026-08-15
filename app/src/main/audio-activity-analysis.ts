@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AutoEditActivitySegment } from "../shared/auto-edit";
+import type { AutoEditActivitySegment, AutoEditSilenceSegment } from "../shared/auto-edit";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
 import { runFfmpeg } from "./ffmpeg-tools";
 
@@ -50,14 +50,39 @@ export async function analyzeEpisodeAudioActivity(episodeFolder: string): Promis
   }
   if (sources.length === 0) return [];
 
-  const readings = await Promise.all(sources.map(async (source) => {
-    const result = await runFfmpeg([
-      "-loglevel", "verbose", "-nostats", "-i", source.filePath,
-      "-filter:a", "ebur128=framelog=verbose", "-f", "null", "-"
-    ]);
-    return { source, levels: parseEbur128Levels(result.stderr) };
-  }));
+  const readings = await Promise.all(
+    sources.map(async (source) => {
+      const result = await runFfmpeg(["-loglevel", "verbose", "-nostats", "-i", source.filePath, "-filter:a", "ebur128=framelog=verbose", "-f", "null", "-"]);
+      return { source, levels: parseEbur128Levels(result.stderr) };
+    })
+  );
   return deriveActivitySegments(readings);
+}
+
+export async function analyzeEpisodeSilence(episodeFolder: string): Promise<AutoEditSilenceSegment[]> {
+  const source = await firstExistingAudioSource([path.join(episodeFolder, "Audio", "morgan-mic.m4a"), path.join(episodeFolder, "Program", "program.webm")]);
+  if (!source) return [];
+  const result = await runFfmpeg(["-hide_banner", "-i", source, "-af", "silencedetect=noise=-42dB:d=0.8", "-f", "null", "-"]);
+  return parseSilenceSegments(result.stderr);
+}
+
+export function parseSilenceSegments(output: string): AutoEditSilenceSegment[] {
+  const events = [...output.matchAll(/silence_(start|end):\s*([\d.]+)/g)]
+    .map((match) => ({
+      type: match[1],
+      timestampMs: Math.round(Number(match[2]) * 1000)
+    }))
+    .filter((event) => Number.isFinite(event.timestampMs));
+  const segments: AutoEditSilenceSegment[] = [];
+  let startMs: number | undefined;
+  for (const event of events) {
+    if (event.type === "start") startMs = event.timestampMs;
+    if (event.type === "end" && startMs !== undefined && event.timestampMs > startMs) {
+      segments.push({ startMs, endMs: event.timestampMs });
+      startMs = undefined;
+    }
+  }
+  return segments;
 }
 
 export function parseEbur128Levels(output: string) {
@@ -72,7 +97,10 @@ export function parseEbur128Levels(output: string) {
 }
 
 export function deriveActivitySegments(
-  readings: Array<{ source: Pick<ActivitySource, "cameraTrackId" | "microphoneTrackId">; levels: Array<{ timestampMs: number; db: number }> }>,
+  readings: Array<{
+    source: Pick<ActivitySource, "cameraTrackId" | "microphoneTrackId">;
+    levels: Array<{ timestampMs: number; db: number }>;
+  }>,
   bucketMs = 1000
 ): AutoEditActivitySegment[] {
   const buckets = new Map<number, Array<{ source: ActivitySource; db: number }>>();
@@ -88,10 +116,12 @@ export function deriveActivitySegments(
     }
   }
 
-  const winners = [...buckets.entries()].sort(([a], [b]) => a - b).flatMap(([startMs, candidates]) => {
-    const winner = [...candidates].sort((a, b) => b.db - a.db)[0];
-    return winner && winner.db > -55 ? [{ startMs, ...winner }] : [];
-  });
+  const winners = [...buckets.entries()]
+    .sort(([a], [b]) => a - b)
+    .flatMap(([startMs, candidates]) => {
+      const winner = [...candidates].sort((a, b) => b.db - a.db)[0];
+      return winner && winner.db > -55 ? [{ startMs, ...winner }] : [];
+    });
   if (winners.length === 0) return [];
 
   const segments: AutoEditActivitySegment[] = [];
@@ -100,8 +130,7 @@ export function deriveActivitySegments(
   for (let index = 1; index < winners.length; index += 1) {
     const current = winners[index];
     const next = winners[index + 1];
-    const sustainedSwitch = current.source.cameraTrackId !== active.source.cameraTrackId
-      && next?.source.cameraTrackId === current.source.cameraTrackId;
+    const sustainedSwitch = current.source.cameraTrackId !== active.source.cameraTrackId && next?.source.cameraTrackId === current.source.cameraTrackId;
     if (!sustainedSwitch) continue;
     segments.push({
       startMs: activeStart,
@@ -131,4 +160,16 @@ async function loadRoutes(episodeFolder: string): Promise<Partial<Record<CameraS
   } catch {
     return {};
   }
+}
+
+async function firstExistingAudioSource(paths: string[]) {
+  for (const filePath of paths) {
+    try {
+      await fs.access(filePath);
+      return filePath;
+    } catch {
+      // Try the next recorded source.
+    }
+  }
+  return undefined;
 }

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
@@ -10,22 +10,17 @@ import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-conf
 import { defaultExportSettings } from "../shared/export";
 import { getAppDataRoot, getEpisodesRoot, getSettingsPath, getWorkspaceStatePath } from "./config-service";
 import { logger } from "./logger";
-import {
-  appendRecordingError,
-  createRecordingSession,
-  listUnfinishedRecordingSessions,
-  saveProgramRecording,
-  saveRecordedTracks,
-  writeRecordingState
-} from "./recording-session-store";
+import { appendRecordingError, createRecordingSession, listUnfinishedRecordingSessions, saveProgramRecording, saveRecordedTracks, writeRecordingState } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
 import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
 import { cancelExport, createExport, detectMediaTools, openExportFolder } from "./export-store";
 import { runAutoEdit } from "./auto-edit-store";
 import { createDiagnosticsBundle, getStorageStatus } from "./diagnostics-store";
-import { configureMediaPlaybackBaseUrl, loadReviewMedia } from "./review-media-store";
+import { analyzeReviewMediaSync, configureMediaPlaybackBaseUrl, importReviewMediaFile, loadReviewMedia } from "./review-media-store";
+import type { ReviewMediaImportSlot } from "../shared/review-media";
 import { StudioWindowManager } from "./studio-window-manager";
 import { startMediaPlaybackServer, type MediaPlaybackServer } from "./media-playback-server";
+import { AppUpdateService } from "./app-update-service";
 
 app.setName("What About It Studio");
 
@@ -35,6 +30,7 @@ const settingsPath = getSettingsPath();
 const workspaceStatePath = getWorkspaceStatePath();
 let studioWindowManager: StudioWindowManager;
 let mediaPlaybackServer: MediaPlaybackServer | undefined;
+let appUpdateService: AppUpdateService;
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -72,11 +68,13 @@ async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
 }
 
 function slugify(input: string) {
-  return input
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48) || "new-episode";
+  return (
+    input
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 48) || "new-episode"
+  );
 }
 
 async function listEpisodes(): Promise<EpisodeMetadata[]> {
@@ -91,9 +89,7 @@ async function listEpisodes(): Promise<EpisodeMetadata[]> {
       })
   );
 
-  return episodes
-    .filter((episode): episode is EpisodeMetadata => Boolean(episode))
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  return episodes.filter((episode): episode is EpisodeMetadata => Boolean(episode)).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 async function createEpisode(input: { title: string; guestName?: string; description?: string }) {
@@ -102,11 +98,7 @@ async function createEpisode(input: { title: string; guestName?: string; descrip
   const id = `${now.slice(0, 10)}-${slugify(input.title)}-${crypto.randomUUID().slice(0, 8)}`;
   const folderPath = path.join(episodesRoot, id);
 
-  await Promise.all(
-    ["Program", "Cameras", "Audio", "Backup", "Session", "Logs", "Exports", "Reports"].map((folder) =>
-      fs.mkdir(path.join(folderPath, folder), { recursive: true })
-    )
-  );
+  await Promise.all(["Program", "Cameras", "Audio", "Backup", "Session", "Logs", "Exports", "Reports"].map((folder) => fs.mkdir(path.join(folderPath, folder), { recursive: true })));
 
   const metadata: EpisodeMetadata = {
     id,
@@ -121,7 +113,9 @@ async function createEpisode(input: { title: string; guestName?: string; descrip
   };
 
   await fs.writeFile(path.join(folderPath, "metadata.json"), JSON.stringify(metadata, null, 2), "utf8");
-  await logger.info("EpisodeService", "Created local episode metadata.", { episodeId: metadata.id });
+  await logger.info("EpisodeService", "Created local episode metadata.", {
+    episodeId: metadata.id
+  });
   return metadata;
 }
 
@@ -139,7 +133,10 @@ async function getSettings(): Promise<StudioSettings> {
   return {
     ...withDeviceDefaults(settings),
     exportSettings: { ...defaultExportSettings, ...settings.exportSettings },
-    studioWorkspace: { ...defaultStudioWorkspaceState.settings, ...settings.studioWorkspace }
+    studioWorkspace: {
+      ...defaultStudioWorkspaceState.settings,
+      ...settings.studioWorkspace
+    }
   };
 }
 
@@ -148,7 +145,10 @@ async function saveSettings(settings: StudioSettings) {
   const nextSettings = {
     ...withDeviceDefaults(settings),
     exportSettings: { ...defaultExportSettings, ...settings.exportSettings },
-    studioWorkspace: { ...defaultStudioWorkspaceState.settings, ...settings.studioWorkspace }
+    studioWorkspace: {
+      ...defaultStudioWorkspaceState.settings,
+      ...settings.studioWorkspace
+    }
   };
   await fs.writeFile(settingsPath, JSON.stringify(nextSettings, null, 2), "utf8");
   await logger.info("SettingsService", "Saved local studio settings.");
@@ -171,6 +171,7 @@ app.whenReady().then(async () => {
     statePath: workspaceStatePath
   });
   await studioWindowManager.load();
+  appUpdateService = new AppUpdateService();
 
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(permission === "media");
@@ -183,16 +184,21 @@ app.whenReady().then(async () => {
   ipcMain.handle("workspace:get-state", () => studioWindowManager.getState());
   ipcMain.handle("workspace:save-state", (_event, state) => saveWorkspaceState(state));
   ipcMain.handle("workspace:get-displays", () => studioWindowManager.getDisplays());
-  ipcMain.handle("workspace:open-panel", (_event, input: { panelId: StudioPanelId; episodeId?: string; displayId?: number; fullscreen?: boolean }) =>
-    studioWindowManager.openPanel(input.panelId, input)
+  ipcMain.handle(
+    "workspace:open-panel",
+    (
+      _event,
+      input: {
+        panelId: StudioPanelId;
+        episodeId?: string;
+        displayId?: number;
+        fullscreen?: boolean;
+      }
+    ) => studioWindowManager.openPanel(input.panelId, input)
   );
   ipcMain.handle("workspace:close-panel", (_event, panelId: StudioPanelId) => studioWindowManager.closePanel(panelId));
-  ipcMain.handle("workspace:move-panel", (_event, input: { panelId: StudioPanelId; displayId: number }) =>
-    studioWindowManager.movePanel(input.panelId, input.displayId)
-  );
-  ipcMain.handle("workspace:apply-layout", (_event, input: { layoutId: StudioLayoutProfileId; episodeId?: string }) =>
-    studioWindowManager.applyLayout(input.layoutId, input.episodeId)
-  );
+  ipcMain.handle("workspace:move-panel", (_event, input: { panelId: StudioPanelId; displayId: number }) => studioWindowManager.movePanel(input.panelId, input.displayId));
+  ipcMain.handle("workspace:apply-layout", (_event, input: { layoutId: StudioLayoutProfileId; episodeId?: string }) => studioWindowManager.applyLayout(input.layoutId, input.episodeId));
   ipcMain.handle("workspace:reset-layout", () => studioWindowManager.resetLayout());
   ipcMain.handle("recording:create-session", (_event, input) => createRecordingSession(input));
   ipcMain.handle("recording:write-state", (_event, input) => writeRecordingState(input.folderPath, input.state));
@@ -205,6 +211,41 @@ app.whenReady().then(async () => {
   ipcMain.handle("timeline:load", (_event, episodeId) => loadTimelineDraft(episodeId));
   ipcMain.handle("timeline:save", (_event, input) => saveTimelineDraft(input.episodeId, input.draft));
   ipcMain.handle("review-media:load", (_event, episodeId) => loadReviewMedia(episodeId));
+  ipcMain.handle("review-media:import", async (event, input: { episodeId: string; slot: ReviewMediaImportSlot }) => {
+    const isVideo = input.slot.startsWith("camera-");
+    const options = {
+      title: isVideo ? `Choose ${input.slot.replace("camera-", "Camera ")} video` : "Choose podcast audio",
+      properties: ["openFile"] as Array<"openFile">,
+      filters: isVideo
+        ? [
+            {
+              name: "Video files",
+              extensions: ["mp4", "mov", "mkv", "webm", "m4v"]
+            }
+          ]
+        : [
+            {
+              name: "Audio files",
+              extensions: ["wav", "mp3", "m4a", "aac", "flac", "ogg"]
+            }
+          ]
+    };
+    const parentWindow = BrowserWindow.fromWebContents(event.sender);
+    const result = parentWindow ? await dialog.showOpenDialog(parentWindow, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) {
+      return {
+        canceled: true,
+        inventory: await loadReviewMedia(input.episodeId),
+        message: "Import canceled."
+      };
+    }
+    return {
+      canceled: false,
+      inventory: await importReviewMediaFile(input.episodeId, input.slot, result.filePaths[0]),
+      message: `${input.slot.startsWith("camera-") ? input.slot.replace("camera-", "Camera ") : "Main audio"} imported successfully.`
+    };
+  });
+  ipcMain.handle("review-media:auto-sync", (_event, episodeId: string) => analyzeReviewMediaSync(episodeId));
   ipcMain.handle("auto-edit:run", (_event, input) => runAutoEdit(input));
   ipcMain.handle("export:create", (event, input) => createExport(input, (job) => event.sender.send("export:progress", job)));
   ipcMain.handle("export:media-tools-status", detectMediaTools);
@@ -212,6 +253,10 @@ app.whenReady().then(async () => {
   ipcMain.handle("export:open-folder", (_event, episodeId) => openExportFolder(episodeId));
   ipcMain.handle("diagnostics:create", (_event, input) => createDiagnosticsBundle(input));
   ipcMain.handle("storage:status", getStorageStatus);
+  ipcMain.handle("app-update:get-status", () => appUpdateService.getStatus());
+  ipcMain.handle("app-update:check", () => appUpdateService.checkForUpdates());
+  ipcMain.handle("app-update:download", () => appUpdateService.downloadUpdate());
+  ipcMain.handle("app-update:install", () => appUpdateService.installUpdate());
 
   createWindow();
 
