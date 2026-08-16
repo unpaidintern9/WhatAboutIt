@@ -99,7 +99,7 @@ async function sha256File(filePath: string) {
 
 async function runtimeIsVerified(paths: TranscriptionPaths) {
   try {
-    const results = await Promise.all(Object.entries(LOCAL_WHISPER_RUNTIME_FILES).map(async ([fileName, expectedHash]) => sha256File(path.join(paths.runtimeFolder, fileName)) === expectedHash));
+    const results = await Promise.all(Object.entries(LOCAL_WHISPER_RUNTIME_FILES).map(async ([fileName, expectedHash]) => await sha256File(path.join(paths.runtimeFolder, fileName)) === expectedHash));
     return results.every(Boolean);
   } catch {
     return false;
