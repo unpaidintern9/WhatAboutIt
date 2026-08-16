@@ -16,6 +16,7 @@
     "package:win": "cd app && npm run package:win",
     "installer:win": "cd app && npm run installer:win",
     "beta:win": "cd app && npm run beta:win",
-    "create-shortcut": "cd app && npm run create-shortcut"
+    "create-shortcut": "cd app && npm run create-shortcut",
+    "create-shortcut:dev": "cd app && npm run create-shortcut:dev"
   }
 }

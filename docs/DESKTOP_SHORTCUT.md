@@ -16,7 +16,15 @@ The root script delegates to the app script:
 cd app && npm run create-shortcut
 ```
 
-The shortcut points to the local Electron runtime in `app/node_modules/electron/dist/electron.exe`, uses the app folder as the working directory, and passes `.` so Electron opens the local application entry point.
+The shortcut points to the installed Windows app when available, or to `app/release/win-unpacked/What About It Studio.exe` after `npm run package:win`. Both targets are packaged applications, so in-app update checks remain available.
+
+To intentionally create a development shortcut instead:
+
+```text
+npm run create-shortcut:dev
+```
+
+The development shortcut points to the local Electron runtime, uses the app folder as its working directory, and disables in-app updates.
 
 ## Shortcut Location
 
@@ -58,7 +66,7 @@ The future installer shortcut name is:
 What About It Studio
 ```
 
-Phase 8C adds Windows beta installer scripts. The development shortcut script remains available and does not replace installer-created shortcuts.
+Phase 8C adds Windows beta installer scripts. The default shortcut script preserves installer behavior by choosing the installed or packaged app. The explicit `create-shortcut:dev` command remains available for source-tree testing.
 
 Phase 8C validation confirmed the NSIS installer created both shortcuts and both opened the installed app from:
 
