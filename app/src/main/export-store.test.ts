@@ -124,7 +124,9 @@ describe("export store", () => {
     };
 
     const preview = await renderTrackTreatmentPreview({ episodeId, draft: treatedDraft, trackId: "mic-morganMic", timestampMs: 500 });
-    const previewPath = path.join(mockPaths.episodesRoot, episodeId, "Session", "Review", "treatment-preview-mic-morganMic.m4a");
+    const previewFolder = path.join(mockPaths.episodesRoot, episodeId, "Session", "Review");
+    const previewFile = (await fs.readdir(previewFolder)).find((fileName) => fileName.startsWith("treatment-preview-mic-morganMic-"));
+    const previewPath = path.join(previewFolder, previewFile ?? "missing");
 
     expect(preview.kind).toBe("audio");
     expect(preview.playbackUrl).toContain("version=");
