@@ -11,6 +11,7 @@ import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImp
 import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../shared/episode-maintenance";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
 import type { AppUpdateStatus } from "../shared/app-update";
+import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
 
 declare global {
   interface Window {
@@ -29,6 +30,10 @@ declare global {
       savePodcastTools: (episodeId: string, state: PodcastToolsState) => Promise<PodcastToolsState>;
       loadTimelineDraft: (episodeId: string) => Promise<TimelineDraft | null>;
       saveTimelineDraft: (episodeId: string, draft: TimelineDraft) => Promise<TimelineDraft>;
+      getLocalTranscriptionStatus?: () => Promise<LocalTranscriptionStatus>;
+      transcribeEpisodeLocally?: (episodeId: string) => Promise<LocalTranscriptionResult>;
+      cancelLocalTranscription?: (episodeId: string) => Promise<boolean>;
+      onLocalTranscriptionProgress?: (listener: (progress: LocalTranscriptionProgress) => void) => () => void;
       loadReviewMedia: (episodeId: string) => Promise<ReviewMediaInventory>;
       importReviewMedia?: (episodeId: string, slot: ReviewMediaImportSlot) => Promise<ReviewMediaImportResult>;
       cancelReviewMediaImport?: (episodeId: string, slot: ReviewMediaImportSlot) => Promise<boolean>;

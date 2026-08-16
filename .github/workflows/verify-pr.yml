@@ -1,0 +1,30 @@
+name: Verify studio change
+
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "docs/**"
+      - ".github/workflows/verify-pr.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - run: npm run verify
+      - run: npm run build

@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import type { ReviewMediaAsset, ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaTreatmentPreview } from "../../shared/review-media";
 import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../../shared/episode-maintenance";
+import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../../shared/local-transcription";
 import type { TimelineAudioPreset, TimelineDraft, TimelineTrack } from "../../shared/timeline";
 import {
   addCameraDecision,
@@ -79,6 +80,10 @@ interface TimelineReviewProps {
   onVerifyOriginals?: () => Promise<string>;
   onGetEpisodeStorage?: () => Promise<EpisodeStorageSummary>;
   onCleanupEpisodeStorage?: (scope: EpisodeCleanupScope) => Promise<EpisodeStorageSummary>;
+  transcriptionStatus?: LocalTranscriptionStatus;
+  transcriptionProgress?: LocalTranscriptionProgress;
+  onTranscribeLocally?: () => Promise<LocalTranscriptionResult>;
+  onCancelTranscription?: () => Promise<void>;
 }
 
 const audioPresetCopy: Record<TimelineAudioPreset, { label: string; help: string }> = {
@@ -112,7 +117,11 @@ export function TimelineReview({
   onRelinkMedia,
   onVerifyOriginals,
   onGetEpisodeStorage,
-  onCleanupEpisodeStorage
+  onCleanupEpisodeStorage,
+  transcriptionStatus,
+  transcriptionProgress,
+  onTranscribeLocally,
+  onCancelTranscription
 }: TimelineReviewProps) {
   const videoAssets = useMemo(() => (media ? [media.program, ...media.cameras] : []), [media]);
   const editableTracks = useMemo(() => draft.tracks.filter((track) => track.kind !== "markers"), [draft.tracks]);
@@ -526,7 +535,18 @@ export function TimelineReview({
 
       <TimelineMediaSetup media={media} importProgress={importProgress} onImportMedia={onImportMedia} onCancelImport={onCancelImport} onAutoSync={onAutoSync} onRelinkMedia={onRelinkMedia} onVerifyOriginals={onVerifyOriginals} onGetEpisodeStorage={onGetEpisodeStorage} onCleanupEpisodeStorage={onCleanupEpisodeStorage} />
 
-      <TimelineCaptionPanel draft={draft} playheadMs={playheadMs} rangeStartMs={rangeStartMs} rangeEndMs={rangeEndMs} hasSelectedRange={hasSelectedRange} onDraftChange={onDraftChange} />
+      <TimelineCaptionPanel
+        draft={draft}
+        playheadMs={playheadMs}
+        rangeStartMs={rangeStartMs}
+        rangeEndMs={rangeEndMs}
+        hasSelectedRange={hasSelectedRange}
+        onDraftChange={onDraftChange}
+        transcriptionStatus={transcriptionStatus}
+        transcriptionProgress={transcriptionProgress}
+        onTranscribeLocally={onTranscribeLocally}
+        onCancelTranscription={onCancelTranscription}
+      />
 
       <section className="edit-studio-workspace">
         <div className="edit-source-monitor">
