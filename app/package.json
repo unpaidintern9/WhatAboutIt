@@ -33,7 +33,8 @@
     "package:win": "npm run build && electron-builder --win --dir",
     "installer:win": "npm run build && electron-builder --win nsis",
     "beta:win": "npm run verify && npm run installer:win",
-    "create-shortcut": "node scripts/create-shortcut.mjs"
+    "create-shortcut": "node scripts/create-shortcut.mjs",
+    "create-shortcut:dev": "node scripts/create-shortcut.mjs --dev"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",

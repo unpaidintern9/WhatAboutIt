@@ -18,7 +18,7 @@ Meanings:
 - `installer:win`: builds the NSIS Windows installer.
 - `beta:win`: runs verification first, then builds the installer.
 
-Development launch and the existing desktop shortcut workflow remain available.
+`npm run create-shortcut` targets the installed app or an unpacked packaged build so updates stay enabled. Use `npm run create-shortcut:dev` only for an updater-disabled source-tree launch.
 
 ## Installer Identity
 

@@ -4,34 +4,56 @@ import path from "node:path";
 import {
   getElectronTargetPath,
   getFallbackDesktopPath,
+  getInstalledTargetPath,
+  getPackagedTargetPath,
   getShortcutArguments,
   getShortcutIconPath,
   getShortcutPath,
   getShortcutWorkingDirectory,
-  shortcutDisplayName
+  shortcutDisplayName,
 } from "./shortcut-paths.mjs";
 
 const appRoot = process.cwd();
-const packagedTargetPath = path.join(appRoot, "release", "win-unpacked", `${shortcutDisplayName}.exe`);
-const packagedBuildExists = existsSync(packagedTargetPath);
-const targetPath = packagedBuildExists ? packagedTargetPath : getElectronTargetPath(appRoot);
+const developmentShortcut = process.argv.includes("--dev");
+const installedTargetPath = getInstalledTargetPath();
+const packagedTargetPath = getPackagedTargetPath(appRoot);
+const packagedTarget = [installedTargetPath, packagedTargetPath].find(
+  (candidate) => candidate && existsSync(candidate),
+);
+const targetPath = developmentShortcut
+  ? getElectronTargetPath(appRoot)
+  : packagedTarget;
 
-if (!existsSync(targetPath)) {
-  throw new Error(`Electron was not found at ${targetPath}. Run npm install inside app first.`);
+if (developmentShortcut && !existsSync(targetPath)) {
+  throw new Error(
+    `Electron was not found at ${targetPath}. Run npm install inside app first.`,
+  );
 }
 
-const desktopPath = execFileSync("powershell.exe", [
-  "-NoProfile",
-  "-Command",
-  "[Environment]::GetFolderPath('Desktop')"
-])
-  .toString()
-  .trim() || getFallbackDesktopPath();
+if (!targetPath) {
+  throw new Error(
+    "No installed or packaged app was found. Run npm run installer:win and install it, or run npm run package:win first. " +
+      "Use npm run create-shortcut:dev only when an updater-disabled development shortcut is intentional.",
+  );
+}
+
+const desktopPath =
+  execFileSync("powershell.exe", [
+    "-NoProfile",
+    "-Command",
+    "[Environment]::GetFolderPath('Desktop')",
+  ])
+    .toString()
+    .trim() || getFallbackDesktopPath();
 
 const shortcutPath = getShortcutPath(desktopPath);
-const shortcutArguments = packagedBuildExists ? "" : getShortcutArguments();
-const workingDirectory = packagedBuildExists ? path.dirname(packagedTargetPath) : getShortcutWorkingDirectory(appRoot);
-const iconPath = packagedBuildExists ? packagedTargetPath : getShortcutIconPath(appRoot);
+const shortcutArguments = developmentShortcut ? getShortcutArguments() : "";
+const workingDirectory = developmentShortcut
+  ? getShortcutWorkingDirectory(appRoot)
+  : path.dirname(targetPath);
+const iconPath = developmentShortcut
+  ? getShortcutIconPath(appRoot)
+  : targetPath;
 
 const script = `
 $shell = New-Object -ComObject WScript.Shell
@@ -54,10 +76,13 @@ execFileSync(
       WAI_SHORTCUT_TARGET: targetPath,
       WAI_SHORTCUT_ARGS: shortcutArguments,
       WAI_SHORTCUT_WORKDIR: workingDirectory,
-      WAI_SHORTCUT_ICON: iconPath
+      WAI_SHORTCUT_ICON: iconPath,
     },
-    stdio: "inherit"
-  }
+    stdio: "inherit",
+  },
 );
 
-console.log(`Created ${shortcutDisplayName} shortcut at ${shortcutPath}`);
+console.log(
+  `Created ${shortcutDisplayName} ${developmentShortcut ? "development" : "packaged app"} shortcut at ${shortcutPath}`,
+);
+console.log(`Target: ${targetPath}`);

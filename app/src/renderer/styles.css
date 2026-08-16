@@ -355,6 +355,8 @@ h3 {
   align-content: start;
   padding: var(--space-xxl);
   overflow: auto;
+  container-name: studio-workspace;
+  container-type: inline-size;
 }
 
 .view-stack {
@@ -6370,6 +6372,7 @@ input[type="range"] {
 
 .edit-source-monitor {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 10px;
   padding: 12px;
@@ -6547,6 +6550,8 @@ input[type="range"] {
 }
 
 .edit-track-inspector {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: 10px;
   padding: 12px;
@@ -7164,6 +7169,43 @@ input[type="range"] {
   }
 }
 
+@container studio-workspace (max-width: 840px) {
+  .edit-studio-header,
+  .edit-studio-workspace {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .edit-studio-header {
+    display: grid;
+  }
+
+  .edit-studio-confidence,
+  .editor-media-slots,
+  .edit-track-inspector,
+  .edit-range-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .edit-studio-confidence span {
+    justify-content: center;
+    min-width: 0;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .inspector-heading,
+  .inspector-status,
+  .inspector-footer,
+  .program-inspector-copy {
+    grid-column: 1 / -1;
+  }
+
+  .edit-range-toolbar > div:nth-of-type(2),
+  .edit-range-toolbar .wai-button {
+    grid-column: span 2;
+  }
+}
+
 @media (max-width: 640px) {
   .edit-studio-confidence,
   .editor-mode-switch,
@@ -7305,7 +7347,11 @@ input[type="range"] {
 }
 
 .edit-transport {
-  grid-template-columns: repeat(7, auto) minmax(120px, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+}
+
+.edit-transport input {
+  grid-column: 1 / -1;
 }
 
 .edit-command-bar .edit-button-grid {
