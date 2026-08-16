@@ -35,6 +35,8 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("Archive Master");
     expect(markup).toContain("Social Clip");
     expect(markup).toContain("Vertical video from the selected timeline range");
+    expect(markup).toContain("Editor Handoff");
+    expect(markup).toContain("Premiere, Resolve, Final Cut, or CapCut");
     expect(markup).toContain("Media tools are ready");
     expect(markup).toContain("1080p video, 320 kbps audio");
     expect(markup).toContain("Recommended");
@@ -44,6 +46,24 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("Measured mastering analyzes the complete mix");
     expect(markup).toContain("Back to Review");
     expect(markup).toContain("Mix sources");
+  });
+
+  it("explains the universal editor package and requires a destination", () => {
+    const missingDestination = renderToStaticMarkup(
+      <ExportEpisode selectedType="editor-handoff" qualityPreset="high" mediaToolsStatus={{ ready: true, message: "Media tools are ready" }} onTypeChange={vi.fn()} onQualityChange={vi.fn()} onChooseDestination={vi.fn()} onStartExport={vi.fn()} onCancelExport={vi.fn()} onOpenFolder={vi.fn()} onBackToReview={vi.fn()} onFinish={vi.fn()} />
+    );
+    const ready = renderToStaticMarkup(
+      <ExportEpisode selectedType="editor-handoff" qualityPreset="high" destinationFolderPath={"E:\\Podcast Deliveries"} mediaToolsStatus={{ ready: true, message: "Media tools are ready" }} onTypeChange={vi.fn()} onQualityChange={vi.fn()} onChooseDestination={vi.fn()} onStartExport={vi.fn()} onCancelExport={vi.fn()} onOpenFolder={vi.fn()} onBackToReview={vi.fn()} onFinish={vi.fn()} />
+    );
+
+    expect(missingDestination).toContain("Universal editor package");
+    expect(missingDestination).toContain("48 kHz, 24-bit WAV");
+    expect(missingDestination).toContain("SHA-256 checksums");
+    expect(missingDestination).toContain("Choose destination");
+    expect(missingDestination).toContain("disabled");
+    expect(ready).toContain("E:\\Podcast Deliveries");
+    expect(ready).toContain("Build editor handoff");
+    expect(ready).not.toContain("Quality preset");
   });
 
   it("requires a selected range for social clips and describes a ready vertical clip", () => {

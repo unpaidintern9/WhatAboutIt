@@ -54,10 +54,11 @@ declare global {
       renderTrackTreatmentPreview?: (episodeId: string, draft: TimelineDraft, trackId: string, timestampMs: number) => Promise<ReviewMediaTreatmentPreview>;
       runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean, learningProfile?: AutoEditLearningProfile) => Promise<AutoEditResult>;
       createExport: (request: ExportRequest) => Promise<ExportJob>;
+      chooseExportDestinationFolder?: () => Promise<string | undefined>;
       onExportProgress?: (listener: (job: ExportJob) => void) => () => void;
       getMediaToolsStatus: () => Promise<MediaToolsStatus>;
       cancelExport: (episodeId: string, job: ExportJob) => Promise<ExportJob>;
-      openExportFolder: (episodeId: string) => Promise<string>;
+      openExportFolder: (episodeId: string, outputFolder?: string) => Promise<string>;
       createDiagnosticsBundle: (input: DiagnosticsBundleRequest) => Promise<DiagnosticsBundleResult>;
       getStorageStatus: () => Promise<StorageStatus>;
       getWorkspaceState?: () => Promise<StudioWorkspaceState>;

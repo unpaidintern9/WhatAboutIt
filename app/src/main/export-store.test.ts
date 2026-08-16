@@ -371,6 +371,67 @@ describe("export store", () => {
     expect(await validatePlayableMedia(cameraMaster, undefined, { video: true, audio: true, decode: true })).toBe(true);
   }, 30000);
 
+  it("creates a portable editor handoff package in a chosen destination", async () => {
+    const { createExport } = await import("./export-store");
+    const { runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");
+    const episodeId = "episode-editor-handoff";
+    const episodeFolder = path.join(mockPaths.episodesRoot, episodeId);
+    const destination = path.join(mockPaths.episodesRoot, "outside-editor-deliveries");
+    const programPath = path.join(episodeFolder, "Program", "program.webm");
+    const cameraPath = path.join(episodeFolder, "Cameras", "camera-1.webm");
+    const microphonePath = path.join(episodeFolder, "Audio", "morgan-mic.m4a");
+    await Promise.all([
+      fs.mkdir(path.dirname(programPath), { recursive: true }),
+      fs.mkdir(path.dirname(cameraPath), { recursive: true }),
+      fs.mkdir(path.dirname(microphonePath), { recursive: true })
+    ]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24", "-f", "lavfi", "-i", "sine=frequency=550:sample_rate=48000", "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", programPath]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=red:size=320x180:rate=24", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000", "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", cameraPath]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "1", "-c:a", "aac", microphonePath]);
+    const draft = createTimelineDraft({
+      episodeId,
+      durationMs: 1000,
+      markers: [{ id: "marker-1", label: "Great quote", timestampMs: 500, createdAt: "2026-08-16T12:00:00.000Z", recordingSessionId: "session-1" }],
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+    });
+    draft.captions = [{ id: "caption-1", startMs: 100, endMs: 800, text: "Welcome to What About It" }];
+    draft.tracks = draft.tracks.map((track) => track.id === "mic-morganMic" ? { ...track, syncOffsetMs: 125 } : track);
+
+    const job = await createExport({ episodeId, type: "editor-handoff", qualityPreset: "high", destinationFolderPath: destination, masteringMode: "measured", draft });
+    const referencePath = path.join(job.outputFolder, "01 Reference Edit", "what-about-it-reference-edit.mp4");
+    const cameraOutput = path.join(job.outputFolder, "02 Camera Video", "Camera 1.mp4");
+    const microphoneOutput = path.join(job.outputFolder, "03 Isolated Audio", "Morgan Mic.wav");
+    const checksums = await fs.readFile(path.join(job.outputFolder, "SHA256SUMS.txt"), "utf8");
+    const syncMap = await fs.readFile(path.join(job.outputFolder, "04 Project Notes", "sync-map.csv"), "utf8");
+
+    expect(job.status).toBe("complete");
+    expect(path.dirname(job.outputFolder)).toBe(destination);
+    expect(job.outputFileName).toBe(path.join("01 Reference Edit", "what-about-it-reference-edit.mp4"));
+    expect(await validatePlayableMedia(referencePath, undefined, { video: true, audio: true, decode: true })).toBe(true);
+    expect(await validatePlayableMedia(cameraOutput, undefined, { video: true, audio: true, decode: true })).toBe(true);
+    expect(await validatePlayableMedia(microphoneOutput, undefined, { audio: true, decode: true })).toBe(true);
+    expect(await fs.readFile(path.join(job.outputFolder, "README - START HERE.txt"), "utf8")).toContain("Adobe Premiere Pro, DaVinci Resolve, Final Cut Pro, CapCut");
+    expect(await fs.readFile(path.join(job.outputFolder, "04 Project Notes", "markers.csv"), "utf8")).toContain("Great quote");
+    expect(await fs.readFile(path.join(job.outputFolder, "04 Project Notes", "captions.srt"), "utf8")).toContain("Welcome to What About It");
+    expect(syncMap).toContain("Trim 125 ms from the start");
+    expect(checksums).toContain("01 Reference Edit/what-about-it-reference-edit.mp4");
+    expect(checksums).toContain("02 Camera Video/Camera 1.mp4");
+  }, 60000);
+
+  it("returns a friendly editor handoff state when no destination was chosen", async () => {
+    const { createExport } = await import("./export-store");
+    const job = await createExport({
+      episodeId: "episode-no-destination",
+      type: "editor-handoff",
+      qualityPreset: "high",
+      draft: createTimelineDraft({ episodeId: "episode-no-destination", deviceDefaults: { cameras: {}, microphones: {} } })
+    });
+
+    expect(job.status).toBe("error");
+    expect(job.error).toBe("destination-missing");
+    expect(job.message).toContain("Choose where to save");
+  });
+
   it("returns a friendly missing recording state when real media is unavailable", async () => {
     const { createExport } = await import("./export-store");
     const job = await createExport({

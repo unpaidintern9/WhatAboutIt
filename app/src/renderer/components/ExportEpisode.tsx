@@ -1,5 +1,5 @@
 import { type ReactElement } from "react";
-import { ArrowLeft, CheckCircle2, ExternalLink, FileArchive, FileAudio, Home, LoaderCircle, Play, RectangleVertical, ShieldCheck, Square, Video } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ExternalLink, FileArchive, FileAudio, FolderInput, Home, LoaderCircle, PackageOpen, Play, RectangleVertical, ShieldCheck, Square, Video } from "lucide-react";
 import type { ExportJob, ExportMasteringMode, ExportQualityPreset, ExportType, MediaToolsStatus } from "../../shared/export";
 import { exportFriendlyErrorCopy, exportTypeLabels } from "../../shared/export";
 import { Button } from ".";
@@ -13,11 +13,13 @@ interface ExportEpisodeProps {
   includeCameraMasters?: boolean;
   includeAudioMasters?: boolean;
   masteringMode?: ExportMasteringMode;
+  destinationFolderPath?: string;
   onTypeChange: (type: ExportType) => void;
   onQualityChange: (preset: ExportQualityPreset) => void;
   onCameraMastersChange?: (included: boolean) => void;
   onAudioMastersChange?: (included: boolean) => void;
   onMasteringModeChange?: (mode: ExportMasteringMode) => void;
+  onChooseDestination?: () => void;
   onStartExport: () => void;
   onCancelExport: () => void;
   onOpenFolder: () => void;
@@ -29,7 +31,8 @@ const exportIcons: Record<ExportType, ReactElement> = {
   "full-episode-video": <Video size={24} />,
   "audio-only": <FileAudio size={24} />,
   "archive-master": <FileArchive size={24} />,
-  "social-clip-placeholder": <RectangleVertical size={24} />
+  "social-clip-placeholder": <RectangleVertical size={24} />,
+  "editor-handoff": <PackageOpen size={24} />
 };
 
 const qualityCopy: Record<ExportQualityPreset, { title: string; detail: string; badge?: string }> = {
@@ -53,11 +56,13 @@ export function ExportEpisode({
   includeCameraMasters = false,
   includeAudioMasters = false,
   masteringMode = "measured",
+  destinationFolderPath,
   onTypeChange,
   onQualityChange,
   onCameraMastersChange,
   onAudioMastersChange,
   onMasteringModeChange,
+  onChooseDestination,
   onStartExport,
   onCancelExport,
   onOpenFolder,
@@ -71,6 +76,8 @@ export function ExportEpisode({
   const activeStage = isComplete ? 4 : progress >= 85 ? 3 : progress >= 45 ? 2 : progress >= 15 ? 1 : 0;
   const stages = ["Prepare", "Mix sources", "Build video", "Verify file", "Done"];
   const socialClipNeedsRange = selectedType === "social-clip-placeholder" && !selectedRangeMs;
+  const isEditorHandoff = selectedType === "editor-handoff";
+  const handoffNeedsDestination = isEditorHandoff && !destinationFolderPath;
 
   return (
     <section className="export-screen">
@@ -110,14 +117,30 @@ export function ExportEpisode({
         <div>
           <p className="signature">Keep it simple</p>
           <h3>Quality</h3>
-          <p className="soft-copy">High is the best finished episode. Extra source masters are optional, so a normal export stays fast and compact.</p>
+          <p className="soft-copy">{isEditorHandoff ? "Build one organized folder an outside editor can open in nearly any modern editing program." : "High is the best finished episode. Extra source masters are optional, so a normal export stays fast and compact."}</p>
         </div>
+        {isEditorHandoff ? (
+          <div className="editor-handoff-settings">
+            <div className="editor-handoff-summary">
+              <strong>Universal editor package</strong>
+              <span>1080p H.264 MP4 camera files with guide audio</span>
+              <span>48 kHz, 24-bit WAV microphone files</span>
+              <span>Reference edit, captions, markers, sync map, README, and SHA-256 checksums</span>
+            </div>
+            <div className="editor-handoff-destination">
+              <span><strong>Save destination</strong><small>{destinationFolderPath ?? "Choose an external drive, shared folder, or transfer folder."}</small></span>
+              <Button variant={destinationFolderPath ? "secondary" : "primary"} icon={<FolderInput size={18} />} onClick={onChooseDestination}>
+                {destinationFolderPath ? "Change destination" : "Choose destination"}
+              </Button>
+            </div>
+          </div>
+        ) : null}
         {selectedType === "social-clip-placeholder" ? (
           <p className={socialClipNeedsRange ? "media-tools-status needs-setup" : "media-tools-status ready"} role="status">
             {socialClipNeedsRange ? "Go back to Review and drag across the Program timeline to choose the clip." : `Selected clip: ${(selectedRangeMs! / 1000).toFixed(1)} seconds · 1080×1920 vertical video`}
           </p>
         ) : null}
-        <div className="quality-preset-row" aria-label="Quality preset">
+        {!isEditorHandoff ? <div className="quality-preset-row" aria-label="Quality preset">
           {(["standard", "high", "archive"] as ExportQualityPreset[]).map((preset) => {
             const copy = selectedType === "social-clip-placeholder" ? socialQualityCopy[preset] : qualityCopy[preset];
             return (
@@ -132,8 +155,8 @@ export function ExportEpisode({
               </button>
             );
           })}
-        </div>
-        {(selectedType === "full-episode-video" || selectedType === "archive-master") && (
+        </div> : null}
+        {!isEditorHandoff && (selectedType === "full-episode-video" || selectedType === "archive-master") && (
           <div className="export-extra-options" aria-label="Additional export files">
             {selectedType === "full-episode-video" && (
               <label>
@@ -147,13 +170,13 @@ export function ExportEpisode({
             </label>
           </div>
         )}
-        <div className="export-mastering-choice">
+        {!isEditorHandoff ? <div className="export-mastering-choice">
           <span><strong>Podcast loudness</strong><small>Measured mastering analyzes the complete mix before applying the final level.</small></span>
           <div className="inspector-segmented" aria-label="Podcast loudness processing">
             <button type="button" className={masteringMode === "measured" ? "selected" : ""} onClick={() => onMasteringModeChange?.("measured")}>Measured</button>
             <button type="button" className={masteringMode === "fast" ? "selected" : ""} onClick={() => onMasteringModeChange?.("fast")}>Fast</button>
           </div>
-        </div>
+        </div> : null}
       </section>
 
       <section className="export-progress-panel">
@@ -193,8 +216,8 @@ export function ExportEpisode({
           </div>
         )}
         <div className="export-actions">
-          <Button variant={isComplete ? "secondary" : "primary"} icon={<Play size={20} />} disabled={isRunning || socialClipNeedsRange} onClick={onStartExport}>
-            {isRunning ? "Exporting" : isComplete ? "Export again" : "Export"}
+          <Button variant={isComplete ? "secondary" : "primary"} icon={isEditorHandoff ? <PackageOpen size={20} /> : <Play size={20} />} disabled={isRunning || socialClipNeedsRange || handoffNeedsDestination} onClick={onStartExport}>
+            {isRunning ? (isEditorHandoff ? "Building handoff" : "Exporting") : isComplete ? (isEditorHandoff ? "Build another handoff" : "Export again") : isEditorHandoff ? "Build editor handoff" : "Export"}
           </Button>
           <Button variant="secondary" icon={<Square size={18} />} disabled={!isRunning} onClick={onCancelExport}>
             Cancel export
