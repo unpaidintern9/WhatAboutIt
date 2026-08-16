@@ -72,6 +72,26 @@ describe("export store", () => {
     expect(summary.originalRecordingSafe).toBe(true);
   }, 20000);
 
+  it("versions repeated exports instead of overwriting earlier output", async () => {
+    const { createExport } = await import("./export-store");
+    const request = {
+      episodeId: "episode-versioned",
+      type: "audio-only" as const,
+      qualityPreset: "standard" as const,
+      practice: true,
+      draft: createTimelineDraft({ episodeId: "episode-versioned", deviceDefaults: { cameras: {}, microphones: {} } })
+    };
+
+    const first = await createExport(request);
+    const second = await createExport(request);
+    const folder = path.join(mockPaths.episodesRoot, request.episodeId, "Exports");
+
+    expect(first.outputFileName).toBe("what-about-it-audio-only.m4a");
+    expect(second.outputFileName).toBe("what-about-it-audio-only-2.m4a");
+    await expect(fs.stat(path.join(folder, first.outputFileName ?? ""))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(folder, second.outputFileName ?? ""))).resolves.toBeTruthy();
+  }, 30000);
+
   it("creates a real audio-only export from generated local media", async () => {
     const { createExport } = await import("./export-store");
     const { validatePlayableMedia } = await import("./ffmpeg-tools");
@@ -89,6 +109,41 @@ describe("export store", () => {
     expect(job.outputFileName).toBe("what-about-it-audio-only.m4a");
     expect(await validatePlayableMedia(outputPath)).toBe(true);
   }, 20000);
+
+  it("renders a playable preview with the selected microphone treatment", async () => {
+    const { renderTrackTreatmentPreview } = await import("./export-store");
+    const { runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");
+    const episodeId = "episode-treatment-preview";
+    const audioPath = path.join(mockPaths.episodesRoot, episodeId, "Audio", "morgan-mic.m4a");
+    await fs.mkdir(path.dirname(audioPath), { recursive: true });
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "1", "-c:a", "aac", audioPath]);
+    const draft = createTimelineDraft({ episodeId, durationMs: 1000, deviceDefaults: { cameras: {}, microphones: { morganMic: "mic-a" } } });
+    const treatedDraft = {
+      ...draft,
+      tracks: draft.tracks.map((track) => track.id === "mic-morganMic" ? { ...track, compression: 45, noiseReduction: 20, eqHighDb: 2 } : track)
+    };
+
+    const preview = await renderTrackTreatmentPreview({ episodeId, draft: treatedDraft, trackId: "mic-morganMic", timestampMs: 500 });
+    const previewPath = path.join(mockPaths.episodesRoot, episodeId, "Session", "Review", "treatment-preview-mic-morganMic.m4a");
+
+    expect(preview.kind).toBe("audio");
+    expect(preview.playbackUrl).toContain("version=");
+    expect(await validatePlayableMedia(previewPath, undefined, { audio: true, decode: true })).toBe(true);
+  }, 20000);
+
+  it("exports edited captions as a versioned SRT sidecar", async () => {
+    const { createExport } = await import("./export-store");
+    const draft = createTimelineDraft({ episodeId: "episode-captions", durationMs: 2000, deviceDefaults: { cameras: {}, microphones: {} } });
+    draft.captions = [{ id: "caption-1", startMs: 250, endMs: 1500, text: "Welcome to the show" }];
+
+    const first = await createExport({ episodeId: "episode-captions", type: "audio-only", qualityPreset: "standard", practice: true, draft });
+    const second = await createExport({ episodeId: "episode-captions", type: "audio-only", qualityPreset: "standard", practice: true, draft });
+    const folder = path.join(mockPaths.episodesRoot, "episode-captions", "Exports");
+
+    expect(first.outputFileNames).toContain("captions.srt");
+    expect(second.outputFileNames).toContain("captions-2.srt");
+    expect(await fs.readFile(path.join(folder, "captions.srt"), "utf8")).toContain("00:00:00,250 --> 00:00:01,500");
+  }, 30000);
 
   it("renders the high preset as a real 1080p video", async () => {
     const { createExport } = await import("./export-store");

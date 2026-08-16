@@ -1,9 +1,10 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import type { ReviewMediaAsset, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaKind, ReviewMediaSyncResult } from "../shared/review-media";
+import { randomUUID } from "node:crypto";
+import type { ReviewMediaAsset, ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaKind, ReviewMediaSyncResult } from "../shared/review-media";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
-import { runFfmpeg, runFfprobe, validatePlayableMedia } from "./ffmpeg-tools";
+import { getMediaDurationMs, runFfmpeg, runFfmpegWithProgress, runFfprobe, validatePlayableMedia } from "./ffmpeg-tools";
 import { logger } from "./logger";
 
 interface MediaProbeResult {
@@ -153,7 +154,7 @@ async function ensureAudioWaveform(episodeFolder: string, asset: ReviewMediaAsse
     if (await proxyNeedsRefresh(waveformPath, [asset.filePath])) {
       await runFfmpeg(["-y", "-i", asset.filePath, "-filter_complex", "aformat=channel_layouts=mono,showwavespic=s=1400x120:colors=white", "-frames:v", "1", waveformPath]);
     }
-    return { ...asset, waveformUrl: pathToPlaybackUrl(waveformPath) };
+    return { ...asset, waveformUrl: mediaFilePlaybackUrl(waveformPath) };
   } catch (error) {
     await logger.warning("ReviewMedia", "Audio waveform could not be prepared.", { filePath: asset.filePath, error: String(error) });
     return asset;
@@ -193,7 +194,12 @@ const importTargets: Record<ReviewMediaImportSlot, { relativePath: string; kind:
   }
 };
 
-export async function importReviewMediaFile(episodeId: string, slot: ReviewMediaImportSlot, sourceFilePath: string) {
+export async function importReviewMediaFile(
+  episodeId: string,
+  slot: ReviewMediaImportSlot,
+  sourceFilePath: string,
+  options: { signal?: AbortSignal; onProgress?: (progress: ReviewMediaImportProgress) => void } = {}
+) {
   const target = importTargets[slot];
   const episodeFolder = path.join(getEpisodesRoot(), episodeId);
   const targetPath = path.join(episodeFolder, target.relativePath);
@@ -204,24 +210,50 @@ export async function importReviewMediaFile(episodeId: string, slot: ReviewMedia
   const temporaryOriginalPath = `${originalPath}.importing`;
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
   await fs.mkdir(path.dirname(originalPath), { recursive: true });
+  await assertImportDiskSpace(sourceFilePath, episodeFolder, [originalPath, targetPath]);
+  const report = (progress: number, message: string) => options.onProgress?.({ episodeId, slot, progress: Math.round(progress), message });
+  const assertNotCanceled = () => {
+    if (!options.signal?.aborted) return;
+    const error = new Error("Media import was canceled.");
+    error.name = "AbortError";
+    throw error;
+  };
   await fs.rm(temporaryPath, { force: true });
   await fs.rm(temporaryOriginalPath, { force: true });
   try {
+    assertNotCanceled();
+    report(3, "Checking available storage");
     await fs.copyFile(sourceFilePath, temporaryOriginalPath);
+    assertNotCanceled();
+    report(20, "Protecting the full-quality original");
     if (!(await validatePlayableMedia(temporaryOriginalPath, undefined, target.kind === "video" ? { video: true } : { audio: true }))) {
       throw new Error(`${target.label} original could not be decoded.`);
     }
+    assertNotCanceled();
+    const durationMs = await getMediaDurationMs(temporaryOriginalPath).catch(() => 0);
     if (target.kind === "video") {
-      await runFfmpeg(["-y", "-nostats", "-i", temporaryOriginalPath, "-map", "0:v:0", "-map", "0:a?", "-vf", "scale='min(1280,iw)':-2", "-c:v", "libvpx-vp9", "-crf", "34", "-b:v", "0", "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1", "-c:a", "libopus", "-b:a", "128k", temporaryPath]);
+      await runFfmpegWithProgress(["-y", "-i", temporaryOriginalPath, "-map", "0:v:0", "-map", "0:a?", "-vf", "scale='min(1280,iw)':-2", "-c:v", "libvpx-vp9", "-crf", "34", "-b:v", "0", "-deadline", "realtime", "-cpu-used", "8", "-row-mt", "1", "-c:a", "libopus", "-b:a", "128k", temporaryPath], {
+        durationMs,
+        signal: options.signal,
+        onProgress: (progress) => report(25 + progress * 0.6, "Building a responsive editing copy")
+      });
     } else {
-      await runFfmpeg(["-y", "-nostats", "-i", temporaryOriginalPath, "-vn", "-c:a", "aac", "-b:a", "160k", temporaryPath]);
+      await runFfmpegWithProgress(["-y", "-i", temporaryOriginalPath, "-vn", "-c:a", "aac", "-b:a", "160k", temporaryPath], {
+        durationMs,
+        signal: options.signal,
+        onProgress: (progress) => report(25 + progress * 0.6, "Building a responsive editing copy")
+      });
     }
+    assertNotCanceled();
+    report(87, "Verifying the editing copy");
     if (!(await validatePlayableMedia(temporaryPath, undefined, target.kind === "video" ? { video: true } : { audio: true }))) {
       throw new Error(`${target.label} could not be decoded after import.`);
     }
+    assertNotCanceled();
+    report(92, "Safely installing the imported media");
     await backupExistingImportedMedia(episodeFolder, originalPath, `${slot}-original`);
-    await fs.rename(temporaryOriginalPath, originalPath);
     await backupExistingImportedMedia(episodeFolder, targetPath, slot);
+    await fs.rename(temporaryOriginalPath, originalPath);
     await fs.rename(temporaryPath, targetPath);
     await saveImportedOriginalPath(episodeId, slot, originalPath);
     if (slot === "camera-1") {
@@ -252,6 +284,7 @@ export async function importReviewMediaFile(episodeId: string, slot: ReviewMedia
       sourceFilePath,
       targetPath
     });
+    report(100, "Media is ready to edit");
     return loadReviewMedia(episodeId);
   } catch (error) {
     await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
@@ -308,16 +341,61 @@ async function saveImportedOriginalPath(episodeId: string, slot: ReviewMediaImpo
   await fs.rename(temporaryPath, manifestPath);
 }
 
-async function backupExistingImportedMedia(episodeFolder: string, filePath: string, label: string) {
+const IMPORT_BACKUP_RETENTION = 5;
+
+async function assertImportDiskSpace(sourceFilePath: string, destinationFolder: string, replacedFiles: string[]) {
+  try {
+    const sourceBytes = (await fs.stat(sourceFilePath)).size;
+    let backupBytes = 0;
+    for (const filePath of replacedFiles) {
+      try {
+        backupBytes += (await fs.stat(filePath)).size;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
+    const volume = await fs.statfs(destinationFolder);
+    const availableBytes = Number(volume.bavail) * Number(volume.bsize);
+    const requiredBytes = Math.ceil(sourceBytes * 1.75) + backupBytes + 512 * 1024 * 1024;
+    if (availableBytes < requiredBytes) {
+      throw new Error(`There is not enough free disk space to import this file safely. Free at least ${formatBytes(requiredBytes - availableBytes)} and try again.`);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith("There is not enough free disk space")) throw error;
+    await logger.warning("ReviewMedia", "Could not complete the import disk-space preflight.", { error: String(error) });
+  }
+}
+
+function formatBytes(bytes: number) {
+  if (bytes >= 1024 ** 3) return `${Math.ceil(bytes / 1024 ** 3)} GB`;
+  return `${Math.ceil(bytes / 1024 ** 2)} MB`;
+}
+
+export async function backupExistingImportedMedia(episodeFolder: string, filePath: string, label: string) {
   try {
     await fs.access(filePath);
-    const backupFolder = path.join(episodeFolder, "Backup", "Imported Media");
-    await fs.mkdir(backupFolder, { recursive: true });
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    const extension = path.extname(filePath);
-    await fs.copyFile(filePath, path.join(backupFolder, `${label}-${timestamp}${extension}`));
-  } catch {
-    // There is nothing to back up on the first import.
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  const backupFolder = path.join(episodeFolder, "Backup", "Imported Media");
+  await fs.mkdir(backupFolder, { recursive: true });
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const extension = path.extname(filePath);
+  const prefix = `${label}-`;
+  const backupPath = path.join(backupFolder, `${prefix}${timestamp}-${randomUUID()}${extension}`);
+  try {
+    await fs.copyFile(filePath, backupPath);
+  } catch (error) {
+    throw new Error(`The existing ${label} could not be backed up, so the import was stopped before anything was replaced.`, { cause: error });
+  }
+  const matchingBackups = (await fs.readdir(backupFolder, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix))
+    .map((entry) => entry.name)
+    .sort()
+    .reverse();
+  for (const oldBackup of matchingBackups.slice(IMPORT_BACKUP_RETENTION)) {
+    await fs.rm(path.join(backupFolder, oldBackup), { force: true });
   }
 }
 
@@ -331,8 +409,9 @@ export async function analyzeReviewMediaSync(episodeId: string): Promise<ReviewM
       confidence: "review",
       message: "Add the main audio before automatic sync."
     };
-  const referenceOnsets = await detectSoundOnsetsMs(referencePath);
-  if (referenceOnsets.length === 0)
+  const referenceEnvelope = await extractWaveformEnvelope(referencePath).catch(() => []);
+  const referenceOnsets = referenceEnvelope.length === 0 ? await detectSoundOnsetsMs(referencePath) : [];
+  if (referenceEnvelope.length === 0 && referenceOnsets.length === 0)
     return {
       offsetsMs: {},
       confidence: "review",
@@ -344,7 +423,10 @@ export async function analyzeReviewMediaSync(episodeId: string): Promise<ReviewM
     const cameraPath = path.join(episodeFolder, "Cameras", `camera-${index}.webm`);
     try {
       await fs.access(cameraPath);
-      const alignment = alignSoundOnsets(referenceOnsets, await detectSoundOnsetsMs(cameraPath));
+      const cameraEnvelope = referenceEnvelope.length > 0 ? await extractWaveformEnvelope(cameraPath).catch(() => []) : [];
+      const alignment = cameraEnvelope.length > 0
+        ? correlateAudioEnvelopes(referenceEnvelope, cameraEnvelope)
+        : alignSoundOnsets(referenceOnsets.length > 0 ? referenceOnsets : await detectSoundOnsetsMs(referencePath), await detectSoundOnsetsMs(cameraPath));
       if (!alignment) continue;
       offsetsMs[`camera-camera${index}`] = alignment.offsetMs;
       cameraConfidence.push(alignment.confidence);
@@ -359,9 +441,74 @@ export async function analyzeReviewMediaSync(episodeId: string): Promise<ReviewM
     confidence,
     message: count > 0
       ? confidence === "high"
-        ? `Aligned ${count} camera ${count === 1 ? "track" : "tracks"} from multiple matching sound moments.`
-        : `Aligned ${count} camera ${count === 1 ? "track" : "tracks"} from the clearest sound available. Review a clap or spoken word and use Sync nudge if needed.`
+        ? `Aligned ${count} camera ${count === 1 ? "track" : "tracks"} by matching their audio waveforms.`
+        : `Aligned ${count} camera ${count === 1 ? "track" : "tracks"} from the strongest audio match. Review a spoken word and use Sync nudge if needed.`
       : "No clear camera audio was available for automatic sync."
+  };
+}
+
+const SYNC_ENVELOPE_INTERVAL_MS = 20;
+
+async function extractWaveformEnvelope(filePath: string) {
+  const rawPath = path.join(path.dirname(filePath), `.sync-${randomUUID()}.s16le`);
+  try {
+    await runFfmpeg(["-y", "-hide_banner", "-loglevel", "error", "-i", filePath, "-t", "120", "-vn", "-ac", "1", "-ar", "8000", "-f", "s16le", rawPath]);
+    const pcm = await fs.readFile(rawPath);
+    const samplesPerWindow = 8000 / (1000 / SYNC_ENVELOPE_INTERVAL_MS);
+    const envelope: number[] = [];
+    for (let byteOffset = 0; byteOffset + samplesPerWindow * 2 <= pcm.length; byteOffset += samplesPerWindow * 2) {
+      let energy = 0;
+      for (let sample = 0; sample < samplesPerWindow; sample += 1) {
+        const value = pcm.readInt16LE(byteOffset + sample * 2) / 32768;
+        energy += value * value;
+      }
+      envelope.push(Math.log1p(Math.sqrt(energy / samplesPerWindow) * 1000));
+    }
+    return envelope;
+  } finally {
+    await fs.rm(rawPath, { force: true }).catch(() => undefined);
+  }
+}
+
+export function correlateAudioEnvelopes(reference: number[], camera: number[], intervalMs = SYNC_ENVELOPE_INTERVAL_MS) {
+  const maxLag = Math.round(30000 / intervalMs);
+  const minimumOverlap = Math.min(reference.length, camera.length, Math.round(5000 / intervalMs));
+  if (minimumOverlap < Math.round(1000 / intervalMs)) return undefined;
+  const normalize = (values: number[]) => {
+    const mean = values.reduce((total, value) => total + value, 0) / values.length;
+    return values.map((value) => value - mean);
+  };
+  const normalizedReference = normalize(reference);
+  const normalizedCamera = normalize(camera);
+  const scores: Array<{ lag: number; score: number }> = [];
+  for (let lag = -maxLag; lag <= maxLag; lag += 1) {
+    const referenceStart = Math.max(0, -lag);
+    const cameraStart = Math.max(0, lag);
+    const overlap = Math.min(reference.length - referenceStart, camera.length - cameraStart);
+    if (overlap < minimumOverlap) continue;
+    let product = 0;
+    let referenceEnergy = 0;
+    let cameraEnergy = 0;
+    for (let index = 0; index < overlap; index += 1) {
+      const referenceValue = normalizedReference[referenceStart + index];
+      const cameraValue = normalizedCamera[cameraStart + index];
+      product += referenceValue * cameraValue;
+      referenceEnergy += referenceValue * referenceValue;
+      cameraEnergy += cameraValue * cameraValue;
+    }
+    const denominator = Math.sqrt(referenceEnergy * cameraEnergy);
+    if (denominator > 0) scores.push({ lag, score: product / denominator });
+  }
+  scores.sort((left, right) => right.score - left.score);
+  const best = scores[0];
+  if (!best || best.score < 0.2) return undefined;
+  const separatedRunnerUp = scores.find((candidate) => Math.abs(candidate.lag - best.lag) >= Math.round(200 / intervalMs));
+  const margin = best.score - (separatedRunnerUp?.score ?? 0);
+  return {
+    offsetMs: Math.max(-30000, Math.min(30000, Math.round(best.lag * intervalMs))),
+    confidence: best.score >= 0.5 && margin >= 0.05 ? "high" as const : "review" as const,
+    score: Number(best.score.toFixed(3)),
+    margin: Number(margin.toFixed(3))
   };
 }
 
@@ -459,7 +606,7 @@ async function ensureReviewProxy(episodeFolder: string, asset: ReviewMediaAsset,
     const duration = Number(probe.format?.duration ?? 0);
     return {
       ...asset,
-      playbackUrl: pathToPlaybackUrl(proxyPath),
+      playbackUrl: mediaFilePlaybackUrl(proxyPath),
       reviewProxyPath: proxyPath,
       includesPairedAudio: Boolean(usablePairedAudio),
       durationMs: Number.isFinite(duration) && duration > 0 ? Math.round(duration * 1000) : asset.durationMs,
@@ -502,7 +649,7 @@ async function inspectAsset(episodeFolder: string, asset: Omit<ReviewMediaAsset,
     return {
       ...asset,
       filePath,
-      playbackUrl: pathToPlaybackUrl(filePath),
+      playbackUrl: mediaFilePlaybackUrl(filePath),
       status: "ready",
       durationMs: probedDurationMs ?? fallbackDurationMs,
       sizeBytes: stat.size,
@@ -516,7 +663,7 @@ async function inspectAsset(episodeFolder: string, asset: Omit<ReviewMediaAsset,
       return {
         ...asset,
         filePath,
-        playbackUrl: pathToPlaybackUrl(filePath),
+        playbackUrl: mediaFilePlaybackUrl(filePath),
         status: "needs-proxy",
         message: "This file needs a review proxy before playback"
       };
@@ -558,7 +705,7 @@ function summarizeCodecs(probe: MediaProbeResult, kind: ReviewMediaKind) {
   return stream.codec_name;
 }
 
-function pathToPlaybackUrl(filePath: string) {
+export function mediaFilePlaybackUrl(filePath: string) {
   const encodedPath = Buffer.from(filePath, "utf8").toString("base64url");
   return mediaPlaybackBaseUrl ? `${mediaPlaybackBaseUrl}/media/${encodedPath}` : `wai-media://episode/${encodedPath}`;
 }

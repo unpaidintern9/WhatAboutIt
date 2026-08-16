@@ -7,7 +7,7 @@ import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
-import type { ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaSyncResult } from "../shared/review-media";
+import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaSyncResult, ReviewMediaTreatmentPreview } from "../shared/review-media";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
 import type { AppUpdateStatus } from "../shared/app-update";
 
@@ -30,7 +30,10 @@ declare global {
       saveTimelineDraft: (episodeId: string, draft: TimelineDraft) => Promise<TimelineDraft>;
       loadReviewMedia: (episodeId: string) => Promise<ReviewMediaInventory>;
       importReviewMedia?: (episodeId: string, slot: ReviewMediaImportSlot) => Promise<ReviewMediaImportResult>;
+      cancelReviewMediaImport?: (episodeId: string, slot: ReviewMediaImportSlot) => Promise<boolean>;
+      onReviewMediaImportProgress?: (listener: (progress: ReviewMediaImportProgress) => void) => () => void;
       autoSyncReviewMedia?: (episodeId: string) => Promise<ReviewMediaSyncResult>;
+      renderTrackTreatmentPreview?: (episodeId: string, draft: TimelineDraft, trackId: string, timestampMs: number) => Promise<ReviewMediaTreatmentPreview>;
       runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean, learningProfile?: AutoEditLearningProfile) => Promise<AutoEditResult>;
       createExport: (request: ExportRequest) => Promise<ExportJob>;
       onExportProgress?: (listener: (job: ExportJob) => void) => () => void;

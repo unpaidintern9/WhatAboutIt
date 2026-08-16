@@ -82,6 +82,13 @@ export interface TimelineCameraDecision {
   reason: string;
 }
 
+export interface TimelineCaptionCue {
+  id: string;
+  startMs: number;
+  endMs: number;
+  text: string;
+}
+
 export interface TimelineHistorySnapshot {
   durationMs: number;
   tracks: TimelineTrack[];
@@ -92,6 +99,7 @@ export interface TimelineHistorySnapshot {
   loudnessTargetLufs: number;
   truePeakDb: number;
   editLog: TimelineEditOperation[];
+  captions: TimelineCaptionCue[];
   autoEdit?: TimelineDraft["autoEdit"];
 }
 
@@ -123,6 +131,7 @@ export interface TimelineDraft {
   lockedTools: LockedTimelineTool[];
   selection?: TimelineSelection;
   editLog: TimelineEditOperation[];
+  captions: TimelineCaptionCue[];
   undoneEditLog: TimelineEditOperation[];
   history: TimelineHistoryEntry[];
   redoHistory: TimelineHistoryEntry[];
@@ -136,6 +145,17 @@ export interface TimelineDraft {
     reviewFlags: string[];
   };
   nonDestructive: true;
+}
+
+export const TIMELINE_HISTORY_LIMIT = 50;
+
+/** Undo/redo snapshots are session-only and must never inflate saved drafts or export EDLs. */
+export function compactTimelineDraftForPersistence(draft: TimelineDraft): TimelineDraft {
+  return {
+    ...draft,
+    history: [],
+    redoHistory: []
+  };
 }
 
 export const lockedTimelineTools: LockedTimelineTool[] = [];
@@ -231,6 +251,7 @@ export function createTimelineDraft(input: { episodeId?: string; recordingSessio
     markers: input.markers ?? [],
     lockedTools: lockedTimelineTools,
     editLog: [],
+    captions: [],
     undoneEditLog: [],
     history: [],
     redoHistory: [],
@@ -289,6 +310,7 @@ export function withTimelineDraftDefaults(draft: Partial<TimelineDraft> | null |
     markers: draft?.markers ?? fallback.markers,
     lockedTools: draft?.lockedTools?.length ? draft.lockedTools : lockedTimelineTools,
     editLog: draft?.editLog ?? fallback.editLog ?? [],
+    captions: draft?.captions ?? fallback.captions ?? [],
     undoneEditLog: draft?.undoneEditLog ?? fallback.undoneEditLog ?? [],
     history: draft?.history ?? fallback.history ?? [],
     redoHistory: draft?.redoHistory ?? fallback.redoHistory ?? [],
@@ -315,6 +337,35 @@ export function syncTimelineTracksWithMedia(draft: TimelineDraft, media: ReviewM
   const markerIndex = draft.tracks.findIndex((track) => track.kind === "markers");
   const tracks = markerIndex >= 0 ? [...draft.tracks.slice(0, markerIndex), ...sourceTracks, ...draft.tracks.slice(markerIndex)] : [...draft.tracks, ...sourceTracks];
   return { ...draft, tracks };
+}
+
+export function addTimelineCaption(draft: TimelineDraft, startMs: number, endMs = startMs + 3000, now = new Date().toISOString()) {
+  const cue: TimelineCaptionCue = {
+    id: `caption-${now}`,
+    startMs: Math.max(0, Math.round(startMs)),
+    endMs: Math.min(draft.durationMs || Number.MAX_SAFE_INTEGER, Math.max(Math.round(startMs) + 250, Math.round(endMs))),
+    text: ""
+  };
+  return commitTimelineMutation(draft, { ...draft, captions: [...draft.captions, cue] }, "Add caption", undefined, now);
+}
+
+export function updateTimelineCaption(draft: TimelineDraft, cueId: string, patch: Partial<Pick<TimelineCaptionCue, "startMs" | "endMs" | "text">>, now = new Date().toISOString()) {
+  const captions = draft.captions.map((cue) => {
+    if (cue.id !== cueId) return cue;
+    const startMs = Math.max(0, Math.round(patch.startMs ?? cue.startMs));
+    return {
+      ...cue,
+      ...patch,
+      startMs,
+      endMs: Math.max(startMs + 250, Math.round(patch.endMs ?? cue.endMs)),
+      text: patch.text ?? cue.text
+    };
+  });
+  return commitTimelineMutation(draft, { ...draft, captions }, "Edit caption", `caption:${cueId}`, now);
+}
+
+export function removeTimelineCaption(draft: TimelineDraft, cueId: string, now = new Date().toISOString()) {
+  return commitTimelineMutation(draft, { ...draft, captions: draft.captions.filter((cue) => cue.id !== cueId) }, "Delete caption", undefined, now);
 }
 
 export function selectTimelinePoint(draft: TimelineDraft, selection: TimelineSelection, now = new Date().toISOString()): TimelineDraft {
@@ -796,6 +847,7 @@ function timelineHistorySnapshot(draft: TimelineDraft): TimelineHistorySnapshot 
     loudnessTargetLufs: draft.loudnessTargetLufs,
     truePeakDb: draft.truePeakDb,
     editLog: draft.editLog,
+    captions: draft.captions,
     autoEdit: draft.autoEdit
   };
 }
@@ -821,7 +873,7 @@ function commitTimelineMutation(draft: TimelineDraft, next: TimelineDraft, label
     ...next,
     version: draft.version + 1,
     updatedAt: now,
-    history: history.slice(-100),
+    history: history.slice(-TIMELINE_HISTORY_LIMIT),
     redoHistory: [],
     undoneEditLog: [],
     hasUnsavedChanges: true,

@@ -8,7 +8,7 @@ import type { TimelineDraft } from "../shared/timeline";
 import { createTimelineDraft, setTimelineEditOperationEnabled, syncTimelineTracksWithMedia, updateTimelineSyncOffsets, withTimelineDraftDefaults } from "../shared/timeline";
 import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
 import { defaultExportSettings } from "../shared/export";
-import type { ReviewMediaImportSlot, ReviewMediaInventory } from "../shared/review-media";
+import type { ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaInventory } from "../shared/review-media";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import { learnAutoEditProfile, runOfflineAutoEdit } from "../shared/auto-edit";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWorkspaceState } from "../shared/studio-workspace";
@@ -323,6 +323,7 @@ export default function App() {
   const [exportJob, setExportJob] = useState<ExportJob | undefined>();
   const [mediaToolsStatus, setMediaToolsStatus] = useState<MediaToolsStatus | undefined>();
   const [reviewMedia, setReviewMedia] = useState<ReviewMediaInventory | undefined>();
+  const [mediaImportProgress, setMediaImportProgress] = useState<ReviewMediaImportProgress | undefined>();
   const [autoEditMode, setAutoEditMode] = useState<AutoEditMode>("balanced");
   const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | undefined>();
   const [autoEditRunning, setAutoEditRunning] = useState(false);
@@ -428,6 +429,8 @@ export default function App() {
   }, [studio]);
 
   useEffect(() => exportService.subscribe(setExportJob), [exportService]);
+
+  useEffect(() => studio.onReviewMediaImportProgress?.(setMediaImportProgress), [studio]);
 
   useEffect(() => {
     if (!popOutEpisodeId) return;
@@ -578,13 +581,23 @@ export default function App() {
 
   async function importEpisodeMedia(slot: ReviewMediaImportSlot) {
     if (!activeEpisode || !studio.importReviewMedia) return "Open an episode in the installed app before importing media.";
-    const result = await studio.importReviewMedia(activeEpisode.id, slot);
-    setReviewMedia(result.inventory);
-    if (!result.canceled) {
-      const durationMs = [result.inventory.program, ...result.inventory.cameras, ...result.inventory.audio].reduce((maximum, asset) => Math.max(maximum, asset.durationMs ?? 0), timelineDraft.durationMs);
-      queueTimelineDraftChange(syncTimelineTracksWithMedia({ ...timelineDraft, durationMs }, result.inventory));
+    setMediaImportProgress({ episodeId: activeEpisode.id, slot, progress: 0, message: "Choose a media file" });
+    try {
+      const result = await studio.importReviewMedia(activeEpisode.id, slot);
+      setReviewMedia(result.inventory);
+      if (!result.canceled) {
+        const durationMs = [result.inventory.program, ...result.inventory.cameras, ...result.inventory.audio].reduce((maximum, asset) => Math.max(maximum, asset.durationMs ?? 0), timelineDraft.durationMs);
+        queueTimelineDraftChange(syncTimelineTracksWithMedia({ ...timelineDraft, durationMs }, result.inventory));
+      }
+      return result.message;
+    } finally {
+      setMediaImportProgress(undefined);
     }
-    return result.message;
+  }
+
+  async function cancelEpisodeMediaImport(slot: ReviewMediaImportSlot) {
+    if (!activeEpisode || !studio.cancelReviewMediaImport) return;
+    await studio.cancelReviewMediaImport(activeEpisode.id, slot);
   }
 
   async function autoSyncEpisodeMedia() {
@@ -592,6 +605,11 @@ export default function App() {
     const result = await studio.autoSyncReviewMedia(activeEpisode.id);
     if (Object.keys(result.offsetsMs).length > 0) queueTimelineDraftChange(updateTimelineSyncOffsets(timelineDraft, result.offsetsMs));
     return result.message;
+  }
+
+  async function renderTreatmentPreview(trackId: string, timestampMs: number) {
+    if (!activeEpisode || !studio.renderTrackTreatmentPreview) throw new Error("Effect preview is available in the installed app.");
+    return studio.renderTrackTreatmentPreview(activeEpisode.id, timelineDraft, trackId, timestampMs);
   }
 
   function enqueueTimelineSave(episodeId: string, nextDraft: TimelineDraft) {
@@ -1362,7 +1380,10 @@ export default function App() {
             }}
             onAutoEdit={() => void runAutoEditFlow(reviewMode)}
             onImportMedia={importEpisodeMedia}
+            importProgress={mediaImportProgress}
+            onCancelImport={cancelEpisodeMediaImport}
             onAutoSync={autoSyncEpisodeMedia}
+            onRenderTreatmentPreview={renderTreatmentPreview}
           />
         )}
         {view === "auto-edit-review" && (

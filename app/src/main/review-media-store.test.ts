@@ -144,7 +144,8 @@ describe("review media store", () => {
       sourcePath
     ]);
 
-    const inventory = await importReviewMediaFile(episodeId, "camera-1", sourcePath);
+    const progress: number[] = [];
+    const inventory = await importReviewMediaFile(episodeId, "camera-1", sourcePath, { onProgress: (update) => progress.push(update.progress) });
 
     expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.status).toBe("ready");
     expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.originalFilePath).toBe(path.join(mockPaths.episodesRoot, episodeId, "Originals", "camera-1.mp4"));
@@ -157,7 +158,49 @@ describe("review media store", () => {
       assets: Record<string, { relativePath: string }>;
     };
     expect(manifest.assets["camera-1"].relativePath).toBe(path.join("Originals", "camera-1.mp4"));
+    expect(progress[0]).toBe(3);
+    expect(progress.some((value) => value > 20 && value < 100)).toBe(true);
+    expect(progress.at(-1)).toBe(100);
   }, 20000);
+
+  it("cancels before changing episode media and cleans temporary files", async () => {
+    const { importReviewMediaFile } = await import("./review-media-store");
+    const episodeId = "episode-canceled-import";
+    const sourcePath = path.join(mockPaths.episodesRoot, "cancel-source.mp4");
+    await fs.writeFile(sourcePath, "source");
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(importReviewMediaFile(episodeId, "camera-1", sourcePath, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
+    await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Cameras", "camera-1.webm"))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Originals", "camera-1.mp4.importing"))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("stops replacement when the existing media cannot be backed up", async () => {
+    const { backupExistingImportedMedia } = await import("./review-media-store");
+    const episodeFolder = path.join(mockPaths.episodesRoot, "episode-backup-safety");
+    const existingPath = path.join(episodeFolder, "Cameras", "camera-1.webm");
+    await fs.mkdir(path.dirname(existingPath), { recursive: true });
+    await fs.writeFile(existingPath, "existing recording");
+    const copySpy = vi.spyOn(fs, "copyFile").mockRejectedValueOnce(new Error("disk failure"));
+
+    await expect(backupExistingImportedMedia(episodeFolder, existingPath, "camera-1")).rejects.toThrow("import was stopped before anything was replaced");
+    expect(await fs.readFile(existingPath, "utf8")).toBe("existing recording");
+    copySpy.mockRestore();
+  });
+
+  it("keeps only the five newest imported-media backups for each slot", async () => {
+    const { backupExistingImportedMedia } = await import("./review-media-store");
+    const episodeFolder = path.join(mockPaths.episodesRoot, "episode-backup-retention");
+    const existingPath = path.join(episodeFolder, "Cameras", "camera-1.webm");
+    await fs.mkdir(path.dirname(existingPath), { recursive: true });
+    await fs.writeFile(existingPath, "existing recording");
+
+    for (let index = 0; index < 7; index += 1) await backupExistingImportedMedia(episodeFolder, existingPath, "camera-1");
+
+    const backups = await fs.readdir(path.join(episodeFolder, "Backup", "Imported Media"));
+    expect(backups.filter((fileName) => fileName.startsWith("camera-1-"))).toHaveLength(5);
+  });
 
   it("ignores imported-original manifest paths outside the episode", async () => {
     const { loadImportedOriginalPaths } = await import("./review-media-store");
@@ -195,5 +238,24 @@ describe("review media store", () => {
     expect(result?.offsetMs).toBeGreaterThanOrEqual(1200);
     expect(result?.offsetMs).toBeLessThanOrEqual(1230);
     expect(result?.confidence).toBe("high");
+  });
+
+  it("finds an audio waveform delay even without a clean clap", async () => {
+    const { correlateAudioEnvelopes } = await import("./review-media-store");
+    const reference = Array.from({ length: 900 }, (_, index) => Math.sin(index * 0.071) + Math.sin(index * 0.019) * 0.4 + (index % 47 === 0 ? 1.5 : 0));
+    const delayed = [...Array.from({ length: 37 }, () => 0), ...reference, ...Array.from({ length: 20 }, () => 0)];
+    const result = correlateAudioEnvelopes(reference, delayed, 20);
+
+    expect(result?.offsetMs).toBe(740);
+    expect(result?.confidence).toBe("high");
+    expect(result?.score).toBeGreaterThan(0.9);
+  });
+
+  it("rejects unrelated waveforms instead of applying a random sync offset", async () => {
+    const { correlateAudioEnvelopes } = await import("./review-media-store");
+    const reference = Array.from({ length: 500 }, (_, index) => Math.sin(index * 0.1));
+    const unrelated = Array.from({ length: 500 }, (_, index) => Math.sin(index * 0.173 + 1));
+
+    expect(correlateAudioEnvelopes(reference, unrelated, 20)).toBeUndefined();
   });
 });
