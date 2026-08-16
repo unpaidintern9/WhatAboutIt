@@ -38,7 +38,10 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("Media tools are ready");
     expect(markup).toContain("1080p video, 320 kbps audio");
     expect(markup).toContain("Recommended");
-    expect(markup).toContain("separate 24-bit audio masters");
+    expect(markup).toContain("Extra source masters are optional");
+    expect(markup).toContain("Camera masters");
+    expect(markup).toContain("24-bit audio masters");
+    expect(markup).toContain("Measured mastering analyzes the complete mix");
     expect(markup).toContain("Back to Review");
     expect(markup).toContain("Mix sources");
   });

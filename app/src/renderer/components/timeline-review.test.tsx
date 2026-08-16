@@ -69,7 +69,7 @@ describe("TimelineReview", () => {
       deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
       markers: [{ id: "marker-a", label: "Highlight", timestampMs: 10000, createdAt: "2026-06-27T10:00:00.000Z" }]
     });
-    const markup = renderToStaticMarkup(<TimelineReview draft={draft} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+    const markup = renderToStaticMarkup(<TimelineReview draft={draft} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} onRelinkMedia={vi.fn()} onVerifyOriginals={vi.fn()} onGetEpisodeStorage={vi.fn()} onCleanupEpisodeStorage={vi.fn()} />);
 
     expect(markup).toContain("Edit Studio");
     expect(markup).toContain("Originals always stay untouched");
@@ -84,6 +84,11 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Highlight");
     expect(markup).toContain("Synchronized episode timeline");
     expect(markup).toContain("Full-quality originals stay protected");
+    expect(markup).toContain("Verify originals");
+    expect(markup).toContain("Relink original");
+    expect(markup).toContain("Episode media storage");
+    expect(markup).toContain("Clear review cache");
+    expect(markup).toContain("Delete exports");
     expect(markup).toContain("Timeline editing tools");
     expect(markup).toContain("Select, scrub, or drag a range");
     expect(markup).toContain("Set range start at the playhead");
@@ -100,6 +105,9 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Redo");
     expect(markup).toContain("Transcript &amp; captions");
     expect(markup).toContain("Add at");
+    expect(markup).toContain("Auto-time transcript");
+    expect(markup).toContain("Import SRT, VTT, or TXT");
+    expect(markup).toContain("never uploaded");
     expect(markup).toContain("Restore");
     expect(markup).toContain("Save &amp; Export");
     expect(markup).toContain("Previous marker");
@@ -158,7 +166,7 @@ describe("TimelineReview", () => {
     const markup = renderToStaticMarkup(<TimelineReview draft={draft} media={missingMedia} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
 
     expect(markup).toContain("No program video found yet");
-    expect(markup).not.toContain("placeholder");
+    expect(markup).not.toContain("Video placeholder");
   });
 
   it("shows source-level podcast audio finishing controls", () => {

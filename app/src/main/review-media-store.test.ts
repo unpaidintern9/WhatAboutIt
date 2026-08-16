@@ -119,7 +119,7 @@ describe("review media store", () => {
 
   it("imports an external camera file into Camera 1 and creates the Program fallback", async () => {
     const { runFfmpeg } = await import("./ffmpeg-tools");
-    const { importReviewMediaFile } = await import("./review-media-store");
+    const { importReviewMediaFile, relinkImportedMediaFile, verifyImportedMediaIntegrity } = await import("./review-media-store");
     const episodeId = "episode-import";
     const sourcePath = path.join(mockPaths.episodesRoot, "phone-camera.mp4");
     await runFfmpeg([
@@ -155,12 +155,31 @@ describe("review media store", () => {
     await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Cameras", "camera-1.webm"))).resolves.toBeTruthy();
     await expect(fs.stat(path.join(mockPaths.episodesRoot, episodeId, "Program", "program.webm"))).resolves.toBeTruthy();
     const manifest = JSON.parse(await fs.readFile(path.join(mockPaths.episodesRoot, episodeId, "Session", "imported-media.json"), "utf8")) as {
-      assets: Record<string, { relativePath: string }>;
+      version: number;
+      assets: Record<string, { relativePath: string; sizeBytes: number; sha256: string }>;
     };
+    expect(manifest.version).toBe(2);
     expect(manifest.assets["camera-1"].relativePath).toBe(path.join("Originals", "camera-1.mp4"));
+    expect(manifest.assets["camera-1"].sizeBytes).toBeGreaterThan(0);
+    expect(manifest.assets["camera-1"].sha256).toMatch(/^[a-f0-9]{64}$/);
     expect(progress[0]).toBe(3);
     expect(progress.some((value) => value > 20 && value < 100)).toBe(true);
+    expect(progress).toContain(96);
     expect(progress.at(-1)).toBe(100);
+
+    await expect(verifyImportedMediaIntegrity(episodeId)).resolves.toMatchObject({
+      items: [expect.objectContaining({ slot: "camera-1", status: "verified" })]
+    });
+    const protectedOriginal = path.join(mockPaths.episodesRoot, episodeId, "Originals", "camera-1.mp4");
+    await fs.appendFile(protectedOriginal, "changed");
+    await expect(verifyImportedMediaIntegrity(episodeId)).resolves.toMatchObject({
+      items: [expect.objectContaining({ slot: "camera-1", status: "changed" })]
+    });
+    await expect(relinkImportedMediaFile(episodeId, "camera-1", path.join(mockPaths.episodesRoot, episodeId, "Cameras", "camera-1.webm"))).rejects.toThrow("does not match");
+    await relinkImportedMediaFile(episodeId, "camera-1", sourcePath);
+    await expect(verifyImportedMediaIntegrity(episodeId)).resolves.toMatchObject({
+      items: [expect.objectContaining({ slot: "camera-1", status: "verified" })]
+    });
   }, 20000);
 
   it("cancels before changing episode media and cleans temporary files", async () => {

@@ -15,6 +15,7 @@ import { loadImportedOriginalPaths, mediaFilePlaybackUrl } from "./review-media-
 type ExportProgressReporter = (job: ExportJob) => void;
 
 const activeExports = new Map<string, { jobId: string; controller: AbortController }>();
+const pendingExportEpisodes = new Set<string>();
 const fallbackCameraMicrophones: Record<CameraSlotKey, MicrophoneSlotKey> = {
   camera1: "morganMic",
   camera2: "guestMic",
@@ -108,8 +109,9 @@ async function hasEnoughSpaceForExport(folder: string, sourceFile: string, reque
       : request.type === "archive-master"
         ? Math.max(sourceBytes * 2.5, seconds * 5_000_000)
         : Math.max(sourceBytes * 1.25, seconds * 2_000_000);
-    const masterEstimate = request.type === "full-episode-video" && !request.practice ? sourceBytes * 4 : 0;
-    const requiredBytes = Math.ceil(primaryEstimate + masterEstimate + 1024 * 1024 * 1024);
+    const cameraMasterEstimate = request.type === "full-episode-video" && !request.practice && request.includeCameraMasters !== false ? sourceBytes * 3 : 0;
+    const audioMasterEstimate = (request.type === "full-episode-video" || request.type === "archive-master") && !request.practice && request.includeAudioMasters !== false ? sourceBytes : 0;
+    const requiredBytes = Math.ceil(primaryEstimate + cameraMasterEstimate + audioMasterEstimate + 1024 * 1024 * 1024);
     return availableBytes >= requiredBytes;
   } catch (error) {
     await logger.warning("ExportService", "Could not complete the export disk-space preflight.", { error: String(error) });
@@ -293,10 +295,14 @@ async function renderDraftExport(input: {
       const chosen = chosenCamera?.inputIndex ?? 0;
       const chosenTrack = chosenCamera?.track ?? programTrack;
       const syncOffsetMs = chosenTrack?.syncOffsetMs ?? 0;
-      const cropFilter = request.type === "social-clip-placeholder" || chosenTrack?.cropMode === "fill"
-        ? `scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,crop=${size.width}:${size.height}`
+      const focusX = (((chosenTrack?.positionX ?? 0) + 100) / 200).toFixed(3);
+      const focusY = (((chosenTrack?.positionY ?? 0) + 100) / 200).toFixed(3);
+      const cropFilter = request.type === "social-clip-placeholder"
+        ? `scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,crop=${size.width}:${size.height}:(iw-ow)*${focusX}:(ih-oh)*${focusY}`
+        : chosenTrack?.cropMode === "fill"
+          ? `scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,crop=${size.width}:${size.height}`
         : `scale=${size.width}:${size.height}:force_original_aspect_ratio=decrease,pad=${size.width}:${size.height}:(ow-iw)/2:(oh-ih)/2`;
-      const pictureFilters = createVideoTreatment(chosenTrack, size);
+      const pictureFilters = createVideoTreatment(request.type === "social-clip-placeholder" && chosenTrack ? { ...chosenTrack, positionX: 0, positionY: 0 } : chosenTrack, size);
       return { range, chosen, chosenTrack, syncOffsetMs, cropFilter, pictureFilters };
     });
     if (segments.length === 0) throw new Error("The draft removed every video section.");
@@ -371,7 +377,9 @@ async function renderDraftExport(input: {
   }
   const loudnessTarget = Math.max(-24, Math.min(-12, request.draft.loudnessTargetLufs ?? -16));
   const truePeak = Math.max(-3, Math.min(-0.5, request.draft.truePeakDb ?? -1.5));
-  const loudnessFinish = `loudnorm=I=${loudnessTarget}:LRA=11:TP=${truePeak},aresample=48000`;
+  const loudnessFinish = request.masteringMode === "measured"
+    ? "aresample=48000"
+    : `loudnorm=I=${loudnessTarget}:LRA=11:TP=${truePeak},aresample=48000`;
   filters.push(audioLabels.length === 1
     ? `${audioLabels[0]}${loudnessFinish}[aout]`
     : `${audioLabels.join("")}amix=inputs=${audioLabels.length}:duration=longest,alimiter=limit=0.95,${loudnessFinish}[aout]`);
@@ -597,6 +605,51 @@ function seconds(milliseconds: number) {
   return (Math.max(0, milliseconds) / 1000).toFixed(3);
 }
 
+interface LoudnessMeasurement {
+  input_i: string;
+  input_tp: string;
+  input_lra: string;
+  input_thresh: string;
+  target_offset: string;
+}
+
+async function renderMeasuredLoudness(input: {
+  sourcePath: string;
+  outputPath: string;
+  request: ExportRequest;
+  durationMs: number;
+  signal: AbortSignal;
+  onProgress: (progress: number) => void;
+}) {
+  const targetI = Math.max(-24, Math.min(-12, input.request.draft.loudnessTargetLufs ?? -16));
+  const targetTp = Math.max(-3, Math.min(-0.5, input.request.draft.truePeakDb ?? -1.5));
+  const analysis = await runFfmpeg([
+    "-hide_banner", "-i", input.sourcePath, "-map", "0:a:0", "-af",
+    `loudnorm=I=${targetI}:LRA=11:TP=${targetTp}:print_format=json`, "-f", "null", "-"
+  ]);
+  const matches = analysis.stderr.match(/\{[\s\S]*?"target_offset"[\s\S]*?\}/g);
+  if (!matches?.length) throw new Error("Measured loudness analysis did not return usable results.");
+  const measured = JSON.parse(matches.at(-1) ?? "{}") as LoudnessMeasurement;
+  const filter = [
+    `loudnorm=I=${targetI}:LRA=11:TP=${targetTp}`,
+    `measured_I=${measured.input_i}`,
+    `measured_LRA=${measured.input_lra}`,
+    `measured_TP=${measured.input_tp}`,
+    `measured_thresh=${measured.input_thresh}`,
+    `offset=${measured.target_offset}`,
+    "linear=true"
+  ].join(":");
+  const isAudioOnly = input.request.type === "audio-only";
+  const mapArgs = isAudioOnly ? ["-map", "0:a:0"] : ["-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy"];
+  const audioArgs = input.request.type === "archive-master"
+    ? ["-ar", "48000", "-ac", "2", "-c:a", "pcm_s24le"]
+    : ["-ar", "48000", "-ac", "2", "-c:a", "aac", "-b:a", input.request.qualityPreset === "standard" ? "192k" : "320k"];
+  await runFfmpegWithProgress(
+    ["-y", "-i", input.sourcePath, ...mapArgs, "-filter:a", filter, ...audioArgs, ...(input.outputPath.endsWith(".mp4") ? ["-movflags", "+faststart"] : []), input.outputPath],
+    { durationMs: input.durationMs, signal: input.signal, onProgress: input.onProgress }
+  );
+}
+
 function createCaptionSidecar(request: ExportRequest) {
   const selection = request.type === "social-clip-placeholder" && request.draft.selection?.endTimestampMs !== undefined
     ? { startMs: request.draft.selection.timestampMs, endMs: request.draft.selection.endTimestampMs }
@@ -765,7 +818,7 @@ async function createAudioMasters(
   return outputs;
 }
 
-export async function createExport(request: ExportRequest, report?: ExportProgressReporter): Promise<ExportJob> {
+async function createExportUnlocked(request: ExportRequest, report?: ExportProgressReporter): Promise<ExportJob> {
   const folder = exportFolder(request.episodeId);
   const queued = createExportJob({
     episodeId: request.episodeId,
@@ -826,28 +879,50 @@ export async function createExport(request: ExportRequest, report?: ExportProgre
       report?.(failed);
       return failed;
     }
+    const measuredMastering = request.masteringMode === "measured";
+    const premasterPath = measuredMastering
+      ? path.join(folder, `.${path.basename(outputPath, path.extname(outputPath))}-premaster-${randomUUID()}${path.extname(outputPath)}`)
+      : outputPath;
     const renderInput = {
       request,
       sourceFile,
-      outputPath,
+      outputPath: premasterPath,
       durationMs: sourceDurationMs,
       signal: controller.signal,
       onProgress: (progress: number) => {
-        running = updateRunningJob(running, 12 + (progress / 100) * 48, "Exporting your episode", report);
+        running = updateRunningJob(running, 12 + (progress / 100) * (measuredMastering ? 30 : 48), "Exporting your episode", report);
       }
     };
-    const renderedDraft = !request.practice && await renderDraftExport(renderInput);
-    if (!renderedDraft) await renderExport(renderInput);
+    let renderedDraft = false;
+    try {
+      renderedDraft = Boolean(!request.practice && await renderDraftExport(renderInput));
+      if (!renderedDraft) await renderExport(renderInput);
+      if (measuredMastering) {
+        running = updateRunningJob(running, 43, "Measuring podcast loudness", report);
+        await renderMeasuredLoudness({
+          sourcePath: premasterPath,
+          outputPath,
+          request,
+          durationMs: sourceDurationMs,
+          signal: controller.signal,
+          onProgress: (progress) => {
+            running = updateRunningJob(running, 43 + (progress / 100) * 17, "Applying measured loudness", report);
+          }
+        });
+      }
+    } finally {
+      if (measuredMastering) await fs.rm(premasterPath, { force: true }).catch(() => undefined);
+    }
     running = updateRunningJob(running, 61, "Checking playback and sound", report);
     const requirements = request.type === "audio-only"
       ? { audio: true, decode: true }
       : { video: true, audio: true, decode: true };
     const isPlayable = await validatePlayableMedia(outputPath, tools, requirements);
     if (!isPlayable) throw new Error("Export output could not be validated.");
-    const cameraOutputs = request.type === "full-episode-video" && !request.practice
+    const cameraOutputs = request.type === "full-episode-video" && !request.practice && request.includeCameraMasters !== false
       ? await createCameraMasters(request, running, sourceDurationMs, controller.signal, report)
       : [];
-    const audioOutputs = (request.type === "full-episode-video" || request.type === "archive-master") && !request.practice
+    const audioOutputs = (request.type === "full-episode-video" || request.type === "archive-master") && !request.practice && request.includeAudioMasters !== false
       ? await createAudioMasters(request, running, sourceDurationMs, controller.signal, report)
       : [];
     running = updateRunningJob(running, 95, "Finishing your export", report);
@@ -895,6 +970,25 @@ export async function createExport(request: ExportRequest, report?: ExportProgre
   } finally {
     const active = activeExports.get(request.episodeId);
     if (active?.jobId === queued.id) activeExports.delete(request.episodeId);
+  }
+}
+
+export async function createExport(request: ExportRequest, report?: ExportProgressReporter): Promise<ExportJob> {
+  if (pendingExportEpisodes.has(request.episodeId)) {
+    const failed = failExportJob(createExportJob({
+      episodeId: request.episodeId,
+      type: request.type,
+      qualityPreset: request.qualityPreset,
+      outputFolder: exportFolder(request.episodeId)
+    }), "export-already-running");
+    report?.(failed);
+    return failed;
+  }
+  pendingExportEpisodes.add(request.episodeId);
+  try {
+    return await createExportUnlocked(request, report);
+  } finally {
+    pendingExportEpisodes.delete(request.episodeId);
   }
 }
 

@@ -6,7 +6,7 @@ import type { PodcastToolsState, SoundSlot } from "../shared/podcast-tools";
 import { createDefaultPodcastToolsState, createLiveMarker, withPodcastToolDefaults } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import { createTimelineDraft, setTimelineEditOperationEnabled, syncTimelineTracksWithMedia, updateTimelineSyncOffsets, withTimelineDraftDefaults } from "../shared/timeline";
-import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
+import type { ExportJob, ExportMasteringMode, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
 import { defaultExportSettings } from "../shared/export";
 import type { ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaInventory } from "../shared/review-media";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
@@ -320,6 +320,9 @@ export default function App() {
   const [timelineDraft, setTimelineDraft] = useState<TimelineDraft>(() => createTimelineDraft({ deviceDefaults: defaultDeviceDefaults }));
   const [selectedExportType, setSelectedExportType] = useState<ExportType>(defaultExportSettings.defaultExportType);
   const [selectedQualityPreset, setSelectedQualityPreset] = useState<ExportQualityPreset>(defaultExportSettings.qualityPreset);
+  const [includeCameraMasters, setIncludeCameraMasters] = useState(false);
+  const [includeAudioMasters, setIncludeAudioMasters] = useState(false);
+  const [exportMasteringMode, setExportMasteringMode] = useState<ExportMasteringMode>("measured");
   const [exportJob, setExportJob] = useState<ExportJob | undefined>();
   const [mediaToolsStatus, setMediaToolsStatus] = useState<MediaToolsStatus | undefined>();
   const [reviewMedia, setReviewMedia] = useState<ReviewMediaInventory | undefined>();
@@ -600,6 +603,30 @@ export default function App() {
     await studio.cancelReviewMediaImport(activeEpisode.id, slot);
   }
 
+  async function relinkEpisodeMedia(slot: ReviewMediaImportSlot) {
+    if (!activeEpisode || !studio.relinkReviewMedia) return "Relinking is available in the installed app.";
+    const result = await studio.relinkReviewMedia(activeEpisode.id, slot);
+    setReviewMedia(result.inventory);
+    return result.message;
+  }
+
+  async function verifyEpisodeOriginals() {
+    if (!activeEpisode || !studio.verifyReviewMediaOriginals) return "Original verification is available in the installed app.";
+    const result = await studio.verifyReviewMediaOriginals(activeEpisode.id);
+    const attention = result.items.filter((item) => item.status !== "verified").map((item) => item.slot.replace("camera-", "Camera ").replace("morgan-mic", "Main audio"));
+    return attention.length > 0 ? `${result.message} Check ${attention.join(", ")}.` : result.message;
+  }
+
+  async function getActiveEpisodeStorage() {
+    if (!activeEpisode || !studio.getEpisodeStorageSummary) throw new Error("Episode storage is available in the installed app.");
+    return studio.getEpisodeStorageSummary(activeEpisode.id);
+  }
+
+  async function cleanupActiveEpisodeStorage(scope: "review-cache" | "exports") {
+    if (!activeEpisode || !studio.cleanupEpisodeStorage) throw new Error("Episode cleanup is available in the installed app.");
+    return studio.cleanupEpisodeStorage(activeEpisode.id, scope);
+  }
+
   async function autoSyncEpisodeMedia() {
     if (!activeEpisode || !studio.autoSyncReviewMedia) return "Automatic sync is available in the installed app.";
     const result = await studio.autoSyncReviewMedia(activeEpisode.id);
@@ -772,7 +799,10 @@ export default function App() {
               markers: podcastTools.markers,
               durationMs: recordingSnapshot.elapsedMs
             }),
-      practice
+      practice,
+      includeCameraMasters,
+      includeAudioMasters,
+      masteringMode: exportMasteringMode
     });
     setExportJob(job);
   }
@@ -1382,6 +1412,10 @@ export default function App() {
             onImportMedia={importEpisodeMedia}
             importProgress={mediaImportProgress}
             onCancelImport={cancelEpisodeMediaImport}
+            onRelinkMedia={relinkEpisodeMedia}
+            onVerifyOriginals={verifyEpisodeOriginals}
+            onGetEpisodeStorage={getActiveEpisodeStorage}
+            onCleanupEpisodeStorage={cleanupActiveEpisodeStorage}
             onAutoSync={autoSyncEpisodeMedia}
             onRenderTreatmentPreview={renderTreatmentPreview}
           />
@@ -1406,8 +1440,14 @@ export default function App() {
             job={exportJob}
             mediaToolsStatus={mediaToolsStatus}
             selectedRangeMs={timelineDraft.selection?.endTimestampMs === undefined ? undefined : timelineDraft.selection.endTimestampMs - timelineDraft.selection.timestampMs}
+            includeCameraMasters={includeCameraMasters}
+            includeAudioMasters={includeAudioMasters}
+            masteringMode={exportMasteringMode}
             onTypeChange={(type) => void changeExportType(type)}
             onQualityChange={(preset) => void changeQualityPreset(preset)}
+            onCameraMastersChange={setIncludeCameraMasters}
+            onAudioMastersChange={setIncludeAudioMasters}
+            onMasteringModeChange={setExportMasteringMode}
             onStartExport={() => void startExport(reviewMode)}
             onCancelExport={() => void cancelExport()}
             onOpenFolder={() => void openExportFolder()}

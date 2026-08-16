@@ -1,7 +1,8 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import { randomUUID } from "node:crypto";
-import type { ReviewMediaAsset, ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaKind, ReviewMediaSyncResult } from "../shared/review-media";
+import { createReadStream } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import type { ReviewMediaAsset, ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaIntegrityResult, ReviewMediaInventory, ReviewMediaKind, ReviewMediaSyncResult } from "../shared/review-media";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
 import { getMediaDurationMs, runFfmpeg, runFfmpegWithProgress, runFfprobe, validatePlayableMedia } from "./ffmpeg-tools";
@@ -31,8 +32,8 @@ interface DeviceMapFile {
 }
 
 interface ImportedMediaManifest {
-  version: 1;
-  assets: Partial<Record<ReviewMediaImportSlot, { relativePath: string; importedAt: string }>>;
+  version: 1 | 2;
+  assets: Partial<Record<ReviewMediaImportSlot, { relativePath: string; importedAt: string; sizeBytes?: number; sha256?: string }>>;
 }
 
 const fallbackCameraMicrophones: Record<CameraSlotKey, MicrophoneSlotKey> = {
@@ -255,6 +256,7 @@ export async function importReviewMediaFile(
     await backupExistingImportedMedia(episodeFolder, targetPath, slot);
     await fs.rename(temporaryOriginalPath, originalPath);
     await fs.rename(temporaryPath, targetPath);
+    report(96, "Fingerprinting the protected original");
     await saveImportedOriginalPath(episodeId, slot, originalPath);
     if (slot === "camera-1") {
       const programPath = path.join(episodeFolder, "Program", "program.webm");
@@ -320,25 +322,94 @@ async function saveImportedOriginalPath(episodeId: string, slot: ReviewMediaImpo
   const sessionFolder = path.join(episodeFolder, "Session");
   const manifestPath = path.join(sessionFolder, "imported-media.json");
   await fs.mkdir(sessionFolder, { recursive: true });
-  let manifest: ImportedMediaManifest = { version: 1, assets: {} };
+  let manifest: ImportedMediaManifest = { version: 2, assets: {} };
   try {
     manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as ImportedMediaManifest;
   } catch {
     // First imported source creates the manifest.
   }
+  const stat = await fs.stat(originalPath);
   const nextManifest: ImportedMediaManifest = {
-    version: 1,
+    version: 2,
     assets: {
       ...manifest.assets,
       [slot]: {
         relativePath: path.relative(episodeFolder, originalPath),
-        importedAt: new Date().toISOString()
+        importedAt: new Date().toISOString(),
+        sizeBytes: stat.size,
+        sha256: await calculateFileSha256(originalPath)
       }
     }
   };
   const temporaryPath = `${manifestPath}.${process.pid}.${Date.now()}.tmp`;
   await fs.writeFile(temporaryPath, JSON.stringify(nextManifest, null, 2), "utf8");
   await fs.rename(temporaryPath, manifestPath);
+}
+
+function calculateFileSha256(filePath: string) {
+  return new Promise<string>((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
+}
+
+export async function verifyImportedMediaIntegrity(episodeId: string): Promise<ReviewMediaIntegrityResult> {
+  const episodeFolder = path.join(getEpisodesRoot(), episodeId);
+  let manifest: ImportedMediaManifest;
+  try {
+    manifest = JSON.parse(await fs.readFile(path.join(episodeFolder, "Session", "imported-media.json"), "utf8")) as ImportedMediaManifest;
+  } catch {
+    return { items: [], message: "No protected imported originals have been indexed yet." };
+  }
+  const items = await Promise.all((Object.entries(manifest.assets) as Array<[ReviewMediaImportSlot, NonNullable<ImportedMediaManifest["assets"][ReviewMediaImportSlot]>]>).map(async ([slot, asset]) => {
+    const filePath = path.resolve(episodeFolder, asset.relativePath);
+    try {
+      const stat = await fs.stat(filePath);
+      if (!asset.sha256) return { slot, status: "not-indexed" as const, message: "Original found. Relink it once to add an integrity fingerprint." };
+      if (asset.sizeBytes !== undefined && stat.size !== asset.sizeBytes) return { slot, status: "changed" as const, message: "Original size changed after import." };
+      const matches = await calculateFileSha256(filePath) === asset.sha256;
+      return matches
+        ? { slot, status: "verified" as const, message: "Original matches its protected SHA-256 fingerprint." }
+        : { slot, status: "changed" as const, message: "Original contents changed after import." };
+    } catch {
+      return { slot, status: "missing" as const, message: "Original is missing. Use Relink original to restore it." };
+    }
+  }));
+  const problems = items.filter((item) => item.status !== "verified").length;
+  return { items, message: problems === 0 ? `Verified ${items.length} protected original${items.length === 1 ? "" : "s"}.` : `${problems} original${problems === 1 ? " needs" : "s need"} attention.` };
+}
+
+export async function relinkImportedMediaFile(episodeId: string, slot: ReviewMediaImportSlot, sourceFilePath: string) {
+  const episodeFolder = path.join(getEpisodesRoot(), episodeId);
+  const manifestPath = path.join(episodeFolder, "Session", "imported-media.json");
+  let manifest: ImportedMediaManifest;
+  try {
+    manifest = JSON.parse(await fs.readFile(manifestPath, "utf8")) as ImportedMediaManifest;
+  } catch {
+    throw new Error("Import this source once before using Relink original.");
+  }
+  const expected = manifest.assets[slot];
+  if (!expected) throw new Error("Import this source once before using Relink original.");
+  const targetPath = path.resolve(episodeFolder, expected.relativePath);
+  if (targetPath === episodeFolder || !targetPath.startsWith(`${episodeFolder}${path.sep}`)) throw new Error("The saved original path is invalid.");
+  const target = importTargets[slot];
+  if (!(await validatePlayableMedia(sourceFilePath, undefined, target.kind === "video" ? { video: true } : { audio: true }))) throw new Error("The selected file is not playable media.");
+  const sourceHash = await calculateFileSha256(sourceFilePath);
+  if (expected.sha256 && sourceHash !== expected.sha256) throw new Error("That file does not match the original imported recording.");
+  const temporaryPath = `${targetPath}.${randomUUID()}.relinking`;
+  await fs.mkdir(path.dirname(targetPath), { recursive: true });
+  try {
+    await fs.copyFile(sourceFilePath, temporaryPath);
+    await backupExistingImportedMedia(episodeFolder, targetPath, `${slot}-original`);
+    await fs.rename(temporaryPath, targetPath);
+    await saveImportedOriginalPath(episodeId, slot, targetPath);
+  } finally {
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+  }
+  return loadReviewMedia(episodeId);
 }
 
 const IMPORT_BACKUP_RETENTION = 5;

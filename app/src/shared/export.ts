@@ -4,6 +4,7 @@ import type { DeviceDefaults } from "./types";
 export type ExportType = "full-episode-video" | "audio-only" | "archive-master" | "social-clip-placeholder";
 export type ExportQualityPreset = "standard" | "high" | "archive";
 export type ExportJobStatus = "idle" | "queued" | "running" | "complete" | "canceled" | "error";
+export type ExportMasteringMode = "fast" | "measured";
 
 export interface ExportSettings {
   defaultExportFolder: string;
@@ -18,6 +19,9 @@ export interface ExportRequest {
   draft: TimelineDraft;
   deviceDefaults?: DeviceDefaults;
   practice?: boolean;
+  includeCameraMasters?: boolean;
+  includeAudioMasters?: boolean;
+  masteringMode?: ExportMasteringMode;
 }
 
 export interface MediaToolsStatus {
@@ -50,6 +54,7 @@ export type ExportFriendlyError =
   | "media-tools-missing"
   | "not-enough-space"
   | "clip-range-missing"
+  | "export-already-running"
   | "canceled"
   | "needs-attention";
 
@@ -97,6 +102,7 @@ export const exportFriendlyErrorCopy: Record<ExportFriendlyError, string> = {
   "media-tools-missing": "Media tools need setup before export",
   "not-enough-space": "There isn't enough space",
   "clip-range-missing": "Select a timeline range before exporting a social clip",
+  "export-already-running": "This episode already has an export running",
   canceled: "Export was canceled",
   "needs-attention": "Something needs attention before export"
 };

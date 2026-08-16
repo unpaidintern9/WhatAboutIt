@@ -6,7 +6,8 @@ import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
-import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaSyncResult, ReviewMediaTreatmentPreview } from "../shared/review-media";
+import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaIntegrityResult, ReviewMediaInventory, ReviewMediaSyncResult, ReviewMediaTreatmentPreview } from "../shared/review-media";
+import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../shared/episode-maintenance";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
 import type { AppUpdateStatus } from "../shared/app-update";
 
@@ -34,6 +35,10 @@ contextBridge.exposeInMainWorld("studio", {
     return () => ipcRenderer.removeListener("review-media:import-progress", handler);
   },
   autoSyncReviewMedia: (episodeId: string): Promise<ReviewMediaSyncResult> => ipcRenderer.invoke("review-media:auto-sync", episodeId),
+  verifyReviewMediaOriginals: (episodeId: string): Promise<ReviewMediaIntegrityResult> => ipcRenderer.invoke("review-media:verify-originals", episodeId),
+  relinkReviewMedia: (episodeId: string, slot: ReviewMediaImportSlot): Promise<ReviewMediaImportResult> => ipcRenderer.invoke("review-media:relink", { episodeId, slot }),
+  getEpisodeStorageSummary: (episodeId: string): Promise<EpisodeStorageSummary> => ipcRenderer.invoke("episode-storage:get", episodeId),
+  cleanupEpisodeStorage: (episodeId: string, scope: EpisodeCleanupScope): Promise<EpisodeStorageSummary> => ipcRenderer.invoke("episode-storage:cleanup", { episodeId, scope }),
   renderTrackTreatmentPreview: (episodeId: string, draft: TimelineDraft, trackId: string, timestampMs: number): Promise<ReviewMediaTreatmentPreview> => ipcRenderer.invoke("review-media:treatment-preview", { episodeId, draft, trackId, timestampMs }),
   runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean, learningProfile?: AutoEditLearningProfile): Promise<AutoEditResult> =>
     ipcRenderer.invoke("auto-edit:run", {

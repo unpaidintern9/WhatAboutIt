@@ -58,3 +58,14 @@ export interface ReviewMediaTreatmentPreview {
   playbackUrl: string;
   durationMs: number;
 }
+
+export interface ReviewMediaIntegrityItem {
+  slot: ReviewMediaImportSlot;
+  status: "verified" | "missing" | "changed" | "not-indexed";
+  message: string;
+}
+
+export interface ReviewMediaIntegrityResult {
+  items: ReviewMediaIntegrityItem[];
+  message: string;
+}
