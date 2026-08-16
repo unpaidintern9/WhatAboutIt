@@ -594,11 +594,30 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("1 cameras ready");
     expect(host.textContent).toContain("1 microphones ready");
     expect(host.textContent).toContain("92 GB free");
+    expect(host.textContent).toContain("Primary recording library");
+    expect(host.textContent).toContain("Choose Primary Drive");
     expect(host.textContent).toContain("Second-drive backup");
     expect(onStart).not.toHaveBeenCalled();
 
     click(host, "Start Recording");
     expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the selected primary recording drive and can return to default storage", () => {
+    const onChoosePrimaryFolder = vi.fn();
+    const onUseDefaultPrimaryFolder = vi.fn();
+    const { host } = renderStudio({
+      recordingPreferences: { ...defaultRecordingPreferences, countdownSeconds: 0, primaryFolderPath: "D:/What About It Recordings" },
+      onChoosePrimaryFolder,
+      onUseDefaultPrimaryFolder
+    });
+
+    click(host, "Record");
+    expect(host.textContent).toContain("D:/What About It Recordings");
+    click(host, "Choose Primary Drive");
+    click(host, "Use Default");
+    expect(onChoosePrimaryFolder).toHaveBeenCalledTimes(1);
+    expect(onUseDefaultPrimaryFolder).toHaveBeenCalledTimes(1);
   });
 
   it("protects a long episode from an accidental stop", () => {

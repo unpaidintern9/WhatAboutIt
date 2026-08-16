@@ -48,6 +48,7 @@ export interface RecordingSourceHealth {
   target: RecordingMediaTarget;
   kind: "program" | RecordingTrackKind;
   active: boolean;
+  firstChunkReceived: boolean;
   bytesWritten: number;
   lastChunkAt?: string;
   message: string;
@@ -196,7 +197,7 @@ export function createSyncMetadata(defaults: DeviceDefaults, now = new Date().to
     sessionStartTime: now,
     deviceStartTimestamps,
     droppedFrameWarnings: [],
-    audioDriftWarning: "Audio drift watch is prepared for Phase 3 recording review."
+    audioDriftWarning: "Camera guide audio is available for automatic sync; review the opening and closing clap before export."
   };
 }
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, powerSaveBlocker, session, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
@@ -9,7 +9,7 @@ import { defaultStudioWorkspaceState } from "../shared/studio-workspace";
 import { defaultStudioConfiguration } from "../shared/config";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import { defaultExportSettings } from "../shared/export";
-import { getAppDataRoot, getEpisodesRoot, getSettingsPath, getWorkspaceStatePath } from "./config-service";
+import { configureEpisodesRoot, getAppDataRoot, getEpisodesRoot, getSettingsPath, getWorkspaceStatePath } from "./config-service";
 import { logger } from "./logger";
 import { appendRecordingChunk, appendRecordingError, beginRecordingMedia, createRecordingSession, finalizeRecordingMedia, listUnfinishedRecordingSessions, recoverRecordingSession, saveProgramRecording, saveRecordedTracks, writeRecordingState } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
@@ -24,11 +24,11 @@ import { StudioWindowManager } from "./studio-window-manager";
 import { startMediaPlaybackServer, type MediaPlaybackServer } from "./media-playback-server";
 import { AppUpdateService } from "./app-update-service";
 import { cancelLocalTranscription, getLocalTranscriptionStatus, transcribeEpisodeLocally } from "./local-transcription-store";
+import { RecordingPowerProtection } from "./recording-power-protection";
 
 app.setName("What About It Studio");
 
 const appDataRoot = getAppDataRoot();
-const episodesRoot = getEpisodesRoot();
 const settingsPath = getSettingsPath();
 const workspaceStatePath = getWorkspaceStatePath();
 let studioWindowManager: StudioWindowManager;
@@ -36,6 +36,7 @@ let mediaPlaybackServer: MediaPlaybackServer | undefined;
 let appUpdateService: AppUpdateService;
 const activeMediaImports = new Map<string, AbortController>();
 const closeProtectedWebContents = new Set<number>();
+const recordingPowerProtection = new RecordingPowerProtection(powerSaveBlocker);
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -69,7 +70,10 @@ function createWindow() {
     else closeProtectedWebContents.delete(webContentsId);
   });
 
-  mainWindow.webContents.on("destroyed", () => closeProtectedWebContents.delete(webContentsId));
+  mainWindow.webContents.on("destroyed", () => {
+    closeProtectedWebContents.delete(webContentsId);
+    recordingPowerProtection.release(webContentsId);
+  });
 
   if (process.env.VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -79,7 +83,25 @@ function createWindow() {
 }
 
 async function ensureBaseFolders() {
-  await fs.mkdir(episodesRoot, { recursive: true });
+  await fs.mkdir(getEpisodesRoot(), { recursive: true });
+}
+
+async function restartMediaPlaybackServer() {
+  await mediaPlaybackServer?.close();
+  mediaPlaybackServer = await startMediaPlaybackServer(getEpisodesRoot());
+  configureMediaPlaybackBaseUrl(mediaPlaybackServer.baseUrl);
+}
+
+async function validateRecordingLibraryFolder(folderPath: string) {
+  const resolved = path.resolve(folderPath);
+  await fs.mkdir(resolved, { recursive: true });
+  const probePath = path.join(resolved, `.what-about-it-write-test-${crypto.randomUUID()}`);
+  try {
+    await fs.writeFile(probePath, "recording-library-ready", "utf8");
+  } finally {
+    await fs.rm(probePath, { force: true });
+  }
+  return resolved;
 }
 
 async function readJsonFile<T>(filePath: string, fallback: T): Promise<T> {
@@ -103,6 +125,7 @@ function slugify(input: string) {
 
 async function listEpisodes(): Promise<EpisodeMetadata[]> {
   await ensureBaseFolders();
+  const episodesRoot = getEpisodesRoot();
   const entries = await fs.readdir(episodesRoot, { withFileTypes: true });
   const episodes = await Promise.all(
     entries
@@ -118,6 +141,7 @@ async function listEpisodes(): Promise<EpisodeMetadata[]> {
 
 async function createEpisode(input: { title: string; guestName?: string; description?: string }) {
   await ensureBaseFolders();
+  const episodesRoot = getEpisodesRoot();
   const now = new Date().toISOString();
   const id = `${now.slice(0, 10)}-${slugify(input.title)}-${crypto.randomUUID().slice(0, 8)}`;
   const folderPath = path.join(episodesRoot, id);
@@ -183,6 +207,20 @@ async function saveSettings(settings: StudioSettings) {
       ...settings.recordingPreferences
     }
   };
+  const previousEpisodesRoot = getEpisodesRoot();
+  const requestedEpisodesRoot = nextSettings.recordingPreferences.primaryFolderPath
+    ? await validateRecordingLibraryFolder(nextSettings.recordingPreferences.primaryFolderPath)
+    : undefined;
+  nextSettings.recordingPreferences.primaryFolderPath = requestedEpisodesRoot;
+  configureEpisodesRoot(requestedEpisodesRoot);
+  if (getEpisodesRoot() !== previousEpisodesRoot) {
+    if (closeProtectedWebContents.size > 0) {
+      configureEpisodesRoot(previousEpisodesRoot);
+      throw new Error("Stop the recording before changing the primary recording folder.");
+    }
+    await ensureBaseFolders();
+    await restartMediaPlaybackServer();
+  }
   await fs.writeFile(settingsPath, JSON.stringify(nextSettings, null, 2), "utf8");
   await logger.info("SettingsService", "Saved local studio settings.");
   return nextSettings;
@@ -193,10 +231,23 @@ async function saveWorkspaceState(state: StudioWorkspaceState) {
 }
 
 app.whenReady().then(async () => {
+  const initialSettings = await getSettings();
+  const requestedEpisodesRoot = initialSettings.recordingPreferences?.primaryFolderPath;
+  if (requestedEpisodesRoot) {
+    try {
+      configureEpisodesRoot(await validateRecordingLibraryFolder(requestedEpisodesRoot));
+    } catch (error) {
+      configureEpisodesRoot();
+      initialSettings.recordingPreferences = { ...defaultRecordingPreferences, ...initialSettings.recordingPreferences, primaryFolderPath: undefined };
+      await fs.writeFile(settingsPath, JSON.stringify(initialSettings, null, 2), "utf8");
+      await logger.warning("App", "The selected recording library was unavailable, so the app returned to default storage.", { error: String(error) });
+    }
+  } else {
+    configureEpisodesRoot();
+  }
   await ensureBaseFolders();
   await logger.info("App", "What About It Studio launched.");
-  mediaPlaybackServer = await startMediaPlaybackServer(episodesRoot);
-  configureMediaPlaybackBaseUrl(mediaPlaybackServer.baseUrl);
+  await restartMediaPlaybackServer();
   studioWindowManager = new StudioWindowManager({
     preloadPath: path.join(__dirname, "preload.js"),
     rendererPath: path.join(__dirname, "../renderer/index.html"),
@@ -240,6 +291,14 @@ app.whenReady().then(async () => {
   ipcMain.handle("recording:finalize-media", (_event, folderPath) => finalizeRecordingMedia(folderPath));
   ipcMain.handle("recording:recover", (_event, folderPath) => recoverRecordingSession(folderPath));
   ipcMain.handle("recording:open-folder", async (_event, folderPath) => shell.openPath(folderPath));
+  ipcMain.handle("recording:choose-primary-folder", async (event) => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const result = parent
+      ? await dialog.showOpenDialog(parent, { title: "Choose the primary recording library", properties: ["openDirectory", "createDirectory"] })
+      : await dialog.showOpenDialog({ title: "Choose the primary recording library", properties: ["openDirectory", "createDirectory"] });
+    if (result.canceled || !result.filePaths[0]) return undefined;
+    return validateRecordingLibraryFolder(result.filePaths[0]);
+  });
   ipcMain.handle("recording:choose-backup-folder", async (event) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const result = parent
@@ -250,6 +309,7 @@ app.whenReady().then(async () => {
   ipcMain.on("recording:set-close-protection", (event, active: boolean) => {
     if (active) closeProtectedWebContents.add(event.sender.id);
     else closeProtectedWebContents.delete(event.sender.id);
+    recordingPowerProtection.setActive(event.sender.id, active);
   });
   ipcMain.handle("recording:save-program", (_event, input) => saveProgramRecording(input.folderPath, input.bytes));
   ipcMain.handle("recording:save-tracks", (_event, input) => saveRecordedTracks(input.folderPath, input.tracks));
@@ -361,5 +421,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  recordingPowerProtection.releaseAll();
   void mediaPlaybackServer?.close();
 });

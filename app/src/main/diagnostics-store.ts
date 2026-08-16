@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { app } from "electron";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
-import { getAppDataRoot, getAppPathSummary, getDiagnosticsRoot, getLogsRoot } from "./config-service";
+import { getAppPathSummary, getDiagnosticsRoot, getEpisodesRoot, getLogsRoot } from "./config-service";
 import { logger } from "./logger";
 
 function safeName(input: string) {
@@ -22,7 +22,9 @@ async function copyIfExists(source: string, destination: string) {
 
 export async function getStorageStatus(): Promise<StorageStatus> {
   try {
-    const stats = await fs.statfs(getAppDataRoot());
+    const episodesRoot = getEpisodesRoot();
+    await fs.mkdir(episodesRoot, { recursive: true });
+    const stats = await fs.statfs(episodesRoot);
     return {
       availableBytes: Number(stats.bavail) * Number(stats.bsize),
       message: "Storage check ready"

@@ -540,7 +540,7 @@ export default function App() {
   async function refreshEpisodes() {
     const nextEpisodes = await studio.listEpisodes();
     setEpisodes(nextEpisodes);
-    setActiveEpisode((currentEpisode) => currentEpisode ?? nextEpisodes[0]);
+    setActiveEpisode((currentEpisode) => nextEpisodes.find((episode) => episode.id === currentEpisode?.id) ?? nextEpisodes[0]);
   }
 
   async function createEpisode() {
@@ -1093,6 +1093,32 @@ export default function App() {
     });
   }
 
+  async function chooseRecordingPrimaryFolder() {
+    const primaryFolderPath = await studio.chooseRecordingPrimaryFolder?.();
+    if (!primaryFolderPath) return;
+    await saveRecordingPreferences({
+      ...defaultRecordingPreferences,
+      ...settings.recordingPreferences,
+      primaryFolderPath
+    });
+    await Promise.all([
+      refreshEpisodes(),
+      studio.getStorageStatus().then(setStorageStatus)
+    ]);
+  }
+
+  async function useDefaultRecordingPrimaryFolder() {
+    await saveRecordingPreferences({
+      ...defaultRecordingPreferences,
+      ...settings.recordingPreferences,
+      primaryFolderPath: undefined
+    });
+    await Promise.all([
+      refreshEpisodes(),
+      studio.getStorageStatus().then(setStorageStatus)
+    ]);
+  }
+
   async function saveRecordingTemplate() {
     const nextSettings: StudioSettings = {
       ...settings,
@@ -1112,7 +1138,11 @@ export default function App() {
     const nextSettings = withRecordingSettings(withExportSettings(withDeviceDefaults({
       ...settings,
       deviceDefaults: settings.recordingTemplate.deviceDefaults,
-      recordingPreferences: settings.recordingTemplate.preferences
+      recordingPreferences: {
+        ...settings.recordingTemplate.preferences,
+        primaryFolderPath: settings.recordingPreferences?.primaryFolderPath,
+        backupFolderPath: settings.recordingPreferences?.backupFolderPath
+      }
     })));
     setSettings(nextSettings);
     await studio.saveSettings(nextSettings);
@@ -1515,6 +1545,8 @@ export default function App() {
             }}
             onOpenSessionFolder={(session) => void studio.openRecordingFolder?.(session.folderPath)}
             onRecordingPreferencesChange={(preferences) => void saveRecordingPreferences(preferences)}
+            onChoosePrimaryFolder={() => void chooseRecordingPrimaryFolder()}
+            onUseDefaultPrimaryFolder={() => void useDefaultRecordingPrimaryFolder()}
             onChooseBackupFolder={() => void chooseRecordingBackupFolder()}
             onSaveTemplate={() => void saveRecordingTemplate()}
             onApplyTemplate={() => void applyRecordingTemplate()}

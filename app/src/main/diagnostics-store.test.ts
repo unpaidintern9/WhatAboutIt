@@ -17,7 +17,7 @@ vi.mock("electron", () => ({
 }));
 
 vi.mock("./config-service", () => ({
-  getAppDataRoot: () => mockPaths.appDataRoot,
+  getEpisodesRoot: () => String((mockPaths.pathSummary as { episodesRoot?: string }).episodesRoot),
   getLogsRoot: () => mockPaths.logsRoot,
   getDiagnosticsRoot: () => mockPaths.diagnosticsRoot,
   getAppPathSummary: () => mockPaths.pathSummary

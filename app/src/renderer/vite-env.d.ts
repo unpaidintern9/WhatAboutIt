@@ -27,6 +27,7 @@ declare global {
       finalizeRecordingMedia?: (folderPath: string) => Promise<RecordingFinalizeResult>;
       recoverRecordingSession?: (folderPath: string) => Promise<RecordingFinalizeResult>;
       openRecordingFolder?: (folderPath: string) => Promise<string>;
+      chooseRecordingPrimaryFolder?: () => Promise<string | undefined>;
       chooseRecordingBackupFolder?: () => Promise<string | undefined>;
       setRecordingCloseProtection?: (active: boolean) => void;
       saveProgramRecording: (folderPath: string, bytes: Uint8Array) => Promise<string>;

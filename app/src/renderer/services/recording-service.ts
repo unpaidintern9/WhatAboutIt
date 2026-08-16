@@ -27,6 +27,7 @@ export class RecordingService {
   private startedAt = 0;
   private elapsedBeforePause = 0;
   private stateTimer?: number;
+  private startupHealthTimer?: number;
   private friendlyError?: string;
   private trackStatuses: RecordingTrackSaveResult[] = [];
   private integrity?: RecordingIntegrityReport;
@@ -81,7 +82,9 @@ export class RecordingService {
       window.studio?.setRecordingCloseProtection?.(true);
       await this.persistState();
       this.startStateTimer();
+      this.startStartupHealthGate();
     } catch (error) {
+      this.stopStartupHealthGate();
       this.status = "error";
       const message = String(error);
       this.friendlyError = message.includes("Camera needs attention")
@@ -99,6 +102,7 @@ export class RecordingService {
 
   async pause() {
     if (this.status !== "recording") return this.getSnapshot();
+    this.stopStartupHealthGate();
     await this.plugin.pause();
     this.elapsedBeforePause = this.elapsedMs();
     this.status = "paused";
@@ -112,6 +116,7 @@ export class RecordingService {
     this.startedAt = Date.now();
     this.status = "recording";
     await this.persistState();
+    this.startStartupHealthGate();
     return this.getSnapshot();
   }
 
@@ -119,6 +124,7 @@ export class RecordingService {
     if (!this.session || (this.status !== "recording" && this.status !== "paused")) return this.getSnapshot();
     const session = this.session;
     const finalElapsed = this.elapsedMs();
+    this.stopStartupHealthGate();
     this.stopStateTimer();
     const result = await this.plugin.stop();
 
@@ -168,6 +174,7 @@ export class RecordingService {
 
   async shutdown() {
     this.stopStateTimer();
+    this.stopStartupHealthGate();
     if (this.status === "recording" || this.status === "paused") {
       this.elapsedBeforePause = this.elapsedMs();
       this.status = "interrupted";
@@ -194,6 +201,48 @@ export class RecordingService {
     this.stateTimer = undefined;
   }
 
+  private startStartupHealthGate() {
+    this.stopStartupHealthGate();
+    if (this.session?.practice) return;
+    const remainingMs = Math.max(0, FIRST_CHUNK_TIMEOUT_MS - this.elapsedMs());
+    this.startupHealthTimer = window.setTimeout(() => {
+      void this.enforceStartupHealth();
+    }, remainingMs);
+  }
+
+  private stopStartupHealthGate() {
+    if (this.startupHealthTimer) window.clearTimeout(this.startupHealthTimer);
+    this.startupHealthTimer = undefined;
+  }
+
+  private async enforceStartupHealth() {
+    this.startupHealthTimer = undefined;
+    if (this.status !== "recording" || !this.session) return;
+    const health = this.plugin.getHealth?.();
+    if (!health) return;
+    const missingTargets = health.sources.filter((source) => !source.firstChunkReceived).map((source) => source.target);
+    const expectedSourceCount = 1 + health.expectedCameraTracks + health.expectedAudioTracks;
+    const missingRecorderCount = Math.max(0, expectedSourceCount - health.sources.length);
+    if (missingTargets.length === 0 && missingRecorderCount === 0) return;
+
+    const details = [
+      missingTargets.length > 0 ? `${missingTargets.join(", ")} did not write media` : undefined,
+      missingRecorderCount > 0 ? `${missingRecorderCount} selected source ${missingRecorderCount === 1 ? "recorder was" : "recorders were"} unavailable` : undefined
+    ].filter((detail): detail is string => Boolean(detail)).join("; ");
+    const message = `Recording stopped safely because ${details}. Check the source and run Quick Test again.`;
+    await this.stop();
+    this.friendlyError = message;
+    if (this.integrity) {
+      this.integrity = {
+        ...this.integrity,
+        playable: false,
+        warnings: [...this.integrity.warnings, message]
+      };
+    }
+    await Promise.resolve(window.studio.appendRecordingError(this.session.folderPath, message)).catch(() => undefined);
+    await this.persistState().catch(() => undefined);
+  }
+
   private async persistState(elapsedMs = this.elapsedMs()) {
     if (!this.session) return;
     const state: RecordingState = {
@@ -204,6 +253,8 @@ export class RecordingService {
     await window.studio.writeRecordingState(this.session.folderPath, state);
   }
 }
+
+const FIRST_CHUNK_TIMEOUT_MS = 8000;
 
 function formatBytes(bytes: number) {
   if (bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;

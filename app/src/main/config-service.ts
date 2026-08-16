@@ -2,6 +2,8 @@ import path from "node:path";
 import { app } from "electron";
 import { defaultStudioConfiguration, type StudioConfiguration } from "../shared/config";
 
+let configuredEpisodesRoot: string | undefined;
+
 export function getStudioConfiguration(): StudioConfiguration {
   return defaultStudioConfiguration;
 }
@@ -11,7 +13,12 @@ export function getAppDataRoot(configuration = getStudioConfiguration()) {
 }
 
 export function getEpisodesRoot(configuration = getStudioConfiguration()) {
-  return path.join(getAppDataRoot(configuration), configuration.storage.episodeFolderName);
+  return configuredEpisodesRoot ?? path.join(getAppDataRoot(configuration), configuration.storage.episodeFolderName);
+}
+
+export function configureEpisodesRoot(folderPath?: string) {
+  configuredEpisodesRoot = folderPath?.trim() ? path.resolve(folderPath) : undefined;
+  return getEpisodesRoot();
 }
 
 export function getSettingsPath(configuration = getStudioConfiguration()) {

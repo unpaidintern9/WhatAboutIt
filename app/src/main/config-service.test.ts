@@ -41,4 +41,18 @@ describe("config-service path resolution", () => {
     expect(summary.episodesRoot).toBe(path.join(mockElectron.paths.userData, "episodes"));
     expect(Object.values(summary).join("\n")).not.toContain("OneDrive\\Documents\\WhatAboutItStudio");
   });
+
+  it("uses a user-selected recording library without moving settings and logs", async () => {
+    vi.resetModules();
+    mockElectron.isPackaged = true;
+    const { configureEpisodesRoot, getAppPathSummary } = await import("./config-service");
+    const selectedRoot = path.join("D:\\Podcast Recordings", "What About It");
+
+    configureEpisodesRoot(selectedRoot);
+    const summary = getAppPathSummary();
+
+    expect(summary.episodesRoot).toBe(path.resolve(selectedRoot));
+    expect(summary.settingsPath).toBe(path.join(mockElectron.paths.userData, "settings.json"));
+    expect(summary.logsRoot).toBe(path.join(mockElectron.paths.userData, "logs"));
+  });
 });

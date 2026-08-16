@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RecordingTrackSaveInput } from "../../shared/recording";
 import type { RecordingEnginePlugin } from "../plugins/recording/types";
 import { RecordingService } from "./recording-service";
@@ -50,6 +50,8 @@ function createPlugin(): RecordingEnginePlugin {
 }
 
 describe("RecordingService", () => {
+  afterEach(() => vi.useRealTimers());
+
   it("moves through start, pause, resume, and stop", async () => {
     installStudioMock();
     const plugin = createPlugin();
@@ -83,6 +85,44 @@ describe("RecordingService", () => {
 
     expect(snapshot.health?.programActive).toBe(true);
     expect(snapshot.localSaveMessage).toBe("Program plus 4 source tracks are starting their disk writers");
+  });
+
+  it("stops safely when selected sources never write their first media chunk", async () => {
+    vi.useFakeTimers();
+    installStudioMock();
+    const plugin: RecordingEnginePlugin = {
+      ...createPlugin(),
+      getHealth: () => ({
+        programActive: true,
+        activeCameraTracks: 0,
+        activeAudioTracks: 0,
+        expectedCameraTracks: 1,
+        expectedAudioTracks: 1,
+        warnings: [],
+        sources: [{
+          target: "program",
+          kind: "program",
+          active: true,
+          firstChunkReceived: false,
+          bytesWritten: 0,
+          message: "Starting disk writer"
+        }]
+      })
+    };
+    const service = new RecordingService(plugin);
+
+    await service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } });
+    await vi.advanceTimersByTimeAsync(8001);
+
+    expect(plugin.stop).toHaveBeenCalledTimes(1);
+    expect(service.getSnapshot()).toMatchObject({
+      status: "stopped",
+      friendlyError: expect.stringContaining("program did not write media")
+    });
+    expect(window.studio.appendRecordingError).toHaveBeenCalledWith(
+      "C:/recording/episode-a",
+      expect.stringContaining("run Quick Test again")
+    );
   });
 
   it("saves separate recorder tracks after the Program recording", async () => {

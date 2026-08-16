@@ -98,6 +98,7 @@ interface CaptureManifestSource {
   partialPath: string;
   bytesWritten: number;
   lastSequence: number;
+  firstChunkAt?: string;
   lastChunkAt: string;
 }
 
@@ -202,6 +203,7 @@ export async function appendRecordingChunk(folderPath: string, chunk: RecordingC
       const current = await readJsonFile<CaptureManifest>(manifestPath);
       if (!current) throw new Error("Recording capture manifest is missing.");
       current.updatedAt = lastChunkAt;
+      const previousSource = current.sources[chunk.target];
       current.sources[chunk.target] = {
         target: chunk.target,
         kind: chunk.kind,
@@ -209,6 +211,7 @@ export async function appendRecordingChunk(folderPath: string, chunk: RecordingC
         partialPath,
         bytesWritten: stats.size,
         lastSequence: chunk.sequence,
+        firstChunkAt: previousSource?.firstChunkAt ?? lastChunkAt,
         lastChunkAt
       };
       await writeJson(manifestPath, current);
@@ -297,6 +300,8 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
   const syncMetadata = (await readJsonFile<SyncMetadata>(syncMetadataPath)) ?? createSyncMetadata({ cameras: {}, microphones: {} });
   const savedMediaFiles = { ...syncMetadata.savedMediaFiles, ...(programPath && programPlayable ? { program: programPath } : {}) };
   const trackStates = { ...syncMetadata.trackStates };
+  const deviceStartTimestamps = { ...syncMetadata.deviceStartTimestamps };
+  for (const source of sources) deviceStartTimestamps[`recording:${source.target}`] = source.firstChunkAt ?? source.lastChunkAt;
   for (const result of tracks) {
     trackStates[result.slot] = result;
     if (result.status === "saved" && result.filePath) savedMediaFiles[result.slot] = result.filePath;
@@ -304,6 +309,7 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
   await Promise.all([
     writeJson(syncMetadataPath, {
       ...syncMetadata,
+      deviceStartTimestamps,
       savedMediaFiles,
       trackStates,
       validation: { programPlayable, validatedAt: integrity.checkedAt }
