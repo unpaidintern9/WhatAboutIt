@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   Check,
-  Captions,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -31,16 +30,15 @@ import {
   Split,
   Trash2,
   Undo2,
-  Upload,
   Video,
   VolumeX,
   Waves
 } from "lucide-react";
 import type { ReviewMediaAsset, ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaTreatmentPreview } from "../../shared/review-media";
+import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../../shared/episode-maintenance";
 import type { TimelineAudioPreset, TimelineDraft, TimelineTrack } from "../../shared/timeline";
 import {
   addCameraDecision,
-  addTimelineCaption,
   applyTimelineTrackTreatmentToKind,
   applyTimelineEdit,
   getActiveCameraTrackId,
@@ -48,7 +46,6 @@ import {
   getTimelineSegments,
   isTimelineTrackAvailableAt,
   redoTimelineEdit,
-  removeTimelineCaption,
   resetTimelineTrackControls,
   restoreOriginalTimeline,
   selectTimelinePoint,
@@ -57,12 +54,13 @@ import {
   setTimelineRange,
   undoTimelineEdit,
   updateTimelineCameraTransition,
-  updateTimelineCaption,
   updateTimelineMastering,
   updateTimelineTrackMix
 } from "../../shared/timeline";
 import { Button } from ".";
 import { formatRecordingTime } from "../services";
+import { TimelineCaptionPanel } from "./TimelineCaptionPanel";
+import { TimelineMediaSetup } from "./TimelineMediaSetup";
 
 interface TimelineReviewProps {
   draft: TimelineDraft;
@@ -77,6 +75,10 @@ interface TimelineReviewProps {
   onCancelImport?: (slot: ReviewMediaImportSlot) => Promise<void>;
   onAutoSync?: () => Promise<string>;
   onRenderTreatmentPreview?: (trackId: string, timestampMs: number) => Promise<ReviewMediaTreatmentPreview>;
+  onRelinkMedia?: (slot: ReviewMediaImportSlot) => Promise<string>;
+  onVerifyOriginals?: () => Promise<string>;
+  onGetEpisodeStorage?: () => Promise<EpisodeStorageSummary>;
+  onCleanupEpisodeStorage?: (scope: EpisodeCleanupScope) => Promise<EpisodeStorageSummary>;
 }
 
 const audioPresetCopy: Record<TimelineAudioPreset, { label: string; help: string }> = {
@@ -94,7 +96,24 @@ const audioPresetCopy: Record<TimelineAudioPreset, { label: string; help: string
 
 type TimelineTool = "select" | "split";
 
-export function TimelineReview({ draft, media, saveState = "saved", onDraftChange, onSaveDraft, onExport, onAutoEdit, onImportMedia, importProgress, onCancelImport, onAutoSync, onRenderTreatmentPreview }: TimelineReviewProps) {
+export function TimelineReview({
+  draft,
+  media,
+  saveState = "saved",
+  onDraftChange,
+  onSaveDraft,
+  onExport,
+  onAutoEdit,
+  onImportMedia,
+  importProgress,
+  onCancelImport,
+  onAutoSync,
+  onRenderTreatmentPreview,
+  onRelinkMedia,
+  onVerifyOriginals,
+  onGetEpisodeStorage,
+  onCleanupEpisodeStorage
+}: TimelineReviewProps) {
   const videoAssets = useMemo(() => (media ? [media.program, ...media.cameras] : []), [media]);
   const editableTracks = useMemo(() => draft.tracks.filter((track) => track.kind !== "markers"), [draft.tracks]);
   const [selectedVideoId, setSelectedVideoId] = useState("program");
@@ -103,8 +122,6 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
   const [timelineZoom, setTimelineZoom] = useState(100);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [snapEnabled, setSnapEnabled] = useState(true);
-  const [mediaSetupMessage, setMediaSetupMessage] = useState("Add up to three camera files and the main podcast audio. Full-quality originals stay protected while lighter copies keep editing responsive.");
-  const [mediaSetupBusy, setMediaSetupBusy] = useState<ReviewMediaImportSlot | "sync">();
   const [treatmentPreview, setTreatmentPreview] = useState<ReviewMediaTreatmentPreview>();
   const [treatmentPreviewBusy, setTreatmentPreviewBusy] = useState(false);
   const [treatmentPreviewError, setTreatmentPreviewError] = useState<string>();
@@ -143,7 +160,6 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
   }, [draft.tracks, media?.audio]);
   const useProgramStemMix = programMode && programAudioSources.length > 0;
   const selectedTrack = draft.tracks.find((track) => track.id === draft.selectedTrackId) ?? draft.tracks[0];
-  const fillerWordCount = draft.captions.reduce((count, cue) => count + (cue.text.match(/\b(?:um+|uh+|like|you know)\b/gi)?.length ?? 0), 0);
   const rangeStartMs = draft.selection?.timestampMs ?? playheadMs;
   const rangeEndMs = draft.selection?.endTimestampMs ?? Math.min(draft.durationMs, rangeStartMs + 15000);
   const readyCameraCount = media?.cameras.filter((asset) => asset.status === "ready").length ?? 0;
@@ -413,30 +429,6 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
     if (marker) choosePoint(marker.timestampMs, marker.id);
   }
 
-  async function importMedia(slot: ReviewMediaImportSlot) {
-    if (!onImportMedia) return;
-    setMediaSetupBusy(slot);
-    try {
-      setMediaSetupMessage(await onImportMedia(slot));
-    } catch (error) {
-      setMediaSetupMessage(`Import failed: ${String(error)}`);
-    } finally {
-      setMediaSetupBusy(undefined);
-    }
-  }
-
-  async function autoSync() {
-    if (!onAutoSync) return;
-    setMediaSetupBusy("sync");
-    try {
-      setMediaSetupMessage(await onAutoSync());
-    } catch (error) {
-      setMediaSetupMessage(`Automatic sync failed: ${String(error)}`);
-    } finally {
-      setMediaSetupBusy(undefined);
-    }
-  }
-
   useEffect(() => {
     function handleEditorKey(event: KeyboardEvent) {
       const target = event.target;
@@ -532,81 +524,9 @@ export function TimelineReview({ draft, media, saveState = "saved", onDraftChang
         </button>
       </div>
 
-      <section className="editor-media-setup" aria-label="Episode media setup">
-        <div className="editor-media-setup-heading">
-          <div>
-            <p className="signature">Media setup</p>
-            <h3>Three cameras. One synchronized episode.</h3>
-          </div>
-          <button type="button" disabled={!onAutoSync || Boolean(mediaSetupBusy)} onClick={() => void autoSync()}>
-            <Waves size={17} /> {mediaSetupBusy === "sync" ? "Synchronizing…" : "Sync automatically"}
-          </button>
-        </div>
-        <div className="editor-media-slots">
-          {(["camera-1", "camera-2", "camera-3", "morgan-mic"] as ReviewMediaImportSlot[]).map((slot) => {
-            const asset = slot.startsWith("camera-") ? media?.cameras.find((candidate) => candidate.id === slot) : media?.audio.find((candidate) => candidate.id === slot);
-            const label = slot.startsWith("camera-") ? slot.replace("camera-", "Camera ") : "Main audio";
-            return (
-              <div className={asset?.status === "ready" ? "ready" : "missing"} key={slot}>
-                <span>
-                  {slot.startsWith("camera-") ? <Video size={17} /> : <Waves size={17} />}
-                  <strong>{label}</strong>
-                </span>
-                <small>{asset?.status === "ready" ? `${asset.codecSummary ?? "Ready"}${asset.durationMs ? ` · ${formatRecordingTime(asset.durationMs)}` : ""}` : "Choose a file"}</small>
-                <button type="button" disabled={!onImportMedia || Boolean(mediaSetupBusy)} onClick={() => void importMedia(slot)}>
-                  <Upload size={15} /> {mediaSetupBusy === slot ? "Importing…" : asset?.status === "ready" ? "Replace" : "Add file"}
-                </button>
-                {mediaSetupBusy === slot && importProgress?.slot === slot && (
-                  <div className="editor-import-progress">
-                    <progress max="100" value={importProgress.progress} aria-label={`${label} import progress`} />
-                    <span>{importProgress.progress}% · {importProgress.message}</span>
-                    {onCancelImport && <button type="button" className="editor-import-cancel" onClick={() => void onCancelImport(slot)}>Cancel</button>}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        <p className="editor-media-message" aria-live="polite">
-          {mediaSetupMessage}
-        </p>
-      </section>
+      <TimelineMediaSetup media={media} importProgress={importProgress} onImportMedia={onImportMedia} onCancelImport={onCancelImport} onAutoSync={onAutoSync} onRelinkMedia={onRelinkMedia} onVerifyOriginals={onVerifyOriginals} onGetEpisodeStorage={onGetEpisodeStorage} onCleanupEpisodeStorage={onCleanupEpisodeStorage} />
 
-      <details className="editor-caption-panel">
-        <summary>
-          <span><Captions size={18} /> Transcript &amp; captions</span>
-          <small>{draft.captions.length} cue{draft.captions.length === 1 ? "" : "s"}{fillerWordCount ? ` · ${fillerWordCount} filler word${fillerWordCount === 1 ? "" : "s"}` : ""}</small>
-        </summary>
-        <div className="editor-caption-toolbar">
-          <p>Add or paste corrected transcript text at the playhead. Captions export as an editable SRT file and follow deleted timeline ranges.</p>
-          <button type="button" onClick={() => onDraftChange(addTimelineCaption(draft, playheadMs, Math.min(draft.durationMs, playheadMs + 3000)))}>
-            <Plus size={16} /> Add at {formatRecordingTime(playheadMs)}
-          </button>
-        </div>
-        {draft.captions.length === 0 ? <p className="empty-copy">No captions yet. Move the playhead to a spoken line and add one.</p> : (
-          <div className="editor-caption-list">
-            {[...draft.captions].sort((left, right) => left.startMs - right.startMs).map((cue) => (
-              <div className="editor-caption-cue" key={cue.id}>
-                <label>
-                  <span>Start</span>
-                  <input type="number" min="0" step="0.1" value={(cue.startMs / 1000).toFixed(1)} onChange={(event) => onDraftChange(updateTimelineCaption(draft, cue.id, { startMs: Number(event.target.value) * 1000 }))} />
-                </label>
-                <label>
-                  <span>End</span>
-                  <input type="number" min="0" step="0.1" value={(cue.endMs / 1000).toFixed(1)} onChange={(event) => onDraftChange(updateTimelineCaption(draft, cue.id, { endMs: Number(event.target.value) * 1000 }))} />
-                </label>
-                <textarea
-                  aria-label={`Caption at ${formatRecordingTime(cue.startMs)}`}
-                  placeholder="Type or paste the spoken line…"
-                  value={cue.text}
-                  onChange={(event) => onDraftChange(updateTimelineCaption(draft, cue.id, { text: event.target.value }))}
-                />
-                <button type="button" className="danger" title="Delete caption" onClick={() => onDraftChange(removeTimelineCaption(draft, cue.id))}><Trash2 size={16} /></button>
-              </div>
-            ))}
-          </div>
-        )}
-      </details>
+      <TimelineCaptionPanel draft={draft} playheadMs={playheadMs} rangeStartMs={rangeStartMs} rangeEndMs={rangeEndMs} hasSelectedRange={hasSelectedRange} onDraftChange={onDraftChange} />
 
       <section className="edit-studio-workspace">
         <div className="edit-source-monitor">

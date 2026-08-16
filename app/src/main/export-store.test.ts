@@ -99,6 +99,7 @@ describe("export store", () => {
       episodeId: "episode-audio",
       type: "audio-only",
       qualityPreset: "high",
+      masteringMode: "measured",
       practice: true,
       draft: createTimelineDraft({ episodeId: "episode-audio", deviceDefaults: { cameras: {}, microphones: {} } })
     });

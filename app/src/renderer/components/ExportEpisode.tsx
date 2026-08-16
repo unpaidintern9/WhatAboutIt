@@ -1,6 +1,6 @@
 import { type ReactElement } from "react";
 import { ArrowLeft, CheckCircle2, ExternalLink, FileArchive, FileAudio, Home, LoaderCircle, Play, RectangleVertical, ShieldCheck, Square, Video } from "lucide-react";
-import type { ExportJob, ExportQualityPreset, ExportType, MediaToolsStatus } from "../../shared/export";
+import type { ExportJob, ExportMasteringMode, ExportQualityPreset, ExportType, MediaToolsStatus } from "../../shared/export";
 import { exportFriendlyErrorCopy, exportTypeLabels } from "../../shared/export";
 import { Button } from ".";
 
@@ -10,8 +10,14 @@ interface ExportEpisodeProps {
   job?: ExportJob;
   mediaToolsStatus?: MediaToolsStatus;
   selectedRangeMs?: number;
+  includeCameraMasters?: boolean;
+  includeAudioMasters?: boolean;
+  masteringMode?: ExportMasteringMode;
   onTypeChange: (type: ExportType) => void;
   onQualityChange: (preset: ExportQualityPreset) => void;
+  onCameraMastersChange?: (included: boolean) => void;
+  onAudioMastersChange?: (included: boolean) => void;
+  onMasteringModeChange?: (mode: ExportMasteringMode) => void;
   onStartExport: () => void;
   onCancelExport: () => void;
   onOpenFolder: () => void;
@@ -44,8 +50,14 @@ export function ExportEpisode({
   job,
   mediaToolsStatus,
   selectedRangeMs,
+  includeCameraMasters = false,
+  includeAudioMasters = false,
+  masteringMode = "measured",
   onTypeChange,
   onQualityChange,
+  onCameraMastersChange,
+  onAudioMastersChange,
+  onMasteringModeChange,
   onStartExport,
   onCancelExport,
   onOpenFolder,
@@ -98,7 +110,7 @@ export function ExportEpisode({
         <div>
           <p className="signature">Keep it simple</p>
           <h3>Quality</h3>
-          <p className="soft-copy">High is the best finished episode. Every full export also creates edited camera masters, separate 24-bit audio masters, and an edit decision list.</p>
+          <p className="soft-copy">High is the best finished episode. Extra source masters are optional, so a normal export stays fast and compact.</p>
         </div>
         {selectedType === "social-clip-placeholder" ? (
           <p className={socialClipNeedsRange ? "media-tools-status needs-setup" : "media-tools-status ready"} role="status">
@@ -120,6 +132,27 @@ export function ExportEpisode({
               </button>
             );
           })}
+        </div>
+        {(selectedType === "full-episode-video" || selectedType === "archive-master") && (
+          <div className="export-extra-options" aria-label="Additional export files">
+            {selectedType === "full-episode-video" && (
+              <label>
+                <input type="checkbox" checked={includeCameraMasters} onChange={(event) => onCameraMastersChange?.(event.target.checked)} />
+                <span><strong>Camera masters</strong><small>Separate edited video for every camera and its routed microphone. Slowest and largest.</small></span>
+              </label>
+            )}
+            <label>
+              <input type="checkbox" checked={includeAudioMasters} onChange={(event) => onAudioMastersChange?.(event.target.checked)} />
+              <span><strong>24-bit audio masters</strong><small>Separate WAV files for later remixing or archiving.</small></span>
+            </label>
+          </div>
+        )}
+        <div className="export-mastering-choice">
+          <span><strong>Podcast loudness</strong><small>Measured mastering analyzes the complete mix before applying the final level.</small></span>
+          <div className="inspector-segmented" aria-label="Podcast loudness processing">
+            <button type="button" className={masteringMode === "measured" ? "selected" : ""} onClick={() => onMasteringModeChange?.("measured")}>Measured</button>
+            <button type="button" className={masteringMode === "fast" ? "selected" : ""} onClick={() => onMasteringModeChange?.("fast")}>Fast</button>
+          </div>
         </div>
       </section>
 

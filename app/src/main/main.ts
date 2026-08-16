@@ -16,7 +16,8 @@ import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
 import { cancelExport, createExport, detectMediaTools, openExportFolder, renderTrackTreatmentPreview } from "./export-store";
 import { runAutoEdit } from "./auto-edit-store";
 import { createDiagnosticsBundle, getStorageStatus } from "./diagnostics-store";
-import { analyzeReviewMediaSync, configureMediaPlaybackBaseUrl, importReviewMediaFile, loadReviewMedia } from "./review-media-store";
+import { analyzeReviewMediaSync, configureMediaPlaybackBaseUrl, importReviewMediaFile, loadReviewMedia, relinkImportedMediaFile, verifyImportedMediaIntegrity } from "./review-media-store";
+import { cleanupEpisodeStorage, getEpisodeStorageSummary } from "./episode-maintenance-store";
 import type { ReviewMediaImportSlot } from "../shared/review-media";
 import { StudioWindowManager } from "./studio-window-manager";
 import { startMediaPlaybackServer, type MediaPlaybackServer } from "./media-playback-server";
@@ -270,6 +271,21 @@ app.whenReady().then(async () => {
     return Boolean(active);
   });
   ipcMain.handle("review-media:auto-sync", (_event, episodeId: string) => analyzeReviewMediaSync(episodeId));
+  ipcMain.handle("review-media:verify-originals", (_event, episodeId: string) => verifyImportedMediaIntegrity(episodeId));
+  ipcMain.handle("review-media:relink", async (event, input: { episodeId: string; slot: ReviewMediaImportSlot }) => {
+    const isVideo = input.slot.startsWith("camera-");
+    const options = {
+      title: `Relink ${isVideo ? input.slot.replace("camera-", "Camera ") : "podcast audio"} original`,
+      properties: ["openFile"] as Array<"openFile">,
+      filters: [{ name: isVideo ? "Video files" : "Audio files", extensions: isVideo ? ["mp4", "mov", "mkv", "webm", "m4v"] : ["wav", "mp3", "m4a", "aac", "flac", "ogg"] }]
+    };
+    const parentWindow = BrowserWindow.fromWebContents(event.sender);
+    const result = parentWindow ? await dialog.showOpenDialog(parentWindow, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) return { canceled: true, inventory: await loadReviewMedia(input.episodeId), message: "Relink canceled." };
+    return { canceled: false, inventory: await relinkImportedMediaFile(input.episodeId, input.slot, result.filePaths[0]), message: "Protected original relinked and fingerprinted." };
+  });
+  ipcMain.handle("episode-storage:get", (_event, episodeId: string) => getEpisodeStorageSummary(episodeId));
+  ipcMain.handle("episode-storage:cleanup", (_event, input) => cleanupEpisodeStorage(input.episodeId, input.scope));
   ipcMain.handle("review-media:treatment-preview", (_event, input) => renderTrackTreatmentPreview(input));
   ipcMain.handle("auto-edit:run", (_event, input) => runAutoEdit(input));
   ipcMain.handle("export:create", (event, input) => createExport(input, (job) => event.sender.send("export:progress", job)));

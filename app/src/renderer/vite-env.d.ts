@@ -7,7 +7,8 @@ import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
-import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaSyncResult, ReviewMediaTreatmentPreview } from "../shared/review-media";
+import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaIntegrityResult, ReviewMediaInventory, ReviewMediaSyncResult, ReviewMediaTreatmentPreview } from "../shared/review-media";
+import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../shared/episode-maintenance";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
 import type { AppUpdateStatus } from "../shared/app-update";
 
@@ -33,6 +34,10 @@ declare global {
       cancelReviewMediaImport?: (episodeId: string, slot: ReviewMediaImportSlot) => Promise<boolean>;
       onReviewMediaImportProgress?: (listener: (progress: ReviewMediaImportProgress) => void) => () => void;
       autoSyncReviewMedia?: (episodeId: string) => Promise<ReviewMediaSyncResult>;
+      verifyReviewMediaOriginals?: (episodeId: string) => Promise<ReviewMediaIntegrityResult>;
+      relinkReviewMedia?: (episodeId: string, slot: ReviewMediaImportSlot) => Promise<ReviewMediaImportResult>;
+      getEpisodeStorageSummary?: (episodeId: string) => Promise<EpisodeStorageSummary>;
+      cleanupEpisodeStorage?: (episodeId: string, scope: EpisodeCleanupScope) => Promise<EpisodeStorageSummary>;
       renderTrackTreatmentPreview?: (episodeId: string, draft: TimelineDraft, trackId: string, timestampMs: number) => Promise<ReviewMediaTreatmentPreview>;
       runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean, learningProfile?: AutoEditLearningProfile) => Promise<AutoEditResult>;
       createExport: (request: ExportRequest) => Promise<ExportJob>;

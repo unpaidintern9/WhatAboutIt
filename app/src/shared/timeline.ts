@@ -368,6 +368,23 @@ export function removeTimelineCaption(draft: TimelineDraft, cueId: string, now =
   return commitTimelineMutation(draft, { ...draft, captions: draft.captions.filter((cue) => cue.id !== cueId) }, "Delete caption", undefined, now);
 }
 
+export function replaceTimelineCaptions(draft: TimelineDraft, captions: TimelineCaptionCue[], label = "Import captions", now = new Date().toISOString()) {
+  const maxTimestamp = draft.durationMs > 0 ? draft.durationMs : Number.MAX_SAFE_INTEGER;
+  const normalized = captions
+    .map((cue, index) => {
+      const startMs = Math.max(0, Math.min(maxTimestamp, Math.round(cue.startMs)));
+      return {
+        id: cue.id || `caption-${now}-${index + 1}`,
+        startMs,
+        endMs: Math.min(maxTimestamp, Math.max(startMs + 250, Math.round(cue.endMs))),
+        text: cue.text.trim()
+      };
+    })
+    .filter((cue) => cue.text && cue.startMs < maxTimestamp)
+    .sort((left, right) => left.startMs - right.startMs);
+  return commitTimelineMutation(draft, { ...draft, captions: normalized }, label, undefined, now);
+}
+
 export function selectTimelinePoint(draft: TimelineDraft, selection: TimelineSelection, now = new Date().toISOString()): TimelineDraft {
   const maxTimestamp = draft.durationMs > 0 ? draft.durationMs : selection.timestampMs;
   return {
