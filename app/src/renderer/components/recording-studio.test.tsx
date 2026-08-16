@@ -6,6 +6,7 @@ import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 import { createDefaultPodcastToolsState } from "../../shared/podcast-tools";
 import type { DeviceDefaults } from "../../shared/types";
+import { defaultRecordingPreferences } from "../../shared/types";
 import { RecordingStudio } from "./RecordingStudio";
 
 const defaults: DeviceDefaults = {
@@ -35,6 +36,7 @@ function renderStudio(overrides: Partial<ComponentProps<typeof RecordingStudio>>
     },
     unfinishedSessions: [],
     podcastTools: createDefaultPodcastToolsState("episode-a", "2026-06-28T12:00:00.000Z"),
+    recordingPreferences: { ...defaultRecordingPreferences, countdownSeconds: 0 },
     onStart: vi.fn(),
     onPause: vi.fn(),
     onResume: vi.fn(),
@@ -160,6 +162,7 @@ describe("RecordingStudio", () => {
     const onStop = vi.fn();
     const { host: idleHost } = renderStudio({ onStart });
     click(idleHost, "Record");
+    click(idleHost, "Start Recording");
     expect(onStart).toHaveBeenCalledTimes(1);
 
     const { host: recordingHost } = renderStudio({ snapshot: { status: "recording", elapsedMs: 1000, localSaveMessage: "Everything is saving locally", trackStatuses: [] }, onPause, onStop });
@@ -181,6 +184,7 @@ describe("RecordingStudio", () => {
     const { host: idleHost } = renderStudio({ onStart });
 
     click(idleHost, "Record");
+    click(idleHost, "Start Recording");
     expect(idleHost.textContent).toContain("Starting every ready camera and microphone together");
     expect(idleHost.textContent).toContain("Starting");
     await act(async () => finishStart?.());
@@ -190,7 +194,7 @@ describe("RecordingStudio", () => {
       onStop
     });
     click(recordingHost, "Stop");
-    expect(recordingHost.textContent).toContain("Finishing camera and microphone files before Review opens");
+    expect(recordingHost.textContent).toContain("Verifying the program, each camera, each microphone, and the optional backup copy");
     expect(recordingHost.textContent).toContain("Saving");
     await act(async () => finishStop?.());
   });
@@ -236,7 +240,7 @@ describe("RecordingStudio", () => {
     click(host, "Mute");
     expect(host.textContent).toContain("Muted");
 
-    const gain = host.querySelector('input[aria-label="Morgan Mic gain"]') as HTMLInputElement;
+    const gain = host.querySelector('input[aria-label="Morgan Mic headphone monitoring level"]') as HTMLInputElement;
     expect(gain).toBeTruthy();
     act(() => {
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
@@ -389,7 +393,7 @@ describe("RecordingStudio", () => {
     });
     expect(TestAudioContext.instances).toBe(2);
 
-    const gain = host.querySelector('input[aria-label="Morgan Mic gain"]') as HTMLInputElement;
+    const gain = host.querySelector('input[aria-label="Morgan Mic headphone monitoring level"]') as HTMLInputElement;
     act(() => {
       const valueSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
       valueSetter?.call(gain, "52");
@@ -579,6 +583,58 @@ describe("RecordingStudio", () => {
     expect(onAutoEdit).toHaveBeenCalledTimes(1);
     expect(onExport).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain("Review Episode");
+  });
+
+  it("shows one explicit preflight before recording", () => {
+    const onStart = vi.fn();
+    const { host } = renderStudio({ onStart, storageMessage: "92 GB free · 34 GB reserved" });
+
+    click(host, "Record");
+    expect(host.textContent).toContain("Ready to record?");
+    expect(host.textContent).toContain("1 cameras ready");
+    expect(host.textContent).toContain("1 microphones ready");
+    expect(host.textContent).toContain("92 GB free");
+    expect(host.textContent).toContain("Second-drive backup");
+    expect(onStart).not.toHaveBeenCalled();
+
+    click(host, "Start Recording");
+    expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("protects a long episode from an accidental stop", () => {
+    const onStop = vi.fn();
+    const { host } = renderStudio({
+      snapshot: { status: "recording", elapsedMs: 60000, localSaveMessage: "Writing to disk", trackStatuses: [] },
+      onStop
+    });
+
+    click(host, "Stop");
+    expect(host.textContent).toContain("Stop this episode?");
+    expect(onStop).not.toHaveBeenCalled();
+    click(host, "Stop & Verify Files");
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers one-click recovery and session-folder access for interrupted media", async () => {
+    const session = {
+      id: "interrupted-session",
+      episodeId: "episode-recovery",
+      episodeTitle: "Recovery Episode",
+      folderPath: "C:/episodes/recovery",
+      startedAt: "2026-08-15T12:00:00.000Z",
+      status: "interrupted" as const,
+      practice: false,
+      recoverableBytes: 12 * 1024 * 1024
+    };
+    const onRecoverSession = vi.fn(async () => undefined);
+    const onOpenSessionFolder = vi.fn();
+    const { host } = renderStudio({ unfinishedSessions: [session], onRecoverSession, onOpenSessionFolder });
+
+    expect(host.textContent).toContain("12 MB protected");
+    await act(async () => click(host, "Recover Recording"));
+    expect(onRecoverSession).toHaveBeenCalledWith(session);
+    click(host, "Open Folder");
+    expect(onOpenSessionFolder).toHaveBeenCalledWith(session);
   });
 
   it("keeps the copied reference asset out of the packaged file list", () => {

@@ -73,7 +73,8 @@ describe("RecordingService", () => {
         activeAudioTracks: 2,
         expectedCameraTracks: 2,
         expectedAudioTracks: 2,
-        warnings: []
+        warnings: [],
+        sources: []
       })
     };
     const service = new RecordingService(plugin);
@@ -81,7 +82,7 @@ describe("RecordingService", () => {
     const snapshot = await service.start({ cameras: { camera1: "camera-a", camera2: "camera-b" }, microphones: { morganMic: "mic-a", guestMic: "mic-b" } });
 
     expect(snapshot.health?.programActive).toBe(true);
-    expect(snapshot.localSaveMessage).toBe("Program plus 4 source tracks are actively recording");
+    expect(snapshot.localSaveMessage).toBe("Program plus 4 source tracks are starting their disk writers");
   });
 
   it("saves separate recorder tracks after the Program recording", async () => {
@@ -175,6 +176,6 @@ describe("RecordingService", () => {
     await service.shutdown();
 
     expect(plugin.shutdown).toHaveBeenCalledTimes(1);
-    expect(service.getSnapshot().status).toBe("idle");
+    expect(service.getSnapshot().status).toBe("interrupted");
   });
 });

@@ -839,6 +839,215 @@ select:focus {
   }
 }
 
+/* Disk-first recording, preflight, recovery, and simplified live mode. */
+.recording-countdown {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: grid;
+  place-content: center;
+  place-items: center;
+  color: #fff;
+  background: rgba(14, 7, 6, 0.92);
+  backdrop-filter: blur(8px);
+}
+
+.recording-countdown strong {
+  font-family: var(--font-display);
+  font-size: clamp(8rem, 28vw, 18rem);
+  line-height: 0.8;
+  color: var(--color-accent);
+}
+
+.recording-countdown span {
+  margin-top: 28px;
+  font-family: var(--font-heading);
+  font-size: 1.4rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.recording-preflight,
+.recording-stop-confirm {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.preflight-status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.preflight-status-grid > span,
+.live-source-health > span {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+  font-weight: 850;
+}
+
+.preflight-status-grid .ready,
+.live-source-health .ready {
+  color: var(--color-success);
+  background: color-mix(in srgb, var(--color-success), transparent 90%);
+}
+
+.preflight-status-grid .needs-attention,
+.live-source-health .needs-attention,
+.preflight-warning {
+  color: var(--color-danger);
+  background: color-mix(in srgb, var(--color-danger), transparent 90%);
+}
+
+.recording-preflight > label,
+.preflight-options label,
+.preflight-backup {
+  display: grid;
+  gap: 6px;
+  font-weight: 800;
+}
+
+.recording-preflight select {
+  min-height: 38px;
+  padding: 6px 9px;
+  color: var(--color-text);
+  background: var(--color-cards);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.preflight-options,
+.preflight-template-actions,
+.preflight-actions,
+.recording-stop-confirm > div,
+.recovery-actions > div {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.preflight-options label {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  padding: 8px 10px;
+  background: color-mix(in srgb, var(--color-cards), transparent 8%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.preflight-options label:last-child {
+  grid-template-columns: auto auto;
+}
+
+.preflight-backup {
+  padding: 12px;
+  background: color-mix(in srgb, var(--color-surface), transparent 12%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.preflight-backup span,
+.recovery-actions small {
+  color: var(--color-mutedText);
+  font-size: 0.76rem;
+  overflow-wrap: anywhere;
+}
+
+.preflight-actions {
+  justify-content: flex-end;
+}
+
+.preflight-warning {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid currentColor;
+  border-radius: var(--component-border-radius);
+  font-weight: 800;
+}
+
+.recovery-banner {
+  grid-template-columns: auto minmax(0, 1fr) minmax(260px, auto);
+}
+
+.recovery-actions,
+.recovery-actions > div {
+  display: grid;
+  gap: 6px;
+}
+
+.live-source-health {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 7px;
+}
+
+.live-source-health > span {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  padding: 8px;
+}
+
+.live-source-health small {
+  grid-column: 2;
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-hotkey-hint {
+  margin: 0;
+  color: var(--color-mutedText);
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.studio-shell--recording .reference-studio-board .giant-control-row {
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+}
+
+.live-studio.live-mode .layout-row,
+.live-studio.live-mode .studio-side-stack,
+.live-studio.live-mode .compact-soundboard-panel,
+.live-studio.live-mode .secondary-studio-tools,
+.live-studio.live-mode .giant-control-row .studio-control-button:nth-child(5),
+.live-studio.live-mode .giant-control-row .studio-control-button:nth-child(6) {
+  display: none;
+}
+
+.live-studio.live-mode .reference-workbench {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.live-studio.live-mode .reference-console-row {
+  grid-template-columns: minmax(0, 3fr) minmax(180px, 0.7fr);
+}
+
+.live-studio.live-mode .giant-control-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+@media (max-width: 820px) {
+  .preflight-status-grid,
+  .live-studio.live-mode .reference-console-row,
+  .live-studio.live-mode .giant-control-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .recovery-banner {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .settings-panel div {
   display: flex;
   justify-content: space-between;

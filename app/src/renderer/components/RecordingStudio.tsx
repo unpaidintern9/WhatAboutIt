@@ -28,7 +28,8 @@ import {
   VolumeX,
   Volume2
 } from "lucide-react";
-import type { CameraSlotKey, DeviceDefaults, MicrophoneInputChannel, MicrophoneSlotKey } from "../../shared/types";
+import type { CameraSlotKey, DeviceDefaults, MicrophoneInputChannel, MicrophoneSlotKey, RecordingPreferences, RecordingTemplate } from "../../shared/types";
+import { defaultRecordingPreferences } from "../../shared/types";
 import { getDeviceAssignmentConflicts, getMicrophoneInputDisplay, microphoneInputChannelOptions, saveMicrophoneDeviceRoute } from "../../shared/device-config";
 import type { RecordingSession, RecordingTrackSaveResult, RecordingTrackSlot } from "../../shared/recording";
 import type { CameraLayout, PodcastToolsState, SoundSlot } from "../../shared/podcast-tools";
@@ -44,7 +45,7 @@ import {
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import type { RecordingServiceSnapshot } from "../services";
 import { formatRecordingTime } from "../services";
-import { Button, Tooltip } from ".";
+import { Button, Modal, Tooltip } from ".";
 import { StudioToolPanels } from "./StudioToolPanels";
 
 interface RecordingStudioProps {
@@ -54,13 +55,23 @@ interface RecordingStudioProps {
   unfinishedSessions: RecordingSession[];
   podcastTools: PodcastToolsState;
   storageWarning?: string;
+  storageMessage?: string;
+  recordingPreferences?: RecordingPreferences;
+  recordingTemplate?: RecordingTemplate;
   onStart: () => Promise<void> | void;
+  onQuickTest?: () => Promise<void> | void;
   onPause: () => Promise<void> | void;
   onResume: () => Promise<void> | void;
   onStop: () => Promise<void> | void;
   onAutoEdit: () => void;
   onExport: () => void;
   onDismissRecovery: () => void;
+  onRecoverSession?: (session: RecordingSession) => Promise<void> | void;
+  onOpenSessionFolder?: (session: RecordingSession) => void;
+  onRecordingPreferencesChange?: (preferences: RecordingPreferences) => void;
+  onChooseBackupFolder?: () => void;
+  onSaveTemplate?: () => void;
+  onApplyTemplate?: () => void;
   onNext: () => void;
   onDefaultsChange: (defaults: DeviceDefaults) => void;
   onPodcastToolsChange: (state: PodcastToolsState) => void;
@@ -141,13 +152,23 @@ export function RecordingStudio({
   unfinishedSessions,
   podcastTools,
   storageWarning,
+  storageMessage,
+  recordingPreferences: recordingPreferencesProp,
+  recordingTemplate,
   onStart,
+  onQuickTest,
   onPause,
   onResume,
   onStop,
   onAutoEdit,
   onExport,
   onDismissRecovery,
+  onRecoverSession,
+  onOpenSessionFolder,
+  onRecordingPreferencesChange,
+  onChooseBackupFolder,
+  onSaveTemplate,
+  onApplyTemplate,
   onNext,
   onDefaultsChange,
   onPodcastToolsChange,
@@ -174,12 +195,18 @@ export function RecordingStudio({
   const [micSignals, setMicSignals] = useState<Partial<Record<MicKey, MicSignalState>>>({});
   const [audioDiagnostics, setAudioDiagnostics] = useState<Partial<Record<MicKey, LiveInputDiagnostics>>>({});
   const [startAnywayArmed, setStartAnywayArmed] = useState(false);
+  const [preflightOpen, setPreflightOpen] = useState(false);
+  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
+  const [countdown, setCountdown] = useState<number | undefined>();
+  const [recoverySessionId, setRecoverySessionId] = useState<string | undefined>();
   const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
     Object.fromEntries(micSlots.map((slot) => [slot.key, { ...defaultMixerChannel }]))
   );
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const markerTimerRef = useRef<number | undefined>(undefined);
   const notesTimerRef = useRef<number | undefined>(undefined);
+  const countdownTimerRef = useRef<number | undefined>(undefined);
+  const autoMarkerAtRef = useRef<Partial<Record<MicKey, number>>>({});
   const warnAboutEcho = useCallback(() => {
     setStudioNotice({ tone: "needs-attention", message: "Use headphones to avoid echo." });
   }, []);
@@ -188,6 +215,7 @@ export function RecordingStudio({
     return () => {
       if (markerTimerRef.current) window.clearTimeout(markerTimerRef.current);
       if (notesTimerRef.current) window.clearTimeout(notesTimerRef.current);
+      if (countdownTimerRef.current) window.clearTimeout(countdownTimerRef.current);
     };
   }, []);
 
@@ -200,6 +228,8 @@ export function RecordingStudio({
   const micReadyCount = ["morganMic", "guestMic", "extraMic"].filter((key) => findDevice(detection.microphones, defaults.microphones[key as MicKey])).length;
   const storageReady = !storageWarning;
   const recordingInProgress = isRecording || isPaused;
+  const recordingPreferences = { ...defaultRecordingPreferences, ...recordingPreferencesProp };
+  const liveMode = recordingInProgress && recordingPreferences.liveModeEnabled;
   const recordingHealthy = !snapshot.friendlyError
     && snapshot.status !== "error"
     && (!recordingInProgress || Boolean(snapshot.health?.programActive
@@ -209,6 +239,11 @@ export function RecordingStudio({
   const deviceAssignmentsHealthy = getDeviceAssignmentConflicts(defaults).length === 0;
   const studioReady = cameraReadyCount > 0 && micReadyCount > 0 && storageReady && recordingHealthy && deviceAssignmentsHealthy;
   const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
+  const selectedMicSlots = routableMicSlots.filter((slot) => Boolean(defaults.microphones[slot.key]));
+  const uncheckedInputs = selectedMicSlots.filter((slot) => {
+    const signal = micSignals[slot.key];
+    return signal === "quiet" || signal === "no-signal" || signal === "disconnected";
+  });
 
   function patchTools(nextState: PodcastToolsState) {
     onPodcastToolsChange({ ...nextState, updatedAt: new Date().toISOString() });
@@ -233,6 +268,13 @@ export function RecordingStudio({
     const marker = createLiveMarker({
       label,
       timestampMs: snapshot.elapsedMs,
+      note: label === "Retake"
+        ? "Remove the previous take during review."
+        : label === "Clipping"
+          ? "Check this microphone for clipping."
+          : label === "Source Dropout"
+            ? "Check this source for a temporary disconnect."
+            : undefined,
       recordingSessionId: snapshot.session?.id
     });
     patchTools({
@@ -243,6 +285,15 @@ export function RecordingStudio({
     setMarkerNotice(`${label} ${label.toLowerCase().includes("sponsor") ? "marker added" : "moment saved"}.`);
     if (markerTimerRef.current) window.clearTimeout(markerTimerRef.current);
     markerTimerRef.current = window.setTimeout(() => setMarkerNotice(undefined), 2400);
+  }
+
+  function updateMicSignal(slot: MicKey, signal: MicSignalState) {
+    setMicSignals((current) => ({ ...current, [slot]: signal }));
+    if (!isRecording || (signal !== "clipping" && signal !== "disconnected")) return;
+    const now = Date.now();
+    if (now - (autoMarkerAtRef.current[slot] ?? 0) < 15000) return;
+    autoMarkerAtRef.current[slot] = now;
+    mark(signal === "clipping" ? "Clipping" : "Source Dropout");
   }
 
   async function playTestSound() {
@@ -373,17 +424,12 @@ export function RecordingStudio({
     onExport();
   }
 
-  async function startStudioRecording() {
+  async function startStudioRecording(force = false) {
     if (!studioReady || recordingAction !== "idle") return;
-    const selectedMicSlots = routableMicSlots.filter((slot) => Boolean(defaults.microphones[slot.key]));
-    const uncheckedInputs = selectedMicSlots.filter((slot) => {
-      const signal = micSignals[slot.key];
-      return signal === "quiet" || signal === "no-signal" || signal === "disconnected";
-    });
-    if (uncheckedInputs.length > 0 && !startAnywayArmed) {
+    if (uncheckedInputs.length > 0 && !force && !startAnywayArmed) {
       const names = uncheckedInputs.map((slot) => defaults.microphoneNames?.[slot.key] || slot.label).join(" and ");
       setStartAnywayArmed(true);
-      setStudioNotice({ tone: "needs-attention", message: `${names} ${uncheckedInputs.length === 1 ? "has" : "have"} not detected signal yet. Press Record again to start anyway.` });
+      setStudioNotice({ tone: "needs-attention", message: `${names} ${uncheckedInputs.length === 1 ? "has" : "have"} not detected signal yet. Fix the input or choose Record Anyway.` });
       return;
     }
     setStartAnywayArmed(false);
@@ -391,9 +437,60 @@ export function RecordingStudio({
     setStudioNotice({ tone: "recording", message: "Starting every ready camera and microphone together..." });
     try {
       await onStart();
+      if (recordingPreferences.syncCueEnabled) mark("Sync Cue");
     } finally {
       setRecordingAction("idle");
     }
+  }
+
+  function playSyncCue() {
+    try {
+      const AudioContextClass = window.AudioContext;
+      const context = new AudioContextClass();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.12, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, context.currentTime + 0.12);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.12);
+      oscillator.addEventListener("ended", () => void context.close(), { once: true });
+    } catch {
+      // The visual countdown still provides a synchronization cue.
+    }
+  }
+
+  function beginCountdown(force = false) {
+    if (uncheckedInputs.length > 0 && !force) {
+      const names = uncheckedInputs.map((slot) => defaults.microphoneNames?.[slot.key] || slot.label).join(" and ");
+      setStartAnywayArmed(true);
+      setStudioNotice({ tone: "needs-attention", message: `${names} ${uncheckedInputs.length === 1 ? "has" : "have"} not detected signal yet. Fix the input or choose Record Anyway.` });
+      setPreflightOpen(true);
+      return;
+    }
+    setPreflightOpen(false);
+    setStartAnywayArmed(force);
+    const seconds = recordingPreferences.countdownSeconds;
+    if (seconds === 0) {
+      if (recordingPreferences.syncCueEnabled) playSyncCue();
+      void startStudioRecording(force);
+      return;
+    }
+    setCountdown(seconds);
+    const tick = (remaining: number) => {
+      if (remaining <= 1) {
+        setCountdown(undefined);
+        if (recordingPreferences.syncCueEnabled) playSyncCue();
+        void startStudioRecording(force);
+        return;
+      }
+      countdownTimerRef.current = window.setTimeout(() => {
+        setCountdown(remaining - 1);
+        tick(remaining - 1);
+      }, 1000);
+    };
+    tick(seconds);
   }
 
   async function stopStudioRecording() {
@@ -407,16 +504,121 @@ export function RecordingStudio({
     }
   }
 
+  function requestStop() {
+    if (snapshot.elapsedMs >= recordingPreferences.confirmStopAfterSeconds * 1000) {
+      setStopConfirmOpen(true);
+      return;
+    }
+    void stopStudioRecording();
+  }
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        if (recordingInProgress) requestStop();
+        else if (studioReady) setPreflightOpen(true);
+        return;
+      }
+      if (!recordingInProgress) return;
+      if (event.code === "Space") {
+        event.preventDefault();
+        void (isPaused ? onResume() : onPause());
+      } else if (event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        mark("Retake");
+      } else if (/^[1-6]$/.test(event.key)) {
+        const marker = markerButtons[Number(event.key) - 1];
+        if (marker) mark(marker.label);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isPaused, recordingInProgress, studioReady, snapshot.elapsedMs, recordingPreferences.confirmStopAfterSeconds, onPause, onResume]);
+
   return (
-    <section className="live-studio" aria-label="Live recording studio">
+    <section className={`live-studio ${liveMode ? "live-mode" : ""}`} aria-label="Live recording studio">
+      {countdown !== undefined && (
+        <div className="recording-countdown" role="status" aria-live="assertive">
+          <strong>{countdown}</strong>
+          <span>Everyone ready</span>
+        </div>
+      )}
+      {preflightOpen && (
+        <Modal title="Ready to record?" onClose={() => setPreflightOpen(false)}>
+          <div className="recording-preflight">
+            <div className="preflight-status-grid">
+              <span className={cameraReadyCount > 0 ? "ready" : "needs-attention"}><Camera size={18} /> {cameraReadyCount} cameras ready</span>
+              <span className={micReadyCount > 0 ? "ready" : "needs-attention"}><Mic2 size={18} /> {micReadyCount} microphones ready</span>
+              <span className={storageReady ? "ready" : "needs-attention"}><Save size={18} /> {storageMessage ?? "Storage ready"}</span>
+              <span className={deviceAssignmentsHealthy ? "ready" : "needs-attention"}><Cable size={18} /> {deviceAssignmentsHealthy ? "Every source is separate" : "Duplicate routes need attention"}</span>
+            </div>
+            <label>
+              Planned episode length
+              <select
+                value={recordingPreferences.plannedDurationMinutes}
+                onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, plannedDurationMinutes: Number(event.target.value) })}
+              >
+                <option value="30">30 minutes</option>
+                <option value="60">1 hour</option>
+                <option value="90">90 minutes</option>
+                <option value="120">2 hours</option>
+                <option value="180">3 hours</option>
+              </select>
+            </label>
+            <div className="preflight-options">
+              <label><input type="checkbox" checked={recordingPreferences.syncCueEnabled} onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, syncCueEnabled: event.target.checked })} /> Start sync cue</label>
+              <label><input type="checkbox" checked={recordingPreferences.liveModeEnabled} onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, liveModeEnabled: event.target.checked })} /> Simplified Live Mode</label>
+              <label>Countdown <select value={recordingPreferences.countdownSeconds} onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, countdownSeconds: Number(event.target.value) as 0 | 3 | 5 })}><option value="0">Off</option><option value="3">3 seconds</option><option value="5">5 seconds</option></select></label>
+            </div>
+            <div className="preflight-backup">
+              <strong>Second-drive backup</strong>
+              <span>{recordingPreferences.backupFolderPath ?? "Optional — choose another drive for a finished-media copy"}</span>
+              <RusticButton onClick={onChooseBackupFolder}><Save size={16} /> Choose Backup Drive</RusticButton>
+            </div>
+            <div className="preflight-template-actions">
+              <RusticButton onClick={onSaveTemplate}><Save size={16} /> Save This Setup</RusticButton>
+              {recordingTemplate && <RusticButton onClick={onApplyTemplate}><Play size={16} /> Load {recordingTemplate.name}</RusticButton>}
+            </div>
+            {startAnywayArmed && <p className="preflight-warning" role="alert">One or more selected microphones has not shown a usable signal. The app will still protect every source that produces media.</p>}
+            <div className="preflight-actions">
+              <RusticButton onClick={() => setPreflightOpen(false)}>Fix Inputs</RusticButton>
+              {startAnywayArmed && <RusticButton onClick={() => beginCountdown(true)}>Record Anyway</RusticButton>}
+              <Button variant="primary" icon={<Circle size={18} />} onClick={() => beginCountdown(false)} disabled={!studioReady}>Start {recordingPreferences.countdownSeconds ? `${recordingPreferences.countdownSeconds}-Second Countdown` : "Recording"}</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+      {stopConfirmOpen && (
+        <Modal title="Stop this episode?" onClose={() => setStopConfirmOpen(false)}>
+          <div className="recording-stop-confirm">
+            <p>The recording has been running for {formatRecordingTime(snapshot.elapsedMs)}. Pause if everyone only needs a break.</p>
+            <div>
+              <RusticButton onClick={() => setStopConfirmOpen(false)}>Keep Recording</RusticButton>
+              <Button variant="primary" icon={<Square size={18} />} onClick={() => { setStopConfirmOpen(false); void stopStudioRecording(); }}>Stop &amp; Verify Files</Button>
+            </div>
+          </div>
+        </Modal>
+      )}
       {unfinishedSessions.length > 0 && (
         <RippedPaperCard className="recovery-banner">
           <AlertTriangle size={28} />
           <div>
             <h3>We found an unfinished recording</h3>
-            <p>Your raw files stay right where they are. Open the session folder before recording again.</p>
+            <p>Recoverable media chunks were found. Finalize them now or inspect the session folder.</p>
           </div>
-          <RusticButton onClick={onDismissRecovery}>Got it</RusticButton>
+          <div className="recovery-actions">
+            {unfinishedSessions.slice(0, 1).map((session) => (
+              <div key={session.id}>
+                <small>{session.episodeTitle} · {session.recoverableBytes ? `${Math.max(1, Math.round(session.recoverableBytes / 1024 / 1024))} MB protected` : "recovery data found"}</small>
+                <RusticButton disabled={recoverySessionId === session.id} onClick={async () => { setRecoverySessionId(session.id); try { await onRecoverSession?.(session); } finally { setRecoverySessionId(undefined); } }}>{recoverySessionId === session.id ? "Recovering..." : "Recover Recording"}</RusticButton>
+                <RusticButton onClick={() => onOpenSessionFolder?.(session)}>Open Folder</RusticButton>
+              </div>
+            ))}
+            <RusticButton onClick={onDismissRecovery}>Dismiss</RusticButton>
+          </div>
         </RippedPaperCard>
       )}
 
@@ -497,7 +699,7 @@ export function RecordingStudio({
             </section>
 
             <section className="giant-control-row" aria-label="Recording controls">
-              <StudioControlButton tone="record" disabled={!studioReady || isRecording || isPaused || recordingAction !== "idle"} onClick={() => void startStudioRecording()}>
+              <StudioControlButton tone="record" disabled={!studioReady || isRecording || isPaused || recordingAction !== "idle"} onClick={() => setPreflightOpen(true)}>
                 {recordingAction === "starting" ? <LoaderCircle className="control-spinner" size={28} /> : <Circle size={28} />} {recordingAction === "starting" ? "Starting" : "Record"}
               </StudioControlButton>
               {isPaused ? (
@@ -509,8 +711,11 @@ export function RecordingStudio({
                   <Pause size={28} /> Pause
                 </StudioControlButton>
               )}
-              <StudioControlButton disabled={(!isRecording && !isPaused) || recordingAction !== "idle"} onClick={() => void stopStudioRecording()}>
+              <StudioControlButton disabled={(!isRecording && !isPaused) || recordingAction !== "idle"} onClick={requestStop}>
                 {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={28} /> : <Square size={28} />} {recordingAction === "saving" ? "Saving" : "Stop"}
+              </StudioControlButton>
+              <StudioControlButton disabled={!isRecording || recordingAction !== "idle"} onClick={() => mark("Retake")}>
+                <Sparkles size={28} /> Retake
               </StudioControlButton>
               <StudioControlButton onClick={goAutoEdit}>
                 <Sparkles size={28} /> Auto Edit
@@ -518,7 +723,25 @@ export function RecordingStudio({
               <StudioControlButton onClick={goExport}>
                 <Download size={28} /> Export
               </StudioControlButton>
+              {!recordingInProgress && onQuickTest && (
+                <StudioControlButton disabled={!studioReady || recordingAction !== "idle"} onClick={() => void onQuickTest()}>
+                  <Play size={28} /> 15s Test
+                </StudioControlButton>
+              )}
             </section>
+
+            {recordingInProgress && snapshot.health && (
+              <section className="live-source-health" aria-label="Live source recording health">
+                {snapshot.health.sources.map((source) => (
+                  <span className={source.active ? "ready" : "needs-attention"} key={source.target}>
+                    {source.active ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+                    <strong>{source.target === "program" ? "Program" : source.target}</strong>
+                    <small>{source.bytesWritten > 0 ? `${(source.bytesWritten / 1024 / 1024).toFixed(1)} MB on disk` : source.message}</small>
+                  </span>
+                ))}
+              </section>
+            )}
+            {recordingInProgress && <p className="live-hotkey-hint">Shortcuts: Space pause/resume · T retake · 1–6 markers · Ctrl/Cmd + Shift + R stop</p>}
 
             <section className="reference-console-row" aria-label="Audio, sounds, and markers">
               <section className="live-audio-deck" aria-label="Live audio feedback">
@@ -570,7 +793,7 @@ export function RecordingStudio({
                           onInputChange={micKey ? (deviceId) => setMicInput(micKey, deviceId) : undefined}
                           onInputChannelChange={micKey ? (channel) => setMicInputChannel(micKey, channel) : undefined}
                           onNameChange={micKey ? (name) => setMicName(micKey, name) : undefined}
-                          onSignalChange={micKey ? (signal) => setMicSignals((current) => ({ ...current, [micKey]: signal })) : undefined}
+                          onSignalChange={micKey ? (signal) => updateMicSignal(micKey, signal) : undefined}
                           onDiagnosticsChange={micKey ? (details) => setAudioDiagnostics((current) => ({ ...current, [micKey]: details })) : undefined}
                           onControlsChange={(nextState) => patchMixerChannel(slot.key, nextState)}
                           onEchoWarning={warnAboutEcho}
@@ -658,7 +881,7 @@ export function RecordingStudio({
 
         <div className={`local-save-note live ${recordingAction === "saving" ? "saving" : ""}`} role="status" aria-live="polite">
           {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={20} /> : <Save size={20} />}
-          <span>{recordingAction === "saving" ? "Finishing camera and microphone files before Review opens." : `${snapshot.localSaveMessage}. Auto Save on. Saving location: ${savingLocation}`}</span>
+          <span>{recordingAction === "saving" ? "Verifying the program, each camera, each microphone, and the optional backup copy." : `${snapshot.localSaveMessage}. Disk-first protection is on. Saving location: ${savingLocation}`}</span>
         </div>
 
         {isComplete && (
@@ -667,6 +890,7 @@ export function RecordingStudio({
             <div>
               <h3>Nice work!</h3>
               <p>Your episode is safely stored. Next step: review your markers and timeline.</p>
+              {snapshot.integrity && <small>{snapshot.integrity.programPlayable ? "Program verified" : "Program needs attention"} · {snapshot.integrity.savedSourceCount}/{snapshot.integrity.expectedSourceCount} separate sources verified{snapshot.integrity.backupPath ? " · second-drive backup complete" : ""}</small>}
             </div>
             <Button variant="primary" icon={<ArrowRight size={20} />} onClick={onNext}>Review Episode</Button>
           </RippedPaperCard>
@@ -1429,9 +1653,9 @@ function LiveMicMeter({
           </select>
         </label>
         <label className="channel-volume-control" title="Controls the live monitor level and meter sensitivity for this channel.">
-          <span className="control-caption">Volume <strong>{controls.gain}%</strong></span>
+          <span className="control-caption">Headphone level <strong>{controls.gain}%</strong></span>
           <input
-            aria-label={`${label} gain`}
+            aria-label={`${label} headphone monitoring level`}
             type="range"
             min="0"
             max="100"

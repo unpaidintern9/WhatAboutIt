@@ -1,8 +1,9 @@
-import { app, BrowserWindow, dialog, ipcMain, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
+import { defaultRecordingPreferences } from "../shared/types";
 import type { StudioLayoutProfileId, StudioPanelId, StudioWorkspaceState } from "../shared/studio-workspace";
 import { defaultStudioWorkspaceState } from "../shared/studio-workspace";
 import { defaultStudioConfiguration } from "../shared/config";
@@ -10,7 +11,7 @@ import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-conf
 import { defaultExportSettings } from "../shared/export";
 import { getAppDataRoot, getEpisodesRoot, getSettingsPath, getWorkspaceStatePath } from "./config-service";
 import { logger } from "./logger";
-import { appendRecordingError, createRecordingSession, listUnfinishedRecordingSessions, saveProgramRecording, saveRecordedTracks, writeRecordingState } from "./recording-session-store";
+import { appendRecordingChunk, appendRecordingError, beginRecordingMedia, createRecordingSession, finalizeRecordingMedia, listUnfinishedRecordingSessions, recoverRecordingSession, saveProgramRecording, saveRecordedTracks, writeRecordingState } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
 import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
 import { cancelExport, createExport, detectMediaTools, openExportFolder, renderTrackTreatmentPreview } from "./export-store";
@@ -34,6 +35,7 @@ let studioWindowManager: StudioWindowManager;
 let mediaPlaybackServer: MediaPlaybackServer | undefined;
 let appUpdateService: AppUpdateService;
 const activeMediaImports = new Map<string, AbortController>();
+const closeProtectedWebContents = new Set<number>();
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -49,6 +51,25 @@ function createWindow() {
       nodeIntegration: false
     }
   });
+  const webContentsId = mainWindow.webContents.id;
+
+  mainWindow.on("close", (event) => {
+    if (!closeProtectedWebContents.has(webContentsId)) return;
+    const choice = dialog.showMessageBoxSync(mainWindow, {
+      type: "warning",
+      title: "Recording is still running",
+      message: "Keep What About It Studio open until the recording is stopped and verified.",
+      detail: "If you exit now, the chunks already written to disk can be recovered next time, but the final seconds may be incomplete.",
+      buttons: ["Keep Recording", "Exit and Recover Later"],
+      defaultId: 0,
+      cancelId: 0,
+      noLink: true
+    });
+    if (choice === 0) event.preventDefault();
+    else closeProtectedWebContents.delete(webContentsId);
+  });
+
+  mainWindow.webContents.on("destroyed", () => closeProtectedWebContents.delete(webContentsId));
 
   if (process.env.VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
@@ -131,7 +152,8 @@ async function getSettings(): Promise<StudioSettings> {
     deviceDefaults: defaultDeviceDefaults,
     exportSettings: defaultExportSettings,
     onboarding: { guidedTour: "show" },
-    studioWorkspace: defaultStudioWorkspaceState.settings
+    studioWorkspace: defaultStudioWorkspaceState.settings,
+    recordingPreferences: defaultRecordingPreferences
   });
   return {
     ...withDeviceDefaults(settings),
@@ -139,6 +161,10 @@ async function getSettings(): Promise<StudioSettings> {
     studioWorkspace: {
       ...defaultStudioWorkspaceState.settings,
       ...settings.studioWorkspace
+    },
+    recordingPreferences: {
+      ...defaultRecordingPreferences,
+      ...settings.recordingPreferences
     }
   };
 }
@@ -151,6 +177,10 @@ async function saveSettings(settings: StudioSettings) {
     studioWorkspace: {
       ...defaultStudioWorkspaceState.settings,
       ...settings.studioWorkspace
+    },
+    recordingPreferences: {
+      ...defaultRecordingPreferences,
+      ...settings.recordingPreferences
     }
   };
   await fs.writeFile(settingsPath, JSON.stringify(nextSettings, null, 2), "utf8");
@@ -205,6 +235,22 @@ app.whenReady().then(async () => {
   ipcMain.handle("workspace:reset-layout", () => studioWindowManager.resetLayout());
   ipcMain.handle("recording:create-session", (_event, input) => createRecordingSession(input));
   ipcMain.handle("recording:write-state", (_event, input) => writeRecordingState(input.folderPath, input.state));
+  ipcMain.handle("recording:begin-media", (_event, folderPath) => beginRecordingMedia(folderPath));
+  ipcMain.handle("recording:append-chunk", (_event, input) => appendRecordingChunk(input.folderPath, input.chunk));
+  ipcMain.handle("recording:finalize-media", (_event, folderPath) => finalizeRecordingMedia(folderPath));
+  ipcMain.handle("recording:recover", (_event, folderPath) => recoverRecordingSession(folderPath));
+  ipcMain.handle("recording:open-folder", async (_event, folderPath) => shell.openPath(folderPath));
+  ipcMain.handle("recording:choose-backup-folder", async (event) => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const result = parent
+      ? await dialog.showOpenDialog(parent, { title: "Choose a second recording backup drive", properties: ["openDirectory", "createDirectory"] })
+      : await dialog.showOpenDialog({ title: "Choose a second recording backup drive", properties: ["openDirectory", "createDirectory"] });
+    return result.canceled ? undefined : result.filePaths[0];
+  });
+  ipcMain.on("recording:set-close-protection", (event, active: boolean) => {
+    if (active) closeProtectedWebContents.add(event.sender.id);
+    else closeProtectedWebContents.delete(event.sender.id);
+  });
   ipcMain.handle("recording:save-program", (_event, input) => saveProgramRecording(input.folderPath, input.bytes));
   ipcMain.handle("recording:save-tracks", (_event, input) => saveRecordedTracks(input.folderPath, input.tracks));
   ipcMain.handle("recording:append-error", (_event, input) => appendRecordingError(input.folderPath, input.message));

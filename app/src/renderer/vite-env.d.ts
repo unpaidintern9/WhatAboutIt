@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
-import type { RecordingSession, RecordingSessionCreateInput, RecordingState, RecordingTrackSaveInput, RecordingTrackSaveResult } from "../shared/recording";
+import type { RecordingChunkInput, RecordingFinalizeResult, RecordingSession, RecordingSessionCreateInput, RecordingState, RecordingTrackSaveInput, RecordingTrackSaveResult } from "../shared/recording";
 import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
@@ -22,6 +22,13 @@ declare global {
       saveSettings: (settings: StudioSettings) => Promise<StudioSettings>;
       createRecordingSession: (input: RecordingSessionCreateInput) => Promise<RecordingSession>;
       writeRecordingState: (folderPath: string, state: RecordingState) => Promise<RecordingState>;
+      beginRecordingMedia?: (folderPath: string) => Promise<void>;
+      appendRecordingChunk?: (folderPath: string, chunk: RecordingChunkInput) => Promise<{ bytesWritten: number; lastChunkAt: string }>;
+      finalizeRecordingMedia?: (folderPath: string) => Promise<RecordingFinalizeResult>;
+      recoverRecordingSession?: (folderPath: string) => Promise<RecordingFinalizeResult>;
+      openRecordingFolder?: (folderPath: string) => Promise<string>;
+      chooseRecordingBackupFolder?: () => Promise<string | undefined>;
+      setRecordingCloseProtection?: (active: boolean) => void;
       saveProgramRecording: (folderPath: string, bytes: Uint8Array) => Promise<string>;
       saveRecordedTracks: (folderPath: string, tracks: RecordingTrackSaveInput[]) => Promise<RecordingTrackSaveResult[]>;
       appendRecordingError: (folderPath: string, message: string) => Promise<void>;

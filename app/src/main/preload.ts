@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
-import type { RecordingSession, RecordingSessionCreateInput, RecordingState, RecordingTrackSaveInput, RecordingTrackSaveResult } from "../shared/recording";
+import type { RecordingChunkInput, RecordingFinalizeResult, RecordingSession, RecordingSessionCreateInput, RecordingState, RecordingTrackSaveInput, RecordingTrackSaveResult } from "../shared/recording";
 import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
@@ -19,6 +19,13 @@ contextBridge.exposeInMainWorld("studio", {
   saveSettings: (settings: StudioSettings): Promise<StudioSettings> => ipcRenderer.invoke("settings:save", settings),
   createRecordingSession: (input: RecordingSessionCreateInput): Promise<RecordingSession> => ipcRenderer.invoke("recording:create-session", input),
   writeRecordingState: (folderPath: string, state: RecordingState): Promise<RecordingState> => ipcRenderer.invoke("recording:write-state", { folderPath, state }),
+  beginRecordingMedia: (folderPath: string): Promise<void> => ipcRenderer.invoke("recording:begin-media", folderPath),
+  appendRecordingChunk: (folderPath: string, chunk: RecordingChunkInput): Promise<{ bytesWritten: number; lastChunkAt: string }> => ipcRenderer.invoke("recording:append-chunk", { folderPath, chunk }),
+  finalizeRecordingMedia: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:finalize-media", folderPath),
+  recoverRecordingSession: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:recover", folderPath),
+  openRecordingFolder: (folderPath: string): Promise<string> => ipcRenderer.invoke("recording:open-folder", folderPath),
+  chooseRecordingBackupFolder: (): Promise<string | undefined> => ipcRenderer.invoke("recording:choose-backup-folder"),
+  setRecordingCloseProtection: (active: boolean): void => ipcRenderer.send("recording:set-close-protection", active),
   saveProgramRecording: (folderPath: string, bytes: Uint8Array): Promise<string> => ipcRenderer.invoke("recording:save-program", { folderPath, bytes }),
   saveRecordedTracks: (folderPath: string, tracks: RecordingTrackSaveInput[]): Promise<RecordingTrackSaveResult[]> => ipcRenderer.invoke("recording:save-tracks", { folderPath, tracks }),
   appendRecordingError: (folderPath: string, message: string): Promise<void> => ipcRenderer.invoke("recording:append-error", { folderPath, message }),

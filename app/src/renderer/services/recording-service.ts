@@ -1,5 +1,5 @@
 import type { DeviceDefaults } from "../../shared/types";
-import type { RecordingSession, RecordingState, RecordingStatus, RecordingTrackSaveResult } from "../../shared/recording";
+import type { RecordingIntegrityReport, RecordingSession, RecordingState, RecordingStatus, RecordingTrackSaveResult } from "../../shared/recording";
 import { createInitialRecordingState, friendlyRecordingError } from "../../shared/recording";
 import type { RecordingEngineHealth, RecordingEnginePlugin } from "../plugins/recording/types";
 
@@ -11,12 +11,14 @@ export interface RecordingServiceSnapshot {
   localSaveMessage: string;
   trackStatuses: RecordingTrackSaveResult[];
   health?: RecordingEngineHealth;
+  integrity?: RecordingIntegrityReport;
 }
 
 export interface RecordingStartOptions {
   episodeId?: string;
   episodeTitle?: string;
   practice?: boolean;
+  backupFolderPath?: string;
 }
 
 export class RecordingService {
@@ -27,6 +29,7 @@ export class RecordingService {
   private stateTimer?: number;
   private friendlyError?: string;
   private trackStatuses: RecordingTrackSaveResult[] = [];
+  private integrity?: RecordingIntegrityReport;
 
   constructor(private readonly plugin: RecordingEnginePlugin) {}
 
@@ -35,11 +38,16 @@ export class RecordingService {
     const activeSources = (health?.activeCameraTracks ?? 0) + (health?.activeAudioTracks ?? 0);
     const expectedSources = (health?.expectedCameraTracks ?? 0) + (health?.expectedAudioTracks ?? 0);
     const missingSources = Math.max(0, expectedSources - activeSources);
+    const bytesWritten = health?.sources.reduce((total, source) => total + source.bytesWritten, 0) ?? 0;
     const localSaveMessage = (this.status === "recording" || this.status === "paused") && health
       ? health.warnings.length > 0 || missingSources > 0
         ? `${activeSources} source tracks recording; ${Math.max(health.warnings.length, missingSources)} need attention`
-        : `Program plus ${activeSources} source tracks are actively recording`
-      : "Everything is saving locally";
+        : bytesWritten > 0
+          ? `Program plus ${activeSources} source tracks are writing to disk · ${formatBytes(bytesWritten)} protected`
+          : `Program plus ${activeSources} source tracks are starting their disk writers`
+      : this.status === "stopped" && this.integrity
+        ? this.integrity.playable ? "Recording saved and verified" : "Recording saved with items that need attention"
+        : "Ready to save directly to this computer";
     return {
       status: this.status,
       elapsedMs: this.elapsedMs(),
@@ -47,7 +55,8 @@ export class RecordingService {
       friendlyError: this.friendlyError,
       localSaveMessage,
       trackStatuses: this.trackStatuses,
-      health
+      health,
+      integrity: this.integrity
     };
   }
 
@@ -59,14 +68,17 @@ export class RecordingService {
         deviceDefaults,
         episodeId: options.episodeId,
         episodeTitle: options.episodeTitle ?? (options.practice ? "Practice Recording" : "Studio Recording"),
-        practice: options.practice
+        practice: options.practice,
+        backupFolderPath: options.backupFolderPath
       });
-      await this.plugin.start({ deviceDefaults, practice: options.practice });
+      await this.plugin.start({ deviceDefaults, practice: options.practice, session: this.session });
       this.status = "recording";
       this.startedAt = Date.now();
       this.elapsedBeforePause = 0;
       this.friendlyError = undefined;
       this.trackStatuses = [];
+      this.integrity = undefined;
+      window.studio?.setRecordingCloseProtection?.(true);
       await this.persistState();
       this.startStateTimer();
     } catch (error) {
@@ -78,6 +90,8 @@ export class RecordingService {
         ? friendlyRecordingError("mic")
         : friendlyRecordingError("device");
       if (this.session) await window.studio.appendRecordingError(this.session.folderPath, this.friendlyError);
+      await this.persistState();
+      window.studio?.setRecordingCloseProtection?.(false);
     }
 
     return this.getSnapshot();
@@ -108,26 +122,59 @@ export class RecordingService {
     this.stopStateTimer();
     const result = await this.plugin.stop();
 
-    if (result.bytes && result.bytes.length > 0) {
-      await window.studio.saveProgramRecording(session.folderPath, result.bytes);
-    }
-    if (result.tracks?.length) {
-      this.trackStatuses = await window.studio.saveRecordedTracks(session.folderPath, result.tracks);
+    try {
+      if (result.persisted && window.studio.finalizeRecordingMedia) {
+        const finalized = await window.studio.finalizeRecordingMedia(session.folderPath);
+        const finalizedSlots = new Set(finalized.tracks.map((track) => track.slot));
+        const unavailableTracks = (result.tracks ?? []).filter((track) => track.status !== "saved" && !finalizedSlots.has(track.slot)).map((track) => ({
+          slot: track.slot,
+          kind: track.kind,
+          status: track.status ?? "needs-attention" as const,
+          message: track.message ?? "Source needs attention"
+        }));
+        this.trackStatuses = [...finalized.tracks, ...unavailableTracks];
+        this.integrity = finalized.integrity;
+        if (unavailableTracks.length > 0) {
+          this.integrity = {
+            ...finalized.integrity,
+            playable: false,
+            expectedSourceCount: finalized.integrity.expectedSourceCount + unavailableTracks.length,
+            warnings: [...finalized.integrity.warnings, ...unavailableTracks.map((track) => `${track.slot}: ${track.message}`)]
+          };
+        }
+      } else {
+        if (result.bytes && result.bytes.length > 0) {
+          await window.studio.saveProgramRecording(session.folderPath, result.bytes);
+        }
+        if (result.tracks?.length) {
+          this.trackStatuses = await window.studio.saveRecordedTracks(session.folderPath, result.tracks);
+        }
+      }
+    } catch (error) {
+      this.status = "error";
+      this.friendlyError = "The recording stopped, but some files still need recovery.";
+      await window.studio.appendRecordingError(session.folderPath, `${this.friendlyError} ${String(error)}`);
+      await this.persistState(finalElapsed);
+      window.studio?.setRecordingCloseProtection?.(false);
+      return this.getSnapshot();
     }
 
     this.elapsedBeforePause = finalElapsed;
     this.status = "stopped";
     await this.persistState(finalElapsed);
+    window.studio?.setRecordingCloseProtection?.(false);
     return this.getSnapshot();
   }
 
   async shutdown() {
     this.stopStateTimer();
-    await this.plugin.shutdown?.();
     if (this.status === "recording" || this.status === "paused") {
       this.elapsedBeforePause = this.elapsedMs();
-      this.status = "idle";
+      this.status = "interrupted";
+      await this.persistState(this.elapsedBeforePause).catch(() => undefined);
     }
+    await this.plugin.shutdown?.();
+    window.studio?.setRecordingCloseProtection?.(false);
   }
 
   private elapsedMs() {
@@ -156,6 +203,12 @@ export class RecordingService {
     };
     await window.studio.writeRecordingState(this.session.folderPath, state);
   }
+}
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
+  return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
 }
 
 export function formatRecordingTime(elapsedMs: number) {
