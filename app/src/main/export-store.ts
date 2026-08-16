@@ -1,5 +1,6 @@
 import path from "node:path";
 import fs from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { shell } from "electron";
 import type { ExportJob, ExportRequest } from "../shared/export";
 import { compactTimelineDraftForPersistence, isTimelineTrackAvailableAt, type TimelineEditOperation, type TimelineTrack } from "../shared/timeline";
@@ -445,9 +446,9 @@ export async function renderTrackTreatmentPreview(input: { episodeId: string; dr
   const previewFolder = path.join(episodeFolder(input.episodeId), "Session", "Review");
   const safeTrackId = track.id.replace(/[^a-z0-9-]+/gi, "-");
   const kind = track.kind === "camera" ? "video" as const : "audio" as const;
-  const outputPath = path.join(previewFolder, `treatment-preview-${safeTrackId}.${kind === "video" ? "webm" : "m4a"}`);
+  const previewPrefix = `treatment-preview-${safeTrackId}-`;
+  const outputPath = path.join(previewFolder, `${previewPrefix}${randomUUID()}.${kind === "video" ? "webm" : "m4a"}`);
   await fs.mkdir(previewFolder, { recursive: true });
-  await fs.rm(outputPath, { force: true });
   if (kind === "video") {
     const size = { width: 1280, height: 720 };
     const crop = track.cropMode === "fill"
@@ -467,6 +468,12 @@ export async function renderTrackTreatmentPreview(input: { episodeId: string; dr
   }
   if (!(await validatePlayableMedia(outputPath, undefined, kind === "video" ? { video: true, decode: true } : { audio: true, decode: true }))) {
     throw new Error("The effect preview could not be decoded.");
+  }
+  const oldPreviews = (await fs.readdir(previewFolder, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && entry.name.startsWith(previewPrefix) && entry.name !== path.basename(outputPath))
+    .sort((left, right) => right.name.localeCompare(left.name));
+  for (const oldPreview of oldPreviews.slice(4)) {
+    await fs.rm(path.join(previewFolder, oldPreview.name), { force: true }).catch(() => undefined);
   }
   return {
     trackId: track.id,
