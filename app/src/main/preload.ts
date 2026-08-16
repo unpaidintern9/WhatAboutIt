@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld("studio", {
   finalizeRecordingMedia: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:finalize-media", folderPath),
   recoverRecordingSession: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:recover", folderPath),
   openRecordingFolder: (folderPath: string): Promise<string> => ipcRenderer.invoke("recording:open-folder", folderPath),
+  chooseRecordingPrimaryFolder: (): Promise<string | undefined> => ipcRenderer.invoke("recording:choose-primary-folder"),
   chooseRecordingBackupFolder: (): Promise<string | undefined> => ipcRenderer.invoke("recording:choose-backup-folder"),
   setRecordingCloseProtection: (active: boolean): void => ipcRenderer.send("recording:set-close-protection", active),
   saveProgramRecording: (folderPath: string, bytes: Uint8Array): Promise<string> => ipcRenderer.invoke("recording:save-program", { folderPath, bytes }),

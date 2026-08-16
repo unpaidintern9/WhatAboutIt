@@ -11,6 +11,7 @@ interface ActiveTrackRecorder {
   stream: MediaStream;
   chunks: Blob[];
   writeQueue: Promise<void>;
+  startedAtMs: number;
   sequence: number;
   bytesWritten: number;
   lastChunkAt?: string;
@@ -34,6 +35,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   private programMicSlot: RecordingTrackSlot = "morganMic";
   private diskSession?: RecordingSession;
   private programWriteQueue: Promise<void> = Promise.resolve();
+  private programStartedAtMs = 0;
   private programSequence = 0;
   private programBytesWritten = 0;
   private programLastChunkAt?: string;
@@ -82,6 +84,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.recorder.ondataavailable = (event) => {
       if (event.data.size > 0) this.queueProgramChunk(event.data, this.recorder?.mimeType || "video/webm");
     };
+    this.programStartedAtMs = Date.now();
     this.recorder.start(1000);
 
     await this.startTrackRecorders(request);
@@ -90,26 +93,31 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   getHealth(): RecordingEngineHealth {
     const activeStates = new Set(["recording", "paused"]);
     const now = Date.now();
-    const programSourceActive = this.practiceActive || Boolean(this.recorder && activeStates.has(this.recorder.state) && streamIsLive(this.stream));
+    const programRecorderActive = Boolean(this.recorder && activeStates.has(this.recorder.state) && streamIsLive(this.stream));
+    const programFirstChunkReceived = this.programBytesWritten > 0;
+    const programSourceActive = this.practiceActive || sourceIsWriting(programRecorderActive, programFirstChunkReceived, this.programLastChunkAt, this.programStartedAtMs, now);
     const sources = [
       {
         target: "program" as const,
         kind: "program" as const,
-        active: programSourceActive && chunkIsRecent(this.programLastChunkAt, now),
+        active: programSourceActive,
+        firstChunkReceived: this.practiceActive || programFirstChunkReceived,
         bytesWritten: this.programBytesWritten,
         lastChunkAt: this.programLastChunkAt,
-        message: this.programWriteError ?? (programSourceActive ? "Program feed active" : "Program feed stopped")
+        message: this.programWriteError ?? sourceHealthMessage(programRecorderActive, programFirstChunkReceived, programSourceActive)
       },
       ...this.trackRecorders.map((track) => {
         const recorderActive = activeStates.has(track.recorder.state) && streamIsLive(track.stream);
-        const active = recorderActive && chunkIsRecent(track.lastChunkAt, now);
+        const firstChunkReceived = track.bytesWritten > 0;
+        const active = sourceIsWriting(recorderActive, firstChunkReceived, track.lastChunkAt, track.startedAtMs, now);
         return {
           target: track.slot,
           kind: track.kind,
           active,
+          firstChunkReceived,
           bytesWritten: track.bytesWritten,
           lastChunkAt: track.lastChunkAt,
-          message: track.writeError ?? (active ? "Writing to disk" : recorderActive ? "Waiting for media data" : "Source stopped")
+          message: track.writeError ?? sourceHealthMessage(recorderActive, firstChunkReceived, active)
         };
       })
     ];
@@ -278,12 +286,19 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
 
   private async openCameraTrackStream(slot: RecordingTrackSlot, deviceId: string) {
     const activeTrack = cloneLiveTrack(this.streams.getCameraStream?.(deviceId)?.getVideoTracks()[0]);
-    if (activeTrack) return new MediaStream([activeTrack]);
+    if (activeTrack) return this.withSyncAudio(activeTrack);
 
     const programTrack = slot === "camera1" ? cloneLiveTrack(this.stream?.getVideoTracks()[0]) : undefined;
-    if (programTrack) return new MediaStream([programTrack]);
+    if (programTrack) return this.withSyncAudio(programTrack);
 
-    return navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+    const videoTrack = stream.getVideoTracks()[0];
+    return videoTrack ? this.withSyncAudio(videoTrack) : stream;
+  }
+
+  private withSyncAudio(videoTrack: MediaStreamTrack) {
+    const syncAudioTrack = cloneLiveTrack(this.stream?.getAudioTracks()[0]);
+    return new MediaStream([videoTrack, ...(syncAudioTrack ? [syncAudioTrack] : [])]);
   }
 
   private async openMicTrackStream(slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel) {
@@ -324,6 +339,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.programMicSlot = "morganMic";
     this.diskSession = undefined;
     this.programWriteQueue = Promise.resolve();
+    this.programStartedAtMs = 0;
     this.programSequence = 0;
     this.programBytesWritten = 0;
     this.programLastChunkAt = undefined;
@@ -400,7 +416,7 @@ function createTrackRecorder(
 ): ActiveTrackRecorder {
   const chunks: Blob[] = [];
   const recorder = new MediaRecorder(stream, { mimeType });
-  const track: ActiveTrackRecorder = { slot, kind, recorder, stream, chunks, writeQueue: Promise.resolve(), sequence: 0, bytesWritten: 0 };
+  const track: ActiveTrackRecorder = { slot, kind, recorder, stream, chunks, writeQueue: Promise.resolve(), startedAtMs: Date.now(), sequence: 0, bytesWritten: 0 };
   recorder.ondataavailable = (event) => {
     if (event.data.size > 0) onChunk(track, event.data);
   };
@@ -462,8 +478,22 @@ function streamIsLive(stream?: MediaStream | null) {
 }
 
 function chunkIsRecent(lastChunkAt: string | undefined, now: number) {
-  if (!lastChunkAt) return true;
+  if (!lastChunkAt) return false;
   return now - new Date(lastChunkAt).getTime() < 6000;
+}
+
+const FIRST_CHUNK_GRACE_MS = 8000;
+
+function sourceIsWriting(recorderActive: boolean, firstChunkReceived: boolean, lastChunkAt: string | undefined, startedAtMs: number, now: number) {
+  if (!recorderActive) return false;
+  if (firstChunkReceived) return chunkIsRecent(lastChunkAt, now);
+  return startedAtMs > 0 && now - startedAtMs < FIRST_CHUNK_GRACE_MS;
+}
+
+function sourceHealthMessage(recorderActive: boolean, firstChunkReceived: boolean, active: boolean) {
+  if (!recorderActive) return "Source stopped";
+  if (!firstChunkReceived) return active ? "Starting disk writer" : "No media data was written";
+  return active ? "Writing to disk" : "Media data stopped arriving";
 }
 
 function pickMimeType() {

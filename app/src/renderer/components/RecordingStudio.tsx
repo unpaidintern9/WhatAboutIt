@@ -69,6 +69,8 @@ interface RecordingStudioProps {
   onRecoverSession?: (session: RecordingSession) => Promise<void> | void;
   onOpenSessionFolder?: (session: RecordingSession) => void;
   onRecordingPreferencesChange?: (preferences: RecordingPreferences) => void;
+  onChoosePrimaryFolder?: () => void;
+  onUseDefaultPrimaryFolder?: () => void;
   onChooseBackupFolder?: () => void;
   onSaveTemplate?: () => void;
   onApplyTemplate?: () => void;
@@ -166,6 +168,8 @@ export function RecordingStudio({
   onRecoverSession,
   onOpenSessionFolder,
   onRecordingPreferencesChange,
+  onChoosePrimaryFolder,
+  onUseDefaultPrimaryFolder,
   onChooseBackupFolder,
   onSaveTemplate,
   onApplyTemplate,
@@ -437,7 +441,10 @@ export function RecordingStudio({
     setStudioNotice({ tone: "recording", message: "Starting every ready camera and microphone together..." });
     try {
       await onStart();
-      if (recordingPreferences.syncCueEnabled) mark("Sync Cue");
+      if (recordingPreferences.syncCueEnabled) {
+        playSyncCue();
+        mark("Sync Cue");
+      }
     } finally {
       setRecordingAction("idle");
     }
@@ -445,8 +452,7 @@ export function RecordingStudio({
 
   function playSyncCue() {
     try {
-      const AudioContextClass = window.AudioContext;
-      const context = new AudioContextClass();
+      const context = createStudioAudioContext(defaults.audioOutputId);
       const oscillator = context.createOscillator();
       const gain = context.createGain();
       oscillator.frequency.value = 880;
@@ -473,7 +479,6 @@ export function RecordingStudio({
     setStartAnywayArmed(force);
     const seconds = recordingPreferences.countdownSeconds;
     if (seconds === 0) {
-      if (recordingPreferences.syncCueEnabled) playSyncCue();
       void startStudioRecording(force);
       return;
     }
@@ -481,7 +486,6 @@ export function RecordingStudio({
     const tick = (remaining: number) => {
       if (remaining <= 1) {
         setCountdown(undefined);
-        if (recordingPreferences.syncCueEnabled) playSyncCue();
         void startStudioRecording(force);
         return;
       }
@@ -572,6 +576,14 @@ export function RecordingStudio({
               <label><input type="checkbox" checked={recordingPreferences.syncCueEnabled} onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, syncCueEnabled: event.target.checked })} /> Start sync cue</label>
               <label><input type="checkbox" checked={recordingPreferences.liveModeEnabled} onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, liveModeEnabled: event.target.checked })} /> Simplified Live Mode</label>
               <label>Countdown <select value={recordingPreferences.countdownSeconds} onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, countdownSeconds: Number(event.target.value) as 0 | 3 | 5 })}><option value="0">Off</option><option value="3">3 seconds</option><option value="5">5 seconds</option></select></label>
+            </div>
+            <div className="preflight-backup">
+              <strong>Primary recording library</strong>
+              <span>{recordingPreferences.primaryFolderPath ?? "Default app storage — choose a fast local SSD when available"}</span>
+              <div className="preflight-template-actions">
+                <RusticButton onClick={onChoosePrimaryFolder}><Save size={16} /> Choose Primary Drive</RusticButton>
+                {recordingPreferences.primaryFolderPath && <RusticButton onClick={onUseDefaultPrimaryFolder}>Use Default</RusticButton>}
+              </div>
             </div>
             <div className="preflight-backup">
               <strong>Second-drive backup</strong>

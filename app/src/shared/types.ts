@@ -40,6 +40,7 @@ export interface RecordingPreferences {
   confirmStopAfterSeconds: number;
   plannedDurationMinutes: number;
   liveModeEnabled: boolean;
+  primaryFolderPath?: string;
   backupFolderPath?: string;
 }
 

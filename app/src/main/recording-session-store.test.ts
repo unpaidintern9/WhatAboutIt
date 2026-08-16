@@ -214,10 +214,15 @@ describe("recording session store", () => {
       appendFile("morganMic", "audio", "audio/webm", audioSource)
     ]);
     const result = await finalizeRecordingMedia(session.folderPath);
+    const syncMetadata = JSON.parse(await fs.readFile(path.join(session.folderPath, "Session", "sync-metadata.json"), "utf8")) as {
+      deviceStartTimestamps: Record<string, string>;
+    };
 
     expect(result.integrity.playable).toBe(true);
     expect(result.integrity.savedSourceCount).toBe(1);
     expect(result.integrity.backupPath).toContain("disk-first");
+    expect(syncMetadata.deviceStartTimestamps["recording:program"]).toBeTruthy();
+    expect(syncMetadata.deviceStartTimestamps["recording:morganMic"]).toBeTruthy();
     expect(await validatePlayableMedia(result.programPath as string)).toBe(true);
     expect(await validatePlayableMedia(result.tracks[0].filePath as string)).toBe(true);
     await expect(fs.stat(path.join(result.integrity.backupPath as string, "Program", "program.webm"))).resolves.toBeTruthy();
