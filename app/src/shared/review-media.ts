@@ -39,8 +39,22 @@ export interface ReviewMediaImportResult {
   message: string;
 }
 
+export interface ReviewMediaImportProgress {
+  episodeId: string;
+  slot: ReviewMediaImportSlot;
+  progress: number;
+  message: string;
+}
+
 export interface ReviewMediaSyncResult {
   offsetsMs: Record<string, number>;
   confidence: "high" | "review";
   message: string;
+}
+
+export interface ReviewMediaTreatmentPreview {
+  trackId: string;
+  kind: "audio" | "video";
+  playbackUrl: string;
+  durationMs: number;
 }

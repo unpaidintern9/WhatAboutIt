@@ -6,7 +6,7 @@ import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
-import type { ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaSyncResult } from "../shared/review-media";
+import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaInventory, ReviewMediaSyncResult, ReviewMediaTreatmentPreview } from "../shared/review-media";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
 import type { AppUpdateStatus } from "../shared/app-update";
 
@@ -27,7 +27,14 @@ contextBridge.exposeInMainWorld("studio", {
   saveTimelineDraft: (episodeId: string, draft: TimelineDraft): Promise<TimelineDraft> => ipcRenderer.invoke("timeline:save", { episodeId, draft }),
   loadReviewMedia: (episodeId: string): Promise<ReviewMediaInventory> => ipcRenderer.invoke("review-media:load", episodeId),
   importReviewMedia: (episodeId: string, slot: ReviewMediaImportSlot): Promise<ReviewMediaImportResult> => ipcRenderer.invoke("review-media:import", { episodeId, slot }),
+  cancelReviewMediaImport: (episodeId: string, slot: ReviewMediaImportSlot): Promise<boolean> => ipcRenderer.invoke("review-media:cancel-import", { episodeId, slot }),
+  onReviewMediaImportProgress: (listener: (progress: ReviewMediaImportProgress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: ReviewMediaImportProgress) => listener(progress);
+    ipcRenderer.on("review-media:import-progress", handler);
+    return () => ipcRenderer.removeListener("review-media:import-progress", handler);
+  },
   autoSyncReviewMedia: (episodeId: string): Promise<ReviewMediaSyncResult> => ipcRenderer.invoke("review-media:auto-sync", episodeId),
+  renderTrackTreatmentPreview: (episodeId: string, draft: TimelineDraft, trackId: string, timestampMs: number): Promise<ReviewMediaTreatmentPreview> => ipcRenderer.invoke("review-media:treatment-preview", { episodeId, draft, trackId, timestampMs }),
   runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean, learningProfile?: AutoEditLearningProfile): Promise<AutoEditResult> =>
     ipcRenderer.invoke("auto-edit:run", {
       episodeId,

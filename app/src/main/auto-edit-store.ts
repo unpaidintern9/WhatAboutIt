@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import { runOfflineAutoEdit } from "../shared/auto-edit";
 import type { TimelineDraft } from "../shared/timeline";
-import { markTimelineSaved } from "../shared/timeline";
+import { compactTimelineDraftForPersistence, markTimelineSaved } from "../shared/timeline";
 import { getEpisodesRoot } from "./config-service";
 import { logger } from "./logger";
 import { analyzeEpisodeAudioActivity, analyzeEpisodeSilence } from "./audio-activity-analysis";
@@ -45,7 +45,7 @@ export async function runAutoEdit(input: { episodeId: string; draft: TimelineDra
 
   await fs.mkdir(folder, { recursive: true });
   await fs.writeFile(path.join(folder, "AutoEditReport.json"), JSON.stringify(result.report, null, 2), "utf8");
-  await fs.writeFile(path.join(folder, "draft-timeline.json"), JSON.stringify(savedDraft, null, 2), "utf8");
+  await fs.writeFile(path.join(folder, "draft-timeline.json"), JSON.stringify(compactTimelineDraftForPersistence(savedDraft), null, 2), "utf8");
   await logger.info("AutoEditService", "Created local Auto Edit report and draft.", {
     episodeId: input.episodeId,
     mode: input.mode,

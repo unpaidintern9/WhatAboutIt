@@ -6181,6 +6181,121 @@ input[type="range"] {
   border-color: var(--color-success);
 }
 
+.editor-import-progress {
+  display: grid;
+  gap: 5px;
+}
+
+.editor-import-progress progress {
+  width: 100%;
+  accent-color: var(--color-success);
+}
+
+.editor-import-progress span {
+  font-size: 0.72rem;
+  color: var(--color-mutedText);
+}
+
+.editor-caption-panel {
+  padding: 12px;
+  background: var(--color-cards);
+  border: var(--component-border-width) solid var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+}
+
+.editor-caption-panel > summary,
+.editor-caption-panel > summary span,
+.editor-caption-toolbar,
+.editor-caption-cue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-caption-panel > summary {
+  justify-content: space-between;
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.editor-caption-toolbar {
+  justify-content: space-between;
+  margin: 12px 0;
+}
+
+.editor-caption-toolbar p {
+  margin: 0;
+  color: var(--color-mutedText);
+}
+
+.editor-caption-toolbar button,
+.editor-caption-cue button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+}
+
+.editor-caption-list {
+  display: grid;
+  gap: 8px;
+}
+
+.editor-caption-cue {
+  align-items: end;
+  padding: 8px;
+  background: color-mix(in srgb, var(--color-background), transparent 20%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.editor-caption-cue label {
+  display: grid;
+  gap: 3px;
+  width: 82px;
+  font-size: 0.72rem;
+}
+
+.editor-caption-cue input,
+.editor-caption-cue textarea {
+  width: 100%;
+  color: var(--color-text);
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.inspector-effect-preview {
+  display: grid;
+  gap: 7px;
+}
+
+.inspector-effect-preview audio,
+.inspector-effect-preview video {
+  width: 100%;
+  max-height: 180px;
+  background: #000;
+  border-radius: var(--component-border-radius);
+}
+
+.inspector-effect-preview small[role="alert"] {
+  color: var(--color-danger);
+}
+
+.editor-caption-cue textarea {
+  min-height: 58px;
+  padding: 8px;
+  resize: vertical;
+  flex: 1;
+}
+
+.editor-media-slots .editor-import-cancel {
+  color: var(--color-text);
+  background: transparent;
+}
+
 .editor-media-slots small,
 .editor-media-message {
   color: var(--color-mutedText);

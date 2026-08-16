@@ -1,7 +1,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import type { TimelineDraft } from "../shared/timeline";
-import { markTimelineSaved } from "../shared/timeline";
+import { compactTimelineDraftForPersistence, markTimelineSaved } from "../shared/timeline";
 import { getEpisodesRoot } from "./config-service";
 import { logger } from "./logger";
 
@@ -72,11 +72,7 @@ export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft)
     episodeId,
     nonDestructive: true as const
   });
-  const persistedDraft = {
-    ...nextDraft,
-    history: [],
-    redoHistory: []
-  };
+  const persistedDraft = compactTimelineDraftForPersistence(nextDraft);
   let temporaryHandle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
     temporaryHandle = await fs.open(temporaryPath, "wx");

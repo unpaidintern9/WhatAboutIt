@@ -2,13 +2,14 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { shell } from "electron";
 import type { ExportJob, ExportRequest } from "../shared/export";
-import { isTimelineTrackAvailableAt, type TimelineEditOperation, type TimelineTrack } from "../shared/timeline";
+import { compactTimelineDraftForPersistence, isTimelineTrackAvailableAt, type TimelineEditOperation, type TimelineTrack } from "../shared/timeline";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
+import type { ReviewMediaTreatmentPreview } from "../shared/review-media";
 import { completeExportJob, createExportJob, createExportSummary, failExportJob, cancelExportJob } from "../shared/export";
 import { getEpisodesRoot } from "./config-service";
 import { detectMediaTools, getMediaDurationMs, requireMediaTools, runFfmpeg, runFfmpegWithProgress, validatePlayableMedia } from "./ffmpeg-tools";
 import { logger } from "./logger";
-import { loadImportedOriginalPaths } from "./review-media-store";
+import { loadImportedOriginalPaths, mediaFilePlaybackUrl } from "./review-media-store";
 
 type ExportProgressReporter = (job: ExportJob) => void;
 
@@ -83,6 +84,36 @@ function outputFileName(type: ExportRequest["type"]) {
   if (type === "archive-master") return "what-about-it-archive-master.mkv";
   if (type === "social-clip-placeholder") return "what-about-it-social-clip.mp4";
   return "what-about-it-full-episode-video.mp4";
+}
+
+export async function nextAvailableExportPath(folder: string, relativeFileName: string) {
+  const parsed = path.parse(relativeFileName);
+  for (let version = 1; ; version += 1) {
+    const fileName = version === 1
+      ? relativeFileName
+      : path.join(parsed.dir, `${parsed.name}-${version}${parsed.ext}`);
+    if (!(await fileExists(path.join(folder, fileName)))) return { fileName, outputPath: path.join(folder, fileName) };
+  }
+}
+
+async function hasEnoughSpaceForExport(folder: string, sourceFile: string, request: ExportRequest, durationMs: number) {
+  try {
+    const volume = await fs.statfs(folder);
+    const availableBytes = Number(volume.bavail) * Number(volume.bsize);
+    const sourceBytes = (await fs.stat(sourceFile)).size;
+    const seconds = Math.max(1, durationMs / 1000);
+    const primaryEstimate = request.type === "audio-only"
+      ? seconds * 48_000
+      : request.type === "archive-master"
+        ? Math.max(sourceBytes * 2.5, seconds * 5_000_000)
+        : Math.max(sourceBytes * 1.25, seconds * 2_000_000);
+    const masterEstimate = request.type === "full-episode-video" && !request.practice ? sourceBytes * 4 : 0;
+    const requiredBytes = Math.ceil(primaryEstimate + masterEstimate + 1024 * 1024 * 1024);
+    return availableBytes >= requiredBytes;
+  } catch (error) {
+    await logger.warning("ExportService", "Could not complete the export disk-space preflight.", { error: String(error) });
+    return true;
+  }
 }
 
 function qualityArgs(type: ExportRequest["type"], preset: ExportRequest["qualityPreset"], includeVideoFilter = true) {
@@ -249,12 +280,11 @@ async function renderDraftExport(input: {
   );
   const editedDurationMs = keepRanges.reduce((total, range) => total + range.endMs - range.startMs, 0);
   const cameraByTrack = new Map(cameraInputs.map((item) => [item.track.id, item]));
-  const videoLabels: string[] = [];
   const programTrack = request.draft.tracks.find((track) => track.id === "program");
   const size = outputSize(request.qualityPreset, request.type);
 
   if (request.type !== "audio-only") {
-    for (const [index, range] of keepRanges.entries()) {
+    const segments = keepRanges.map((range) => {
       const decision = [...request.draft.cameraDecisions].reverse().find((item) => item.startMs <= range.startMs);
       const camera = decision ? cameraByTrack.get(decision.cameraTrackId) : undefined;
       const midpoint = range.startMs + (range.endMs - range.startMs) / 2;
@@ -262,30 +292,55 @@ async function renderDraftExport(input: {
       const chosen = chosenCamera?.inputIndex ?? 0;
       const chosenTrack = chosenCamera?.track ?? programTrack;
       const syncOffsetMs = chosenTrack?.syncOffsetMs ?? 0;
-      const sourceStartMs = Math.max(0, range.startMs + syncOffsetMs);
-      const sourceEndMs = Math.max(sourceStartMs + 1, range.endMs + syncOffsetMs);
       const cropFilter = request.type === "social-clip-placeholder" || chosenTrack?.cropMode === "fill"
         ? `scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,crop=${size.width}:${size.height}`
         : `scale=${size.width}:${size.height}:force_original_aspect_ratio=decrease,pad=${size.width}:${size.height}:(ow-iw)/2:(oh-ih)/2`;
       const pictureFilters = createVideoTreatment(chosenTrack, size);
-      const transitionFilter = createVideoTransitionFilter(
-        request.draft.cameraTransition,
+      return { range, chosen, chosenTrack, syncOffsetMs, cropFilter, pictureFilters };
+    });
+    if (segments.length === 0) throw new Error("The draft removed every video section.");
+
+    const transitionInto = segments.map((segment, index) => {
+      const previous = segments[index - 1];
+      if (!previous || request.draft.cameraTransition !== "fade" || previous.range.endMs !== segment.range.startMs) return 0;
+      const requested = Math.min(
         request.draft.cameraTransitionMs,
-        index,
-        keepRanges.length,
-        range.endMs - range.startMs
+        (previous.range.endMs - previous.range.startMs) / 3,
+        (segment.range.endMs - segment.range.startMs) / 3
       );
-      const label = `draftv${index}`;
+      return Math.max(0, Math.min(requested, segment.range.startMs + segment.syncOffsetMs));
+    });
+    const outputParts: string[] = [];
+    const addVideoSlice = (segment: (typeof segments)[number], startMs: number, endMs: number, label: string) => {
       filters.push(
-        `[${chosen}:v:0]trim=start=${seconds(sourceStartMs)}:end=${seconds(sourceEndMs)},setpts=PTS-STARTPTS,` +
-        `${cropFilter},${pictureFilters}${transitionFilter}setsar=1,fps=30[${label}]`
+        `[${segment.chosen}:v:0]trim=start=${seconds(startMs + segment.syncOffsetMs)}:end=${seconds(endMs + segment.syncOffsetMs)},setpts=PTS-STARTPTS,` +
+        `${segment.cropFilter},${segment.pictureFilters}setsar=1,fps=30[${label}]`
       );
-      videoLabels.push(`[${label}]`);
+    };
+    for (const [index, segment] of segments.entries()) {
+      const outgoingTransitionMs = transitionInto[index + 1] ?? 0;
+      const mainEndMs = segment.range.endMs - outgoingTransitionMs;
+      if (mainEndMs > segment.range.startMs) {
+        const mainLabel = `draftvm${index}`;
+        addVideoSlice(segment, segment.range.startMs, mainEndMs, mainLabel);
+        outputParts.push(`[${mainLabel}]`);
+      }
+      if (outgoingTransitionMs > 0) {
+        const next = segments[index + 1];
+        const outgoingLabel = `draftvto${index}`;
+        const incomingLabel = `draftvti${index}`;
+        const blendedLabel = `draftvt${index}`;
+        addVideoSlice(segment, segment.range.endMs - outgoingTransitionMs, segment.range.endMs, outgoingLabel);
+        addVideoSlice(next, next.range.startMs - outgoingTransitionMs, next.range.startMs, incomingLabel);
+        filters.push(
+          `[${outgoingLabel}][${incomingLabel}]blend=all_expr='A*(1-T/${seconds(outgoingTransitionMs)})+B*(T/${seconds(outgoingTransitionMs)})':shortest=1[${blendedLabel}]`
+        );
+        outputParts.push(`[${blendedLabel}]`);
+      }
     }
-    if (videoLabels.length === 0) throw new Error("The draft removed every video section.");
-    filters.push(videoLabels.length === 1
-      ? `${videoLabels[0]}null[vout]`
-      : `${videoLabels.join("")}concat=n=${videoLabels.length}:v=1:a=0[vout]`);
+    filters.push(outputParts.length === 1
+      ? `${outputParts[0]}null[vout]`
+      : `${outputParts.join("")}concat=n=${outputParts.length}:v=1:a=0[vout]`);
   }
 
   const audioLabels: string[] = [];
@@ -376,6 +431,49 @@ function hasTrackAdjustments(track: TimelineTrack) {
     || track.zoom !== 100
     || track.positionX !== 0
     || track.positionY !== 0;
+}
+
+export async function renderTrackTreatmentPreview(input: { episodeId: string; draft: ExportRequest["draft"]; trackId: string; timestampMs: number }): Promise<ReviewMediaTreatmentPreview> {
+  const track = input.draft.tracks.find((candidate) => candidate.id === input.trackId);
+  if (!track || (track.kind !== "camera" && track.kind !== "microphone")) throw new Error("Choose a camera or microphone track to preview its effects.");
+  const originals = await loadImportedOriginalPaths(input.episodeId);
+  const sourceFile = sourcePathForTrack(input.episodeId, track, originals);
+  if (!sourceFile || !(await fileExists(sourceFile))) throw new Error(`${track.label} does not have a media file to preview.`);
+  const sourceDurationMs = await getMediaDurationMs(sourceFile);
+  const startMs = Math.max(0, Math.min(sourceDurationMs - 500, input.timestampMs - 2000));
+  const durationMs = Math.max(500, Math.min(10000, sourceDurationMs - startMs));
+  const previewFolder = path.join(episodeFolder(input.episodeId), "Session", "Review");
+  const safeTrackId = track.id.replace(/[^a-z0-9-]+/gi, "-");
+  const kind = track.kind === "camera" ? "video" as const : "audio" as const;
+  const outputPath = path.join(previewFolder, `treatment-preview-${safeTrackId}.${kind === "video" ? "webm" : "m4a"}`);
+  await fs.mkdir(previewFolder, { recursive: true });
+  await fs.rm(outputPath, { force: true });
+  if (kind === "video") {
+    const size = { width: 1280, height: 720 };
+    const crop = track.cropMode === "fill"
+      ? `scale=${size.width}:${size.height}:force_original_aspect_ratio=increase,crop=${size.width}:${size.height},`
+      : `scale=${size.width}:${size.height}:force_original_aspect_ratio=decrease,pad=${size.width}:${size.height}:(ow-iw)/2:(oh-ih)/2,`;
+    await runFfmpeg([
+      "-y", "-ss", seconds(startMs), "-i", sourceFile, "-t", seconds(durationMs), "-an",
+      "-vf", `${crop}${createVideoTreatment(track, size)}setsar=1,fps=30`,
+      "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "32", "-b:v", "0", outputPath
+    ]);
+  } else {
+    const volume = Math.max(0, Math.min(1.5, track.volume / 100));
+    const loudnessTarget = Math.max(-24, Math.min(-12, input.draft.loudnessTargetLufs ?? -16));
+    const truePeak = Math.max(-3, Math.min(-0.5, input.draft.truePeakDb ?? -1.5));
+    const filters = `${createAudioTreatment(track)}volume=${track.muted ? 0 : volume.toFixed(3)},${createPanFilter(track.pan)}${createLimiterFilter(track)},loudnorm=I=${loudnessTarget}:LRA=11:TP=${truePeak}`;
+    await runFfmpeg(["-y", "-ss", seconds(startMs), "-i", sourceFile, "-t", seconds(durationMs), "-vn", "-filter:a", filters, "-c:a", "aac", "-b:a", "192k", outputPath]);
+  }
+  if (!(await validatePlayableMedia(outputPath, undefined, kind === "video" ? { video: true, decode: true } : { audio: true, decode: true }))) {
+    throw new Error("The effect preview could not be decoded.");
+  }
+  return {
+    trackId: track.id,
+    kind,
+    playbackUrl: `${mediaFilePlaybackUrl(outputPath)}?version=${Date.now()}`,
+    durationMs
+  };
 }
 
 function createVideoRanges(durationMs: number, globalEdits: TimelineEditOperation[], decisionPoints: number[]) {
@@ -473,21 +571,6 @@ function createVideoTreatment(track: TimelineTrack | undefined, size: { width: n
   return `${filters.join(",")},`;
 }
 
-function createVideoTransitionFilter(
-  transition: "cut" | "fade",
-  transitionMs: number,
-  index: number,
-  count: number,
-  durationMs: number
-) {
-  if (transition !== "fade" || count < 2) return "";
-  const duration = Math.min(transitionMs, Math.max(100, durationMs / 3));
-  const filters: string[] = [];
-  if (index > 0) filters.push(`fade=t=in:st=0:d=${seconds(duration)}`);
-  if (index < count - 1) filters.push(`fade=t=out:st=${seconds(Math.max(0, durationMs - duration))}:d=${seconds(duration)}`);
-  return filters.length > 0 ? `${filters.join(",")},` : "";
-}
-
 function createPanFilter(pan: number) {
   const normalized = Math.max(-1, Math.min(1, pan / 100));
   const left = normalized > 0 ? 1 - normalized : 1;
@@ -505,6 +588,46 @@ function createFadeFilter(track: TimelineTrack | undefined, durationMs: number) 
 
 function seconds(milliseconds: number) {
   return (Math.max(0, milliseconds) / 1000).toFixed(3);
+}
+
+function createCaptionSidecar(request: ExportRequest) {
+  const selection = request.type === "social-clip-placeholder" && request.draft.selection?.endTimestampMs !== undefined
+    ? { startMs: request.draft.selection.timestampMs, endMs: request.draft.selection.endTimestampMs }
+    : undefined;
+  const edits = [
+    ...editsForTrack(request.draft.editLog, "program"),
+    ...(selection
+      ? [
+          { id: "caption-trim-in", type: "trim-before" as const, label: "Caption trim", timestampMs: selection.startMs, targetTrackId: "program", createdAt: request.draft.updatedAt },
+          { id: "caption-trim-out", type: "trim-after" as const, label: "Caption trim", timestampMs: selection.endMs, targetTrackId: "program", createdAt: request.draft.updatedAt }
+        ]
+      : [])
+  ];
+  const ranges = createVideoRanges(request.draft.durationMs, edits, []);
+  const cues: Array<{ startMs: number; endMs: number; text: string }> = [];
+  let outputOffsetMs = 0;
+  for (const range of ranges) {
+    for (const cue of request.draft.captions) {
+      const startMs = Math.max(range.startMs, cue.startMs);
+      const endMs = Math.min(range.endMs, cue.endMs);
+      if (endMs <= startMs || !cue.text.trim()) continue;
+      cues.push({
+        startMs: outputOffsetMs + startMs - range.startMs,
+        endMs: outputOffsetMs + endMs - range.startMs,
+        text: cue.text.trim()
+      });
+    }
+    outputOffsetMs += range.endMs - range.startMs;
+  }
+  const format = (milliseconds: number) => {
+    const total = Math.max(0, Math.round(milliseconds));
+    const hours = Math.floor(total / 3_600_000);
+    const minutes = Math.floor((total % 3_600_000) / 60_000);
+    const seconds = Math.floor((total % 60_000) / 1000);
+    const millis = total % 1000;
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")},${String(millis).padStart(3, "0")}`;
+  };
+  return cues.map((cue, index) => `${index + 1}\n${format(cue.startMs)} --> ${format(cue.endMs)}\n${cue.text}\n`).join("\n");
 }
 
 function updateRunningJob(job: ExportJob, progress: number, message: string, report?: ExportProgressReporter): ExportJob {
@@ -556,7 +679,8 @@ async function createCameraMasters(
   for (const [index, item] of available.entries()) {
     const start = 62 + (index / Math.max(1, available.length)) * 18;
     const width = 18 / Math.max(1, available.length);
-    const outputPath = path.join(exportFolder(request.episodeId), item.relativeOutput);
+    const reserved = await nextAvailableExportPath(exportFolder(request.episodeId), item.relativeOutput);
+    const outputPath = reserved.outputPath;
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
     const durationMs = (await getMediaDurationMs(item.audioFile)) || sourceDurationMs;
     await renderExport({
@@ -571,7 +695,7 @@ async function createCameraMasters(
     if (!(await validatePlayableMedia(outputPath, undefined, { video: true, audio: true, decode: true }))) {
       throw new Error(`${item.relativeOutput} could not be decoded with video and audio.`);
     }
-    outputs.push(item.relativeOutput);
+    outputs.push(reserved.fileName);
   }
   return outputs;
 }
@@ -600,7 +724,8 @@ async function createAudioMasters(
   for (const [index, item] of available.entries()) {
     const start = 81 + (index / Math.max(1, available.length)) * 12;
     const width = 12 / Math.max(1, available.length);
-    const outputPath = path.join(exportFolder(request.episodeId), item.relativeOutput);
+    const reserved = await nextAvailableExportPath(exportFolder(request.episodeId), item.relativeOutput);
+    const outputPath = reserved.outputPath;
     const trackEdits = editsForTrack(request.draft.editLog, item.track.id);
     const globalEdits = editsForTrack(request.draft.editLog, "program");
     const volume = Math.max(0, Math.min(1.5, item.track.volume / 100));
@@ -628,7 +753,7 @@ async function createAudioMasters(
     if (!(await validatePlayableMedia(outputPath, undefined, { audio: true, decode: true }))) {
       throw new Error(`${item.relativeOutput} could not be decoded.`);
     }
-    outputs.push(item.relativeOutput);
+    outputs.push(reserved.fileName);
   }
   return outputs;
 }
@@ -670,8 +795,9 @@ export async function createExport(request: ExportRequest, report?: ExportProgre
     return failed;
   }
 
-  const fileName = outputFileName(request.type);
-  const outputPath = path.join(folder, fileName);
+  const reservedOutput = await nextAvailableExportPath(folder, outputFileName(request.type));
+  const fileName = reservedOutput.fileName;
+  const outputPath = reservedOutput.outputPath;
   const tools = await requireMediaTools();
   const sourceFile = request.practice ? await createPracticeSource(request.episodeId) : await findProgramRecording(request.episodeId);
   if (!sourceFile) {
@@ -687,6 +813,12 @@ export async function createExport(request: ExportRequest, report?: ExportProgre
   try {
     running = updateRunningJob(running, 12, "Preparing video and audio", report);
     const sourceDurationMs = (await getMediaDurationMs(sourceFile, tools)) || request.draft.durationMs || 1000;
+    if (!(await hasEnoughSpaceForExport(folder, sourceFile, request, sourceDurationMs))) {
+      const failed = failExportJob(running, "not-enough-space");
+      await writeExportArtifacts(failed);
+      report?.(failed);
+      return failed;
+    }
     const renderInput = {
       request,
       sourceFile,
@@ -712,9 +844,17 @@ export async function createExport(request: ExportRequest, report?: ExportProgre
       ? await createAudioMasters(request, running, sourceDurationMs, controller.signal, report)
       : [];
     running = updateRunningJob(running, 95, "Finishing your export", report);
-    const editDecisionFile = "edit-decision-list.json";
-    await fs.writeFile(path.join(folder, editDecisionFile), JSON.stringify(request.draft, null, 2), "utf8");
-    const outputFileNames = [fileName, ...cameraOutputs, ...audioOutputs, editDecisionFile];
+    const captionSidecar = createCaptionSidecar(request);
+    let captionFile: string | undefined;
+    if (captionSidecar) {
+      const reservedCaptions = await nextAvailableExportPath(folder, "captions.srt");
+      captionFile = reservedCaptions.fileName;
+      await fs.writeFile(reservedCaptions.outputPath, captionSidecar, "utf8");
+    }
+    const reservedEditDecision = await nextAvailableExportPath(folder, "edit-decision-list.json");
+    const editDecisionFile = reservedEditDecision.fileName;
+    await fs.writeFile(reservedEditDecision.outputPath, JSON.stringify(compactTimelineDraftForPersistence(request.draft), null, 2), "utf8");
+    const outputFileNames = [fileName, ...cameraOutputs, ...audioOutputs, ...(captionFile ? [captionFile] : []), editDecisionFile];
     const completeBase = completeExportJob(running, fileName);
     const completionMessage = renderedDraft
       ? `Export complete from your ${request.draft.editMode === "auto" ? "Auto Edit" : "manual"} draft`

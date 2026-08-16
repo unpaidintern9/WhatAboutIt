@@ -98,6 +98,8 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Split");
     expect(markup).toContain("Undo");
     expect(markup).toContain("Redo");
+    expect(markup).toContain("Transcript &amp; captions");
+    expect(markup).toContain("Add at");
     expect(markup).toContain("Restore");
     expect(markup).toContain("Save &amp; Export");
     expect(markup).toContain("Previous marker");

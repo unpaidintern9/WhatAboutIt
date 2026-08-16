@@ -13,7 +13,7 @@ import { logger } from "./logger";
 import { appendRecordingError, createRecordingSession, listUnfinishedRecordingSessions, saveProgramRecording, saveRecordedTracks, writeRecordingState } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
 import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
-import { cancelExport, createExport, detectMediaTools, openExportFolder } from "./export-store";
+import { cancelExport, createExport, detectMediaTools, openExportFolder, renderTrackTreatmentPreview } from "./export-store";
 import { runAutoEdit } from "./auto-edit-store";
 import { createDiagnosticsBundle, getStorageStatus } from "./diagnostics-store";
 import { analyzeReviewMediaSync, configureMediaPlaybackBaseUrl, importReviewMediaFile, loadReviewMedia } from "./review-media-store";
@@ -31,6 +31,7 @@ const workspaceStatePath = getWorkspaceStatePath();
 let studioWindowManager: StudioWindowManager;
 let mediaPlaybackServer: MediaPlaybackServer | undefined;
 let appUpdateService: AppUpdateService;
+const activeMediaImports = new Map<string, AbortController>();
 
 function createWindow() {
   const mainWindow = new BrowserWindow({
@@ -239,13 +240,37 @@ app.whenReady().then(async () => {
         message: "Import canceled."
       };
     }
-    return {
-      canceled: false,
-      inventory: await importReviewMediaFile(input.episodeId, input.slot, result.filePaths[0]),
-      message: `${input.slot.startsWith("camera-") ? input.slot.replace("camera-", "Camera ") : "Main audio"} imported. The full-quality original is protected and a lighter editing copy is ready.`
-    };
+    const importKey = `${input.episodeId}:${input.slot}`;
+    const controller = new AbortController();
+    activeMediaImports.get(importKey)?.abort();
+    activeMediaImports.set(importKey, controller);
+    try {
+      return {
+        canceled: false,
+        inventory: await importReviewMediaFile(input.episodeId, input.slot, result.filePaths[0], {
+          signal: controller.signal,
+          onProgress: (progress) => event.sender.send("review-media:import-progress", progress)
+        }),
+        message: `${input.slot.startsWith("camera-") ? input.slot.replace("camera-", "Camera ") : "Main audio"} imported. The full-quality original is protected and a lighter editing copy is ready.`
+      };
+    } catch (error) {
+      if (!(error instanceof Error) || error.name !== "AbortError") throw error;
+      return {
+        canceled: true,
+        inventory: await loadReviewMedia(input.episodeId),
+        message: "Import canceled. Existing media was left unchanged."
+      };
+    } finally {
+      if (activeMediaImports.get(importKey) === controller) activeMediaImports.delete(importKey);
+    }
+  });
+  ipcMain.handle("review-media:cancel-import", (_event, input: { episodeId: string; slot: ReviewMediaImportSlot }) => {
+    const active = activeMediaImports.get(`${input.episodeId}:${input.slot}`);
+    active?.abort();
+    return Boolean(active);
   });
   ipcMain.handle("review-media:auto-sync", (_event, episodeId: string) => analyzeReviewMediaSync(episodeId));
+  ipcMain.handle("review-media:treatment-preview", (_event, input) => renderTrackTreatmentPreview(input));
   ipcMain.handle("auto-edit:run", (_event, input) => runAutoEdit(input));
   ipcMain.handle("export:create", (event, input) => createExport(input, (job) => event.sender.send("export:progress", job)));
   ipcMain.handle("export:media-tools-status", detectMediaTools);

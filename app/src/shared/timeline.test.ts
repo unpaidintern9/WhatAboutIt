@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   addCameraDecision,
+  addTimelineCaption,
   applyTimelineTrackTreatmentToKind,
   applyTimelineEdit,
   createTimelineDraft,
+  compactTimelineDraftForPersistence,
   getTimelineSegments,
   getNextPlayableTimelineTime,
   isTimelineTrackAvailableAt,
@@ -17,6 +19,7 @@ import {
   setTimelineRange,
   undoTimelineEdit,
   updateTimelineCameraTransition,
+  updateTimelineCaption,
   updateTimelineMastering,
   updateTimelineTrackMix,
   withTimelineDraftDefaults
@@ -42,6 +45,25 @@ describe("timeline draft", () => {
     expect(draft.tracks.map((track) => track.kind)).toContain("camera");
     expect(draft.tracks.map((track) => track.kind)).toContain("microphone");
     expect(draft.tracks.map((track) => track.kind)).toContain("markers");
+  });
+
+  it("removes session-only undo snapshots before persistence", () => {
+    const edited = applyTimelineEdit(createTimelineDraft({ deviceDefaults }), "delete-section");
+    const compact = compactTimelineDraftForPersistence(edited);
+
+    expect(edited.history).toHaveLength(1);
+    expect(compact.history).toEqual([]);
+    expect(compact.redoHistory).toEqual([]);
+    expect(compact.editLog).toEqual(edited.editLog);
+  });
+
+  it("adds and edits caption cues with undo support", () => {
+    const base = createTimelineDraft({ deviceDefaults, durationMs: 60000 });
+    const added = addTimelineCaption(base, 12000, 15000, "2026-06-27T10:00:00.000Z");
+    const edited = updateTimelineCaption(added, added.captions[0].id, { text: "Um, welcome to the show" }, "2026-06-27T10:00:01.000Z");
+
+    expect(edited.captions[0]).toMatchObject({ startMs: 12000, endMs: 15000, text: "Um, welcome to the show" });
+    expect(undoTimelineEdit(edited).captions[0].text).toBe("");
   });
 
   it("renders markers with timestamps in the draft", () => {
