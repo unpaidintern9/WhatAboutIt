@@ -66,6 +66,7 @@ contextBridge.exposeInMainWorld("studio", {
       learningProfile
     }),
   createExport: (request: ExportRequest): Promise<ExportJob> => ipcRenderer.invoke("export:create", request),
+  chooseExportDestinationFolder: (): Promise<string | undefined> => ipcRenderer.invoke("export:choose-destination"),
   onExportProgress: (listener: (job: ExportJob) => void) => {
     const handler = (_event: Electron.IpcRendererEvent, job: ExportJob) => listener(job);
     ipcRenderer.on("export:progress", handler);
@@ -73,7 +74,7 @@ contextBridge.exposeInMainWorld("studio", {
   },
   getMediaToolsStatus: (): Promise<MediaToolsStatus> => ipcRenderer.invoke("export:media-tools-status"),
   cancelExport: (episodeId: string, job: ExportJob): Promise<ExportJob> => ipcRenderer.invoke("export:cancel", { episodeId, job }),
-  openExportFolder: (episodeId: string): Promise<string> => ipcRenderer.invoke("export:open-folder", episodeId),
+  openExportFolder: (episodeId: string, outputFolder?: string): Promise<string> => ipcRenderer.invoke("export:open-folder", { episodeId, outputFolder }),
   createDiagnosticsBundle: (input: DiagnosticsBundleRequest): Promise<DiagnosticsBundleResult> => ipcRenderer.invoke("diagnostics:create", input),
   getStorageStatus: (): Promise<StorageStatus> => ipcRenderer.invoke("storage:status"),
   getWorkspaceState: (): Promise<StudioWorkspaceState> => ipcRenderer.invoke("workspace:get-state"),

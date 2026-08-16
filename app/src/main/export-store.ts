@@ -1,6 +1,7 @@
 import path from "node:path";
 import fs from "node:fs/promises";
-import { randomUUID } from "node:crypto";
+import { createReadStream } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
 import { shell } from "electron";
 import type { ExportJob, ExportRequest } from "../shared/export";
 import { compactTimelineDraftForPersistence, isTimelineTrackAvailableAt, type TimelineEditOperation, type TimelineTrack } from "../shared/timeline";
@@ -29,6 +30,32 @@ const microphoneFileNames: Record<MicrophoneSlotKey, string> = {
 
 function exportFolder(episodeId: string) {
   return path.join(getEpisodesRoot(), episodeId, "Exports");
+}
+
+function safeFileName(value: string) {
+  const printable = Array.from(value).filter((character) => character.charCodeAt(0) >= 32).join("");
+  const cleaned = printable.replace(/[<>:"/\\|?*]/g, "-").replace(/\s+/g, " ").trim();
+  return cleaned || "episode";
+}
+
+async function nextAvailableDirectoryPath(parentFolder: string, name: string) {
+  for (let version = 1; ; version += 1) {
+    const folderName = version === 1 ? name : `${name} ${version}`;
+    const folderPath = path.join(parentFolder, folderName);
+    if (!(await fileExists(folderPath))) return folderPath;
+  }
+}
+
+async function requestExportFolder(request: ExportRequest) {
+  if (request.type !== "editor-handoff") return exportFolder(request.episodeId);
+  if (!request.destinationFolderPath) throw new Error("Choose where to save the editor handoff package.");
+  await fs.mkdir(request.destinationFolderPath, { recursive: true });
+  const folder = await nextAvailableDirectoryPath(
+    request.destinationFolderPath,
+    `What About It - ${safeFileName(request.episodeId)} - Editor Handoff`
+  );
+  await fs.mkdir(folder, { recursive: true });
+  return folder;
 }
 
 function programFolder(episodeId: string) {
@@ -85,6 +112,7 @@ function outputFileName(type: ExportRequest["type"]) {
   if (type === "audio-only") return "what-about-it-audio-only.m4a";
   if (type === "archive-master") return "what-about-it-archive-master.mkv";
   if (type === "social-clip-placeholder") return "what-about-it-social-clip.mp4";
+  if (type === "editor-handoff") return path.join("01 Reference Edit", "what-about-it-reference-edit.mp4");
   return "what-about-it-full-episode-video.mp4";
 }
 
@@ -108,6 +136,8 @@ async function hasEnoughSpaceForExport(folder: string, sourceFile: string, reque
       ? seconds * 48_000
       : request.type === "archive-master"
         ? Math.max(sourceBytes * 2.5, seconds * 5_000_000)
+        : request.type === "editor-handoff"
+          ? Math.max(sourceBytes * 6, seconds * 12_000_000)
         : Math.max(sourceBytes * 1.25, seconds * 2_000_000);
     const cameraMasterEstimate = request.type === "full-episode-video" && !request.practice && request.includeCameraMasters !== false ? sourceBytes * 3 : 0;
     const audioMasterEstimate = (request.type === "full-episode-video" || request.type === "archive-master") && !request.practice && request.includeAudioMasters !== false ? sourceBytes : 0;
@@ -128,9 +158,9 @@ function qualityArgs(type: ExportRequest["type"], preset: ExportRequest["quality
     return [...(includeVideoFilter ? ["-vf", videoOutputFilter(preset, type)] : []), "-r", "30", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "slow", "-crf", "12", "-ar", "48000", "-ac", "2", "-c:a", "pcm_s24le"];
   }
 
-  const crf = preset === "high" ? "16" : preset === "archive" ? "14" : "20";
-  const speed = preset === "high" || preset === "archive" ? "slow" : "veryfast";
-  const audioBitrate = preset === "standard" ? "192k" : "320k";
+  const crf = type === "editor-handoff" ? "16" : preset === "high" ? "16" : preset === "archive" ? "14" : "20";
+  const speed = type === "editor-handoff" || preset === "high" || preset === "archive" ? "slow" : "veryfast";
+  const audioBitrate = type === "editor-handoff" || preset !== "standard" ? "320k" : "192k";
   return [
     ...(includeVideoFilter ? ["-vf", videoOutputFilter(preset, type)] : []),
     "-r", "30", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", speed, "-crf", crf,
@@ -140,6 +170,7 @@ function qualityArgs(type: ExportRequest["type"], preset: ExportRequest["quality
 
 function outputSize(preset: ExportRequest["qualityPreset"], type?: ExportRequest["type"]) {
   if (type === "social-clip-placeholder") return { width: 1080, height: 1920 };
+  if (type === "editor-handoff") return { width: 1920, height: 1080 };
   return preset === "high" || preset === "archive" ? { width: 1920, height: 1080 } : { width: 1280, height: 720 };
 }
 
@@ -818,8 +849,198 @@ async function createAudioMasters(
   return outputs;
 }
 
+async function createEditorCameraFiles(
+  request: ExportRequest,
+  running: ExportJob,
+  sourceDurationMs: number,
+  signal: AbortSignal,
+  report?: ExportProgressReporter
+) {
+  const outputs: string[] = [];
+  const originalSources = await loadImportedOriginalPaths(request.episodeId);
+  const available: Array<{ cameraNumber: string; sourceFile: string; relativeOutput: string }> = [];
+  for (const cameraNumber of ["1", "2", "3"]) {
+    const sourceFile = originalSources[`camera-${cameraNumber}` as keyof typeof originalSources]
+      ?? path.join(episodeFolder(request.episodeId), "Cameras", `camera-${cameraNumber}.webm`);
+    if (!(await fileExists(sourceFile))) continue;
+    available.push({
+      cameraNumber,
+      sourceFile,
+      relativeOutput: path.join("02 Camera Video", `Camera ${cameraNumber}.mp4`)
+    });
+  }
+
+  for (const [index, item] of available.entries()) {
+    const start = 62 + (index / Math.max(1, available.length)) * 18;
+    const width = 18 / Math.max(1, available.length);
+    const outputPath = path.join(running.outputFolder, item.relativeOutput);
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    const durationMs = (await getMediaDurationMs(item.sourceFile)) || sourceDurationMs;
+    await runFfmpegWithProgress(
+      [
+        "-y", "-fflags", "+genpts", "-i", item.sourceFile,
+        "-map", "0:v:0", "-map", "0:a:0?",
+        "-vf", videoOutputFilter("high", "editor-handoff"),
+        "-r", "30", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "slow", "-crf", "16",
+        "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", outputPath
+      ],
+      {
+        durationMs,
+        signal,
+        onProgress: (progress) => updateRunningJob(running, start + (progress / 100) * width, `Preparing Camera ${item.cameraNumber} for outside editors`, report)
+      }
+    );
+    if (!(await validatePlayableMedia(outputPath, undefined, { video: true, decode: true }))) {
+      throw new Error(`${item.relativeOutput} could not be decoded.`);
+    }
+    outputs.push(item.relativeOutput);
+  }
+  return outputs;
+}
+
+async function createEditorAudioFiles(
+  request: ExportRequest,
+  running: ExportJob,
+  sourceDurationMs: number,
+  signal: AbortSignal,
+  report?: ExportProgressReporter
+) {
+  const outputs: string[] = [];
+  const originalSources = await loadImportedOriginalPaths(request.episodeId);
+  const labels: Array<{ assetId: "morgan-mic" | "guest-mic" | "extra-mic"; label: string }> = [
+    { assetId: "morgan-mic", label: "Morgan Mic" },
+    { assetId: "guest-mic", label: "Guest Mic" },
+    { assetId: "extra-mic", label: "Extra Mic" }
+  ];
+  const available = labels.flatMap((item) => {
+    const sourceFile = originalSources[item.assetId]
+      ?? path.join(episodeFolder(request.episodeId), "Audio", `${item.assetId}.m4a`);
+    return [{ ...item, sourceFile, relativeOutput: path.join("03 Isolated Audio", `${item.label}.wav`) }];
+  });
+  const existing = [] as typeof available;
+  for (const item of available) if (await fileExists(item.sourceFile)) existing.push(item);
+
+  for (const [index, item] of existing.entries()) {
+    const start = 81 + (index / Math.max(1, existing.length)) * 12;
+    const width = 12 / Math.max(1, existing.length);
+    const outputPath = path.join(running.outputFolder, item.relativeOutput);
+    await fs.mkdir(path.dirname(outputPath), { recursive: true });
+    const durationMs = (await getMediaDurationMs(item.sourceFile)) || sourceDurationMs;
+    await runFfmpegWithProgress(
+      ["-y", "-fflags", "+genpts", "-i", item.sourceFile, "-map", "0:a:0", "-ar", "48000", "-ac", "1", "-c:a", "pcm_s24le", outputPath],
+      {
+        durationMs,
+        signal,
+        onProgress: (progress) => updateRunningJob(running, start + (progress / 100) * width, `Preparing ${item.label} WAV`, report)
+      }
+    );
+    if (!(await validatePlayableMedia(outputPath, undefined, { audio: true, decode: true }))) {
+      throw new Error(`${item.relativeOutput} could not be decoded.`);
+    }
+    outputs.push(item.relativeOutput);
+  }
+  return outputs;
+}
+
+function csvCell(value: string | number) {
+  const text = String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function createSyncMap(request: ExportRequest) {
+  const rows = request.draft.tracks
+    .filter((track) => track.kind === "camera" || track.kind === "microphone")
+    .map((track) => {
+      const offset = Math.round(track.syncOffsetMs);
+      const action = offset > 0 ? `Trim ${offset} ms from the start` : offset < 0 ? `Delay by ${Math.abs(offset)} ms` : "No offset";
+      return [track.label, track.kind, track.sourceAssetId ?? "", offset, action].map(csvCell).join(",");
+    });
+  return ["track,kind,source_asset,sync_offset_ms,editor_action", ...rows].join("\n");
+}
+
+function createMarkerCsv(request: ExportRequest) {
+  const rows = request.draft.markers.map((marker) => [marker.label, marker.timestampMs, (marker.timestampMs / 1000).toFixed(3), marker.createdAt].map(csvCell).join(","));
+  return ["marker,timestamp_ms,timestamp_seconds,created_at", ...rows].join("\n");
+}
+
+function editorReadme(request: ExportRequest, cameraOutputs: string[], audioOutputs: string[]) {
+  return [
+    "WHAT ABOUT IT? - EDITOR HANDOFF",
+    "",
+    "This folder is designed for Adobe Premiere Pro, DaVinci Resolve, Final Cut Pro, CapCut, and other common editors.",
+    "All compatibility video is H.264 MP4 with 48 kHz guide audio when available. Isolated microphones are 48 kHz, 24-bit WAV.",
+    "",
+    "START HERE",
+    "1. Import everything inside 02 Camera Video and 03 Isolated Audio.",
+    "2. Use waveform synchronization / Auto Sync Audio. The camera files contain the shared guide audio recorded in the studio.",
+    "3. If automatic sync needs help, use 04 Project Notes/sync-map.csv. A positive offset means trim that amount from the source start; a negative offset means delay it.",
+    "4. Use 01 Reference Edit/what-about-it-reference-edit.mp4 as the visual and pacing reference.",
+    "5. Captions, markers, and the non-destructive What About It edit decision list are in 04 Project Notes.",
+    "6. Before copying or uploading, compare files against SHA256SUMS.txt if transfer integrity is in doubt.",
+    "",
+    `Episode ID: ${request.episodeId}`,
+    `Camera files: ${cameraOutputs.length}`,
+    `Isolated microphone files: ${audioOutputs.length}`,
+    "",
+    "The source recordings inside What About It Studio were not changed or deleted by this export."
+  ].join("\n");
+}
+
+async function copyIfExists(sourcePath: string, destinationPath: string) {
+  if (!(await fileExists(sourcePath))) return false;
+  await fs.mkdir(path.dirname(destinationPath), { recursive: true });
+  await fs.copyFile(sourcePath, destinationPath);
+  return true;
+}
+
+async function sha256File(filePath: string) {
+  const hash = createHash("sha256");
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", resolve);
+  });
+  return hash.digest("hex");
+}
+
+async function packageFiles(folder: string, current = folder): Promise<string[]> {
+  const entries = await fs.readdir(current, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const entryPath = path.join(current, entry.name);
+    if (entry.isDirectory()) files.push(...await packageFiles(folder, entryPath));
+    else if (entry.isFile() && !["SHA256SUMS.txt", "export-job.json", "export-log.txt", "export-summary.json"].includes(entry.name)) files.push(path.relative(folder, entryPath));
+  }
+  return files.sort((left, right) => left.localeCompare(right));
+}
+
+async function writeEditorHandoffNotes(request: ExportRequest, running: ExportJob, cameraOutputs: string[], audioOutputs: string[]) {
+  const notesFolder = path.join(running.outputFolder, "04 Project Notes");
+  await fs.mkdir(notesFolder, { recursive: true });
+  await Promise.all([
+    fs.writeFile(path.join(running.outputFolder, "README - START HERE.txt"), editorReadme(request, cameraOutputs, audioOutputs), "utf8"),
+    fs.writeFile(path.join(notesFolder, "sync-map.csv"), createSyncMap(request), "utf8"),
+    fs.writeFile(path.join(notesFolder, "markers.csv"), createMarkerCsv(request), "utf8"),
+    copyIfExists(path.join(episodeFolder(request.episodeId), "Session", "sync-metadata.json"), path.join(notesFolder, "recording-sync-metadata.json")),
+    copyIfExists(path.join(episodeFolder(request.episodeId), "Session", "capture-manifest.json"), path.join(notesFolder, "recording-capture-manifest.json"))
+  ]);
+  const files = await packageFiles(running.outputFolder);
+  const checksums: string[] = [];
+  for (const relativePath of files) {
+    checksums.push(`${await sha256File(path.join(running.outputFolder, relativePath))}  ${relativePath.split(path.sep).join("/")}`);
+  }
+  await fs.writeFile(path.join(running.outputFolder, "SHA256SUMS.txt"), `${checksums.join("\n")}\n`, "utf8");
+  return [
+    "README - START HERE.txt",
+    path.join("04 Project Notes", "sync-map.csv"),
+    path.join("04 Project Notes", "markers.csv"),
+    "SHA256SUMS.txt"
+  ];
+}
+
 async function createExportUnlocked(request: ExportRequest, report?: ExportProgressReporter): Promise<ExportJob> {
-  const folder = exportFolder(request.episodeId);
+  const folder = await requestExportFolder(request);
   const queued = createExportJob({
     episodeId: request.episodeId,
     type: request.type,
@@ -858,6 +1079,7 @@ async function createExportUnlocked(request: ExportRequest, report?: ExportProgr
   const reservedOutput = await nextAvailableExportPath(folder, outputFileName(request.type));
   const fileName = reservedOutput.fileName;
   const outputPath = reservedOutput.outputPath;
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
   const tools = await requireMediaTools();
   const sourceFile = request.practice ? await createPracticeSource(request.episodeId) : await findProgramRecording(request.episodeId);
   if (!sourceFile) {
@@ -919,26 +1141,37 @@ async function createExportUnlocked(request: ExportRequest, report?: ExportProgr
       : { video: true, audio: true, decode: true };
     const isPlayable = await validatePlayableMedia(outputPath, tools, requirements);
     if (!isPlayable) throw new Error("Export output could not be validated.");
-    const cameraOutputs = request.type === "full-episode-video" && !request.practice && request.includeCameraMasters !== false
-      ? await createCameraMasters(request, running, sourceDurationMs, controller.signal, report)
-      : [];
-    const audioOutputs = (request.type === "full-episode-video" || request.type === "archive-master") && !request.practice && request.includeAudioMasters !== false
-      ? await createAudioMasters(request, running, sourceDurationMs, controller.signal, report)
-      : [];
+    const cameraOutputs = request.type === "editor-handoff" && !request.practice
+      ? await createEditorCameraFiles(request, running, sourceDurationMs, controller.signal, report)
+      : request.type === "full-episode-video" && !request.practice && request.includeCameraMasters !== false
+        ? await createCameraMasters(request, running, sourceDurationMs, controller.signal, report)
+        : [];
+    const audioOutputs = request.type === "editor-handoff" && !request.practice
+      ? await createEditorAudioFiles(request, running, sourceDurationMs, controller.signal, report)
+      : (request.type === "full-episode-video" || request.type === "archive-master") && !request.practice && request.includeAudioMasters !== false
+        ? await createAudioMasters(request, running, sourceDurationMs, controller.signal, report)
+        : [];
     running = updateRunningJob(running, 95, "Finishing your export", report);
     const captionSidecar = createCaptionSidecar(request);
     let captionFile: string | undefined;
     if (captionSidecar) {
-      const reservedCaptions = await nextAvailableExportPath(folder, "captions.srt");
+      const reservedCaptions = await nextAvailableExportPath(folder, request.type === "editor-handoff" ? path.join("04 Project Notes", "captions.srt") : "captions.srt");
       captionFile = reservedCaptions.fileName;
+      await fs.mkdir(path.dirname(reservedCaptions.outputPath), { recursive: true });
       await fs.writeFile(reservedCaptions.outputPath, captionSidecar, "utf8");
     }
-    const reservedEditDecision = await nextAvailableExportPath(folder, "edit-decision-list.json");
+    const reservedEditDecision = await nextAvailableExportPath(folder, request.type === "editor-handoff" ? path.join("04 Project Notes", "edit-decision-list.json") : "edit-decision-list.json");
     const editDecisionFile = reservedEditDecision.fileName;
+    await fs.mkdir(path.dirname(reservedEditDecision.outputPath), { recursive: true });
     await fs.writeFile(reservedEditDecision.outputPath, JSON.stringify(compactTimelineDraftForPersistence(request.draft), null, 2), "utf8");
-    const outputFileNames = [fileName, ...cameraOutputs, ...audioOutputs, ...(captionFile ? [captionFile] : []), editDecisionFile];
+    const handoffNotes = request.type === "editor-handoff"
+      ? await writeEditorHandoffNotes(request, running, cameraOutputs, audioOutputs)
+      : [];
+    const outputFileNames = [fileName, ...cameraOutputs, ...audioOutputs, ...(captionFile ? [captionFile] : []), editDecisionFile, ...handoffNotes];
     const completeBase = completeExportJob(running, fileName);
-    const completionMessage = renderedDraft
+    const completionMessage = request.type === "editor-handoff"
+      ? `Editor handoff complete with ${cameraOutputs.length} camera file${cameraOutputs.length === 1 ? "" : "s"} and ${audioOutputs.length} isolated microphone file${audioOutputs.length === 1 ? "" : "s"}`
+      : renderedDraft
       ? `Export complete from your ${request.draft.editMode === "auto" ? "Auto Edit" : "manual"} draft`
       : cameraOutputs.length > 0
         ? `Export complete with ${cameraOutputs.length} camera master${cameraOutputs.length === 1 ? "" : "s"}`
@@ -974,6 +1207,16 @@ async function createExportUnlocked(request: ExportRequest, report?: ExportProgr
 }
 
 export async function createExport(request: ExportRequest, report?: ExportProgressReporter): Promise<ExportJob> {
+  if (request.type === "editor-handoff" && !request.destinationFolderPath) {
+    const failed = failExportJob(createExportJob({
+      episodeId: request.episodeId,
+      type: request.type,
+      qualityPreset: request.qualityPreset,
+      outputFolder: exportFolder(request.episodeId)
+    }), "destination-missing");
+    report?.(failed);
+    return failed;
+  }
   if (pendingExportEpisodes.has(request.episodeId)) {
     const failed = failExportJob(createExportJob({
       episodeId: request.episodeId,
@@ -994,14 +1237,14 @@ export async function createExport(request: ExportRequest, report?: ExportProgre
 
 export async function cancelExport(episodeId: string, job: ExportJob): Promise<ExportJob> {
   activeExports.get(episodeId)?.controller.abort();
-  const canceled = cancelExportJob({ ...job, outputFolder: exportFolder(episodeId) });
+  const canceled = cancelExportJob(job);
   await writeExportArtifacts(canceled);
   await logger.info("ExportService", "Canceled local export job.", { episodeId });
   return canceled;
 }
 
-export async function openExportFolder(episodeId: string): Promise<string> {
-  const folder = exportFolder(episodeId);
+export async function openExportFolder(episodeId: string, outputFolder?: string): Promise<string> {
+  const folder = outputFolder ?? exportFolder(episodeId);
   await fs.mkdir(folder, { recursive: true });
   await shell.openPath(folder);
   return folder;

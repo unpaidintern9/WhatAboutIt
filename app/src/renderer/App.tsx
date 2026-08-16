@@ -283,6 +283,7 @@ function getStudioBridge(): StudioBridge {
       message: "Export complete",
       outputFileName: "what-about-it-full-episode-video.mp4"
     }),
+    chooseExportDestinationFolder: async () => "review-only/Editor Handoff Destination",
     getMediaToolsStatus: async () => ({
       ready: true,
       message: "Media tools are ready"
@@ -334,6 +335,7 @@ export default function App() {
   const [includeCameraMasters, setIncludeCameraMasters] = useState(false);
   const [includeAudioMasters, setIncludeAudioMasters] = useState(false);
   const [exportMasteringMode, setExportMasteringMode] = useState<ExportMasteringMode>("measured");
+  const [exportDestinationFolder, setExportDestinationFolder] = useState<string | undefined>();
   const [exportJob, setExportJob] = useState<ExportJob | undefined>();
   const [mediaToolsStatus, setMediaToolsStatus] = useState<MediaToolsStatus | undefined>();
   const [reviewMedia, setReviewMedia] = useState<ReviewMediaInventory | undefined>();
@@ -829,6 +831,12 @@ export default function App() {
       }
     }
     if (!episodeId) return;
+    let destinationFolderPath = exportDestinationFolder;
+    if (selectedExportType === "editor-handoff" && !practice && !destinationFolderPath) {
+      destinationFolderPath = await studio.chooseExportDestinationFolder?.();
+      if (!destinationFolderPath) return;
+      setExportDestinationFolder(destinationFolderPath);
+    }
     setView("export");
     const job = await exportService.start({
       episodeId,
@@ -848,7 +856,8 @@ export default function App() {
       practice,
       includeCameraMasters,
       includeAudioMasters,
-      masteringMode: exportMasteringMode
+      masteringMode: exportMasteringMode,
+      destinationFolderPath
     });
     setExportJob(job);
   }
@@ -862,7 +871,12 @@ export default function App() {
   async function openExportFolder() {
     const episodeId = activeEpisode?.id ?? timelineDraft.episodeId;
     if (!episodeId) return;
-    await exportService.openFolder(episodeId);
+    await exportService.openFolder(episodeId, exportJob?.outputFolder);
+  }
+
+  async function chooseExportDestinationFolder() {
+    const folder = await studio.chooseExportDestinationFolder?.();
+    if (folder) setExportDestinationFolder(folder);
   }
 
   async function changeExportType(type: ExportType) {
@@ -1616,11 +1630,13 @@ export default function App() {
             includeCameraMasters={includeCameraMasters}
             includeAudioMasters={includeAudioMasters}
             masteringMode={exportMasteringMode}
+            destinationFolderPath={exportDestinationFolder}
             onTypeChange={(type) => void changeExportType(type)}
             onQualityChange={(preset) => void changeQualityPreset(preset)}
             onCameraMastersChange={setIncludeCameraMasters}
             onAudioMastersChange={setIncludeAudioMasters}
             onMasteringModeChange={setExportMasteringMode}
+            onChooseDestination={() => void chooseExportDestinationFolder()}
             onStartExport={() => void startExport(reviewMode)}
             onCancelExport={() => void cancelExport()}
             onOpenFolder={() => void openExportFolder()}

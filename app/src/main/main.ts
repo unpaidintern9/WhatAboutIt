@@ -399,9 +399,19 @@ app.whenReady().then(async () => {
   ipcMain.handle("review-media:treatment-preview", (_event, input) => renderTrackTreatmentPreview(input));
   ipcMain.handle("auto-edit:run", (_event, input) => runAutoEdit(input));
   ipcMain.handle("export:create", (event, input) => createExport(input, (job) => event.sender.send("export:progress", job)));
+  ipcMain.handle("export:choose-destination", async (event) => {
+    const parentWindow = BrowserWindow.fromWebContents(event.sender);
+    const options = {
+      title: "Choose where to save the editor handoff",
+      buttonLabel: "Use this folder",
+      properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">
+    };
+    const result = parentWindow ? await dialog.showOpenDialog(parentWindow, options) : await dialog.showOpenDialog(options);
+    return result.canceled ? undefined : result.filePaths[0];
+  });
   ipcMain.handle("export:media-tools-status", detectMediaTools);
   ipcMain.handle("export:cancel", (_event, input) => cancelExport(input.episodeId, input.job));
-  ipcMain.handle("export:open-folder", (_event, episodeId) => openExportFolder(episodeId));
+  ipcMain.handle("export:open-folder", (_event, input) => openExportFolder(input.episodeId, input.outputFolder));
   ipcMain.handle("diagnostics:create", (_event, input) => createDiagnosticsBundle(input));
   ipcMain.handle("storage:status", getStorageStatus);
   ipcMain.handle("app-update:get-status", () => appUpdateService.getStatus());

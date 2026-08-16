@@ -19,7 +19,7 @@ export class ExportService {
     return this.studio.cancelExport(episodeId, job);
   }
 
-  openFolder(episodeId: string): Promise<string> {
-    return this.studio.openExportFolder(episodeId);
+  openFolder(episodeId: string, outputFolder?: string): Promise<string> {
+    return this.studio.openExportFolder(episodeId, outputFolder);
   }
 }

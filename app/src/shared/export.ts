@@ -1,7 +1,7 @@
 import type { TimelineDraft } from "./timeline";
 import type { DeviceDefaults } from "./types";
 
-export type ExportType = "full-episode-video" | "audio-only" | "archive-master" | "social-clip-placeholder";
+export type ExportType = "full-episode-video" | "audio-only" | "archive-master" | "social-clip-placeholder" | "editor-handoff";
 export type ExportQualityPreset = "standard" | "high" | "archive";
 export type ExportJobStatus = "idle" | "queued" | "running" | "complete" | "canceled" | "error";
 export type ExportMasteringMode = "fast" | "measured";
@@ -22,6 +22,7 @@ export interface ExportRequest {
   includeCameraMasters?: boolean;
   includeAudioMasters?: boolean;
   masteringMode?: ExportMasteringMode;
+  destinationFolderPath?: string;
 }
 
 export interface MediaToolsStatus {
@@ -54,6 +55,7 @@ export type ExportFriendlyError =
   | "media-tools-missing"
   | "not-enough-space"
   | "clip-range-missing"
+  | "destination-missing"
   | "export-already-running"
   | "canceled"
   | "needs-attention";
@@ -94,6 +96,10 @@ export const exportTypeLabels: Record<ExportType, { title: string; description: 
   "social-clip-placeholder": {
     title: "Social Clip",
     description: "Vertical video from the selected timeline range"
+  },
+  "editor-handoff": {
+    title: "Editor Handoff",
+    description: "Compatible files for Premiere, Resolve, Final Cut, or CapCut"
   }
 };
 
@@ -102,6 +108,7 @@ export const exportFriendlyErrorCopy: Record<ExportFriendlyError, string> = {
   "media-tools-missing": "Media tools need setup before export",
   "not-enough-space": "There isn't enough space",
   "clip-range-missing": "Select a timeline range before exporting a social clip",
+  "destination-missing": "Choose where to save the editor handoff package",
   "export-already-running": "This episode already has an export running",
   canceled: "Export was canceled",
   "needs-attention": "Something needs attention before export"
