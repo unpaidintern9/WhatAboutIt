@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserMediaRecorderPlugin } from "./browser-media-recorder-plugin";
+import type { RecordingChunkInput } from "../../../shared/recording";
 
 class FakeTrack {
   readyState: MediaStreamTrackState = "live";
@@ -77,6 +78,7 @@ describe("BrowserMediaRecorderPlugin", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    Reflect.deleteProperty(window, "studio");
   });
 
   it("records every already-live selected camera without reopening the camera devices", async () => {
@@ -151,6 +153,48 @@ describe("BrowserMediaRecorderPlugin", () => {
     await plugin.stop();
 
     expect(getMicrophoneStream).toHaveBeenCalledWith("guest-input");
+  });
+
+  it("streams program and source chunks to disk instead of retaining the episode in renderer memory", async () => {
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const beginRecordingMedia = vi.fn(async () => undefined);
+    const appendRecordingChunk = vi.fn(async (_folderPath: string, chunk: RecordingChunkInput) => ({
+      bytesWritten: chunk.bytes.length,
+      lastChunkAt: "2026-08-15T12:00:00.000Z"
+    }));
+    Object.defineProperty(window, "studio", {
+      configurable: true,
+      value: { beginRecordingMedia, appendRecordingChunk }
+    });
+    const plugin = new BrowserMediaRecorderPlugin({
+      getCameraStream: () => streamWith(new FakeTrack("video", "camera-1")),
+      getMicrophoneStream: () => streamWith(new FakeTrack("audio", "mic-1"))
+    });
+
+    await plugin.start({
+      session: {
+        id: "session-disk",
+        episodeId: "episode-disk",
+        episodeTitle: "Disk First",
+        folderPath: "C:/recording/episode-disk",
+        startedAt: "2026-08-15T12:00:00.000Z",
+        status: "recording",
+        practice: false
+      },
+      deviceDefaults: {
+        cameras: { camera1: "camera-a" },
+        microphones: { morganMic: "mic-a" }
+      }
+    });
+    const result = await plugin.stop();
+
+    expect(beginRecordingMedia).toHaveBeenCalledWith("C:/recording/episode-disk");
+    expect(appendRecordingChunk.mock.calls.map((call) => call[1].target)).toEqual(expect.arrayContaining(["program", "camera1", "morganMic"]));
+    expect(result.persisted).toBe(true);
+    expect(result.bytes).toBeUndefined();
   });
 
   it("blocks recording when the same physical source route is assigned twice", async () => {

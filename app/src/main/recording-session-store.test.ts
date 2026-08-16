@@ -171,6 +171,59 @@ describe("recording session store", () => {
     expect(syncMetadata.trackStates?.guestMic?.message).toBe("Saved");
   }, 30000);
 
+  it("appends recoverable media chunks during recording, finalizes them, and mirrors verified media to a second folder", async () => {
+    const { appendRecordingChunk, beginRecordingMedia, createRecordingSession, finalizeRecordingMedia } = await import("./recording-session-store");
+    const { runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");
+    const programSource = path.join(mockPaths.episodesRoot, "disk-first-program.webm");
+    const audioSource = path.join(mockPaths.episodesRoot, "disk-first-audio.webm");
+    const backupRoot = path.join(mockPaths.episodesRoot, "external-backup");
+    await runFfmpeg([
+      "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=20",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", programSource
+    ]);
+    await runFfmpeg([
+      "-y", "-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000",
+      "-t", "1", "-c:a", "libopus", audioSource
+    ]);
+    const session = await createRecordingSession({
+      episodeId: "episode-disk-first",
+      episodeTitle: "Disk First",
+      backupFolderPath: backupRoot,
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+    });
+    await beginRecordingMedia(session.folderPath);
+
+    async function appendFile(target: "program" | "morganMic", kind: "program" | "audio", mimeType: string, source: string) {
+      const bytes = await fs.readFile(source);
+      let sequence = 0;
+      for (let offset = 0; offset < bytes.length; offset += 4096) {
+        await appendRecordingChunk(session.folderPath, {
+          target,
+          kind,
+          mimeType,
+          sequence,
+          bytes: bytes.subarray(offset, offset + 4096)
+        });
+        sequence += 1;
+      }
+    }
+
+    await Promise.all([
+      appendFile("program", "program", "video/webm", programSource),
+      appendFile("morganMic", "audio", "audio/webm", audioSource)
+    ]);
+    const result = await finalizeRecordingMedia(session.folderPath);
+
+    expect(result.integrity.playable).toBe(true);
+    expect(result.integrity.savedSourceCount).toBe(1);
+    expect(result.integrity.backupPath).toContain("disk-first");
+    expect(await validatePlayableMedia(result.programPath as string)).toBe(true);
+    expect(await validatePlayableMedia(result.tracks[0].filePath as string)).toBe(true);
+    await expect(fs.stat(path.join(result.integrity.backupPath as string, "Program", "program.webm"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(result.integrity.backupPath as string, "Audio", "morgan-mic.m4a"))).resolves.toBeTruthy();
+  }, 30000);
+
   it("keeps preview-only track states truthful", async () => {
     const { createRecordingSession, saveRecordedTracks } = await import("./recording-session-store");
     const session = await createRecordingSession({
@@ -198,7 +251,7 @@ describe("recording session store", () => {
   });
 
   it("detects unfinished recording sessions for recovery", async () => {
-    const { createRecordingSession, listUnfinishedRecordingSessions } = await import("./recording-session-store");
+    const { appendRecordingChunk, beginRecordingMedia, createRecordingSession, listUnfinishedRecordingSessions } = await import("./recording-session-store");
     const session = await createRecordingSession({
       episodeId: "episode-recovery",
       episodeTitle: "Recovery Recording",
@@ -207,11 +260,19 @@ describe("recording session store", () => {
         microphones: { morganMic: "mic-a" }
       }
     });
+    await beginRecordingMedia(session.folderPath);
+    await appendRecordingChunk(session.folderPath, {
+      target: "program",
+      kind: "program",
+      mimeType: "video/webm",
+      sequence: 0,
+      bytes: new Uint8Array([1, 2, 3, 4])
+    });
 
     const unfinished = await listUnfinishedRecordingSessions();
 
     expect(unfinished).toHaveLength(1);
-    expect(unfinished[0]).toMatchObject({ id: session.id, status: "interrupted" });
+    expect(unfinished[0]).toMatchObject({ id: session.id, status: "interrupted", recoverableBytes: 4 });
   });
 
   it("marks the session complete when recording state stops", async () => {

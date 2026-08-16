@@ -1,9 +1,10 @@
 import type { DeviceDefaults } from "../../../shared/types";
-import type { RecordingTrackSaveInput } from "../../../shared/recording";
+import type { RecordingIntegrityReport, RecordingSession, RecordingSourceHealth, RecordingTrackSaveInput } from "../../../shared/recording";
 
 export interface RecordingStartRequest {
   deviceDefaults: DeviceDefaults;
   practice?: boolean;
+  session?: RecordingSession;
 }
 
 export interface RecordingEngineResult {
@@ -11,6 +12,8 @@ export interface RecordingEngineResult {
   mimeType?: string;
   tracks?: RecordingTrackSaveInput[];
   warning?: string;
+  persisted?: boolean;
+  integrity?: RecordingIntegrityReport;
 }
 
 export interface RecordingEngineHealth {
@@ -20,6 +23,7 @@ export interface RecordingEngineHealth {
   expectedCameraTracks: number;
   expectedAudioTracks: number;
   warnings: string[];
+  sources: RecordingSourceHealth[];
 }
 
 export interface RecordingEnginePlugin {

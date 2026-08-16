@@ -3,6 +3,7 @@ import type { DeviceDefaults } from "./types";
 export type RecordingStatus = "idle" | "recording" | "paused" | "stopped" | "interrupted" | "error";
 export type RecordingTrackKind = "camera" | "audio";
 export type RecordingTrackSlot = "camera1" | "camera2" | "camera3" | "morganMic" | "guestMic" | "extraMic";
+export type RecordingMediaTarget = "program" | RecordingTrackSlot;
 export type RecordingTrackSaveStatus = "saved" | "preview-only" | "needs-attention";
 
 export interface RecordingTrackSaveInput {
@@ -31,6 +32,41 @@ export interface RecordingSession {
   stoppedAt?: string;
   status: RecordingStatus;
   practice: boolean;
+  backupFolderPath?: string;
+  recoverableBytes?: number;
+}
+
+export interface RecordingChunkInput {
+  target: RecordingMediaTarget;
+  kind: "program" | RecordingTrackKind;
+  mimeType: string;
+  sequence: number;
+  bytes: Uint8Array;
+}
+
+export interface RecordingSourceHealth {
+  target: RecordingMediaTarget;
+  kind: "program" | RecordingTrackKind;
+  active: boolean;
+  bytesWritten: number;
+  lastChunkAt?: string;
+  message: string;
+}
+
+export interface RecordingIntegrityReport {
+  checkedAt: string;
+  playable: boolean;
+  programPlayable: boolean;
+  savedSourceCount: number;
+  expectedSourceCount: number;
+  warnings: string[];
+  backupPath?: string;
+}
+
+export interface RecordingFinalizeResult {
+  programPath?: string;
+  tracks: RecordingTrackSaveResult[];
+  integrity: RecordingIntegrityReport;
 }
 
 export interface RecordingState {
@@ -97,6 +133,7 @@ export interface RecordingSessionCreateInput {
   episodeTitle?: string;
   deviceDefaults: DeviceDefaults;
   practice?: boolean;
+  backupFolderPath?: string;
 }
 
 export const requiredRecordingSessionFolders = ["Program", "Cameras", "Audio", "Backup", "Session", "Logs"] as const;

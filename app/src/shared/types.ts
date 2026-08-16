@@ -30,7 +30,33 @@ export interface StudioSettings {
   };
   studioWorkspace?: StudioWorkspaceSettings;
   autoEditLearning?: AutoEditLearningProfile;
+  recordingPreferences?: RecordingPreferences;
+  recordingTemplate?: RecordingTemplate;
 }
+
+export interface RecordingPreferences {
+  countdownSeconds: 0 | 3 | 5;
+  syncCueEnabled: boolean;
+  confirmStopAfterSeconds: number;
+  plannedDurationMinutes: number;
+  liveModeEnabled: boolean;
+  backupFolderPath?: string;
+}
+
+export interface RecordingTemplate {
+  name: string;
+  savedAt: string;
+  deviceDefaults: DeviceDefaults;
+  preferences: RecordingPreferences;
+}
+
+export const defaultRecordingPreferences: RecordingPreferences = {
+  countdownSeconds: 3,
+  syncCueEnabled: true,
+  confirmStopAfterSeconds: 30,
+  plannedDurationMinutes: 120,
+  liveModeEnabled: true
+};
 
 export type CameraSlotKey = "camera1" | "camera2" | "camera3";
 export type MicrophoneSlotKey = "morganMic" | "guestMic" | "extraMic";

@@ -3,6 +3,9 @@ import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import type {
   RecordingSession,
+  RecordingChunkInput,
+  RecordingFinalizeResult,
+  RecordingMediaTarget,
   RecordingSessionCreateInput,
   RecordingState,
   RecordingTrackSaveInput,
@@ -61,7 +64,8 @@ export async function createRecordingSession(input: RecordingSessionCreateInput)
     folderPath,
     startedAt: now,
     status: input.practice ? "stopped" : "recording",
-    practice: Boolean(input.practice)
+    practice: Boolean(input.practice),
+    backupFolderPath: input.backupFolderPath
   };
 
   const state = createInitialRecordingState(session.id, now);
@@ -85,6 +89,237 @@ export async function createRecordingSession(input: RecordingSessionCreateInput)
   await logger.info("RecordingService", "Created local recording session.", { sessionId: session.id, episodeId });
 
   return session;
+}
+
+interface CaptureManifestSource {
+  target: RecordingMediaTarget;
+  kind: RecordingChunkInput["kind"];
+  mimeType: string;
+  partialPath: string;
+  bytesWritten: number;
+  lastSequence: number;
+  lastChunkAt: string;
+}
+
+interface CaptureManifest {
+  sessionId: string;
+  startedAt: string;
+  updatedAt: string;
+  sources: Partial<Record<RecordingMediaTarget, CaptureManifestSource>>;
+}
+
+const captureManifestQueues = new Map<string, Promise<void>>();
+
+function assertRecordingFolder(folderPath: string) {
+  const episodesRoot = path.resolve(getEpisodesRoot());
+  const resolved = path.resolve(folderPath);
+  if (resolved !== episodesRoot && !resolved.startsWith(`${episodesRoot}${path.sep}`)) {
+    throw new Error("Recording folder is outside the local episodes library.");
+  }
+  return resolved;
+}
+
+function captureManifestPath(folderPath: string) {
+  return path.join(folderPath, "Session", "capture-manifest.json");
+}
+
+function mediaBaseName(target: RecordingMediaTarget) {
+  if (target === "program") return "program";
+  if (target.startsWith("camera")) return target.replace("camera", "camera-");
+  if (target === "morganMic") return "morgan-mic";
+  if (target === "guestMic") return "guest-mic";
+  return "extra-mic";
+}
+
+function partialMediaPath(folderPath: string, target: RecordingMediaTarget, mimeType: string) {
+  if (target === "program") return path.join(folderPath, "Program", "program.partial.webm");
+  if (target.startsWith("camera")) return path.join(folderPath, "Cameras", `${mediaBaseName(target)}.partial.webm`);
+  const extension = mimeType.includes("mp4") || mimeType.includes("m4a") ? "m4a" : "webm";
+  return path.join(folderPath, "Audio", `${mediaBaseName(target)}.source.partial.${extension}`);
+}
+
+async function enqueueManifestWrite(folderPath: string, update: () => Promise<void>) {
+  const previous = captureManifestQueues.get(folderPath) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(update);
+  captureManifestQueues.set(folderPath, next);
+  try {
+    await next;
+  } finally {
+    if (captureManifestQueues.get(folderPath) === next) captureManifestQueues.delete(folderPath);
+  }
+}
+
+async function backupExistingRecordingFiles(folderPath: string) {
+  const candidates = [
+    path.join(folderPath, "Program", "program.webm"),
+    ...(["camera-1.webm", "camera-2.webm", "camera-3.webm"] as const).map((name) => path.join(folderPath, "Cameras", name)),
+    ...(["morgan-mic.m4a", "guest-mic.m4a", "extra-mic.m4a"] as const).map((name) => path.join(folderPath, "Audio", name))
+  ];
+  const existing: string[] = [];
+  for (const candidate of candidates) {
+    try {
+      if ((await fs.stat(candidate)).size > 0) existing.push(candidate);
+    } catch {
+      // A new episode normally has no previous media.
+    }
+  }
+  if (existing.length === 0) return;
+  const backupFolder = path.join(folderPath, "Backup", "Recordings", new Date().toISOString().replace(/[:.]/g, "-"));
+  await fs.mkdir(backupFolder, { recursive: true });
+  await Promise.all(existing.map((source) => fs.copyFile(source, path.join(backupFolder, path.basename(source)))));
+}
+
+export async function beginRecordingMedia(folderPath: string) {
+  const safeFolder = assertRecordingFolder(folderPath);
+  const session = await readJsonFile<RecordingSession>(path.join(safeFolder, "Session", "recording-session.json"));
+  if (!session) throw new Error("Recording session could not be opened.");
+  await backupExistingRecordingFiles(safeFolder);
+  const partialCandidates = [
+    partialMediaPath(safeFolder, "program", "video/webm"),
+    ...(["camera1", "camera2", "camera3"] as const).map((target) => partialMediaPath(safeFolder, target, "video/webm")),
+    ...(["morganMic", "guestMic", "extraMic"] as const).flatMap((target) => [
+      partialMediaPath(safeFolder, target, "audio/webm"),
+      partialMediaPath(safeFolder, target, "audio/mp4")
+    ])
+  ];
+  await Promise.all(partialCandidates.map((candidate) => fs.rm(candidate, { force: true })));
+  const now = new Date().toISOString();
+  const manifest: CaptureManifest = { sessionId: session.id, startedAt: now, updatedAt: now, sources: {} };
+  await writeJson(captureManifestPath(safeFolder), manifest);
+  return manifest;
+}
+
+export async function appendRecordingChunk(folderPath: string, chunk: RecordingChunkInput) {
+  const safeFolder = assertRecordingFolder(folderPath);
+  if (chunk.bytes.length === 0) return { bytesWritten: 0, lastChunkAt: new Date().toISOString() };
+  const partialPath = partialMediaPath(safeFolder, chunk.target, chunk.mimeType);
+  await fs.appendFile(partialPath, chunk.bytes);
+  const stats = await fs.stat(partialPath);
+  const lastChunkAt = new Date().toISOString();
+  if (chunk.sequence === 0 || chunk.sequence % 5 === 0) {
+    await enqueueManifestWrite(safeFolder, async () => {
+      const manifestPath = captureManifestPath(safeFolder);
+      const current = await readJsonFile<CaptureManifest>(manifestPath);
+      if (!current) throw new Error("Recording capture manifest is missing.");
+      current.updatedAt = lastChunkAt;
+      current.sources[chunk.target] = {
+        target: chunk.target,
+        kind: chunk.kind,
+        mimeType: chunk.mimeType,
+        partialPath,
+        bytesWritten: stats.size,
+        lastSequence: chunk.sequence,
+        lastChunkAt
+      };
+      await writeJson(manifestPath, current);
+    });
+  }
+  return { bytesWritten: stats.size, lastChunkAt };
+}
+
+async function finalizeProgramSource(folderPath: string, source?: CaptureManifestSource) {
+  if (!source) return { programPath: undefined, playable: false };
+  const finalPath = path.join(folderPath, "Program", "program.webm");
+  await fs.rm(finalPath, { force: true });
+  await fs.rename(source.partialPath, finalPath);
+  return { programPath: finalPath, playable: await isPlayableRecording(finalPath) };
+}
+
+async function finalizeTrackSource(folderPath: string, source: CaptureManifestSource): Promise<RecordingTrackSaveResult> {
+  const slot = source.target as RecordingTrackSlot;
+  try {
+    if (source.kind === "camera") {
+      const finalPath = path.join(folderPath, "Cameras", `${mediaBaseName(slot)}.webm`);
+      await fs.rm(finalPath, { force: true });
+      await fs.rename(source.partialPath, finalPath);
+      if (!(await isPlayableRecording(finalPath))) throw new Error("Camera track failed validation.");
+      return { slot, kind: "camera", status: "saved", filePath: finalPath, message: "Saved and verified" };
+    }
+    const finalPath = path.join(folderPath, "Audio", `${mediaBaseName(slot)}.m4a`);
+    await fs.rm(finalPath, { force: true });
+    await runFfmpeg(["-y", "-i", source.partialPath, "-vn", "-c:a", "aac", "-b:a", "160k", finalPath]);
+    if (!(await isPlayableRecording(finalPath))) throw new Error("Audio track failed validation.");
+    await fs.rm(source.partialPath, { force: true });
+    return { slot, kind: "audio", status: "saved", filePath: finalPath, message: "Saved and verified" };
+  } catch (error) {
+    await appendRecordingError(folderPath, `${slot} could not be finalized: ${String(error)}`);
+    return { slot, kind: source.kind === "camera" ? "camera" : "audio", status: "needs-attention", message: "Partial recording kept for recovery" };
+  }
+}
+
+async function copyFinalizedRecordingToBackup(session: RecordingSession, programPath: string | undefined, tracks: RecordingTrackSaveResult[]) {
+  if (!session.backupFolderPath) return undefined;
+  const backupPath = path.join(session.backupFolderPath, `${slugify(session.episodeTitle)}-${session.id.slice(0, 8)}`);
+  await fs.mkdir(backupPath, { recursive: true });
+  const files = [programPath, ...tracks.map((track) => track.filePath)].filter((filePath): filePath is string => Boolean(filePath));
+  await Promise.all(files.map(async (source) => {
+    const group = path.basename(path.dirname(source));
+    const destinationFolder = path.join(backupPath, group);
+    await fs.mkdir(destinationFolder, { recursive: true });
+    await fs.copyFile(source, path.join(destinationFolder, path.basename(source)));
+  }));
+  return backupPath;
+}
+
+export async function finalizeRecordingMedia(folderPath: string): Promise<RecordingFinalizeResult> {
+  const safeFolder = assertRecordingFolder(folderPath);
+  await captureManifestQueues.get(safeFolder)?.catch(() => undefined);
+  const manifest = await readJsonFile<CaptureManifest>(captureManifestPath(safeFolder));
+  const session = await readJsonFile<RecordingSession>(path.join(safeFolder, "Session", "recording-session.json"));
+  if (!manifest || !session) throw new Error("Recording recovery information is missing.");
+  const sources = Object.values(manifest.sources).filter((source): source is CaptureManifestSource => Boolean(source));
+  const programSource = sources.find((source) => source.target === "program");
+  const trackSources = sources.filter((source) => source.target !== "program");
+  const [{ programPath, playable: programPlayable }, tracks] = await Promise.all([
+    finalizeProgramSource(safeFolder, programSource),
+    Promise.all(trackSources.map((source) => finalizeTrackSource(safeFolder, source)))
+  ]);
+  const savedTracks = tracks.filter((track) => track.status === "saved");
+  let backupPath: string | undefined;
+  const warnings = tracks.filter((track) => track.status !== "saved").map((track) => `${track.slot}: ${track.message}`);
+  if (!programPlayable) warnings.unshift("Program recording needs attention; partial source files were preserved.");
+  try {
+    backupPath = await copyFinalizedRecordingToBackup(session, programPath, tracks);
+  } catch (error) {
+    warnings.push(`Secondary backup failed: ${String(error)}`);
+    await appendRecordingError(safeFolder, warnings.at(-1) ?? "Secondary backup failed.");
+  }
+  const integrity = {
+    checkedAt: new Date().toISOString(),
+    playable: programPlayable && savedTracks.length === trackSources.length,
+    programPlayable,
+    savedSourceCount: savedTracks.length,
+    expectedSourceCount: trackSources.length,
+    warnings,
+    backupPath
+  };
+  const syncMetadataPath = path.join(safeFolder, "Session", "sync-metadata.json");
+  const syncMetadata = (await readJsonFile<SyncMetadata>(syncMetadataPath)) ?? createSyncMetadata({ cameras: {}, microphones: {} });
+  const savedMediaFiles = { ...syncMetadata.savedMediaFiles, ...(programPath && programPlayable ? { program: programPath } : {}) };
+  const trackStates = { ...syncMetadata.trackStates };
+  for (const result of tracks) {
+    trackStates[result.slot] = result;
+    if (result.status === "saved" && result.filePath) savedMediaFiles[result.slot] = result.filePath;
+  }
+  await Promise.all([
+    writeJson(syncMetadataPath, {
+      ...syncMetadata,
+      savedMediaFiles,
+      trackStates,
+      validation: { programPlayable, validatedAt: integrity.checkedAt }
+    }),
+    writeJson(path.join(safeFolder, "Session", "recording-integrity.json"), integrity)
+  ]);
+  await logger.info("RecordingService", "Finalized disk-first recording media.", { sessionId: session.id, programPlayable, savedSources: savedTracks.length, backupPath });
+  return { programPath: programPlayable ? programPath : undefined, tracks, integrity };
+}
+
+export async function recoverRecordingSession(folderPath: string) {
+  const result = await finalizeRecordingMedia(folderPath);
+  const statePath = path.join(assertRecordingFolder(folderPath), "Session", "recording-state.json");
+  const state = await readJsonFile<RecordingState>(statePath);
+  if (state) await writeRecordingState(folderPath, { ...state, status: result.integrity.programPlayable ? "stopped" : "interrupted" });
+  return result;
 }
 
 async function ensureRecordingMetadata(folderPath: string, metadata: EpisodeMetadata) {
@@ -266,7 +501,9 @@ export async function listUnfinishedRecordingSessions() {
       const state = await readJsonFile<RecordingState>(statePath);
 
       if (session && state && isUnfinishedRecordingState(state)) {
-        results.push({ ...session, status: "interrupted" });
+        const manifest = await readJsonFile<CaptureManifest>(captureManifestPath(folderPath));
+        const recoverableBytes = Object.values(manifest?.sources ?? {}).reduce((total, source) => total + (source?.bytesWritten ?? 0), 0);
+        results.push({ ...session, status: "interrupted", recoverableBytes });
       }
     }
 

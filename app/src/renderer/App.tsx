@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpen, Brush, Camera, CheckCircle2, Clapperboard, Circle, Compass, Download, FolderOpen, Headphones, HardDrive, Mic2, Plus, RefreshCw, Scissors, Settings, ShieldCheck, Sparkles, ListVideo, Wand2, X } from "lucide-react";
-import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
+import type { DeviceDefaults, EpisodeMetadata, RecordingPreferences, StudioSettings } from "../shared/types";
+import { defaultRecordingPreferences } from "../shared/types";
 import type { RecordingSession } from "../shared/recording";
 import type { PodcastToolsState, SoundSlot } from "../shared/podcast-tools";
 import { createDefaultPodcastToolsState, createLiveMarker, withPodcastToolDefaults } from "../shared/podcast-tools";
@@ -20,6 +21,7 @@ import { defaultDeviceDefaults, getDeviceAssignmentConflicts, withDeviceDefaults
 import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
 import { createHardwareTestResults, didDeviceDisconnectDuringRecording, getHardwareDeviceReadiness, getExportTestStatus, getFriendlyHardwareFailureMessage, getNextHardwareTestStep, getRecordingTestStatus, type DiagnosticsBundleResult, type HardwareDeviceSummary } from "../shared/hardware-test";
 import type { StorageStatus } from "../shared/diagnostics";
+import { assessRecordingStorage } from "../shared/diagnostics";
 import { AutoEditReview, Button, CameraPreview, DeviceSetupWizard, ExportEpisode, RecordingStudio, TimelineReview } from "./components";
 import { AudioMeter } from "./components";
 import { StudioPopOutPanel } from "./components/StudioToolPanels";
@@ -51,13 +53,21 @@ const fallbackSettings: StudioSettings = {
   exportSettings: defaultExportSettings,
   onboarding: { guidedTour: "show" },
   ui: { sidebarCollapsed: true },
-  studioWorkspace: defaultStudioWorkspaceState.settings
+  studioWorkspace: defaultStudioWorkspaceState.settings,
+  recordingPreferences: defaultRecordingPreferences
 };
 
 function withExportSettings(settings: StudioSettings): StudioSettings {
   return {
     ...settings,
     exportSettings: { ...defaultExportSettings, ...settings.exportSettings }
+  };
+}
+
+function withRecordingSettings(settings: StudioSettings): StudioSettings {
+  return {
+    ...settings,
+    recordingPreferences: { ...defaultRecordingPreferences, ...settings.recordingPreferences }
   };
 }
 
@@ -290,7 +300,7 @@ function getStudioBridge(): StudioBridge {
     }),
     getStorageStatus: async () => ({
       message: "Storage check ready",
-      availableBytes: 1024 * 1024 * 1024
+      availableBytes: 100 * 1024 * 1024 * 1024
     })
   };
 }
@@ -403,7 +413,7 @@ export default function App() {
 
   useEffect(() => {
     void studio.getSettings().then((nextSettings) => {
-      const hydratedSettings = withExportSettings(withDeviceDefaults(nextSettings));
+      const hydratedSettings = withRecordingSettings(withExportSettings(withDeviceDefaults(nextSettings)));
       setSettings(hydratedSettings);
       setSelectedExportType(hydratedSettings.exportSettings?.defaultExportType ?? defaultExportSettings.defaultExportType);
       setSelectedQualityPreset(hydratedSettings.exportSettings?.qualityPreset ?? defaultExportSettings.qualityPreset);
@@ -429,6 +439,14 @@ export default function App() {
     void studio.getStorageStatus().then(setStorageStatus);
     void studio.getLocalTranscriptionStatus?.().then(setLocalTranscriptionStatus);
   }, [studio]);
+
+  useEffect(() => {
+    if (recordingSnapshot.status !== "recording" && recordingSnapshot.status !== "paused") return undefined;
+    const timer = window.setInterval(() => {
+      void studio.getStorageStatus().then(setStorageStatus);
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [recordingSnapshot.status, studio]);
 
   useEffect(() => {
     void studio.getAppUpdateStatus?.().then(setAppUpdateStatus);
@@ -506,14 +524,18 @@ export default function App() {
 
         if (disconnected) {
           setHardwareTestMessage("A device disconnected, so we stopped safely. Check the cable, then try again.");
-          void stopHardwareTestRecording("A device disconnected, so we stopped safely. Check the cable, then try again.");
+          if (view === "hardware-test") {
+            void stopHardwareTestRecording("A device disconnected, so we stopped safely. Check the cable, then try again.");
+          } else {
+            void stopRecording();
+          }
         }
       });
     };
 
     navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
     return () => navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
-  }, [exportJob?.status, recordingService, settings.deviceDefaults]);
+  }, [exportJob?.status, recordingService, settings.deviceDefaults, view]);
 
   async function refreshEpisodes() {
     const nextEpisodes = await studio.listEpisodes();
@@ -1050,7 +1072,48 @@ export default function App() {
   }
 
   async function saveDeviceDefaults(deviceDefaults: DeviceDefaults) {
-    const nextSettings = withExportSettings(withDeviceDefaults({ ...settings, deviceDefaults }));
+    const nextSettings = withRecordingSettings(withExportSettings(withDeviceDefaults({ ...settings, deviceDefaults })));
+    setSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
+  }
+
+  async function saveRecordingPreferences(recordingPreferences: RecordingPreferences) {
+    const nextSettings = { ...settings, recordingPreferences };
+    setSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
+  }
+
+  async function chooseRecordingBackupFolder() {
+    const backupFolderPath = await studio.chooseRecordingBackupFolder?.();
+    if (!backupFolderPath) return;
+    await saveRecordingPreferences({
+      ...defaultRecordingPreferences,
+      ...settings.recordingPreferences,
+      backupFolderPath
+    });
+  }
+
+  async function saveRecordingTemplate() {
+    const nextSettings: StudioSettings = {
+      ...settings,
+      recordingTemplate: {
+        name: "Morgan's podcast setup",
+        savedAt: new Date().toISOString(),
+        deviceDefaults: settings.deviceDefaults,
+        preferences: { ...defaultRecordingPreferences, ...settings.recordingPreferences }
+      }
+    };
+    setSettings(nextSettings);
+    await studio.saveSettings(nextSettings);
+  }
+
+  async function applyRecordingTemplate() {
+    if (!settings.recordingTemplate) return;
+    const nextSettings = withRecordingSettings(withExportSettings(withDeviceDefaults({
+      ...settings,
+      deviceDefaults: settings.recordingTemplate.deviceDefaults,
+      recordingPreferences: settings.recordingTemplate.preferences
+    })));
     setSettings(nextSettings);
     await studio.saveSettings(nextSettings);
   }
@@ -1123,7 +1186,8 @@ export default function App() {
     const snapshot = await recordingService.start(settings.deviceDefaults, {
       episodeId: episode.id,
       episodeTitle: episode.title,
-      practice: false
+      practice: false,
+      backupFolderPath: settings.recordingPreferences?.backupFolderPath
     });
     setRecordingSnapshot(snapshot);
 
@@ -1134,6 +1198,24 @@ export default function App() {
       }, 30000);
     } else {
       setHardwareTestMessage(getFriendlyHardwareFailureMessage("recording"));
+    }
+  }
+
+  async function startQuickTestRecording() {
+    const episode = await createHardwareTestEpisode();
+    setHardwareTestMessage("Recording a 15-second camera and microphone check directly to disk.");
+    const snapshot = await recordingService.start(settings.deviceDefaults, {
+      episodeId: episode.id,
+      episodeTitle: episode.title,
+      practice: false,
+      backupFolderPath: settings.recordingPreferences?.backupFolderPath
+    });
+    setRecordingSnapshot(snapshot);
+    if (snapshot.status === "recording") {
+      if (hardwareStopTimerRef.current) window.clearTimeout(hardwareStopTimerRef.current);
+      hardwareStopTimerRef.current = window.setTimeout(() => {
+        void stopHardwareTestRecording("Quick test saved and verified. Review it before the full episode.");
+      }, 15000);
     }
   }
 
@@ -1201,7 +1283,8 @@ export default function App() {
     const nextSnapshot = await recordingService.start(settings.deviceDefaults, {
       episodeId: activeEpisode?.id,
       episodeTitle: activeEpisode?.title,
-      practice
+      practice,
+      backupFolderPath: settings.recordingPreferences?.backupFolderPath
     });
     setRecordingSnapshot(nextSnapshot);
 
@@ -1249,6 +1332,13 @@ export default function App() {
   const selectedMicReady = deviceDetection.microphones.some((microphone) => microphone.id === settings.deviceDefaults.microphones.morganMic);
   const studioReady = selectedCameraReady && selectedMicReady && getDeviceAssignmentConflicts(settings.deviceDefaults).length === 0;
   const reviewReady = Boolean(reviewMedia?.hasPlayableProgram || recordingSnapshot.status === "stopped");
+  const recordingPreferences = { ...defaultRecordingPreferences, ...settings.recordingPreferences };
+  const recordingStorage = assessRecordingStorage({
+    status: storageStatus,
+    cameraCount: Object.values(settings.deviceDefaults.cameras).filter(Boolean).length,
+    microphoneCount: Object.values(settings.deviceDefaults.microphones).filter(Boolean).length,
+    estimatedMinutes: recordingPreferences.plannedDurationMinutes
+  });
 
   if (popOutPanelId) {
     return (
@@ -1391,13 +1481,16 @@ export default function App() {
             snapshot={recordingSnapshot}
             unfinishedSessions={unfinishedSessions}
             podcastTools={podcastTools}
-            storageWarning={undefined}
+            storageWarning={recordingStorage.ready ? undefined : recordingStorage.message}
+            storageMessage={recordingStorage.message}
+            recordingPreferences={recordingPreferences}
+            recordingTemplate={settings.recordingTemplate}
             onStart={() => startRecording(false)}
+            onQuickTest={() => startQuickTestRecording()}
             onPause={() => void pauseRecording()}
             onResume={() => void resumeRecording()}
             onStop={async () => {
               await stopRecording();
-              setView("timeline-review");
             }}
             onAutoEdit={() => void runAutoEditFlow(reviewMode)}
             onExport={() => {
@@ -1405,6 +1498,26 @@ export default function App() {
               void startExport(reviewMode);
             }}
             onDismissRecovery={() => setUnfinishedSessions([])}
+            onRecoverSession={async (session) => {
+              const recovered = await studio.recoverRecordingSession?.(session.folderPath);
+              if (recovered) {
+                setRecordingSnapshot((current) => ({
+                  ...current,
+                  status: recovered.integrity.programPlayable ? "stopped" : "interrupted",
+                  session,
+                  trackStatuses: recovered.tracks,
+                  integrity: recovered.integrity,
+                  friendlyError: recovered.integrity.programPlayable ? undefined : "Recovered files still need attention."
+                }));
+              }
+              await refreshUnfinishedSessions();
+              await refreshEpisodes();
+            }}
+            onOpenSessionFolder={(session) => void studio.openRecordingFolder?.(session.folderPath)}
+            onRecordingPreferencesChange={(preferences) => void saveRecordingPreferences(preferences)}
+            onChooseBackupFolder={() => void chooseRecordingBackupFolder()}
+            onSaveTemplate={() => void saveRecordingTemplate()}
+            onApplyTemplate={() => void applyRecordingTemplate()}
             onNext={() => {
               setView("timeline-review");
             }}
