@@ -35,4 +35,47 @@ describe("TimelineCaptionPanel", () => {
     act(() => root.unmount());
     host.remove();
   });
+
+  it("adds free local Whisper results as one undoable caption change", async () => {
+    const draft = createTimelineDraft({ deviceDefaults: { cameras: {}, microphones: {} }, durationMs: 30000 });
+    const onDraftChange = vi.fn();
+    const onTranscribeLocally = vi.fn(async () => ({
+      modelName: "Whisper base.en Q5_1",
+      message: "2 caption cues created locally.",
+      cues: [
+        { id: "whisper-1", startMs: 1000, endMs: 3000, text: "Welcome back." },
+        { id: "whisper-2", startMs: 3000, endMs: 6000, text: "Here is our guest." }
+      ]
+    }));
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(
+        <TimelineCaptionPanel
+          draft={draft}
+          playheadMs={0}
+          rangeStartMs={0}
+          rangeEndMs={30000}
+          hasSelectedRange={false}
+          onDraftChange={onDraftChange}
+          transcriptionStatus={{ supported: true, ready: false, modelName: "Whisper base.en Q5_1", modelSizeBytes: 59721011, message: "First use downloads the free model." }}
+          onTranscribeLocally={onTranscribeLocally}
+        />
+      );
+    });
+
+    const button = Array.from(host.querySelectorAll("button")).find((candidate) => candidate.textContent?.includes("Transcribe episode locally")) as HTMLButtonElement;
+    await act(async () => button.click());
+
+    expect(onTranscribeLocally).toHaveBeenCalledOnce();
+    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
+      captions: expect.arrayContaining([expect.objectContaining({ text: "Welcome back." })]),
+      history: [expect.objectContaining({ label: "Transcribe episode locally" })]
+    }));
+    expect(host.textContent).toContain("2 caption cues created locally.");
+
+    act(() => root.unmount());
+    host.remove();
+  });
 });

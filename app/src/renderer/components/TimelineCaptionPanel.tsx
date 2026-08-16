@@ -1,6 +1,7 @@
 import { memo, useRef, useState, type ChangeEvent } from "react";
-import { Captions, FileUp, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Captions, FileUp, Mic2, Plus, Sparkles, Square, Trash2 } from "lucide-react";
 import { autoTimeTranscript, parseTimedCaptionDocument } from "../../shared/captions";
+import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../../shared/local-transcription";
 import type { TimelineCaptionCue, TimelineDraft } from "../../shared/timeline";
 import { addTimelineCaption, removeTimelineCaption, replaceTimelineCaptions, updateTimelineCaption } from "../../shared/timeline";
 import { formatRecordingTime } from "../services";
@@ -12,24 +13,65 @@ interface TimelineCaptionPanelProps {
   rangeEndMs: number;
   hasSelectedRange: boolean;
   onDraftChange: (draft: TimelineDraft) => void;
+  transcriptionStatus?: LocalTranscriptionStatus;
+  transcriptionProgress?: LocalTranscriptionProgress;
+  onTranscribeLocally?: () => Promise<LocalTranscriptionResult>;
+  onCancelTranscription?: () => Promise<void>;
 }
 
-export const TimelineCaptionPanel = memo(function TimelineCaptionPanel({ draft, playheadMs, rangeStartMs, rangeEndMs, hasSelectedRange, onDraftChange }: TimelineCaptionPanelProps) {
+export const TimelineCaptionPanel = memo(function TimelineCaptionPanel({
+  draft,
+  playheadMs,
+  rangeStartMs,
+  rangeEndMs,
+  hasSelectedRange,
+  onDraftChange,
+  transcriptionStatus,
+  transcriptionProgress,
+  onTranscribeLocally,
+  onCancelTranscription
+}: TimelineCaptionPanelProps) {
   const [transcript, setTranscript] = useState("");
   const [status, setStatus] = useState("Everything here runs locally; caption files and pasted transcripts are never uploaded.");
+  const [transcribing, setTranscribing] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const fillerWordCount = draft.captions.reduce((count, cue) => count + (cue.text.match(/\b(?:um+|uh+|like|you know)\b/gi)?.length ?? 0), 0);
   const timingStart = hasSelectedRange ? rangeStartMs : 0;
   const timingEnd = hasSelectedRange ? rangeEndMs : Math.max(draft.durationMs, timingStart + 30000);
 
-  function applyCaptions(cues: TimelineCaptionCue[], label: string) {
+  function applyCaptions(cues: TimelineCaptionCue[], label: string, replaceConfirmed = false) {
     if (cues.length === 0) {
       setStatus("No usable caption lines were found.");
       return;
     }
-    if (draft.captions.length > 0 && !window.confirm(`Replace the ${draft.captions.length} existing caption cues? You can Undo this change.`)) return;
+    if (!replaceConfirmed && draft.captions.length > 0 && !window.confirm(`Replace the ${draft.captions.length} existing caption cues? You can Undo this change.`)) return;
     onDraftChange(replaceTimelineCaptions(draft, cues, label));
     setStatus(`${cues.length} caption cue${cues.length === 1 ? "" : "s"} added. Review timing while listening, then save the draft.`);
+  }
+
+  async function transcribeLocally() {
+    if (!onTranscribeLocally) {
+      setStatus("Local transcription is available in the installed Windows app.");
+      return;
+    }
+    if (draft.captions.length > 0 && !window.confirm(`Replace the ${draft.captions.length} existing caption cues? You can Undo this change.`)) return;
+    setTranscribing(true);
+    setStatus("Starting free local transcription…");
+    try {
+      const result = await onTranscribeLocally();
+      applyCaptions(result.cues, "Transcribe episode locally", true);
+      setStatus(result.message);
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      setStatus(normalized.name === "AbortError" || /cancel/i.test(normalized.message) ? "Local transcription canceled. Existing captions were left unchanged." : `Local transcription failed: ${normalized.message}`);
+    } finally {
+      setTranscribing(false);
+    }
+  }
+
+  async function cancelTranscription() {
+    setStatus("Canceling local transcription…");
+    await onCancelTranscription?.();
   }
 
   function autoTimePastedTranscript() {
@@ -62,12 +104,29 @@ export const TimelineCaptionPanel = memo(function TimelineCaptionPanel({ draft, 
         <small>{draft.captions.length} cue{draft.captions.length === 1 ? "" : "s"}{fillerWordCount ? ` · ${fillerWordCount} filler word${fillerWordCount === 1 ? "" : "s"}` : ""}</small>
       </summary>
       <div className="editor-caption-toolbar">
-        <p>Import SRT/VTT, or paste a transcript and distribute it across {hasSelectedRange ? "the selected range" : "the full episode"}. Captions remain editable and export as SRT.</p>
+        <p>Transcribe the episode locally, import SRT/VTT, or paste a transcript across {hasSelectedRange ? "the selected range" : "the full episode"}. Captions remain editable and export as SRT.</p>
         <button type="button" onClick={() => onDraftChange(addTimelineCaption(draft, playheadMs, Math.min(draft.durationMs || playheadMs + 3000, playheadMs + 3000)))}>
           <Plus size={16} /> Add at {formatRecordingTime(playheadMs)}
         </button>
       </div>
       <div className="editor-caption-importer">
+        <div className="editor-local-transcription">
+          <div>
+            <strong><Mic2 size={16} /> Free local transcription</strong>
+            <small>{transcriptionStatus?.message ?? "First use downloads the free English model (about 57 MB). After that it works offline—no API key or per-episode fee."}</small>
+          </div>
+          {transcribing ? (
+            <button type="button" className="danger" onClick={() => void cancelTranscription()}><Square size={14} /> Cancel</button>
+          ) : (
+            <button type="button" disabled={transcriptionStatus?.supported === false} onClick={() => void transcribeLocally()}><Mic2 size={16} /> Transcribe episode locally</button>
+          )}
+        </div>
+        {transcribing && transcriptionProgress ? (
+          <div className="editor-transcription-progress" aria-live="polite">
+            <progress aria-label="Local transcription progress" max="100" value={transcriptionProgress.progress} />
+            <small>{transcriptionProgress.message} {transcriptionProgress.progress}%</small>
+          </div>
+        ) : null}
         <textarea aria-label="Transcript to auto-time" placeholder="Paste a corrected transcript here…" value={transcript} onChange={(event) => setTranscript(event.target.value)} />
         <div>
           <button type="button" disabled={!transcript.trim()} onClick={autoTimePastedTranscript}><Sparkles size={16} /> Auto-time transcript</button>

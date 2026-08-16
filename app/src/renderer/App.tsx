@@ -15,6 +15,7 @@ import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWor
 import { defaultStudioWorkspaceState, studioPanelLabels, withStudioWorkspaceDefaults } from "../shared/studio-workspace";
 import type { AppUpdateStatus } from "../shared/app-update";
 import { createInitialAppUpdateStatus } from "../shared/app-update";
+import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
 import { defaultDeviceDefaults, getDeviceAssignmentConflicts, withDeviceDefaults } from "../shared/device-config";
 import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
 import { createHardwareTestResults, didDeviceDisconnectDuringRecording, getHardwareDeviceReadiness, getExportTestStatus, getFriendlyHardwareFailureMessage, getNextHardwareTestStep, getRecordingTestStatus, type DiagnosticsBundleResult, type HardwareDeviceSummary } from "../shared/hardware-test";
@@ -327,6 +328,8 @@ export default function App() {
   const [mediaToolsStatus, setMediaToolsStatus] = useState<MediaToolsStatus | undefined>();
   const [reviewMedia, setReviewMedia] = useState<ReviewMediaInventory | undefined>();
   const [mediaImportProgress, setMediaImportProgress] = useState<ReviewMediaImportProgress | undefined>();
+  const [localTranscriptionStatus, setLocalTranscriptionStatus] = useState<LocalTranscriptionStatus | undefined>();
+  const [localTranscriptionProgress, setLocalTranscriptionProgress] = useState<LocalTranscriptionProgress | undefined>();
   const [autoEditMode, setAutoEditMode] = useState<AutoEditMode>("balanced");
   const [autoEditResult, setAutoEditResult] = useState<AutoEditResult | undefined>();
   const [autoEditRunning, setAutoEditRunning] = useState(false);
@@ -424,6 +427,7 @@ export default function App() {
   useEffect(() => {
     void studio.getMediaToolsStatus().then(setMediaToolsStatus);
     void studio.getStorageStatus().then(setStorageStatus);
+    void studio.getLocalTranscriptionStatus?.().then(setLocalTranscriptionStatus);
   }, [studio]);
 
   useEffect(() => {
@@ -434,6 +438,10 @@ export default function App() {
   useEffect(() => exportService.subscribe(setExportJob), [exportService]);
 
   useEffect(() => studio.onReviewMediaImportProgress?.(setMediaImportProgress), [studio]);
+
+  useEffect(() => studio.onLocalTranscriptionProgress?.((progress) => {
+    if (activeEpisodeRef.current?.id === progress.episodeId) setLocalTranscriptionProgress(progress);
+  }), [studio]);
 
   useEffect(() => {
     if (!popOutEpisodeId) return;
@@ -601,6 +609,22 @@ export default function App() {
   async function cancelEpisodeMediaImport(slot: ReviewMediaImportSlot) {
     if (!activeEpisode || !studio.cancelReviewMediaImport) return;
     await studio.cancelReviewMediaImport(activeEpisode.id, slot);
+  }
+
+  async function transcribeActiveEpisodeLocally(): Promise<LocalTranscriptionResult> {
+    if (!activeEpisode) throw new Error("Open an episode before starting local transcription.");
+    if (!studio.transcribeEpisodeLocally) throw new Error("Local transcription is available in the installed Windows app.");
+    setLocalTranscriptionProgress({ episodeId: activeEpisode.id, stage: "checking", progress: 0, message: "Starting free local transcription…" });
+    try {
+      return await studio.transcribeEpisodeLocally(activeEpisode.id);
+    } finally {
+      void studio.getLocalTranscriptionStatus?.().then(setLocalTranscriptionStatus);
+    }
+  }
+
+  async function cancelActiveEpisodeTranscription() {
+    if (!activeEpisode || !studio.cancelLocalTranscription) return;
+    await studio.cancelLocalTranscription(activeEpisode.id);
   }
 
   async function relinkEpisodeMedia(slot: ReviewMediaImportSlot) {
@@ -1418,6 +1442,10 @@ export default function App() {
             onCleanupEpisodeStorage={cleanupActiveEpisodeStorage}
             onAutoSync={autoSyncEpisodeMedia}
             onRenderTreatmentPreview={renderTreatmentPreview}
+            transcriptionStatus={localTranscriptionStatus}
+            transcriptionProgress={localTranscriptionProgress?.episodeId === activeEpisode?.id ? localTranscriptionProgress : undefined}
+            onTranscribeLocally={transcribeActiveEpisodeLocally}
+            onCancelTranscription={cancelActiveEpisodeTranscription}
           />
         )}
         {view === "auto-edit-review" && (

@@ -10,6 +10,7 @@ import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImp
 import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../shared/episode-maintenance";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
 import type { AppUpdateStatus } from "../shared/app-update";
+import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
@@ -26,6 +27,14 @@ contextBridge.exposeInMainWorld("studio", {
   savePodcastTools: (episodeId: string, state: PodcastToolsState): Promise<PodcastToolsState> => ipcRenderer.invoke("podcast-tools:save", { episodeId, state }),
   loadTimelineDraft: (episodeId: string): Promise<TimelineDraft | null> => ipcRenderer.invoke("timeline:load", episodeId),
   saveTimelineDraft: (episodeId: string, draft: TimelineDraft): Promise<TimelineDraft> => ipcRenderer.invoke("timeline:save", { episodeId, draft }),
+  getLocalTranscriptionStatus: (): Promise<LocalTranscriptionStatus> => ipcRenderer.invoke("local-transcription:status"),
+  transcribeEpisodeLocally: (episodeId: string): Promise<LocalTranscriptionResult> => ipcRenderer.invoke("local-transcription:start", episodeId),
+  cancelLocalTranscription: (episodeId: string): Promise<boolean> => ipcRenderer.invoke("local-transcription:cancel", episodeId),
+  onLocalTranscriptionProgress: (listener: (progress: LocalTranscriptionProgress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: LocalTranscriptionProgress) => listener(progress);
+    ipcRenderer.on("local-transcription:progress", handler);
+    return () => ipcRenderer.removeListener("local-transcription:progress", handler);
+  },
   loadReviewMedia: (episodeId: string): Promise<ReviewMediaInventory> => ipcRenderer.invoke("review-media:load", episodeId),
   importReviewMedia: (episodeId: string, slot: ReviewMediaImportSlot): Promise<ReviewMediaImportResult> => ipcRenderer.invoke("review-media:import", { episodeId, slot }),
   cancelReviewMediaImport: (episodeId: string, slot: ReviewMediaImportSlot): Promise<boolean> => ipcRenderer.invoke("review-media:cancel-import", { episodeId, slot }),

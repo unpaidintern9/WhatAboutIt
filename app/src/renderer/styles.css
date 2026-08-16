@@ -6354,6 +6354,42 @@ input[type="range"] {
   gap: 8px;
 }
 
+.editor-caption-importer .editor-local-transcription {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--color-accent), transparent 88%);
+  border: 1px solid color-mix(in srgb, var(--color-accent), var(--color-border) 65%);
+  border-radius: var(--component-border-radius);
+}
+
+.editor-local-transcription > div {
+  display: grid;
+  gap: 4px;
+}
+
+.editor-local-transcription strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.editor-local-transcription small {
+  color: var(--color-mutedText);
+}
+
+.editor-transcription-progress {
+  display: grid !important;
+  gap: 5px !important;
+}
+
+.editor-transcription-progress progress {
+  width: 100%;
+  accent-color: var(--color-success);
+}
+
 .editor-caption-importer button {
   display: inline-flex;
   align-items: center;
@@ -6459,6 +6495,11 @@ input[type="range"] {
 
   .editor-storage-buckets {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .editor-caption-importer .editor-local-transcription {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 

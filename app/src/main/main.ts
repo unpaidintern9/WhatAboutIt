@@ -22,6 +22,7 @@ import type { ReviewMediaImportSlot } from "../shared/review-media";
 import { StudioWindowManager } from "./studio-window-manager";
 import { startMediaPlaybackServer, type MediaPlaybackServer } from "./media-playback-server";
 import { AppUpdateService } from "./app-update-service";
+import { cancelLocalTranscription, getLocalTranscriptionStatus, transcribeEpisodeLocally } from "./local-transcription-store";
 
 app.setName("What About It Studio");
 
@@ -212,6 +213,9 @@ app.whenReady().then(async () => {
   ipcMain.handle("podcast-tools:save", (_event, input) => savePodcastTools(input.episodeId, input.state));
   ipcMain.handle("timeline:load", (_event, episodeId) => loadTimelineDraft(episodeId));
   ipcMain.handle("timeline:save", (_event, input) => saveTimelineDraft(input.episodeId, input.draft));
+  ipcMain.handle("local-transcription:status", () => getLocalTranscriptionStatus());
+  ipcMain.handle("local-transcription:start", (event, episodeId: string) => transcribeEpisodeLocally(episodeId, (progress) => event.sender.send("local-transcription:progress", progress)));
+  ipcMain.handle("local-transcription:cancel", (_event, episodeId: string) => cancelLocalTranscription(episodeId));
   ipcMain.handle("review-media:load", (_event, episodeId) => loadReviewMedia(episodeId));
   ipcMain.handle("review-media:import", async (event, input: { episodeId: string; slot: ReviewMediaImportSlot }) => {
     const isVideo = input.slot.startsWith("camera-");
