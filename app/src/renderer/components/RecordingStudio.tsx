@@ -1282,10 +1282,12 @@ function CameraFeed({
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [state, setState] = useState<"starting" | "live" | "needs-attention" | "busy" | "permission">("starting");
+  const [previewAttempt, setPreviewAttempt] = useState(0);
 
   useEffect(() => {
     let stream: MediaStream | undefined;
     let canceled = false;
+    let reconnectTimer: number | undefined;
 
     async function startPreview() {
       if (!deviceId) {
@@ -1302,6 +1304,14 @@ function CameraFeed({
           onReleaseCameraPreview(deviceId, stream);
           return;
         }
+        stream.getVideoTracks().forEach((track) => {
+          track.addEventListener("ended", () => {
+            if (canceled) return;
+            setState("starting");
+            onPreviewState("starting");
+            reconnectTimer = window.setTimeout(() => setPreviewAttempt((attempt) => attempt + 1), 1200);
+          }, { once: true });
+        });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
@@ -1319,9 +1329,10 @@ function CameraFeed({
 
     return () => {
       canceled = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
       if (stream) onReleaseCameraPreview(deviceId, stream);
     };
-  }, [deviceId, onOpenCameraPreview, onPreviewState, onReleaseCameraPreview]);
+  }, [deviceId, onOpenCameraPreview, onPreviewState, onReleaseCameraPreview, previewAttempt]);
 
   return (
     <div className={`live-video-frame ${state}`}>

@@ -17,6 +17,7 @@ function createStream() {
   const makeStream = (streamTrack: ReturnType<typeof createTrack>) => ({
     getTracks: () => [streamTrack],
     getAudioTracks: () => [streamTrack],
+    getVideoTracks: () => [streamTrack],
     clone: () => {
       const clonedTrack = createTrack();
       clones.push(clonedTrack);
@@ -78,6 +79,37 @@ describe("device service", () => {
     expect(second.track.stop).not.toHaveBeenCalled();
   });
 
+  it("shares one physical camera source across independent preview consumers", async () => {
+    const camera = createStream();
+    const plugin: DevicePlugin = {
+      detectDevices: vi.fn(),
+      requestStudioPermissions: vi.fn(),
+      sampleMicrophoneLevel: vi.fn(),
+      playTestSound: vi.fn(),
+      openCameraPreview: vi.fn().mockResolvedValue(camera.stream),
+      openMicrophoneStream: vi.fn()
+    };
+    const service = new DeviceService(plugin);
+
+    const [firstConsumer, secondConsumer] = await Promise.all([
+      service.openCameraPreview("camera-a"),
+      service.openCameraPreview("camera-a")
+    ]);
+
+    expect(plugin.openCameraPreview).toHaveBeenCalledTimes(1);
+    expect(camera.clones).toHaveLength(2);
+    expect(service.getActiveCameraStream("camera-a")).toBe(camera.stream);
+
+    service.releaseStream("camera", "camera-a", firstConsumer);
+
+    expect(camera.clones[0].stop).toHaveBeenCalledTimes(1);
+    expect(camera.clones[1].stop).not.toHaveBeenCalled();
+    expect(camera.track.stop).not.toHaveBeenCalled();
+    expect(service.getActiveCameraStream("camera-a")).toBe(camera.stream);
+
+    service.releaseStream("camera", "camera-a", secondConsumer);
+  });
+
   it("releases managed camera and mic streams on cleanup", async () => {
     const camera = createStream();
     const mic = createStream();
@@ -122,7 +154,7 @@ describe("device service", () => {
     expect(service.getActiveCameraStream("camera-a")).toBeUndefined();
   });
 
-  it("does not release a newer stream when an older preview finishes late", async () => {
+  it("opens a fresh physical camera source after the previous source ends", async () => {
     const first = createStream();
     const second = createStream();
     const plugin: DevicePlugin = {
@@ -135,11 +167,13 @@ describe("device service", () => {
     };
     const service = new DeviceService(plugin);
 
+    const firstConsumer = await service.openCameraPreview("camera-a");
+    service.releaseStream("camera", "camera-a");
     await service.openCameraPreview("camera-a");
-    await service.openCameraPreview("camera-a");
-    service.releaseStream("camera", "camera-a", first.stream);
+    service.releaseStream("camera", "camera-a", firstConsumer);
 
     expect(service.getActiveCameraStream("camera-a")).toBe(second.stream);
+    expect(first.track.stop).toHaveBeenCalledTimes(1);
     expect(second.track.stop).not.toHaveBeenCalled();
   });
 });

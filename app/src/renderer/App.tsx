@@ -367,6 +367,8 @@ export default function App() {
   const popOutMarkerTimerRef = useRef<number | undefined>(undefined);
   const popOutNotesTimerRef = useRef<number | undefined>(undefined);
   const hardwareStopTimerRef = useRef<number | undefined>(undefined);
+  const deviceChangeTimerRef = useRef<number | undefined>(undefined);
+  const deviceChangeSequenceRef = useRef(0);
   const activeTheme = useMemo(() => findTheme(settings.activeThemeId), [settings.activeThemeId]);
   const deviceService = useMemo(() => new DeviceService(browserDevicePlugin), []);
   const recordingService = useMemo(
@@ -480,6 +482,7 @@ export default function App() {
   useEffect(() => {
     return () => {
       if (hardwareStopTimerRef.current) window.clearTimeout(hardwareStopTimerRef.current);
+      if (deviceChangeTimerRef.current) window.clearTimeout(deviceChangeTimerRef.current);
       if (popOutMarkerTimerRef.current) window.clearTimeout(popOutMarkerTimerRef.current);
       if (popOutNotesTimerRef.current) window.clearTimeout(popOutNotesTimerRef.current);
       deviceService.releaseAll();
@@ -507,36 +510,65 @@ export default function App() {
 
     const handleDeviceChange = () => {
       setDeviceChangeState("reconnecting");
-      void refreshDevices().then((detectedDevices) => {
-        const devices = summarizeDevices(detectedDevices);
-        const disconnected = didDeviceDisconnectDuringRecording({
+      const sequence = ++deviceChangeSequenceRef.current;
+      if (deviceChangeTimerRef.current) window.clearTimeout(deviceChangeTimerRef.current);
+      deviceChangeTimerRef.current = window.setTimeout(() => {
+        void confirmDeviceChange(sequence);
+      }, 1000);
+    };
+
+    const confirmDeviceChange = async (sequence: number) => {
+      let detectedDevices = await refreshDevices();
+      if (sequence !== deviceChangeSequenceRef.current) return;
+
+      let devices = summarizeDevices(detectedDevices);
+      let disconnected = didDeviceDisconnectDuringRecording({
+        status: recordingService.getSnapshot().status,
+        defaults: settings.deviceDefaults,
+        devices
+      });
+
+      // USB cameras can briefly disappear while renegotiating their endpoint.
+      // Confirm the loss before stopping a recording for what may be a transient event.
+      if (disconnected) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+        if (sequence !== deviceChangeSequenceRef.current) return;
+        detectedDevices = await refreshDevices();
+        if (sequence !== deviceChangeSequenceRef.current) return;
+        devices = summarizeDevices(detectedDevices);
+        disconnected = didDeviceDisconnectDuringRecording({
           status: recordingService.getSnapshot().status,
           defaults: settings.deviceDefaults,
           devices
         });
-        const readiness = getHardwareDeviceReadiness(settings.deviceDefaults, devices);
-        setDeviceChangeState(disconnected ? "disconnected" : readiness.summary === "Everything Ready" ? "ready" : "needs-attention");
-        setHardwareTestResults(
-          createHardwareTestResults({
-            cameraReady: readiness.cameraReady,
-            morganMicReady: readiness.morganMicReady,
-            exportStatus: exportJob?.status
-          })
-        );
+      }
 
-        if (disconnected) {
-          setHardwareTestMessage("A device disconnected, so we stopped safely. Check the cable, then try again.");
-          if (view === "hardware-test") {
-            void stopHardwareTestRecording("A device disconnected, so we stopped safely. Check the cable, then try again.");
-          } else {
-            void stopRecording();
-          }
+      const readiness = getHardwareDeviceReadiness(settings.deviceDefaults, devices);
+      setDeviceChangeState(disconnected ? "disconnected" : readiness.summary === "Everything Ready" ? "ready" : "needs-attention");
+      setHardwareTestResults(
+        createHardwareTestResults({
+          cameraReady: readiness.cameraReady,
+          morganMicReady: readiness.morganMicReady,
+          exportStatus: exportJob?.status
+        })
+      );
+
+      if (disconnected) {
+        setHardwareTestMessage("A device disconnected, so we stopped safely. Check the cable, then try again.");
+        if (view === "hardware-test") {
+          void stopHardwareTestRecording("A device disconnected, so we stopped safely. Check the cable, then try again.");
+        } else {
+          void stopRecording();
         }
-      });
+      }
     };
 
     navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
-    return () => navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+    return () => {
+      deviceChangeSequenceRef.current += 1;
+      if (deviceChangeTimerRef.current) window.clearTimeout(deviceChangeTimerRef.current);
+      navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+    };
   }, [exportJob?.status, recordingService, settings.deviceDefaults, view]);
 
   async function refreshEpisodes() {

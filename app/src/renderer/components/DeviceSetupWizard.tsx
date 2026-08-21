@@ -346,6 +346,7 @@ function CameraSetupCard({
   const selectedDevice = devices.find((device) => device.id === selectedDeviceId);
   const firstDevice = devices.find((device) => !disabledDeviceIds.includes(device.id));
   const [previewStatus, setPreviewStatus] = useState<"idle" | "starting" | "live" | "ready" | "needs-attention" | "busy" | "permission">("idle");
+  const [previewAttempt, setPreviewAttempt] = useState(0);
   const [helpOpen, setHelpOpen] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | undefined>(undefined);
@@ -354,6 +355,7 @@ function CameraSetupCard({
 
   useEffect(() => {
     let canceled = false;
+    let reconnectTimer: number | undefined;
 
     async function startPreview() {
       releaseCamera();
@@ -370,6 +372,13 @@ function CameraSetupCard({
           return;
         }
         streamRef.current = stream;
+        stream.getVideoTracks().forEach((track) => {
+          track.addEventListener("ended", () => {
+            if (canceled) return;
+            setPreviewStatus("starting");
+            reconnectTimer = window.setTimeout(() => setPreviewAttempt((attempt) => attempt + 1), 1200);
+          }, { once: true });
+        });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
@@ -384,9 +393,10 @@ function CameraSetupCard({
 
     return () => {
       canceled = true;
+      if (reconnectTimer) window.clearTimeout(reconnectTimer);
       releaseCamera();
     };
-  }, [onOpenCameraPreview, selectedDeviceId]);
+  }, [onOpenCameraPreview, previewAttempt, selectedDeviceId]);
 
   function releaseCamera() {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -452,7 +462,9 @@ function CameraSetupCard({
       {helpOpen && (
         <FriendlyState
           title="Camera help"
-          message="Close other camera apps, pick the camera again, then watch for Live in this card."
+          message={/sony|imaging edge/i.test(selectedDevice?.label ?? "")
+            ? "Sony: choose Movie and USB Streaming on the camera before connecting it. Use a data-capable cable directly to the computer (not a hub), turn USB Power Supply on, then watch for Live here."
+            : "Close other camera apps, pick the camera again, then watch for Live in this card."}
         />
       )}
       <div className="camera-signal-line">
