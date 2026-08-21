@@ -17,7 +17,7 @@ function render(job?: ExportJob) {
       onOpenFolder={vi.fn()}
       onBackToReview={vi.fn()}
       onFinish={vi.fn()}
-    />
+    />,
   );
 }
 
@@ -46,14 +46,40 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("Measured mastering analyzes the complete mix");
     expect(markup).toContain("Back to Review");
     expect(markup).toContain("Mix sources");
+    expect(markup).toContain("Quick preview setup · 720p with fast loudness");
   });
 
   it("explains the universal editor package and requires a destination", () => {
     const missingDestination = renderToStaticMarkup(
-      <ExportEpisode selectedType="editor-handoff" qualityPreset="high" mediaToolsStatus={{ ready: true, message: "Media tools are ready" }} onTypeChange={vi.fn()} onQualityChange={vi.fn()} onChooseDestination={vi.fn()} onStartExport={vi.fn()} onCancelExport={vi.fn()} onOpenFolder={vi.fn()} onBackToReview={vi.fn()} onFinish={vi.fn()} />
+      <ExportEpisode
+        selectedType="editor-handoff"
+        qualityPreset="high"
+        mediaToolsStatus={{ ready: true, message: "Media tools are ready" }}
+        onTypeChange={vi.fn()}
+        onQualityChange={vi.fn()}
+        onChooseDestination={vi.fn()}
+        onStartExport={vi.fn()}
+        onCancelExport={vi.fn()}
+        onOpenFolder={vi.fn()}
+        onBackToReview={vi.fn()}
+        onFinish={vi.fn()}
+      />,
     );
     const ready = renderToStaticMarkup(
-      <ExportEpisode selectedType="editor-handoff" qualityPreset="high" destinationFolderPath={"E:\\Podcast Deliveries"} mediaToolsStatus={{ ready: true, message: "Media tools are ready" }} onTypeChange={vi.fn()} onQualityChange={vi.fn()} onChooseDestination={vi.fn()} onStartExport={vi.fn()} onCancelExport={vi.fn()} onOpenFolder={vi.fn()} onBackToReview={vi.fn()} onFinish={vi.fn()} />
+      <ExportEpisode
+        selectedType="editor-handoff"
+        qualityPreset="high"
+        destinationFolderPath={"E:\\Podcast Deliveries"}
+        mediaToolsStatus={{ ready: true, message: "Media tools are ready" }}
+        onTypeChange={vi.fn()}
+        onQualityChange={vi.fn()}
+        onChooseDestination={vi.fn()}
+        onStartExport={vi.fn()}
+        onCancelExport={vi.fn()}
+        onOpenFolder={vi.fn()}
+        onBackToReview={vi.fn()}
+        onFinish={vi.fn()}
+      />,
     );
 
     expect(missingDestination).toContain("Universal editor package");
@@ -68,10 +94,33 @@ describe("ExportEpisode", () => {
 
   it("requires a selected range for social clips and describes a ready vertical clip", () => {
     const missingRange = renderToStaticMarkup(
-      <ExportEpisode selectedType="social-clip-placeholder" qualityPreset="high" mediaToolsStatus={{ ready: true, message: "Media tools are ready" }} onTypeChange={vi.fn()} onQualityChange={vi.fn()} onStartExport={vi.fn()} onCancelExport={vi.fn()} onOpenFolder={vi.fn()} onBackToReview={vi.fn()} onFinish={vi.fn()} />
+      <ExportEpisode
+        selectedType="social-clip-placeholder"
+        qualityPreset="high"
+        mediaToolsStatus={{ ready: true, message: "Media tools are ready" }}
+        onTypeChange={vi.fn()}
+        onQualityChange={vi.fn()}
+        onStartExport={vi.fn()}
+        onCancelExport={vi.fn()}
+        onOpenFolder={vi.fn()}
+        onBackToReview={vi.fn()}
+        onFinish={vi.fn()}
+      />,
     );
     const ready = renderToStaticMarkup(
-      <ExportEpisode selectedType="social-clip-placeholder" selectedRangeMs={12500} qualityPreset="high" mediaToolsStatus={{ ready: true, message: "Media tools are ready" }} onTypeChange={vi.fn()} onQualityChange={vi.fn()} onStartExport={vi.fn()} onCancelExport={vi.fn()} onOpenFolder={vi.fn()} onBackToReview={vi.fn()} onFinish={vi.fn()} />
+      <ExportEpisode
+        selectedType="social-clip-placeholder"
+        selectedRangeMs={12500}
+        qualityPreset="high"
+        mediaToolsStatus={{ ready: true, message: "Media tools are ready" }}
+        onTypeChange={vi.fn()}
+        onQualityChange={vi.fn()}
+        onStartExport={vi.fn()}
+        onCancelExport={vi.fn()}
+        onOpenFolder={vi.fn()}
+        onBackToReview={vi.fn()}
+        onFinish={vi.fn()}
+      />,
     );
 
     expect(missingRange).toContain("drag across the Program timeline");
@@ -93,7 +142,10 @@ describe("ExportEpisode", () => {
       outputFolder: "Episode/Exports",
       message: "Export complete",
       outputFileName: "video.mp4",
-      outputFileNames: ["video.mp4", "Camera Masters/camera-1-with-morgan-mic.mp4"]
+      outputFileNames: [
+        "video.mp4",
+        "Camera Masters/camera-1-with-morgan-mic.mp4",
+      ],
     });
 
     expect(markup).toContain("Export complete");
@@ -115,7 +167,7 @@ describe("ExportEpisode", () => {
       createdAt: "2026-06-27T10:00:00.000Z",
       updatedAt: "2026-06-27T10:00:10.000Z",
       outputFolder: "Episode/Exports",
-      message: "Exporting your episode"
+      message: "Exporting your episode",
     });
 
     expect(markup).toContain("Exporting your episode");
@@ -136,7 +188,7 @@ describe("ExportEpisode", () => {
       updatedAt: "2026-06-27T10:05:00.000Z",
       outputFolder: "Episode/Exports",
       message: "We couldn't find the recording file",
-      error: "recording-missing"
+      error: "recording-missing",
     });
 
     expect(markup).toContain("Something needs attention before export");

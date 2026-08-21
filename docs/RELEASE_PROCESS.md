@@ -31,3 +31,14 @@ Use `workflow_dispatch` to rerun the release manually when needed.
 - A failed verification job must never publish an update.
 - Episode recordings and settings remain outside the installed application and are not replaced by updates.
 - Public distribution still requires a trusted Windows code-signing certificate.
+
+## Windows Signing Cutover
+
+The release workflow is signing-ready without interrupting internal beta updates:
+
+1. Add the base64-encoded P12 certificate as the `WINDOWS_CERTIFICATE_P12_BASE64` repository secret.
+2. Add its password as `WINDOWS_CERTIFICATE_PASSWORD`.
+3. Run the release workflow and confirm the Authenticode verification step reports `Valid`.
+4. Set the repository variable `REQUIRE_WINDOWS_SIGNING=true` so future unsigned releases fail before publication.
+
+Until that variable is enabled, unsigned internal builds produce an explicit workflow warning instead of being mistaken for public-distribution-ready installers.

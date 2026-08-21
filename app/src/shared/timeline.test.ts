@@ -4,6 +4,7 @@ import {
   addTimelineCaption,
   applyTimelineTrackTreatmentToKind,
   applyTimelineEdit,
+  createTimelineCheckpoint,
   createTimelineDraft,
   compactTimelineDraftForPersistence,
   getTimelineSegments,
@@ -13,6 +14,7 @@ import {
   markTimelineSaved,
   redoTimelineEdit,
   resetTimelineTrackControls,
+  restoreTimelineCheckpoint,
   restoreOriginalTimeline,
   selectTimelinePoint,
   selectTimelineTrack,
@@ -22,20 +24,20 @@ import {
   updateTimelineCaption,
   updateTimelineMastering,
   updateTimelineTrackMix,
-  withTimelineDraftDefaults
+  withTimelineDraftDefaults,
 } from "./timeline";
 
 describe("timeline draft", () => {
   const deviceDefaults = {
     cameras: { camera1: "camera-a", camera2: "camera-b" },
-    microphones: { morganMic: "mic-a", guestMic: "mic-b" }
+    microphones: { morganMic: "mic-a", guestMic: "mic-b" },
   };
 
   it("creates a non-destructive draft with review tracks", () => {
     const draft = createTimelineDraft({
       episodeId: "episode-a",
       deviceDefaults,
-      durationMs: 90000
+      durationMs: 90000,
     });
 
     expect(draft.nonDestructive).toBe(true);
@@ -48,7 +50,10 @@ describe("timeline draft", () => {
   });
 
   it("removes session-only undo snapshots before persistence", () => {
-    const edited = applyTimelineEdit(createTimelineDraft({ deviceDefaults }), "delete-section");
+    const edited = applyTimelineEdit(
+      createTimelineDraft({ deviceDefaults }),
+      "delete-section",
+    );
     const compact = compactTimelineDraftForPersistence(edited);
 
     expect(edited.history).toHaveLength(1);
@@ -59,10 +64,24 @@ describe("timeline draft", () => {
 
   it("adds and edits caption cues with undo support", () => {
     const base = createTimelineDraft({ deviceDefaults, durationMs: 60000 });
-    const added = addTimelineCaption(base, 12000, 15000, "2026-06-27T10:00:00.000Z");
-    const edited = updateTimelineCaption(added, added.captions[0].id, { text: "Um, welcome to the show" }, "2026-06-27T10:00:01.000Z");
+    const added = addTimelineCaption(
+      base,
+      12000,
+      15000,
+      "2026-06-27T10:00:00.000Z",
+    );
+    const edited = updateTimelineCaption(
+      added,
+      added.captions[0].id,
+      { text: "Um, welcome to the show" },
+      "2026-06-27T10:00:01.000Z",
+    );
 
-    expect(edited.captions[0]).toMatchObject({ startMs: 12000, endMs: 15000, text: "Um, welcome to the show" });
+    expect(edited.captions[0]).toMatchObject({
+      startMs: 12000,
+      endMs: 15000,
+      text: "Um, welcome to the show",
+    });
     expect(undoTimelineEdit(edited).captions[0].text).toBe("");
   });
 
@@ -74,9 +93,9 @@ describe("timeline draft", () => {
           id: "marker-a",
           label: "Funny",
           timestampMs: 12000,
-          createdAt: "2026-06-27T10:00:00.000Z"
-        }
-      ]
+          createdAt: "2026-06-27T10:00:00.000Z",
+        },
+      ],
     });
 
     expect(draft.markers[0].label).toBe("Funny");
@@ -99,18 +118,25 @@ describe("timeline draft", () => {
   });
 
   it("creates a trim draft edit without touching originals", () => {
-    const draft = selectTimelinePoint(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), {
-      timestampMs: 12000,
-      source: "timeline"
-    });
-    const edited = applyTimelineEdit(draft, "trim-before", "2026-06-27T10:00:00.000Z");
+    const draft = selectTimelinePoint(
+      createTimelineDraft({ deviceDefaults, durationMs: 60000 }),
+      {
+        timestampMs: 12000,
+        source: "timeline",
+      },
+    );
+    const edited = applyTimelineEdit(
+      draft,
+      "trim-before",
+      "2026-06-27T10:00:00.000Z",
+    );
 
     expect(edited.nonDestructive).toBe(true);
     expect(edited.version).toBe(2);
     expect(edited.editLog[0]).toMatchObject({
       type: "trim-before",
       label: "Trim before here",
-      timestampMs: 12000
+      timestampMs: 12000,
     });
     expect(edited.hasUnsavedChanges).toBe(true);
   });
@@ -121,31 +147,44 @@ describe("timeline draft", () => {
     const positioned = selectTimelinePoint(selected, {
       timestampMs: 8000,
       source: "timeline",
-      trackId: "mic-guestMic"
+      trackId: "mic-guestMic",
     });
     const edited = applyTimelineEdit(positioned, "delete-section");
 
     expect(edited.editLog[0].targetTrackId).toBe("mic-guestMic");
-    expect(edited.tracks.find((track) => track.id === "mic-morganMic")?.includedInProgram).toBe(true);
+    expect(
+      edited.tracks.find((track) => track.id === "mic-morganMic")
+        ?.includedInProgram,
+    ).toBe(true);
   });
 
   it("stores source mix controls and manual camera choices", () => {
-    const base = selectTimelinePoint(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), {
-      timestampMs: 12000,
-      source: "timeline",
-      trackId: "camera-camera2"
-    });
+    const base = selectTimelinePoint(
+      createTimelineDraft({ deviceDefaults, durationMs: 60000 }),
+      {
+        timestampMs: 12000,
+        source: "timeline",
+        trackId: "camera-camera2",
+      },
+    );
     const mixed = updateTimelineTrackMix(base, "mic-guestMic", {
       volume: 82,
-      includedInProgram: true
+      includedInProgram: true,
     });
-    const switched = addCameraDecision(mixed, "camera-camera2", "manual", "Guest is speaking");
+    const switched = addCameraDecision(
+      mixed,
+      "camera-camera2",
+      "manual",
+      "Guest is speaking",
+    );
 
-    expect(mixed.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(82);
+    expect(
+      mixed.tracks.find((track) => track.id === "mic-guestMic")?.volume,
+    ).toBe(82);
     expect(switched.cameraDecisions[0]).toMatchObject({
       cameraTrackId: "camera-camera2",
       startMs: 12000,
-      source: "manual"
+      source: "manual",
     });
   });
 
@@ -166,7 +205,7 @@ describe("timeline draft", () => {
       eqLowDb: -20,
       eqMidDb: 18,
       eqHighDb: 4,
-      limiterEnabled: false
+      limiterEnabled: false,
     });
     const graded = updateTimelineTrackMix(mixed, "camera-camera2", {
       cropMode: "fill",
@@ -180,10 +219,12 @@ describe("timeline draft", () => {
       denoise: 34,
       zoom: 200,
       positionX: -140,
-      positionY: 130
+      positionY: 130,
     });
 
-    expect(mixed.tracks.find((track) => track.id === "mic-guestMic")).toMatchObject({
+    expect(
+      mixed.tracks.find((track) => track.id === "mic-guestMic"),
+    ).toMatchObject({
       muted: true,
       solo: true,
       pan: 100,
@@ -198,9 +239,11 @@ describe("timeline draft", () => {
       eqLowDb: -12,
       eqMidDb: 12,
       eqHighDb: 4,
-      limiterEnabled: false
+      limiterEnabled: false,
     });
-    expect(graded.tracks.find((track) => track.id === "camera-camera2")).toMatchObject({
+    expect(
+      graded.tracks.find((track) => track.id === "camera-camera2"),
+    ).toMatchObject({
       cropMode: "fill",
       brightness: 12,
       contrast: 118,
@@ -212,7 +255,7 @@ describe("timeline draft", () => {
       denoise: 34,
       zoom: 160,
       positionX: -100,
-      positionY: 100
+      positionY: 100,
     });
   });
 
@@ -230,14 +273,20 @@ describe("timeline draft", () => {
     const tuned = updateTimelineTrackMix(base, "mic-morganMic", {
       compression: 68,
       noiseReduction: 42,
-      volume: 87
+      volume: 87,
     });
     const copied = applyTimelineTrackTreatmentToKind(tuned, "mic-morganMic");
     const reset = resetTimelineTrackControls(copied, "mic-guestMic");
 
-    expect(copied.tracks.find((track) => track.id === "mic-guestMic")).toMatchObject({ compression: 68, noiseReduction: 42, volume: 100 });
-    expect(reset.tracks.find((track) => track.id === "mic-guestMic")).toMatchObject({ compression: 0, noiseReduction: 0, volume: 100 });
-    expect(reset.tracks.find((track) => track.id === "mic-morganMic")?.compression).toBe(68);
+    expect(
+      copied.tracks.find((track) => track.id === "mic-guestMic"),
+    ).toMatchObject({ compression: 68, noiseReduction: 42, volume: 100 });
+    expect(
+      reset.tracks.find((track) => track.id === "mic-guestMic"),
+    ).toMatchObject({ compression: 0, noiseReduction: 0, volume: 100 });
+    expect(
+      reset.tracks.find((track) => track.id === "mic-morganMic")?.compression,
+    ).toBe(68);
   });
 
   it("stores safe final loudness targets", () => {
@@ -248,32 +297,49 @@ describe("timeline draft", () => {
     expect(mastered).toMatchObject({
       loudnessTargetLufs: -14,
       truePeakDb: -1,
-      hasUnsavedChanges: true
+      hasUnsavedChanges: true,
     });
     expect(clamped).toMatchObject({
       loudnessTargetLufs: -24,
-      truePeakDb: -0.5
+      truePeakDb: -0.5,
     });
   });
 
   it("uses an exact In and Out range for source cuts", () => {
     const base = createTimelineDraft({ deviceDefaults, durationMs: 60000 });
     const ranged = setTimelineRange(base, 8000, 13250, "mic-guestMic");
-    const edited = applyTimelineEdit(ranged, "delete-section", "2026-06-27T10:00:00.000Z");
+    const edited = applyTimelineEdit(
+      ranged,
+      "delete-section",
+      "2026-06-27T10:00:00.000Z",
+    );
     const segments = getTimelineSegments(edited, "mic-guestMic");
 
     expect(edited.editLog[0]).toMatchObject({
       timestampMs: 8000,
       endTimestampMs: 13250,
-      targetTrackId: "mic-guestMic"
+      targetTrackId: "mic-guestMic",
     });
-    expect(segments.find((segment) => segment.startMs === 8000 && segment.endMs === 13250)?.removed).toBe(true);
+    expect(
+      segments.find(
+        (segment) => segment.startMs === 8000 && segment.endMs === 13250,
+      )?.removed,
+    ).toBe(true);
   });
 
   it("builds visible clip segments from splits and trims", () => {
-    const base = setTimelineRange(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), 10000, 20000, "camera-camera1");
+    const base = setTimelineRange(
+      createTimelineDraft({ deviceDefaults, durationMs: 60000 }),
+      10000,
+      20000,
+      "camera-camera1",
+    );
     const split = applyTimelineEdit(base, "split", "2026-06-27T10:00:00.000Z");
-    const trimmed = applyTimelineEdit({ ...split, selection: { ...split.selection!, timestampMs: 52000 } }, "trim-after", "2026-06-27T10:00:01.000Z");
+    const trimmed = applyTimelineEdit(
+      { ...split, selection: { ...split.selection!, timestampMs: 52000 } },
+      "trim-after",
+      "2026-06-27T10:00:01.000Z",
+    );
     const segments = getTimelineSegments(trimmed, "camera-camera1");
 
     expect(segments.some((segment) => segment.startMs === 10000)).toBe(true);
@@ -281,12 +347,19 @@ describe("timeline draft", () => {
   });
 
   it("creates split and delete draft edits", () => {
-    const draft = selectTimelinePoint(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), {
-      timestampMs: 24000,
-      source: "timeline"
-    });
+    const draft = selectTimelinePoint(
+      createTimelineDraft({ deviceDefaults, durationMs: 60000 }),
+      {
+        timestampMs: 24000,
+        source: "timeline",
+      },
+    );
     const split = applyTimelineEdit(draft, "split", "2026-06-27T10:00:00.000Z");
-    const cut = applyTimelineEdit(split, "delete-section", "2026-06-27T10:01:00.000Z");
+    const cut = applyTimelineEdit(
+      split,
+      "delete-section",
+      "2026-06-27T10:01:00.000Z",
+    );
 
     expect(split.editLog[0].label).toBe("Split here");
     expect(cut.editLog[1].label).toBe("Cut this section");
@@ -294,10 +367,13 @@ describe("timeline draft", () => {
   });
 
   it("supports undo and redo", () => {
-    const draft = selectTimelinePoint(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), {
-      timestampMs: 12000,
-      source: "timeline"
-    });
+    const draft = selectTimelinePoint(
+      createTimelineDraft({ deviceDefaults, durationMs: 60000 }),
+      {
+        timestampMs: 12000,
+        source: "timeline",
+      },
+    );
     const edited = applyTimelineEdit(draft, "split");
     const undone = undoTimelineEdit(edited);
     const redone = redoTimelineEdit(undone);
@@ -309,39 +385,74 @@ describe("timeline draft", () => {
   });
 
   it("undoes and redoes camera decisions and track controls, not just log entries", () => {
-    const base = selectTimelinePoint(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), {
-      timestampMs: 12000,
-      source: "timeline"
-    });
-    const switched = addCameraDecision(base, "camera-camera2", "manual", "Use guest camera", "2026-06-27T10:00:00.000Z");
-    const adjusted = updateTimelineTrackMix(switched, "mic-guestMic", { volume: 72 }, "2026-06-27T10:00:02.000Z");
+    const base = selectTimelinePoint(
+      createTimelineDraft({ deviceDefaults, durationMs: 60000 }),
+      {
+        timestampMs: 12000,
+        source: "timeline",
+      },
+    );
+    const switched = addCameraDecision(
+      base,
+      "camera-camera2",
+      "manual",
+      "Use guest camera",
+      "2026-06-27T10:00:00.000Z",
+    );
+    const adjusted = updateTimelineTrackMix(
+      switched,
+      "mic-guestMic",
+      { volume: 72 },
+      "2026-06-27T10:00:02.000Z",
+    );
 
     const undoLevel = undoTimelineEdit(adjusted, "2026-06-27T10:00:03.000Z");
     const undoCamera = undoTimelineEdit(undoLevel, "2026-06-27T10:00:04.000Z");
     const redoCamera = redoTimelineEdit(undoCamera, "2026-06-27T10:00:05.000Z");
 
-    expect(undoLevel.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(100);
+    expect(
+      undoLevel.tracks.find((track) => track.id === "mic-guestMic")?.volume,
+    ).toBe(100);
     expect(undoLevel.cameraDecisions).toHaveLength(1);
     expect(undoCamera.cameraDecisions).toHaveLength(0);
     expect(redoCamera.cameraDecisions[0]).toMatchObject({
       cameraTrackId: "camera-camera2",
-      startMs: 12000
+      startMs: 12000,
     });
   });
 
   it("coalesces a fast slider gesture into one undo step", () => {
     const base = createTimelineDraft({ deviceDefaults });
-    const first = updateTimelineTrackMix(base, "mic-guestMic", { volume: 90 }, "2026-06-27T10:00:00.000Z");
-    const second = updateTimelineTrackMix(first, "mic-guestMic", { volume: 75 }, "2026-06-27T10:00:00.500Z");
+    const first = updateTimelineTrackMix(
+      base,
+      "mic-guestMic",
+      { volume: 90 },
+      "2026-06-27T10:00:00.000Z",
+    );
+    const second = updateTimelineTrackMix(
+      first,
+      "mic-guestMic",
+      { volume: 75 },
+      "2026-06-27T10:00:00.500Z",
+    );
     const undone = undoTimelineEdit(second);
 
     expect(second.history).toHaveLength(1);
-    expect(second.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(75);
-    expect(undone.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(100);
+    expect(
+      second.tracks.find((track) => track.id === "mic-guestMic")?.volume,
+    ).toBe(75);
+    expect(
+      undone.tracks.find((track) => track.id === "mic-guestMic")?.volume,
+    ).toBe(100);
   });
 
   it("skips removed Program ranges during edited preview playback", () => {
-    const base = setTimelineRange(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), 10000, 20000, "program");
+    const base = setTimelineRange(
+      createTimelineDraft({ deviceDefaults, durationMs: 60000 }),
+      10000,
+      20000,
+      "program",
+    );
     const cut = applyTimelineEdit(base, "delete-section");
 
     expect(getNextPlayableTimelineTime(cut, 15000)).toBe(20000);
@@ -349,20 +460,40 @@ describe("timeline draft", () => {
   });
 
   it("uses camera source edits to decide whether an angle is available", () => {
-    const base = setTimelineRange(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), 10000, 20000, "camera-camera1");
+    const base = setTimelineRange(
+      createTimelineDraft({ deviceDefaults, durationMs: 60000 }),
+      10000,
+      20000,
+      "camera-camera1",
+    );
     const cut = applyTimelineEdit(base, "delete-section");
 
     expect(isTimelineTrackAvailableAt(cut, "camera-camera1", 5000)).toBe(true);
-    expect(isTimelineTrackAvailableAt(cut, "camera-camera1", 15000)).toBe(false);
+    expect(isTimelineTrackAvailableAt(cut, "camera-camera1", 15000)).toBe(
+      false,
+    );
     expect(isTimelineTrackAvailableAt(cut, "camera-camera1", 25000)).toBe(true);
-    expect(isTimelineTrackAvailableAt({
-      ...cut,
-      tracks: cut.tracks.map((track) => track.id === "camera-camera1" ? { ...track, includedInProgram: false } : track)
-    }, "camera-camera1", 5000)).toBe(false);
+    expect(
+      isTimelineTrackAvailableAt(
+        {
+          ...cut,
+          tracks: cut.tracks.map((track) =>
+            track.id === "camera-camera1"
+              ? { ...track, includedInProgram: false }
+              : track,
+          ),
+        },
+        "camera-camera1",
+        5000,
+      ),
+    ).toBe(false);
   });
 
   it("restores the original draft by clearing edit history", () => {
-    const edited = applyTimelineEdit(createTimelineDraft({ deviceDefaults }), "delete-section");
+    const edited = applyTimelineEdit(
+      createTimelineDraft({ deviceDefaults }),
+      "delete-section",
+    );
     const restored = restoreOriginalTimeline(edited);
 
     expect(restored.editLog).toEqual([]);
@@ -371,10 +502,37 @@ describe("timeline draft", () => {
   });
 
   it("marks auto-saved draft timelines as clean", () => {
-    const edited = applyTimelineEdit(createTimelineDraft({ deviceDefaults }), "trim-before");
+    const edited = applyTimelineEdit(
+      createTimelineDraft({ deviceDefaults }),
+      "trim-before",
+    );
     const saved = markTimelineSaved(edited, "2026-06-27T10:00:00.000Z");
 
     expect(saved.hasUnsavedChanges).toBe(false);
     expect(saved.lastSavedAt).toBe("2026-06-27T10:00:00.000Z");
+  });
+
+  it("restores a named checkpoint as one undoable edit", () => {
+    const base = createTimelineDraft({ deviceDefaults, durationMs: 60000 });
+    const checkpointed = createTimelineCheckpoint(
+      base,
+      "Before sponsor cut",
+      "2026-06-27T10:00:00.000Z",
+    );
+    const edited = applyTimelineEdit(
+      setTimelineRange(checkpointed, 10000, 20000, "program"),
+      "delete-section",
+      "2026-06-27T10:00:01.000Z",
+    );
+    const restored = restoreTimelineCheckpoint(
+      edited,
+      checkpointed.checkpoints[0].id,
+      "2026-06-27T10:00:02.000Z",
+    );
+
+    expect(restored.editLog).toEqual([]);
+    expect(restored.checkpoints[0].label).toBe("Before sponsor cut");
+    expect(restored.history.at(-1)?.label).toBe("Restore Before sponsor cut");
+    expect(undoTimelineEdit(restored).editLog).toHaveLength(1);
   });
 });

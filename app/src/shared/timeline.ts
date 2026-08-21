@@ -1,11 +1,22 @@
 import type { DeviceDefaults } from "./types";
 import type { LiveMarker } from "./podcast-tools";
-import type { AutoEditChapter, AutoEditClipSuggestion, AutoEditMode } from "./auto-edit";
+import type {
+  AutoEditChapter,
+  AutoEditClipSuggestion,
+  AutoEditMode,
+} from "./auto-edit";
 import type { ReviewMediaInventory } from "./review-media";
 
 export type TimelineTrackKind = "program" | "camera" | "microphone" | "markers";
-export type LockedTimelineTool = "Trim" | "Split" | "Delete" | "Auto Edit" | "Export";
-export type TimelineEditType = "trim-before" | "trim-after" | "split" | "delete-section" | "camera-switch" | "auto-edit-suggestion";
+export type LockedTimelineTool =
+  "Trim" | "Split" | "Delete" | "Auto Edit" | "Export";
+export type TimelineEditType =
+  | "trim-before"
+  | "trim-after"
+  | "split"
+  | "delete-section"
+  | "camera-switch"
+  | "auto-edit-suggestion";
 export type TimelineSelectionSource = "timeline" | "marker";
 export type TimelineEditMode = "manual" | "auto";
 export type TimelineAudioPreset = "natural" | "clean" | "warm" | "broadcast";
@@ -112,6 +123,13 @@ export interface TimelineHistoryEntry {
   after: TimelineHistorySnapshot;
 }
 
+export interface TimelineCheckpoint {
+  id: string;
+  label: string;
+  createdAt: string;
+  snapshot: TimelineHistorySnapshot;
+}
+
 export interface TimelineDraft {
   episodeId?: string;
   recordingSessionId?: string;
@@ -135,6 +153,7 @@ export interface TimelineDraft {
   undoneEditLog: TimelineEditOperation[];
   history: TimelineHistoryEntry[];
   redoHistory: TimelineHistoryEntry[];
+  checkpoints: TimelineCheckpoint[];
   hasUnsavedChanges: boolean;
   lastSavedAt?: string;
   autoEdit?: {
@@ -150,11 +169,25 @@ export interface TimelineDraft {
 export const TIMELINE_HISTORY_LIMIT = 50;
 
 /** Undo/redo snapshots are session-only and must never inflate saved drafts or export EDLs. */
-export function compactTimelineDraftForPersistence(draft: TimelineDraft): TimelineDraft {
+export function compactTimelineDraftForPersistence(
+  draft: TimelineDraft,
+): TimelineDraft {
   return {
     ...draft,
     history: [],
-    redoHistory: []
+    redoHistory: [],
+  };
+}
+
+/** Keep a small restart-safe undo window without allowing draft files to grow without bound. */
+export function prepareTimelineDraftForStorage(
+  draft: TimelineDraft,
+): TimelineDraft {
+  return {
+    ...draft,
+    history: draft.history.slice(-10),
+    redoHistory: draft.redoHistory.slice(0, 10),
+    checkpoints: draft.checkpoints.slice(-10),
   };
 }
 
@@ -188,10 +221,17 @@ const defaultTrackControls = {
   denoise: 0,
   zoom: 100,
   positionX: 0,
-  positionY: 0
+  positionY: 0,
 };
 
-export function createTimelineDraft(input: { episodeId?: string; recordingSessionId?: string; deviceDefaults: DeviceDefaults; markers?: LiveMarker[]; durationMs?: number; now?: string }): TimelineDraft {
+export function createTimelineDraft(input: {
+  episodeId?: string;
+  recordingSessionId?: string;
+  deviceDefaults: DeviceDefaults;
+  markers?: LiveMarker[];
+  durationMs?: number;
+  now?: string;
+}): TimelineDraft {
   const now = input.now ?? new Date().toISOString();
   const cameraTracks = Object.entries(input.deviceDefaults.cameras)
     .filter(([, deviceId]) => Boolean(deviceId))
@@ -201,17 +241,27 @@ export function createTimelineDraft(input: { episodeId?: string; recordingSessio
       kind: "camera" as const,
       placeholder: "Camera angle track",
       sourceAssetId: `camera-${index + 1}`,
-      ...defaultTrackControls
+      ...defaultTrackControls,
     }));
   const micTracks = Object.entries(input.deviceDefaults.microphones)
     .filter(([, deviceId]) => Boolean(deviceId))
     .map(([slot]) => ({
       id: `mic-${slot}`,
-      label: slot === "morganMic" ? "Morgan Mic" : slot === "guestMic" ? "Guest Mic" : "Extra Mic",
+      label:
+        slot === "morganMic"
+          ? "Morgan Mic"
+          : slot === "guestMic"
+            ? "Guest Mic"
+            : "Extra Mic",
       kind: "microphone" as const,
       placeholder: "Voice track",
-      sourceAssetId: slot === "morganMic" ? "morgan-mic" : slot === "guestMic" ? "guest-mic" : "extra-mic",
-      ...defaultTrackControls
+      sourceAssetId:
+        slot === "morganMic"
+          ? "morgan-mic"
+          : slot === "guestMic"
+            ? "guest-mic"
+            : "extra-mic",
+      ...defaultTrackControls,
     }));
 
   return {
@@ -228,7 +278,7 @@ export function createTimelineDraft(input: { episodeId?: string; recordingSessio
         kind: "program",
         placeholder: "Combined episode",
         sourceAssetId: "program",
-        ...defaultTrackControls
+        ...defaultTrackControls,
       },
       ...cameraTracks,
       ...micTracks,
@@ -238,8 +288,8 @@ export function createTimelineDraft(input: { episodeId?: string; recordingSessio
         kind: "markers",
         placeholder: "Saved moments",
         ...defaultTrackControls,
-        includedInProgram: false
-      }
+        includedInProgram: false,
+      },
     ],
     editMode: "manual",
     selectedTrackId: "program",
@@ -255,101 +305,178 @@ export function createTimelineDraft(input: { episodeId?: string; recordingSessio
     undoneEditLog: [],
     history: [],
     redoHistory: [],
+    checkpoints: [],
     hasUnsavedChanges: false,
-    nonDestructive: true
+    nonDestructive: true,
   };
 }
 
-export function withTimelineDraftDefaults(draft: Partial<TimelineDraft> | null | undefined, fallback: TimelineDraft): TimelineDraft {
-  const fallbackTracks = new Map(fallback.tracks.map((track) => [track.id, track]));
-  const tracks = (draft?.tracks?.length ? draft.tracks : fallback.tracks).map((track) => ({
-    ...fallbackTracks.get(track.id),
-    ...defaultTrackControls,
-    ...track,
-    includedInProgram: track.includedInProgram ?? fallbackTracks.get(track.id)?.includedInProgram ?? track.kind !== "markers",
-    volume: track.volume ?? fallbackTracks.get(track.id)?.volume ?? 100,
-    muted: track.muted ?? fallbackTracks.get(track.id)?.muted ?? false,
-    solo: track.solo ?? fallbackTracks.get(track.id)?.solo ?? false,
-    pan: track.pan ?? fallbackTracks.get(track.id)?.pan ?? 0,
-    fadeInMs: track.fadeInMs ?? fallbackTracks.get(track.id)?.fadeInMs ?? 0,
-    fadeOutMs: track.fadeOutMs ?? fallbackTracks.get(track.id)?.fadeOutMs ?? 0,
-    syncOffsetMs: track.syncOffsetMs ?? fallbackTracks.get(track.id)?.syncOffsetMs ?? 0,
-    audioPreset: track.audioPreset ?? fallbackTracks.get(track.id)?.audioPreset ?? "natural",
-    noiseReduction: track.noiseReduction ?? fallbackTracks.get(track.id)?.noiseReduction ?? 0,
-    noiseGateDb: track.noiseGateDb ?? fallbackTracks.get(track.id)?.noiseGateDb ?? -80,
-    deEsser: track.deEsser ?? fallbackTracks.get(track.id)?.deEsser ?? 0,
-    compression: track.compression ?? fallbackTracks.get(track.id)?.compression ?? 0,
-    eqLowDb: track.eqLowDb ?? fallbackTracks.get(track.id)?.eqLowDb ?? 0,
-    eqMidDb: track.eqMidDb ?? fallbackTracks.get(track.id)?.eqMidDb ?? 0,
-    eqHighDb: track.eqHighDb ?? fallbackTracks.get(track.id)?.eqHighDb ?? 0,
-    limiterEnabled: track.limiterEnabled ?? fallbackTracks.get(track.id)?.limiterEnabled ?? true,
-    cropMode: track.cropMode ?? fallbackTracks.get(track.id)?.cropMode ?? "fit",
-    brightness: track.brightness ?? fallbackTracks.get(track.id)?.brightness ?? 0,
-    contrast: track.contrast ?? fallbackTracks.get(track.id)?.contrast ?? 100,
-    saturation: track.saturation ?? fallbackTracks.get(track.id)?.saturation ?? 100,
-    temperature: track.temperature ?? fallbackTracks.get(track.id)?.temperature ?? 0,
-    tint: track.tint ?? fallbackTracks.get(track.id)?.tint ?? 0,
-    sharpness: track.sharpness ?? fallbackTracks.get(track.id)?.sharpness ?? 0,
-    denoise: track.denoise ?? fallbackTracks.get(track.id)?.denoise ?? 0,
-    zoom: track.zoom ?? fallbackTracks.get(track.id)?.zoom ?? 100,
-    positionX: track.positionX ?? fallbackTracks.get(track.id)?.positionX ?? 0,
-    positionY: track.positionY ?? fallbackTracks.get(track.id)?.positionY ?? 0
-  }));
+export function withTimelineDraftDefaults(
+  draft: Partial<TimelineDraft> | null | undefined,
+  fallback: TimelineDraft,
+): TimelineDraft {
+  const fallbackTracks = new Map(
+    fallback.tracks.map((track) => [track.id, track]),
+  );
+  const tracks = (draft?.tracks?.length ? draft.tracks : fallback.tracks).map(
+    (track) => ({
+      ...fallbackTracks.get(track.id),
+      ...defaultTrackControls,
+      ...track,
+      includedInProgram:
+        track.includedInProgram ??
+        fallbackTracks.get(track.id)?.includedInProgram ??
+        track.kind !== "markers",
+      volume: track.volume ?? fallbackTracks.get(track.id)?.volume ?? 100,
+      muted: track.muted ?? fallbackTracks.get(track.id)?.muted ?? false,
+      solo: track.solo ?? fallbackTracks.get(track.id)?.solo ?? false,
+      pan: track.pan ?? fallbackTracks.get(track.id)?.pan ?? 0,
+      fadeInMs: track.fadeInMs ?? fallbackTracks.get(track.id)?.fadeInMs ?? 0,
+      fadeOutMs:
+        track.fadeOutMs ?? fallbackTracks.get(track.id)?.fadeOutMs ?? 0,
+      syncOffsetMs:
+        track.syncOffsetMs ?? fallbackTracks.get(track.id)?.syncOffsetMs ?? 0,
+      audioPreset:
+        track.audioPreset ??
+        fallbackTracks.get(track.id)?.audioPreset ??
+        "natural",
+      noiseReduction:
+        track.noiseReduction ??
+        fallbackTracks.get(track.id)?.noiseReduction ??
+        0,
+      noiseGateDb:
+        track.noiseGateDb ?? fallbackTracks.get(track.id)?.noiseGateDb ?? -80,
+      deEsser: track.deEsser ?? fallbackTracks.get(track.id)?.deEsser ?? 0,
+      compression:
+        track.compression ?? fallbackTracks.get(track.id)?.compression ?? 0,
+      eqLowDb: track.eqLowDb ?? fallbackTracks.get(track.id)?.eqLowDb ?? 0,
+      eqMidDb: track.eqMidDb ?? fallbackTracks.get(track.id)?.eqMidDb ?? 0,
+      eqHighDb: track.eqHighDb ?? fallbackTracks.get(track.id)?.eqHighDb ?? 0,
+      limiterEnabled:
+        track.limiterEnabled ??
+        fallbackTracks.get(track.id)?.limiterEnabled ??
+        true,
+      cropMode:
+        track.cropMode ?? fallbackTracks.get(track.id)?.cropMode ?? "fit",
+      brightness:
+        track.brightness ?? fallbackTracks.get(track.id)?.brightness ?? 0,
+      contrast: track.contrast ?? fallbackTracks.get(track.id)?.contrast ?? 100,
+      saturation:
+        track.saturation ?? fallbackTracks.get(track.id)?.saturation ?? 100,
+      temperature:
+        track.temperature ?? fallbackTracks.get(track.id)?.temperature ?? 0,
+      tint: track.tint ?? fallbackTracks.get(track.id)?.tint ?? 0,
+      sharpness:
+        track.sharpness ?? fallbackTracks.get(track.id)?.sharpness ?? 0,
+      denoise: track.denoise ?? fallbackTracks.get(track.id)?.denoise ?? 0,
+      zoom: track.zoom ?? fallbackTracks.get(track.id)?.zoom ?? 100,
+      positionX:
+        track.positionX ?? fallbackTracks.get(track.id)?.positionX ?? 0,
+      positionY:
+        track.positionY ?? fallbackTracks.get(track.id)?.positionY ?? 0,
+    }),
+  );
   return {
     ...fallback,
     ...draft,
     version: draft?.version ?? fallback.version ?? 1,
     tracks,
     editMode: draft?.editMode ?? fallback.editMode ?? "manual",
-    selectedTrackId: tracks.some((track) => track.id === draft?.selectedTrackId) ? (draft?.selectedTrackId ?? "program") : "program",
+    selectedTrackId: tracks.some((track) => track.id === draft?.selectedTrackId)
+      ? (draft?.selectedTrackId ?? "program")
+      : "program",
     cameraDecisions: draft?.cameraDecisions ?? fallback.cameraDecisions ?? [],
-    cameraTransition: draft?.cameraTransition ?? fallback.cameraTransition ?? "cut",
-    cameraTransitionMs: draft?.cameraTransitionMs ?? fallback.cameraTransitionMs ?? 250,
-    loudnessTargetLufs: draft?.loudnessTargetLufs ?? fallback.loudnessTargetLufs ?? -16,
+    cameraTransition:
+      draft?.cameraTransition ?? fallback.cameraTransition ?? "cut",
+    cameraTransitionMs:
+      draft?.cameraTransitionMs ?? fallback.cameraTransitionMs ?? 250,
+    loudnessTargetLufs:
+      draft?.loudnessTargetLufs ?? fallback.loudnessTargetLufs ?? -16,
     truePeakDb: draft?.truePeakDb ?? fallback.truePeakDb ?? -1.5,
     markers: draft?.markers ?? fallback.markers,
-    lockedTools: draft?.lockedTools?.length ? draft.lockedTools : lockedTimelineTools,
+    lockedTools: draft?.lockedTools?.length
+      ? draft.lockedTools
+      : lockedTimelineTools,
     editLog: draft?.editLog ?? fallback.editLog ?? [],
     captions: draft?.captions ?? fallback.captions ?? [],
     undoneEditLog: draft?.undoneEditLog ?? fallback.undoneEditLog ?? [],
     history: draft?.history ?? fallback.history ?? [],
     redoHistory: draft?.redoHistory ?? fallback.redoHistory ?? [],
-    hasUnsavedChanges: draft?.hasUnsavedChanges ?? fallback.hasUnsavedChanges ?? false,
-    nonDestructive: true
+    checkpoints: draft?.checkpoints ?? fallback.checkpoints ?? [],
+    hasUnsavedChanges:
+      draft?.hasUnsavedChanges ?? fallback.hasUnsavedChanges ?? false,
+    nonDestructive: true,
   };
 }
 
-export function syncTimelineTracksWithMedia(draft: TimelineDraft, media: ReviewMediaInventory): TimelineDraft {
-  const existingAssetIds = new Set(draft.tracks.map((track) => track.sourceAssetId).filter(Boolean));
+export function syncTimelineTracksWithMedia(
+  draft: TimelineDraft,
+  media: ReviewMediaInventory,
+): TimelineDraft {
+  const existingAssetIds = new Set(
+    draft.tracks.map((track) => track.sourceAssetId).filter(Boolean),
+  );
   const sourceTracks: TimelineTrack[] = [];
   for (const asset of [...media.cameras, ...media.audio]) {
     if (asset.status !== "ready" || existingAssetIds.has(asset.id)) continue;
     sourceTracks.push({
-      id: asset.kind === "camera" ? `camera-${asset.id.replace("camera-", "camera")}` : `mic-${asset.id.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())}`,
+      id:
+        asset.kind === "camera"
+          ? `camera-${asset.id.replace("camera-", "camera")}`
+          : `mic-${asset.id.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())}`,
       label: asset.label,
       kind: asset.kind === "camera" ? "camera" : "microphone",
-      placeholder: asset.kind === "camera" ? "Camera angle track" : "Voice track",
+      placeholder:
+        asset.kind === "camera" ? "Camera angle track" : "Voice track",
       sourceAssetId: asset.id,
-      ...defaultTrackControls
+      ...defaultTrackControls,
     });
   }
   if (sourceTracks.length === 0) return draft;
-  const markerIndex = draft.tracks.findIndex((track) => track.kind === "markers");
-  const tracks = markerIndex >= 0 ? [...draft.tracks.slice(0, markerIndex), ...sourceTracks, ...draft.tracks.slice(markerIndex)] : [...draft.tracks, ...sourceTracks];
+  const markerIndex = draft.tracks.findIndex(
+    (track) => track.kind === "markers",
+  );
+  const tracks =
+    markerIndex >= 0
+      ? [
+          ...draft.tracks.slice(0, markerIndex),
+          ...sourceTracks,
+          ...draft.tracks.slice(markerIndex),
+        ]
+      : [...draft.tracks, ...sourceTracks];
   return { ...draft, tracks };
 }
 
-export function addTimelineCaption(draft: TimelineDraft, startMs: number, endMs = startMs + 3000, now = new Date().toISOString()) {
+export function addTimelineCaption(
+  draft: TimelineDraft,
+  startMs: number,
+  endMs = startMs + 3000,
+  now = new Date().toISOString(),
+) {
   const cue: TimelineCaptionCue = {
     id: `caption-${now}`,
     startMs: Math.max(0, Math.round(startMs)),
-    endMs: Math.min(draft.durationMs || Number.MAX_SAFE_INTEGER, Math.max(Math.round(startMs) + 250, Math.round(endMs))),
-    text: ""
+    endMs: Math.min(
+      draft.durationMs || Number.MAX_SAFE_INTEGER,
+      Math.max(Math.round(startMs) + 250, Math.round(endMs)),
+    ),
+    text: "",
   };
-  return commitTimelineMutation(draft, { ...draft, captions: [...draft.captions, cue] }, "Add caption", undefined, now);
+  return commitTimelineMutation(
+    draft,
+    { ...draft, captions: [...draft.captions, cue] },
+    "Add caption",
+    undefined,
+    now,
+  );
 }
 
-export function updateTimelineCaption(draft: TimelineDraft, cueId: string, patch: Partial<Pick<TimelineCaptionCue, "startMs" | "endMs" | "text">>, now = new Date().toISOString()) {
+export function updateTimelineCaption(
+  draft: TimelineDraft,
+  cueId: string,
+  patch: Partial<Pick<TimelineCaptionCue, "startMs" | "endMs" | "text">>,
+  now = new Date().toISOString(),
+) {
   const captions = draft.captions.map((cue) => {
     if (cue.id !== cueId) return cue;
     const startMs = Math.max(0, Math.round(patch.startMs ?? cue.startMs));
@@ -358,58 +485,108 @@ export function updateTimelineCaption(draft: TimelineDraft, cueId: string, patch
       ...patch,
       startMs,
       endMs: Math.max(startMs + 250, Math.round(patch.endMs ?? cue.endMs)),
-      text: patch.text ?? cue.text
+      text: patch.text ?? cue.text,
     };
   });
-  return commitTimelineMutation(draft, { ...draft, captions }, "Edit caption", `caption:${cueId}`, now);
+  return commitTimelineMutation(
+    draft,
+    { ...draft, captions },
+    "Edit caption",
+    `caption:${cueId}`,
+    now,
+  );
 }
 
-export function removeTimelineCaption(draft: TimelineDraft, cueId: string, now = new Date().toISOString()) {
-  return commitTimelineMutation(draft, { ...draft, captions: draft.captions.filter((cue) => cue.id !== cueId) }, "Delete caption", undefined, now);
+export function removeTimelineCaption(
+  draft: TimelineDraft,
+  cueId: string,
+  now = new Date().toISOString(),
+) {
+  return commitTimelineMutation(
+    draft,
+    { ...draft, captions: draft.captions.filter((cue) => cue.id !== cueId) },
+    "Delete caption",
+    undefined,
+    now,
+  );
 }
 
-export function replaceTimelineCaptions(draft: TimelineDraft, captions: TimelineCaptionCue[], label = "Import captions", now = new Date().toISOString()) {
-  const maxTimestamp = draft.durationMs > 0 ? draft.durationMs : Number.MAX_SAFE_INTEGER;
+export function replaceTimelineCaptions(
+  draft: TimelineDraft,
+  captions: TimelineCaptionCue[],
+  label = "Import captions",
+  now = new Date().toISOString(),
+) {
+  const maxTimestamp =
+    draft.durationMs > 0 ? draft.durationMs : Number.MAX_SAFE_INTEGER;
   const normalized = captions
     .map((cue, index) => {
-      const startMs = Math.max(0, Math.min(maxTimestamp, Math.round(cue.startMs)));
+      const startMs = Math.max(
+        0,
+        Math.min(maxTimestamp, Math.round(cue.startMs)),
+      );
       return {
         id: cue.id || `caption-${now}-${index + 1}`,
         startMs,
-        endMs: Math.min(maxTimestamp, Math.max(startMs + 250, Math.round(cue.endMs))),
-        text: cue.text.trim()
+        endMs: Math.min(
+          maxTimestamp,
+          Math.max(startMs + 250, Math.round(cue.endMs)),
+        ),
+        text: cue.text.trim(),
       };
     })
     .filter((cue) => cue.text && cue.startMs < maxTimestamp)
     .sort((left, right) => left.startMs - right.startMs);
-  return commitTimelineMutation(draft, { ...draft, captions: normalized }, label, undefined, now);
+  return commitTimelineMutation(
+    draft,
+    { ...draft, captions: normalized },
+    label,
+    undefined,
+    now,
+  );
 }
 
-export function selectTimelinePoint(draft: TimelineDraft, selection: TimelineSelection, now = new Date().toISOString()): TimelineDraft {
-  const maxTimestamp = draft.durationMs > 0 ? draft.durationMs : selection.timestampMs;
+export function selectTimelinePoint(
+  draft: TimelineDraft,
+  selection: TimelineSelection,
+  now = new Date().toISOString(),
+): TimelineDraft {
+  const maxTimestamp =
+    draft.durationMs > 0 ? draft.durationMs : selection.timestampMs;
   return {
     ...draft,
     selection: {
       ...selection,
       timestampMs: Math.max(0, Math.min(selection.timestampMs, maxTimestamp)),
-      endTimestampMs: selection.endTimestampMs === undefined ? undefined : Math.max(0, Math.min(selection.endTimestampMs, maxTimestamp)),
-      trackId: selection.trackId ?? draft.selectedTrackId
+      endTimestampMs:
+        selection.endTimestampMs === undefined
+          ? undefined
+          : Math.max(0, Math.min(selection.endTimestampMs, maxTimestamp)),
+      trackId: selection.trackId ?? draft.selectedTrackId,
     },
-    updatedAt: now
+    updatedAt: now,
   };
 }
 
-export function selectTimelineTrack(draft: TimelineDraft, trackId: string, now = new Date().toISOString()): TimelineDraft {
+export function selectTimelineTrack(
+  draft: TimelineDraft,
+  trackId: string,
+  now = new Date().toISOString(),
+): TimelineDraft {
   if (!draft.tracks.some((track) => track.id === trackId)) return draft;
   return {
     ...draft,
     selectedTrackId: trackId,
     selection: draft.selection ? { ...draft.selection, trackId } : undefined,
-    updatedAt: now
+    updatedAt: now,
   };
 }
 
-export function setTimelineEditMode(draft: TimelineDraft, editMode: TimelineEditMode, now = new Date().toISOString()): TimelineDraft {
+export function setTimelineEditMode(
+  draft: TimelineDraft,
+  editMode: TimelineEditMode,
+  now = new Date().toISOString(),
+): TimelineDraft {
   return { ...draft, editMode, updatedAt: now };
 }
 
@@ -449,7 +626,7 @@ export function updateTimelineTrackMix(
       | "positionY"
     >
   >,
-  now = new Date().toISOString()
+  now = new Date().toISOString(),
 ): TimelineDraft {
   const track = draft.tracks.find((candidate) => candidate.id === trackId);
   if (!track) return draft;
@@ -460,37 +637,113 @@ export function updateTimelineTrackMix(
         ? {
             ...track,
             ...patch,
-            volume: patch.volume === undefined ? track.volume : Math.max(0, Math.min(150, patch.volume)),
-            pan: patch.pan === undefined ? track.pan : Math.max(-100, Math.min(100, patch.pan)),
-            fadeInMs: patch.fadeInMs === undefined ? track.fadeInMs : Math.max(0, Math.min(10000, patch.fadeInMs)),
-            fadeOutMs: patch.fadeOutMs === undefined ? track.fadeOutMs : Math.max(0, Math.min(10000, patch.fadeOutMs)),
-            syncOffsetMs: patch.syncOffsetMs === undefined ? track.syncOffsetMs : Math.max(-30000, Math.min(30000, patch.syncOffsetMs)),
-            noiseReduction: patch.noiseReduction === undefined ? track.noiseReduction : Math.max(0, Math.min(100, patch.noiseReduction)),
-            noiseGateDb: patch.noiseGateDb === undefined ? track.noiseGateDb : Math.max(-80, Math.min(-20, patch.noiseGateDb)),
-            deEsser: patch.deEsser === undefined ? track.deEsser : Math.max(0, Math.min(100, patch.deEsser)),
-            compression: patch.compression === undefined ? track.compression : Math.max(0, Math.min(100, patch.compression)),
-            eqLowDb: patch.eqLowDb === undefined ? track.eqLowDb : Math.max(-12, Math.min(12, patch.eqLowDb)),
-            eqMidDb: patch.eqMidDb === undefined ? track.eqMidDb : Math.max(-12, Math.min(12, patch.eqMidDb)),
-            eqHighDb: patch.eqHighDb === undefined ? track.eqHighDb : Math.max(-12, Math.min(12, patch.eqHighDb)),
-            brightness: patch.brightness === undefined ? track.brightness : Math.max(-100, Math.min(100, patch.brightness)),
-            contrast: patch.contrast === undefined ? track.contrast : Math.max(50, Math.min(200, patch.contrast)),
-            saturation: patch.saturation === undefined ? track.saturation : Math.max(0, Math.min(200, patch.saturation)),
-            temperature: patch.temperature === undefined ? track.temperature : Math.max(-100, Math.min(100, patch.temperature)),
-            tint: patch.tint === undefined ? track.tint : Math.max(-100, Math.min(100, patch.tint)),
-            sharpness: patch.sharpness === undefined ? track.sharpness : Math.max(0, Math.min(100, patch.sharpness)),
-            denoise: patch.denoise === undefined ? track.denoise : Math.max(0, Math.min(100, patch.denoise)),
-            zoom: patch.zoom === undefined ? track.zoom : Math.max(100, Math.min(160, patch.zoom)),
-            positionX: patch.positionX === undefined ? track.positionX : Math.max(-100, Math.min(100, patch.positionX)),
-            positionY: patch.positionY === undefined ? track.positionY : Math.max(-100, Math.min(100, patch.positionY))
+            volume:
+              patch.volume === undefined
+                ? track.volume
+                : Math.max(0, Math.min(150, patch.volume)),
+            pan:
+              patch.pan === undefined
+                ? track.pan
+                : Math.max(-100, Math.min(100, patch.pan)),
+            fadeInMs:
+              patch.fadeInMs === undefined
+                ? track.fadeInMs
+                : Math.max(0, Math.min(10000, patch.fadeInMs)),
+            fadeOutMs:
+              patch.fadeOutMs === undefined
+                ? track.fadeOutMs
+                : Math.max(0, Math.min(10000, patch.fadeOutMs)),
+            syncOffsetMs:
+              patch.syncOffsetMs === undefined
+                ? track.syncOffsetMs
+                : Math.max(-30000, Math.min(30000, patch.syncOffsetMs)),
+            noiseReduction:
+              patch.noiseReduction === undefined
+                ? track.noiseReduction
+                : Math.max(0, Math.min(100, patch.noiseReduction)),
+            noiseGateDb:
+              patch.noiseGateDb === undefined
+                ? track.noiseGateDb
+                : Math.max(-80, Math.min(-20, patch.noiseGateDb)),
+            deEsser:
+              patch.deEsser === undefined
+                ? track.deEsser
+                : Math.max(0, Math.min(100, patch.deEsser)),
+            compression:
+              patch.compression === undefined
+                ? track.compression
+                : Math.max(0, Math.min(100, patch.compression)),
+            eqLowDb:
+              patch.eqLowDb === undefined
+                ? track.eqLowDb
+                : Math.max(-12, Math.min(12, patch.eqLowDb)),
+            eqMidDb:
+              patch.eqMidDb === undefined
+                ? track.eqMidDb
+                : Math.max(-12, Math.min(12, patch.eqMidDb)),
+            eqHighDb:
+              patch.eqHighDb === undefined
+                ? track.eqHighDb
+                : Math.max(-12, Math.min(12, patch.eqHighDb)),
+            brightness:
+              patch.brightness === undefined
+                ? track.brightness
+                : Math.max(-100, Math.min(100, patch.brightness)),
+            contrast:
+              patch.contrast === undefined
+                ? track.contrast
+                : Math.max(50, Math.min(200, patch.contrast)),
+            saturation:
+              patch.saturation === undefined
+                ? track.saturation
+                : Math.max(0, Math.min(200, patch.saturation)),
+            temperature:
+              patch.temperature === undefined
+                ? track.temperature
+                : Math.max(-100, Math.min(100, patch.temperature)),
+            tint:
+              patch.tint === undefined
+                ? track.tint
+                : Math.max(-100, Math.min(100, patch.tint)),
+            sharpness:
+              patch.sharpness === undefined
+                ? track.sharpness
+                : Math.max(0, Math.min(100, patch.sharpness)),
+            denoise:
+              patch.denoise === undefined
+                ? track.denoise
+                : Math.max(0, Math.min(100, patch.denoise)),
+            zoom:
+              patch.zoom === undefined
+                ? track.zoom
+                : Math.max(100, Math.min(160, patch.zoom)),
+            positionX:
+              patch.positionX === undefined
+                ? track.positionX
+                : Math.max(-100, Math.min(100, patch.positionX)),
+            positionY:
+              patch.positionY === undefined
+                ? track.positionY
+                : Math.max(-100, Math.min(100, patch.positionY)),
           }
-        : track
-    )
+        : track,
+    ),
   };
   const fields = Object.keys(patch).sort().join("+") || "controls";
-  return commitTimelineMutation(draft, next, `Adjust ${track.label}`, `track:${trackId}:${fields}`, now);
+  return commitTimelineMutation(
+    draft,
+    next,
+    `Adjust ${track.label}`,
+    `track:${trackId}:${fields}`,
+    now,
+  );
 }
 
-export function updateTimelineSyncOffsets(draft: TimelineDraft, offsetsMs: Record<string, number>, now = new Date().toISOString()): TimelineDraft {
+export function updateTimelineSyncOffsets(
+  draft: TimelineDraft,
+  offsetsMs: Record<string, number>,
+  now = new Date().toISOString(),
+): TimelineDraft {
   return commitTimelineMutation(
     draft,
     {
@@ -500,45 +753,62 @@ export function updateTimelineSyncOffsets(draft: TimelineDraft, offsetsMs: Recor
           ? track
           : {
               ...track,
-              syncOffsetMs: Math.max(-30000, Math.min(30000, Math.round(offsetsMs[track.id])))
-            }
-      )
+              syncOffsetMs: Math.max(
+                -30000,
+                Math.min(30000, Math.round(offsetsMs[track.id])),
+              ),
+            },
+      ),
     },
     "Synchronize cameras and audio",
     undefined,
-    now
+    now,
   );
 }
 
-export function updateTimelineCameraTransition(draft: TimelineDraft, cameraTransition: TimelineCameraTransition, cameraTransitionMs = draft.cameraTransitionMs, now = new Date().toISOString()): TimelineDraft {
+export function updateTimelineCameraTransition(
+  draft: TimelineDraft,
+  cameraTransition: TimelineCameraTransition,
+  cameraTransitionMs = draft.cameraTransitionMs,
+  now = new Date().toISOString(),
+): TimelineDraft {
   return commitTimelineMutation(
     draft,
     {
       ...draft,
       cameraTransition,
-      cameraTransitionMs: Math.max(100, Math.min(1000, cameraTransitionMs))
+      cameraTransitionMs: Math.max(100, Math.min(1000, cameraTransitionMs)),
     },
     "Change camera transition",
     "camera-transition",
-    now
+    now,
   );
 }
 
-export function updateTimelineMastering(draft: TimelineDraft, loudnessTargetLufs: number, truePeakDb = draft.truePeakDb, now = new Date().toISOString()): TimelineDraft {
+export function updateTimelineMastering(
+  draft: TimelineDraft,
+  loudnessTargetLufs: number,
+  truePeakDb = draft.truePeakDb,
+  now = new Date().toISOString(),
+): TimelineDraft {
   return commitTimelineMutation(
     draft,
     {
       ...draft,
       loudnessTargetLufs: Math.max(-24, Math.min(-12, loudnessTargetLufs)),
-      truePeakDb: Math.max(-3, Math.min(-0.5, truePeakDb))
+      truePeakDb: Math.max(-3, Math.min(-0.5, truePeakDb)),
     },
     "Change finished loudness",
     "mastering",
-    now
+    now,
   );
 }
 
-export function resetTimelineTrackControls(draft: TimelineDraft, trackId: string, now = new Date().toISOString()): TimelineDraft {
+export function resetTimelineTrackControls(
+  draft: TimelineDraft,
+  trackId: string,
+  now = new Date().toISOString(),
+): TimelineDraft {
   const track = draft.tracks.find((candidate) => candidate.id === trackId);
   if (!track) return draft;
   return commitTimelineMutation(
@@ -550,37 +820,72 @@ export function resetTimelineTrackControls(draft: TimelineDraft, trackId: string
           ? {
               ...track,
               ...defaultTrackControls,
-              includedInProgram: track.includedInProgram
+              includedInProgram: track.includedInProgram,
             }
-          : track
-      )
+          : track,
+      ),
     },
     `Reset ${track.label}`,
     undefined,
-    now
+    now,
   );
 }
 
-export function applyTimelineTrackTreatmentToKind(draft: TimelineDraft, sourceTrackId: string, now = new Date().toISOString()): TimelineDraft {
+export function applyTimelineTrackTreatmentToKind(
+  draft: TimelineDraft,
+  sourceTrackId: string,
+  now = new Date().toISOString(),
+): TimelineDraft {
   const source = draft.tracks.find((track) => track.id === sourceTrackId);
-  if (!source || (source.kind !== "microphone" && source.kind !== "camera")) return draft;
+  if (!source || (source.kind !== "microphone" && source.kind !== "camera"))
+    return draft;
   const treatment =
     source.kind === "microphone"
-      ? pickTrackControls(source, ["audioPreset", "noiseReduction", "noiseGateDb", "deEsser", "compression", "eqLowDb", "eqMidDb", "eqHighDb", "limiterEnabled"])
-      : pickTrackControls(source, ["cropMode", "brightness", "contrast", "saturation", "temperature", "tint", "sharpness", "denoise", "zoom", "positionX", "positionY"]);
+      ? pickTrackControls(source, [
+          "audioPreset",
+          "noiseReduction",
+          "noiseGateDb",
+          "deEsser",
+          "compression",
+          "eqLowDb",
+          "eqMidDb",
+          "eqHighDb",
+          "limiterEnabled",
+        ])
+      : pickTrackControls(source, [
+          "cropMode",
+          "brightness",
+          "contrast",
+          "saturation",
+          "temperature",
+          "tint",
+          "sharpness",
+          "denoise",
+          "zoom",
+          "positionX",
+          "positionY",
+        ]);
   return commitTimelineMutation(
     draft,
     {
       ...draft,
-      tracks: draft.tracks.map((track) => (track.kind === source.kind ? { ...track, ...treatment } : track))
+      tracks: draft.tracks.map((track) =>
+        track.kind === source.kind ? { ...track, ...treatment } : track,
+      ),
     },
     `Apply ${source.kind === "microphone" ? "voice treatment" : "camera look"} to all`,
     undefined,
-    now
+    now,
   );
 }
 
-export function setTimelineRange(draft: TimelineDraft, startMs: number, endMs: number, trackId = draft.selectedTrackId, now = new Date().toISOString()): TimelineDraft {
+export function setTimelineRange(
+  draft: TimelineDraft,
+  startMs: number,
+  endMs: number,
+  trackId = draft.selectedTrackId,
+  now = new Date().toISOString(),
+): TimelineDraft {
   const durationMs = Math.max(0, draft.durationMs);
   const safeStart = Math.max(0, Math.min(startMs, durationMs || startMs));
   const safeEnd = Math.max(safeStart, Math.min(endMs, durationMs || endMs));
@@ -590,51 +895,81 @@ export function setTimelineRange(draft: TimelineDraft, startMs: number, endMs: n
       timestampMs: safeStart,
       endTimestampMs: safeEnd,
       trackId,
-      source: "timeline"
+      source: "timeline",
     },
-    now
+    now,
   );
 }
 
-export function getTimelineSegments(draft: TimelineDraft, trackId: string): TimelineSegment[] {
+export function getTimelineSegments(
+  draft: TimelineDraft,
+  trackId: string,
+): TimelineSegment[] {
   const durationMs = Math.max(1, draft.durationMs);
-  const edits = draft.editLog.filter((edit) => (edit.targetTrackId ?? "program") === trackId);
-  const trimStart = Math.max(0, ...edits.filter((edit) => edit.type === "trim-before").map((edit) => edit.timestampMs));
-  const trimEnd = Math.min(durationMs, ...edits.filter((edit) => edit.type === "trim-after").map((edit) => edit.timestampMs), durationMs);
+  const edits = draft.editLog.filter(
+    (edit) => (edit.targetTrackId ?? "program") === trackId,
+  );
+  const trimStart = Math.max(
+    0,
+    ...edits
+      .filter((edit) => edit.type === "trim-before")
+      .map((edit) => edit.timestampMs),
+  );
+  const trimEnd = Math.min(
+    durationMs,
+    ...edits
+      .filter((edit) => edit.type === "trim-after")
+      .map((edit) => edit.timestampMs),
+    durationMs,
+  );
   const cuts = edits
     .filter((edit) => edit.type === "delete-section")
     .map((edit) => ({
       startMs: edit.timestampMs,
-      endMs: Math.min(durationMs, edit.endTimestampMs ?? edit.timestampMs + 15000)
+      endMs: Math.min(
+        durationMs,
+        edit.endTimestampMs ?? edit.timestampMs + 15000,
+      ),
     }));
   const boundaries = new Set<number>([
     0,
     durationMs,
     trimStart,
     trimEnd,
-    ...(trackId === "program" ? draft.cameraDecisions.map((decision) => decision.startMs) : []),
-    ...edits.filter((edit) => edit.type === "split").map((edit) => edit.timestampMs),
-    ...cuts.flatMap((cut) => [cut.startMs, cut.endMs])
+    ...(trackId === "program"
+      ? draft.cameraDecisions.map((decision) => decision.startMs)
+      : []),
+    ...edits
+      .filter((edit) => edit.type === "split")
+      .map((edit) => edit.timestampMs),
+    ...cuts.flatMap((cut) => [cut.startMs, cut.endMs]),
   ]);
-  const ordered = [...boundaries].filter((value) => value >= 0 && value <= durationMs).sort((a, b) => a - b);
+  const ordered = [...boundaries]
+    .filter((value) => value >= 0 && value <= durationMs)
+    .sort((a, b) => a - b);
   return ordered
     .slice(0, -1)
     .map((startMs, index) => {
       const endMs = ordered[index + 1];
       const midpoint = startMs + (endMs - startMs) / 2;
-      const removed = midpoint < trimStart || midpoint >= trimEnd || cuts.some((cut) => midpoint >= cut.startMs && midpoint < cut.endMs);
+      const removed =
+        midpoint < trimStart ||
+        midpoint >= trimEnd ||
+        cuts.some((cut) => midpoint >= cut.startMs && midpoint < cut.endMs);
       return {
         id: `${trackId}-${startMs}-${endMs}`,
         trackId,
         startMs,
         endMs,
-        removed
+        removed,
       };
     })
     .filter((segment) => segment.endMs > segment.startMs);
 }
 
-export function getTimelineKeepRanges(draft: TimelineDraft): Array<{ startMs: number; endMs: number }> {
+export function getTimelineKeepRanges(
+  draft: TimelineDraft,
+): Array<{ startMs: number; endMs: number }> {
   const durationMs = Math.max(0, draft.durationMs);
   if (durationMs === 0) return [];
   return getTimelineSegments(draft, "program")
@@ -642,30 +977,57 @@ export function getTimelineKeepRanges(draft: TimelineDraft): Array<{ startMs: nu
     .map(({ startMs, endMs }) => ({ startMs, endMs }));
 }
 
-export function getNextPlayableTimelineTime(draft: TimelineDraft, timestampMs: number): number | undefined {
+export function getNextPlayableTimelineTime(
+  draft: TimelineDraft,
+  timestampMs: number,
+): number | undefined {
   const ranges = getTimelineKeepRanges(draft);
-  const current = ranges.find((range) => timestampMs >= range.startMs && timestampMs < range.endMs);
+  const current = ranges.find(
+    (range) => timestampMs >= range.startMs && timestampMs < range.endMs,
+  );
   if (current) return timestampMs;
   return ranges.find((range) => range.startMs >= timestampMs)?.startMs;
 }
 
-export function getActiveCameraTrackId(draft: TimelineDraft, timestampMs: number): string | undefined {
-  return [...draft.cameraDecisions].filter((decision) => decision.startMs <= timestampMs).sort((left, right) => right.startMs - left.startMs)[0]?.cameraTrackId;
+export function getActiveCameraTrackId(
+  draft: TimelineDraft,
+  timestampMs: number,
+): string | undefined {
+  return [...draft.cameraDecisions]
+    .filter((decision) => decision.startMs <= timestampMs)
+    .sort((left, right) => right.startMs - left.startMs)[0]?.cameraTrackId;
 }
 
-export function isTimelineTrackAvailableAt(draft: TimelineDraft, trackId: string, timestampMs: number): boolean {
+export function isTimelineTrackAvailableAt(
+  draft: TimelineDraft,
+  trackId: string,
+  timestampMs: number,
+): boolean {
   const track = draft.tracks.find((candidate) => candidate.id === trackId);
   if (!track?.includedInProgram) return false;
   return !draft.editLog.some((edit) => {
     if ((edit.targetTrackId ?? "program") !== trackId) return false;
-    return (edit.type === "trim-before" && timestampMs < edit.timestampMs)
-      || (edit.type === "trim-after" && timestampMs >= edit.timestampMs)
-      || (edit.type === "delete-section" && timestampMs >= edit.timestampMs && timestampMs < (edit.endTimestampMs ?? edit.timestampMs + 15000));
+    return (
+      (edit.type === "trim-before" && timestampMs < edit.timestampMs) ||
+      (edit.type === "trim-after" && timestampMs >= edit.timestampMs) ||
+      (edit.type === "delete-section" &&
+        timestampMs >= edit.timestampMs &&
+        timestampMs < (edit.endTimestampMs ?? edit.timestampMs + 15000))
+    );
   });
 }
 
-export function addCameraDecision(draft: TimelineDraft, cameraTrackId: string, source: TimelineCameraDecision["source"] = "manual", reason = "Camera selected for the combined episode", now = new Date().toISOString()): TimelineDraft {
-  const track = draft.tracks.find((candidate) => candidate.id === cameraTrackId && candidate.kind === "camera");
+export function addCameraDecision(
+  draft: TimelineDraft,
+  cameraTrackId: string,
+  source: TimelineCameraDecision["source"] = "manual",
+  reason = "Camera selected for the combined episode",
+  now = new Date().toISOString(),
+): TimelineDraft {
+  const track = draft.tracks.find(
+    (candidate) =>
+      candidate.id === cameraTrackId && candidate.kind === "camera",
+  );
   if (!track) return draft;
   const startMs = draft.selection?.timestampMs ?? 0;
   const decision: TimelineCameraDecision = {
@@ -673,32 +1035,55 @@ export function addCameraDecision(draft: TimelineDraft, cameraTrackId: string, s
     cameraTrackId,
     startMs,
     source,
-    reason
+    reason,
   };
-  const operation = createEditOperation("camera-switch", startMs, now, cameraTrackId);
+  const operation = createEditOperation(
+    "camera-switch",
+    startMs,
+    now,
+    cameraTrackId,
+  );
   return commitTimelineMutation(
     draft,
     {
       ...draft,
       editMode: source === "auto" ? "auto" : draft.editMode,
-      cameraDecisions: [...draft.cameraDecisions.filter((item) => item.startMs !== startMs), decision].sort((a, b) => a.startMs - b.startMs),
+      cameraDecisions: [
+        ...draft.cameraDecisions.filter((item) => item.startMs !== startMs),
+        decision,
+      ].sort((a, b) => a.startMs - b.startMs),
       editLog: [...draft.editLog, operation],
-      undoneEditLog: []
+      undoneEditLog: [],
     },
     `Use ${track.label} from ${formatTimelineTime(startMs)}`,
     undefined,
-    now
+    now,
   );
 }
 
-export function applyTimelineEdit(draft: TimelineDraft, type: TimelineEditType, now = new Date().toISOString(), targetTrackId?: string): TimelineDraft {
+export function applyTimelineEdit(
+  draft: TimelineDraft,
+  type: TimelineEditType,
+  now = new Date().toISOString(),
+  targetTrackId?: string,
+): TimelineDraft {
   const selection = draft.selection ?? {
     timestampMs: 0,
-    source: "timeline" as const
+    source: "timeline" as const,
   };
-  const maxTimestamp = draft.durationMs > 0 ? draft.durationMs : selection.timestampMs;
-  const timestampMs = Math.max(0, Math.min(selection.timestampMs, maxTimestamp));
-  const operation = createEditOperation(type, timestampMs, now, targetTrackId ?? selection.trackId ?? draft.selectedTrackId ?? "program", selection.endTimestampMs);
+  const maxTimestamp =
+    draft.durationMs > 0 ? draft.durationMs : selection.timestampMs;
+  const timestampMs = Math.max(
+    0,
+    Math.min(selection.timestampMs, maxTimestamp),
+  );
+  const operation = createEditOperation(
+    type,
+    timestampMs,
+    now,
+    targetTrackId ?? selection.trackId ?? draft.selectedTrackId ?? "program",
+    selection.endTimestampMs,
+  );
 
   return commitTimelineMutation(
     draft,
@@ -707,33 +1092,48 @@ export function applyTimelineEdit(draft: TimelineDraft, type: TimelineEditType, 
       selection: { ...selection, timestampMs },
       editLog: [...draft.editLog, operation],
       undoneEditLog: [],
-      nonDestructive: true
+      nonDestructive: true,
     },
     operation.label,
     undefined,
-    now
+    now,
   );
 }
 
-export function setTimelineEditOperationEnabled(draft: TimelineDraft, operation: TimelineEditOperation, enabled: boolean, now = new Date().toISOString()): TimelineDraft {
+export function setTimelineEditOperationEnabled(
+  draft: TimelineDraft,
+  operation: TimelineEditOperation,
+  enabled: boolean,
+  now = new Date().toISOString(),
+): TimelineDraft {
   const exists = draft.editLog.some((item) => item.id === operation.id);
   if (exists === enabled) return draft;
   return commitTimelineMutation(
     draft,
     {
       ...draft,
-      editLog: enabled ? [...draft.editLog, operation].sort((left, right) => left.timestampMs - right.timestampMs) : draft.editLog.filter((item) => item.id !== operation.id)
+      editLog: enabled
+        ? [...draft.editLog, operation].sort(
+            (left, right) => left.timestampMs - right.timestampMs,
+          )
+        : draft.editLog.filter((item) => item.id !== operation.id),
     },
     `${enabled ? "Accept" : "Reject"} ${operation.label.toLowerCase()}`,
     undefined,
-    now
+    now,
   );
 }
 
-export function undoTimelineEdit(draft: TimelineDraft, now = new Date().toISOString()): TimelineDraft {
+export function undoTimelineEdit(
+  draft: TimelineDraft,
+  now = new Date().toISOString(),
+): TimelineDraft {
   if (draft.history.length > 0) {
     const entry = draft.history[draft.history.length - 1];
-    const removedOperation = draft.editLog.find((operation) => !entry.before.editLog.some((before) => before.id === operation.id));
+    const removedOperation = draft.editLog.find(
+      (operation) =>
+        !entry.before.editLog.some((before) => before.id === operation.id),
+    );
     return {
       ...draft,
       ...entry.before,
@@ -741,9 +1141,11 @@ export function undoTimelineEdit(draft: TimelineDraft, now = new Date().toISOStr
       updatedAt: now,
       history: draft.history.slice(0, -1),
       redoHistory: [entry, ...draft.redoHistory],
-      undoneEditLog: removedOperation ? [removedOperation, ...draft.undoneEditLog] : draft.undoneEditLog,
+      undoneEditLog: removedOperation
+        ? [removedOperation, ...draft.undoneEditLog]
+        : draft.undoneEditLog,
       hasUnsavedChanges: true,
-      nonDestructive: true
+      nonDestructive: true,
     };
   }
   if (draft.editLog.length === 0) return draft;
@@ -757,11 +1159,14 @@ export function undoTimelineEdit(draft: TimelineDraft, now = new Date().toISOStr
     editLog,
     undoneEditLog: [undone, ...draft.undoneEditLog],
     hasUnsavedChanges: true,
-    nonDestructive: true
+    nonDestructive: true,
   };
 }
 
-export function redoTimelineEdit(draft: TimelineDraft, now = new Date().toISOString()): TimelineDraft {
+export function redoTimelineEdit(
+  draft: TimelineDraft,
+  now = new Date().toISOString(),
+): TimelineDraft {
   if (draft.redoHistory.length > 0) {
     const [entry, ...remaining] = draft.redoHistory;
     return {
@@ -773,7 +1178,7 @@ export function redoTimelineEdit(draft: TimelineDraft, now = new Date().toISOStr
       redoHistory: remaining,
       undoneEditLog: [],
       hasUnsavedChanges: true,
-      nonDestructive: true
+      nonDestructive: true,
     };
   }
   if (draft.undoneEditLog.length === 0) return draft;
@@ -786,11 +1191,14 @@ export function redoTimelineEdit(draft: TimelineDraft, now = new Date().toISOStr
     editLog: [...draft.editLog, redone],
     undoneEditLog: remaining,
     hasUnsavedChanges: true,
-    nonDestructive: true
+    nonDestructive: true,
   };
 }
 
-export function restoreOriginalTimeline(draft: TimelineDraft, now = new Date().toISOString()): TimelineDraft {
+export function restoreOriginalTimeline(
+  draft: TimelineDraft,
+  now = new Date().toISOString(),
+): TimelineDraft {
   return commitTimelineMutation(
     draft,
     {
@@ -806,40 +1214,55 @@ export function restoreOriginalTimeline(draft: TimelineDraft, now = new Date().t
       tracks: draft.tracks.map((track) => ({
         ...track,
         ...defaultTrackControls,
-        includedInProgram: track.kind !== "markers"
+        includedInProgram: track.kind !== "markers",
       })),
       editLog: [],
       undoneEditLog: [],
-      nonDestructive: true
+      nonDestructive: true,
     },
     "Restore original episode",
     undefined,
-    now
+    now,
   );
 }
 
-function pickTrackControls<K extends keyof TimelineTrack>(track: TimelineTrack, keys: K[]): Pick<TimelineTrack, K> {
-  return Object.fromEntries(keys.map((key) => [key, track[key]])) as Pick<TimelineTrack, K>;
+function pickTrackControls<K extends keyof TimelineTrack>(
+  track: TimelineTrack,
+  keys: K[],
+): Pick<TimelineTrack, K> {
+  return Object.fromEntries(keys.map((key) => [key, track[key]])) as Pick<
+    TimelineTrack,
+    K
+  >;
 }
 
-export function markTimelineSaved(draft: TimelineDraft, now = new Date().toISOString()): TimelineDraft {
+export function markTimelineSaved(
+  draft: TimelineDraft,
+  now = new Date().toISOString(),
+): TimelineDraft {
   return {
     ...draft,
     updatedAt: now,
     lastSavedAt: now,
     hasUnsavedChanges: false,
-    nonDestructive: true
+    nonDestructive: true,
   };
 }
 
-function createEditOperation(type: TimelineEditType, timestampMs: number, now: string, targetTrackId = "program", rangeEndMs?: number): TimelineEditOperation {
+function createEditOperation(
+  type: TimelineEditType,
+  timestampMs: number,
+  now: string,
+  targetTrackId = "program",
+  rangeEndMs?: number,
+): TimelineEditOperation {
   const labels: Record<TimelineEditType, string> = {
     "trim-before": "Trim before here",
     "trim-after": "Trim after here",
     split: "Split here",
     "delete-section": "Cut this section",
     "camera-switch": "Use camera from here",
-    "auto-edit-suggestion": "Auto Edit suggestion"
+    "auto-edit-suggestion": "Auto Edit suggestion",
   };
 
   return {
@@ -847,13 +1270,18 @@ function createEditOperation(type: TimelineEditType, timestampMs: number, now: s
     type,
     label: labels[type],
     timestampMs,
-    endTimestampMs: type === "delete-section" ? Math.max(timestampMs, rangeEndMs ?? timestampMs + 15000) : undefined,
+    endTimestampMs:
+      type === "delete-section"
+        ? Math.max(timestampMs, rangeEndMs ?? timestampMs + 15000)
+        : undefined,
     targetTrackId,
-    createdAt: now
+    createdAt: now,
   };
 }
 
-function timelineHistorySnapshot(draft: TimelineDraft): TimelineHistorySnapshot {
+function timelineHistorySnapshot(
+  draft: TimelineDraft,
+): TimelineHistorySnapshot {
   return {
     durationMs: draft.durationMs,
     tracks: draft.tracks,
@@ -865,16 +1293,62 @@ function timelineHistorySnapshot(draft: TimelineDraft): TimelineHistorySnapshot 
     truePeakDb: draft.truePeakDb,
     editLog: draft.editLog,
     captions: draft.captions,
-    autoEdit: draft.autoEdit
+    autoEdit: draft.autoEdit,
   };
 }
 
-function commitTimelineMutation(draft: TimelineDraft, next: TimelineDraft, label: string, mergeKey: string | undefined, now: string): TimelineDraft {
+export function createTimelineCheckpoint(
+  draft: TimelineDraft,
+  label?: string,
+  now = new Date().toISOString(),
+): TimelineDraft {
+  const checkpoint: TimelineCheckpoint = {
+    id: `checkpoint-${draft.version}-${now}`,
+    label: label?.trim() || `Checkpoint ${draft.checkpoints.length + 1}`,
+    createdAt: now,
+    snapshot: timelineHistorySnapshot(draft),
+  };
+  return {
+    ...draft,
+    version: draft.version + 1,
+    updatedAt: now,
+    checkpoints: [...draft.checkpoints, checkpoint].slice(-10),
+    hasUnsavedChanges: true,
+  };
+}
+
+export function restoreTimelineCheckpoint(
+  draft: TimelineDraft,
+  checkpointId: string,
+  now = new Date().toISOString(),
+): TimelineDraft {
+  const checkpoint = draft.checkpoints.find((item) => item.id === checkpointId);
+  if (!checkpoint) return draft;
+  return commitTimelineMutation(
+    draft,
+    { ...draft, ...checkpoint.snapshot },
+    `Restore ${checkpoint.label}`,
+    undefined,
+    now,
+  );
+}
+
+function commitTimelineMutation(
+  draft: TimelineDraft,
+  next: TimelineDraft,
+  label: string,
+  mergeKey: string | undefined,
+  now: string,
+): TimelineDraft {
   const before = timelineHistorySnapshot(draft);
   const after = timelineHistorySnapshot(next);
   if (JSON.stringify(before) === JSON.stringify(after)) return draft;
   const previous = draft.history[draft.history.length - 1];
-  const mergeWithPrevious = Boolean(mergeKey && previous?.mergeKey === mergeKey && Math.abs(Date.parse(now) - Date.parse(previous.createdAt)) <= 1200);
+  const mergeWithPrevious = Boolean(
+    mergeKey &&
+    previous?.mergeKey === mergeKey &&
+    Math.abs(Date.parse(now) - Date.parse(previous.createdAt)) <= 1200,
+  );
   const entry: TimelineHistoryEntry = mergeWithPrevious
     ? { ...previous, after, createdAt: now }
     : {
@@ -883,9 +1357,11 @@ function commitTimelineMutation(draft: TimelineDraft, next: TimelineDraft, label
         mergeKey,
         createdAt: now,
         before,
-        after
+        after,
       };
-  const history = mergeWithPrevious ? [...draft.history.slice(0, -1), entry] : [...draft.history, entry];
+  const history = mergeWithPrevious
+    ? [...draft.history.slice(0, -1), entry]
+    : [...draft.history, entry];
   return {
     ...next,
     version: draft.version + 1,
@@ -894,11 +1370,16 @@ function commitTimelineMutation(draft: TimelineDraft, next: TimelineDraft, label
     redoHistory: [],
     undoneEditLog: [],
     hasUnsavedChanges: true,
-    nonDestructive: true
+    nonDestructive: true,
   };
 }
 
-export function commitTimelineDraftChange(draft: TimelineDraft, next: TimelineDraft, label: string, now = new Date().toISOString()) {
+export function commitTimelineDraftChange(
+  draft: TimelineDraft,
+  next: TimelineDraft,
+  label: string,
+  now = new Date().toISOString(),
+) {
   return commitTimelineMutation(draft, next, label, undefined, now);
 }
 

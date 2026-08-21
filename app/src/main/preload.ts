@@ -1,97 +1,307 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
-import type { RecordingChunkInput, RecordingFinalizeResult, RecordingSession, RecordingSessionCreateInput, RecordingState, RecordingTrackSaveInput, RecordingTrackSaveResult } from "../shared/recording";
+import type {
+  RecordingChunkInput,
+  RecordingFinalizeResult,
+  RecordingSession,
+  RecordingSessionCreateInput,
+  RecordingState,
+  RecordingTrackSaveInput,
+  RecordingTrackSaveResult,
+} from "../shared/recording";
 import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
-import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
-import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
-import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
-import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaIntegrityResult, ReviewMediaInventory, ReviewMediaSyncResult, ReviewMediaTreatmentPreview } from "../shared/review-media";
-import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../shared/episode-maintenance";
-import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
+import type {
+  ExportJob,
+  ExportRequest,
+  MediaToolsStatus,
+} from "../shared/export";
+import type {
+  AutoEditLearningProfile,
+  AutoEditMode,
+  AutoEditProgress,
+  AutoEditResult,
+} from "../shared/auto-edit";
+import type {
+  DiagnosticsBundleRequest,
+  DiagnosticsBundleResult,
+  StorageStatus,
+} from "../shared/diagnostics";
+import type {
+  ReviewMediaImportProgress,
+  ReviewMediaImportResult,
+  ReviewMediaImportSlot,
+  ReviewMediaIntegrityResult,
+  ReviewMediaInventory,
+  ReviewMediaPreparationProgress,
+  ReviewMediaSyncResult,
+  ReviewMediaTreatmentPreview,
+} from "../shared/review-media";
+import type {
+  EpisodeCleanupScope,
+  EpisodeStorageSummary,
+} from "../shared/episode-maintenance";
+import type {
+  StudioDisplayInfo,
+  StudioLayoutProfileId,
+  StudioPanelId,
+  StudioWindowState,
+  StudioWorkspaceState,
+} from "../shared/studio-workspace";
 import type { AppUpdateStatus } from "../shared/app-update";
-import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
+import type {
+  LocalTranscriptionProgress,
+  LocalTranscriptionResult,
+  LocalTranscriptionStatus,
+} from "../shared/local-transcription";
 
 contextBridge.exposeInMainWorld("studio", {
-  listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
-  createEpisode: (input: { title: string; guestName?: string; description?: string }): Promise<EpisodeMetadata> => ipcRenderer.invoke("episodes:create", input),
-  getSettings: (): Promise<StudioSettings> => ipcRenderer.invoke("settings:get"),
-  saveSettings: (settings: StudioSettings): Promise<StudioSettings> => ipcRenderer.invoke("settings:save", settings),
-  createRecordingSession: (input: RecordingSessionCreateInput): Promise<RecordingSession> => ipcRenderer.invoke("recording:create-session", input),
-  writeRecordingState: (folderPath: string, state: RecordingState): Promise<RecordingState> => ipcRenderer.invoke("recording:write-state", { folderPath, state }),
-  beginRecordingMedia: (folderPath: string): Promise<void> => ipcRenderer.invoke("recording:begin-media", folderPath),
-  appendRecordingChunk: (folderPath: string, chunk: RecordingChunkInput): Promise<{ bytesWritten: number; lastChunkAt: string }> => ipcRenderer.invoke("recording:append-chunk", { folderPath, chunk }),
-  finalizeRecordingMedia: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:finalize-media", folderPath),
-  recoverRecordingSession: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:recover", folderPath),
-  openRecordingFolder: (folderPath: string): Promise<string> => ipcRenderer.invoke("recording:open-folder", folderPath),
-  chooseRecordingPrimaryFolder: (): Promise<string | undefined> => ipcRenderer.invoke("recording:choose-primary-folder"),
-  chooseRecordingBackupFolder: (): Promise<string | undefined> => ipcRenderer.invoke("recording:choose-backup-folder"),
-  setRecordingCloseProtection: (active: boolean): void => ipcRenderer.send("recording:set-close-protection", active),
-  saveProgramRecording: (folderPath: string, bytes: Uint8Array): Promise<string> => ipcRenderer.invoke("recording:save-program", { folderPath, bytes }),
-  saveRecordedTracks: (folderPath: string, tracks: RecordingTrackSaveInput[]): Promise<RecordingTrackSaveResult[]> => ipcRenderer.invoke("recording:save-tracks", { folderPath, tracks }),
-  appendRecordingError: (folderPath: string, message: string): Promise<void> => ipcRenderer.invoke("recording:append-error", { folderPath, message }),
-  listUnfinishedRecordingSessions: (): Promise<RecordingSession[]> => ipcRenderer.invoke("recording:list-unfinished"),
-  loadPodcastTools: (episodeId: string): Promise<PodcastToolsState> => ipcRenderer.invoke("podcast-tools:load", episodeId),
-  savePodcastTools: (episodeId: string, state: PodcastToolsState): Promise<PodcastToolsState> => ipcRenderer.invoke("podcast-tools:save", { episodeId, state }),
-  loadTimelineDraft: (episodeId: string): Promise<TimelineDraft | null> => ipcRenderer.invoke("timeline:load", episodeId),
-  saveTimelineDraft: (episodeId: string, draft: TimelineDraft): Promise<TimelineDraft> => ipcRenderer.invoke("timeline:save", { episodeId, draft }),
-  getLocalTranscriptionStatus: (): Promise<LocalTranscriptionStatus> => ipcRenderer.invoke("local-transcription:status"),
-  transcribeEpisodeLocally: (episodeId: string): Promise<LocalTranscriptionResult> => ipcRenderer.invoke("local-transcription:start", episodeId),
-  cancelLocalTranscription: (episodeId: string): Promise<boolean> => ipcRenderer.invoke("local-transcription:cancel", episodeId),
-  onLocalTranscriptionProgress: (listener: (progress: LocalTranscriptionProgress) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, progress: LocalTranscriptionProgress) => listener(progress);
+  listEpisodes: (): Promise<EpisodeMetadata[]> =>
+    ipcRenderer.invoke("episodes:list"),
+  createEpisode: (input: {
+    title: string;
+    guestName?: string;
+    description?: string;
+  }): Promise<EpisodeMetadata> => ipcRenderer.invoke("episodes:create", input),
+  getSettings: (): Promise<StudioSettings> =>
+    ipcRenderer.invoke("settings:get"),
+  saveSettings: (settings: StudioSettings): Promise<StudioSettings> =>
+    ipcRenderer.invoke("settings:save", settings),
+  createRecordingSession: (
+    input: RecordingSessionCreateInput,
+  ): Promise<RecordingSession> =>
+    ipcRenderer.invoke("recording:create-session", input),
+  writeRecordingState: (
+    folderPath: string,
+    state: RecordingState,
+  ): Promise<RecordingState> =>
+    ipcRenderer.invoke("recording:write-state", { folderPath, state }),
+  beginRecordingMedia: (folderPath: string): Promise<void> =>
+    ipcRenderer.invoke("recording:begin-media", folderPath),
+  appendRecordingChunk: (
+    folderPath: string,
+    chunk: RecordingChunkInput,
+  ): Promise<{ bytesWritten: number; lastChunkAt: string }> =>
+    ipcRenderer.invoke("recording:append-chunk", { folderPath, chunk }),
+  finalizeRecordingMedia: (
+    folderPath: string,
+  ): Promise<RecordingFinalizeResult> =>
+    ipcRenderer.invoke("recording:finalize-media", folderPath),
+  recoverRecordingSession: (
+    folderPath: string,
+  ): Promise<RecordingFinalizeResult> =>
+    ipcRenderer.invoke("recording:recover", folderPath),
+  openRecordingFolder: (folderPath: string): Promise<string> =>
+    ipcRenderer.invoke("recording:open-folder", folderPath),
+  chooseRecordingPrimaryFolder: (): Promise<string | undefined> =>
+    ipcRenderer.invoke("recording:choose-primary-folder"),
+  chooseRecordingBackupFolder: (): Promise<string | undefined> =>
+    ipcRenderer.invoke("recording:choose-backup-folder"),
+  setRecordingCloseProtection: (active: boolean): void =>
+    ipcRenderer.send("recording:set-close-protection", active),
+  saveProgramRecording: (
+    folderPath: string,
+    bytes: Uint8Array,
+  ): Promise<string> =>
+    ipcRenderer.invoke("recording:save-program", { folderPath, bytes }),
+  saveRecordedTracks: (
+    folderPath: string,
+    tracks: RecordingTrackSaveInput[],
+  ): Promise<RecordingTrackSaveResult[]> =>
+    ipcRenderer.invoke("recording:save-tracks", { folderPath, tracks }),
+  appendRecordingError: (folderPath: string, message: string): Promise<void> =>
+    ipcRenderer.invoke("recording:append-error", { folderPath, message }),
+  listUnfinishedRecordingSessions: (): Promise<RecordingSession[]> =>
+    ipcRenderer.invoke("recording:list-unfinished"),
+  loadPodcastTools: (episodeId: string): Promise<PodcastToolsState> =>
+    ipcRenderer.invoke("podcast-tools:load", episodeId),
+  savePodcastTools: (
+    episodeId: string,
+    state: PodcastToolsState,
+  ): Promise<PodcastToolsState> =>
+    ipcRenderer.invoke("podcast-tools:save", { episodeId, state }),
+  loadTimelineDraft: (episodeId: string): Promise<TimelineDraft | null> =>
+    ipcRenderer.invoke("timeline:load", episodeId),
+  saveTimelineDraft: (
+    episodeId: string,
+    draft: TimelineDraft,
+  ): Promise<TimelineDraft> =>
+    ipcRenderer.invoke("timeline:save", { episodeId, draft }),
+  getLocalTranscriptionStatus: (): Promise<LocalTranscriptionStatus> =>
+    ipcRenderer.invoke("local-transcription:status"),
+  transcribeEpisodeLocally: (
+    episodeId: string,
+  ): Promise<LocalTranscriptionResult> =>
+    ipcRenderer.invoke("local-transcription:start", episodeId),
+  cancelLocalTranscription: (episodeId: string): Promise<boolean> =>
+    ipcRenderer.invoke("local-transcription:cancel", episodeId),
+  onLocalTranscriptionProgress: (
+    listener: (progress: LocalTranscriptionProgress) => void,
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      progress: LocalTranscriptionProgress,
+    ) => listener(progress);
     ipcRenderer.on("local-transcription:progress", handler);
-    return () => ipcRenderer.removeListener("local-transcription:progress", handler);
+    return () =>
+      ipcRenderer.removeListener("local-transcription:progress", handler);
   },
-  loadReviewMedia: (episodeId: string): Promise<ReviewMediaInventory> => ipcRenderer.invoke("review-media:load", episodeId),
-  importReviewMedia: (episodeId: string, slot: ReviewMediaImportSlot): Promise<ReviewMediaImportResult> => ipcRenderer.invoke("review-media:import", { episodeId, slot }),
-  cancelReviewMediaImport: (episodeId: string, slot: ReviewMediaImportSlot): Promise<boolean> => ipcRenderer.invoke("review-media:cancel-import", { episodeId, slot }),
-  onReviewMediaImportProgress: (listener: (progress: ReviewMediaImportProgress) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, progress: ReviewMediaImportProgress) => listener(progress);
+  loadReviewMedia: (episodeId: string): Promise<ReviewMediaInventory> =>
+    ipcRenderer.invoke("review-media:load", episodeId),
+  onReviewMediaPreparationProgress: (
+    listener: (progress: ReviewMediaPreparationProgress) => void,
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      progress: ReviewMediaPreparationProgress,
+    ) => listener(progress);
+    ipcRenderer.on("review-media:preparation-progress", handler);
+    return () =>
+      ipcRenderer.removeListener("review-media:preparation-progress", handler);
+  },
+  importReviewMedia: (
+    episodeId: string,
+    slot: ReviewMediaImportSlot,
+  ): Promise<ReviewMediaImportResult> =>
+    ipcRenderer.invoke("review-media:import", { episodeId, slot }),
+  cancelReviewMediaImport: (
+    episodeId: string,
+    slot: ReviewMediaImportSlot,
+  ): Promise<boolean> =>
+    ipcRenderer.invoke("review-media:cancel-import", { episodeId, slot }),
+  onReviewMediaImportProgress: (
+    listener: (progress: ReviewMediaImportProgress) => void,
+  ) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      progress: ReviewMediaImportProgress,
+    ) => listener(progress);
     ipcRenderer.on("review-media:import-progress", handler);
-    return () => ipcRenderer.removeListener("review-media:import-progress", handler);
+    return () =>
+      ipcRenderer.removeListener("review-media:import-progress", handler);
   },
-  autoSyncReviewMedia: (episodeId: string): Promise<ReviewMediaSyncResult> => ipcRenderer.invoke("review-media:auto-sync", episodeId),
-  verifyReviewMediaOriginals: (episodeId: string): Promise<ReviewMediaIntegrityResult> => ipcRenderer.invoke("review-media:verify-originals", episodeId),
-  relinkReviewMedia: (episodeId: string, slot: ReviewMediaImportSlot): Promise<ReviewMediaImportResult> => ipcRenderer.invoke("review-media:relink", { episodeId, slot }),
-  getEpisodeStorageSummary: (episodeId: string): Promise<EpisodeStorageSummary> => ipcRenderer.invoke("episode-storage:get", episodeId),
-  cleanupEpisodeStorage: (episodeId: string, scope: EpisodeCleanupScope): Promise<EpisodeStorageSummary> => ipcRenderer.invoke("episode-storage:cleanup", { episodeId, scope }),
-  renderTrackTreatmentPreview: (episodeId: string, draft: TimelineDraft, trackId: string, timestampMs: number): Promise<ReviewMediaTreatmentPreview> => ipcRenderer.invoke("review-media:treatment-preview", { episodeId, draft, trackId, timestampMs }),
-  runAutoEdit: (episodeId: string, draft: TimelineDraft, mode: AutoEditMode, practice?: boolean, learningProfile?: AutoEditLearningProfile): Promise<AutoEditResult> =>
+  autoSyncReviewMedia: (episodeId: string): Promise<ReviewMediaSyncResult> =>
+    ipcRenderer.invoke("review-media:auto-sync", episodeId),
+  verifyReviewMediaOriginals: (
+    episodeId: string,
+  ): Promise<ReviewMediaIntegrityResult> =>
+    ipcRenderer.invoke("review-media:verify-originals", episodeId),
+  relinkReviewMedia: (
+    episodeId: string,
+    slot: ReviewMediaImportSlot,
+  ): Promise<ReviewMediaImportResult> =>
+    ipcRenderer.invoke("review-media:relink", { episodeId, slot }),
+  getEpisodeStorageSummary: (
+    episodeId: string,
+  ): Promise<EpisodeStorageSummary> =>
+    ipcRenderer.invoke("episode-storage:get", episodeId),
+  cleanupEpisodeStorage: (
+    episodeId: string,
+    scope: EpisodeCleanupScope,
+  ): Promise<EpisodeStorageSummary> =>
+    ipcRenderer.invoke("episode-storage:cleanup", { episodeId, scope }),
+  renderTrackTreatmentPreview: (
+    episodeId: string,
+    draft: TimelineDraft,
+    trackId: string,
+    timestampMs: number,
+  ): Promise<ReviewMediaTreatmentPreview> =>
+    ipcRenderer.invoke("review-media:treatment-preview", {
+      episodeId,
+      draft,
+      trackId,
+      timestampMs,
+    }),
+  runAutoEdit: (
+    episodeId: string,
+    draft: TimelineDraft,
+    mode: AutoEditMode,
+    practice?: boolean,
+    learningProfile?: AutoEditLearningProfile,
+  ): Promise<AutoEditResult> =>
     ipcRenderer.invoke("auto-edit:run", {
       episodeId,
       draft,
       mode,
       practice,
-      learningProfile
+      learningProfile,
     }),
-  createExport: (request: ExportRequest): Promise<ExportJob> => ipcRenderer.invoke("export:create", request),
-  chooseExportDestinationFolder: (): Promise<string | undefined> => ipcRenderer.invoke("export:choose-destination"),
+  cancelAutoEdit: (episodeId: string): Promise<boolean> =>
+    ipcRenderer.invoke("auto-edit:cancel", episodeId),
+  onAutoEditProgress: (listener: (progress: AutoEditProgress) => void) => {
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      progress: AutoEditProgress,
+    ) => listener(progress);
+    ipcRenderer.on("auto-edit:progress", handler);
+    return () => ipcRenderer.removeListener("auto-edit:progress", handler);
+  },
+  createExport: (request: ExportRequest): Promise<ExportJob> =>
+    ipcRenderer.invoke("export:create", request),
+  chooseExportDestinationFolder: (): Promise<string | undefined> =>
+    ipcRenderer.invoke("export:choose-destination"),
   onExportProgress: (listener: (job: ExportJob) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, job: ExportJob) => listener(job);
+    const handler = (_event: Electron.IpcRendererEvent, job: ExportJob) =>
+      listener(job);
     ipcRenderer.on("export:progress", handler);
     return () => ipcRenderer.removeListener("export:progress", handler);
   },
-  getMediaToolsStatus: (): Promise<MediaToolsStatus> => ipcRenderer.invoke("export:media-tools-status"),
-  cancelExport: (episodeId: string, job: ExportJob): Promise<ExportJob> => ipcRenderer.invoke("export:cancel", { episodeId, job }),
-  openExportFolder: (episodeId: string, outputFolder?: string): Promise<string> => ipcRenderer.invoke("export:open-folder", { episodeId, outputFolder }),
-  createDiagnosticsBundle: (input: DiagnosticsBundleRequest): Promise<DiagnosticsBundleResult> => ipcRenderer.invoke("diagnostics:create", input),
-  getStorageStatus: (): Promise<StorageStatus> => ipcRenderer.invoke("storage:status"),
-  getWorkspaceState: (): Promise<StudioWorkspaceState> => ipcRenderer.invoke("workspace:get-state"),
-  saveWorkspaceState: (state: StudioWorkspaceState): Promise<StudioWorkspaceState> => ipcRenderer.invoke("workspace:save-state", state),
-  getDisplays: (): Promise<StudioDisplayInfo[]> => ipcRenderer.invoke("workspace:get-displays"),
-  openWorkspacePanel: (panelId: StudioPanelId, input?: { episodeId?: string; displayId?: number; fullscreen?: boolean }): Promise<StudioWindowState> => ipcRenderer.invoke("workspace:open-panel", { panelId, ...input }),
-  closeWorkspacePanel: (panelId: StudioPanelId): Promise<StudioWindowState> => ipcRenderer.invoke("workspace:close-panel", panelId),
-  moveWorkspacePanel: (panelId: StudioPanelId, displayId: number): Promise<StudioWindowState> => ipcRenderer.invoke("workspace:move-panel", { panelId, displayId }),
-  applyWorkspaceLayout: (layoutId: StudioLayoutProfileId, episodeId?: string): Promise<StudioWorkspaceState> => ipcRenderer.invoke("workspace:apply-layout", { layoutId, episodeId }),
-  resetWorkspaceLayout: (): Promise<StudioWorkspaceState> => ipcRenderer.invoke("workspace:reset-layout"),
-  getAppUpdateStatus: (): Promise<AppUpdateStatus> => ipcRenderer.invoke("app-update:get-status"),
-  checkForAppUpdate: (): Promise<AppUpdateStatus> => ipcRenderer.invoke("app-update:check"),
-  downloadAppUpdate: (): Promise<AppUpdateStatus> => ipcRenderer.invoke("app-update:download"),
-  installAppUpdate: (): Promise<boolean> => ipcRenderer.invoke("app-update:install"),
+  getMediaToolsStatus: (): Promise<MediaToolsStatus> =>
+    ipcRenderer.invoke("export:media-tools-status"),
+  cancelExport: (episodeId: string, job: ExportJob): Promise<ExportJob> =>
+    ipcRenderer.invoke("export:cancel", { episodeId, job }),
+  openExportFolder: (
+    episodeId: string,
+    outputFolder?: string,
+  ): Promise<string> =>
+    ipcRenderer.invoke("export:open-folder", { episodeId, outputFolder }),
+  createDiagnosticsBundle: (
+    input: DiagnosticsBundleRequest,
+  ): Promise<DiagnosticsBundleResult> =>
+    ipcRenderer.invoke("diagnostics:create", input),
+  getStorageStatus: (): Promise<StorageStatus> =>
+    ipcRenderer.invoke("storage:status"),
+  getWorkspaceState: (): Promise<StudioWorkspaceState> =>
+    ipcRenderer.invoke("workspace:get-state"),
+  saveWorkspaceState: (
+    state: StudioWorkspaceState,
+  ): Promise<StudioWorkspaceState> =>
+    ipcRenderer.invoke("workspace:save-state", state),
+  getDisplays: (): Promise<StudioDisplayInfo[]> =>
+    ipcRenderer.invoke("workspace:get-displays"),
+  openWorkspacePanel: (
+    panelId: StudioPanelId,
+    input?: { episodeId?: string; displayId?: number; fullscreen?: boolean },
+  ): Promise<StudioWindowState> =>
+    ipcRenderer.invoke("workspace:open-panel", { panelId, ...input }),
+  closeWorkspacePanel: (panelId: StudioPanelId): Promise<StudioWindowState> =>
+    ipcRenderer.invoke("workspace:close-panel", panelId),
+  moveWorkspacePanel: (
+    panelId: StudioPanelId,
+    displayId: number,
+  ): Promise<StudioWindowState> =>
+    ipcRenderer.invoke("workspace:move-panel", { panelId, displayId }),
+  applyWorkspaceLayout: (
+    layoutId: StudioLayoutProfileId,
+    episodeId?: string,
+  ): Promise<StudioWorkspaceState> =>
+    ipcRenderer.invoke("workspace:apply-layout", { layoutId, episodeId }),
+  resetWorkspaceLayout: (): Promise<StudioWorkspaceState> =>
+    ipcRenderer.invoke("workspace:reset-layout"),
+  getAppUpdateStatus: (): Promise<AppUpdateStatus> =>
+    ipcRenderer.invoke("app-update:get-status"),
+  checkForAppUpdate: (): Promise<AppUpdateStatus> =>
+    ipcRenderer.invoke("app-update:check"),
+  downloadAppUpdate: (): Promise<AppUpdateStatus> =>
+    ipcRenderer.invoke("app-update:download"),
+  installAppUpdate: (): Promise<boolean> =>
+    ipcRenderer.invoke("app-update:install"),
   onAppUpdateStatus: (listener: (status: AppUpdateStatus) => void) => {
-    const handler = (_event: Electron.IpcRendererEvent, status: AppUpdateStatus) => listener(status);
+    const handler = (
+      _event: Electron.IpcRendererEvent,
+      status: AppUpdateStatus,
+    ) => listener(status);
     ipcRenderer.on("app:update-status", handler);
     return () => ipcRenderer.removeListener("app:update-status", handler);
-  }
+  },
 });

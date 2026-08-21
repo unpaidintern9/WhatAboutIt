@@ -1,23 +1,26 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AutoEditActivitySegment, AutoEditSilenceSegment } from "../shared/auto-edit";
+import type {
+  AutoEditActivitySegment,
+  AutoEditSilenceSegment,
+} from "../shared/auto-edit";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
-import { runFfmpeg } from "./ffmpeg-tools";
+import { runFfmpegStreaming } from "./ffmpeg-tools";
 
 const cameraTrackIds: Record<CameraSlotKey, string> = {
   camera1: "camera-camera1",
   camera2: "camera-camera2",
-  camera3: "camera-camera3"
+  camera3: "camera-camera3",
 };
 const microphoneTrackIds: Record<MicrophoneSlotKey, string> = {
   morganMic: "mic-morganMic",
   guestMic: "mic-guestMic",
-  extraMic: "mic-extraMic"
+  extraMic: "mic-extraMic",
 };
 const microphoneFiles: Record<MicrophoneSlotKey, string> = {
   morganMic: "morgan-mic.m4a",
   guestMic: "guest-mic.m4a",
-  extraMic: "extra-mic.m4a"
+  extraMic: "extra-mic.m4a",
 };
 
 interface DeviceMapFile {
@@ -30,19 +33,30 @@ interface ActivitySource {
   filePath: string;
 }
 
-export async function analyzeEpisodeAudioActivity(episodeFolder: string): Promise<AutoEditActivitySegment[]> {
+export async function analyzeEpisodeAudioActivity(
+  episodeFolder: string,
+  signal?: AbortSignal,
+): Promise<AutoEditActivitySegment[]> {
   const routes = await loadRoutes(episodeFolder);
   const sources: ActivitySource[] = [];
-  for (const cameraSlot of ["camera1", "camera2", "camera3"] as CameraSlotKey[]) {
+  for (const cameraSlot of [
+    "camera1",
+    "camera2",
+    "camera3",
+  ] as CameraSlotKey[]) {
     const microphoneSlot = routes[cameraSlot];
     if (!microphoneSlot) continue;
-    const filePath = path.join(episodeFolder, "Audio", microphoneFiles[microphoneSlot]);
+    const filePath = path.join(
+      episodeFolder,
+      "Audio",
+      microphoneFiles[microphoneSlot],
+    );
     try {
       await fs.access(filePath);
       sources.push({
         cameraTrackId: cameraTrackIds[cameraSlot],
         microphoneTrackId: microphoneTrackIds[microphoneSlot],
-        filePath
+        filePath,
       });
     } catch {
       // Auto Edit only makes a camera claim when the routed mic was actually saved.
@@ -51,43 +65,109 @@ export async function analyzeEpisodeAudioActivity(episodeFolder: string): Promis
   if (sources.length === 0) return [];
 
   const readings = await Promise.all(
-    sources.map(async (source) => {
-      const result = await runFfmpeg(["-loglevel", "verbose", "-nostats", "-i", source.filePath, "-filter:a", "ebur128=framelog=verbose", "-f", "null", "-"]);
-      return { source, levels: parseEbur128Levels(result.stderr) };
-    })
+    sources.map(async (source) => ({
+      source,
+      levels: await streamEbur128Levels(source.filePath, signal),
+    })),
   );
   return deriveActivitySegments(readings);
 }
 
-export async function analyzeEpisodeSilence(episodeFolder: string): Promise<AutoEditSilenceSegment[]> {
-  const microphoneSources = await existingAudioSources((Object.keys(microphoneFiles) as MicrophoneSlotKey[]).map((slot) => path.join(episodeFolder, "Audio", microphoneFiles[slot])));
-  const sources = microphoneSources.length > 0 ? microphoneSources : await existingAudioSources([path.join(episodeFolder, "Program", "program.webm")]);
+async function streamEbur128Levels(filePath: string, signal?: AbortSignal) {
+  const levels: Array<{ timestampMs: number; db: number }> = [];
+  let pending = "";
+  await runFfmpegStreaming(
+    [
+      "-loglevel",
+      "verbose",
+      "-nostats",
+      "-i",
+      filePath,
+      "-filter:a",
+      "ebur128=framelog=verbose",
+      "-f",
+      "null",
+      "-",
+    ],
+    {
+      signal,
+      onStderr: (text) => {
+        pending += text;
+        const lines = pending.split(/\r?\n/);
+        pending = lines.pop() ?? "";
+        for (const line of lines) levels.push(...parseEbur128Levels(line));
+      },
+    },
+  );
+  if (pending) levels.push(...parseEbur128Levels(pending));
+  return levels;
+}
+
+export async function analyzeEpisodeSilence(
+  episodeFolder: string,
+  signal?: AbortSignal,
+): Promise<AutoEditSilenceSegment[]> {
+  const microphoneSources = await existingAudioSources(
+    (Object.keys(microphoneFiles) as MicrophoneSlotKey[]).map((slot) =>
+      path.join(episodeFolder, "Audio", microphoneFiles[slot]),
+    ),
+  );
+  const sources =
+    microphoneSources.length > 0
+      ? microphoneSources
+      : await existingAudioSources([
+          path.join(episodeFolder, "Program", "program.webm"),
+        ]);
   if (sources.length === 0) return [];
-  const result = await runFfmpeg(createSilenceAnalysisArguments(sources));
+  const result = await runFfmpegStreaming(
+    createSilenceAnalysisArguments(sources),
+    { signal },
+  );
   return parseSilenceSegments(result.stderr);
 }
 
 export function createSilenceAnalysisArguments(sources: string[]) {
   const inputArguments = sources.flatMap((source) => ["-i", source]);
   const silenceFilter = "silencedetect=noise=-42dB:d=0.8";
-  if (sources.length === 1) return ["-hide_banner", ...inputArguments, "-af", silenceFilter, "-f", "null", "-"];
+  if (sources.length === 1)
+    return [
+      "-hide_banner",
+      ...inputArguments,
+      "-af",
+      silenceFilter,
+      "-f",
+      "null",
+      "-",
+    ];
 
   const inputLabels = sources.map((_, index) => `[${index}:a]`).join("");
-  return ["-hide_banner", ...inputArguments, "-filter_complex", `${inputLabels}amix=inputs=${sources.length}:duration=longest:dropout_transition=0:normalize=0,${silenceFilter}`, "-f", "null", "-"];
+  return [
+    "-hide_banner",
+    ...inputArguments,
+    "-filter_complex",
+    `${inputLabels}amix=inputs=${sources.length}:duration=longest:dropout_transition=0:normalize=0,${silenceFilter}`,
+    "-f",
+    "null",
+    "-",
+  ];
 }
 
 export function parseSilenceSegments(output: string): AutoEditSilenceSegment[] {
   const events = [...output.matchAll(/silence_(start|end):\s*([\d.]+)/g)]
     .map((match) => ({
       type: match[1],
-      timestampMs: Math.round(Number(match[2]) * 1000)
+      timestampMs: Math.round(Number(match[2]) * 1000),
     }))
     .filter((event) => Number.isFinite(event.timestampMs));
   const segments: AutoEditSilenceSegment[] = [];
   let startMs: number | undefined;
   for (const event of events) {
     if (event.type === "start") startMs = event.timestampMs;
-    if (event.type === "end" && startMs !== undefined && event.timestampMs > startMs) {
+    if (
+      event.type === "end" &&
+      startMs !== undefined &&
+      event.timestampMs > startMs
+    ) {
       segments.push({ startMs, endMs: event.timestampMs });
       startMs = undefined;
     }
@@ -101,7 +181,8 @@ export function parseEbur128Levels(output: string) {
   for (const match of output.matchAll(pattern)) {
     const seconds = Number(match[1]);
     const db = Number(match[2]);
-    if (Number.isFinite(seconds) && Number.isFinite(db)) levels.push({ timestampMs: Math.round(seconds * 1000), db });
+    if (Number.isFinite(seconds) && Number.isFinite(db))
+      levels.push({ timestampMs: Math.round(seconds * 1000), db });
   }
   return levels;
 }
@@ -111,9 +192,12 @@ export function deriveActivitySegments(
     source: Pick<ActivitySource, "cameraTrackId" | "microphoneTrackId">;
     levels: Array<{ timestampMs: number; db: number }>;
   }>,
-  bucketMs = 1000
+  bucketMs = 1000,
 ): AutoEditActivitySegment[] {
-  const buckets = new Map<number, Array<{ source: ActivitySource; db: number }>>();
+  const buckets = new Map<
+    number,
+    Array<{ source: ActivitySource; db: number }>
+  >();
   for (const reading of readings) {
     const grouped = new Map<number, number[]>();
     for (const level of reading.levels) {
@@ -122,7 +206,10 @@ export function deriveActivitySegments(
     }
     for (const [bucket, values] of grouped) {
       const db = values.reduce((sum, value) => sum + value, 0) / values.length;
-      buckets.set(bucket, [...(buckets.get(bucket) ?? []), { source: { ...reading.source, filePath: "" }, db }]);
+      buckets.set(bucket, [
+        ...(buckets.get(bucket) ?? []),
+        { source: { ...reading.source, filePath: "" }, db },
+      ]);
     }
   }
 
@@ -140,14 +227,16 @@ export function deriveActivitySegments(
   for (let index = 1; index < winners.length; index += 1) {
     const current = winners[index];
     const next = winners[index + 1];
-    const sustainedSwitch = current.source.cameraTrackId !== active.source.cameraTrackId && next?.source.cameraTrackId === current.source.cameraTrackId;
+    const sustainedSwitch =
+      current.source.cameraTrackId !== active.source.cameraTrackId &&
+      next?.source.cameraTrackId === current.source.cameraTrackId;
     if (!sustainedSwitch) continue;
     segments.push({
       startMs: activeStart,
       endMs: current.startMs,
       cameraTrackId: active.source.cameraTrackId,
       microphoneTrackId: active.source.microphoneTrackId,
-      averageDb: active.db
+      averageDb: active.db,
     });
     active = current;
     activeStart = current.startMs;
@@ -158,14 +247,21 @@ export function deriveActivitySegments(
     endMs: last.startMs + bucketMs,
     cameraTrackId: active.source.cameraTrackId,
     microphoneTrackId: active.source.microphoneTrackId,
-    averageDb: active.db
+    averageDb: active.db,
   });
   return segments;
 }
 
-async function loadRoutes(episodeFolder: string): Promise<Partial<Record<CameraSlotKey, MicrophoneSlotKey>>> {
+async function loadRoutes(
+  episodeFolder: string,
+): Promise<Partial<Record<CameraSlotKey, MicrophoneSlotKey>>> {
   try {
-    const deviceMap = JSON.parse(await fs.readFile(path.join(episodeFolder, "Session", "device-map.json"), "utf8")) as DeviceMapFile;
+    const deviceMap = JSON.parse(
+      await fs.readFile(
+        path.join(episodeFolder, "Session", "device-map.json"),
+        "utf8",
+      ),
+    ) as DeviceMapFile;
     return deviceMap.cameraMicrophones ?? {};
   } catch {
     return {};

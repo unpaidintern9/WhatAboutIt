@@ -11,7 +11,12 @@ body {
   min-width: var(--space-minShellWidth);
   min-height: var(--space-minShellHeight);
   color: var(--color-text);
-  background: linear-gradient(rgba(26, 17, 16, calc(0.85 - var(--texture-intensity, 0.5) * 0.2)), rgba(26, 17, 16, 0.92)), var(--texture-active), var(--color-background);
+  background:
+    linear-gradient(
+      rgba(26, 17, 16, calc(0.85 - var(--texture-intensity, 0.5) * 0.2)),
+      rgba(26, 17, 16, 0.92)
+    ),
+    var(--texture-active), var(--color-background);
   font-family: var(--font-body);
   font-weight: var(--font-body-weight);
   letter-spacing: var(--letter-spacing);
@@ -51,7 +56,9 @@ button:disabled {
   gap: var(--space-sidebar);
   padding: var(--space-sidebar);
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.24)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.24)),
+    var(--texture-active), var(--color-secondary);
   border-right: 3px double var(--color-accent);
 }
 
@@ -202,14 +209,18 @@ h3 {
   grid-template-columns: 250px minmax(0, 1fr);
   min-height: 100vh;
   overflow: visible;
-  background: linear-gradient(rgba(70, 10, 8, 0.12), rgba(20, 11, 9, 0.18)), var(--texture-active), var(--color-primary);
+  background:
+    linear-gradient(rgba(70, 10, 8, 0.12), rgba(20, 11, 9, 0.18)),
+    var(--texture-active), var(--color-primary);
 }
 
 .studio-shell--recording .sidebar {
   gap: 18px;
   min-height: 100vh;
   padding: 24px 14px;
-  background: linear-gradient(rgba(78, 9, 8, 0.78), rgba(113, 16, 12, 0.72)), var(--texture-active), var(--color-primary);
+  background:
+    linear-gradient(rgba(78, 9, 8, 0.78), rgba(113, 16, 12, 0.72)),
+    var(--texture-active), var(--color-primary);
   border: 4px double color-mix(in srgb, var(--color-accent), #000 20%);
   border-radius: 12px 0 0 12px;
 }
@@ -262,7 +273,9 @@ h3 {
 .studio-shell--recording .nav-stack button:hover,
 .studio-shell--recording .nav-stack button.active {
   color: var(--color-text);
-  background: linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.54)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.54)),
+    var(--texture-active), var(--color-surface);
   transform: translateY(-1px);
 }
 
@@ -288,7 +301,11 @@ h3 {
   width: 128px;
   height: 128px;
   color: var(--color-primary);
-  background: radial-gradient(circle at 50% 30%, var(--color-accent), color-mix(in srgb, var(--color-surface), #000 12%));
+  background: radial-gradient(
+    circle at 50% 30%,
+    var(--color-accent),
+    color-mix(in srgb, var(--color-surface), #000 12%)
+  );
   border: 4px double color-mix(in srgb, var(--color-accent), #000 18%);
   border-radius: 999px;
   font-family: var(--font-display);
@@ -315,7 +332,9 @@ h3 {
   gap: 0;
   padding: 12px;
   overflow: visible;
-  background: linear-gradient(rgba(247, 212, 158, 0.82), rgba(236, 184, 120, 0.7)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(247, 212, 158, 0.82), rgba(236, 184, 120, 0.7)),
+    var(--texture-active), var(--color-surface);
   border: 4px double color-mix(in srgb, var(--color-primary), #000 22%);
   border-left: 0;
 }
@@ -325,12 +344,16 @@ h3 {
 }
 
 .studio-shell:not(.studio-shell--recording) .workspace {
-  background: linear-gradient(rgba(247, 212, 158, 0.86), rgba(188, 108, 54, 0.28)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(247, 212, 158, 0.86), rgba(188, 108, 54, 0.28)),
+    var(--texture-active), var(--color-surface);
   border-left: 4px double color-mix(in srgb, var(--color-primary), #000 22%);
 }
 
 .studio-shell:not(.studio-shell--recording) .sidebar {
-  background: linear-gradient(rgba(78, 9, 8, 0.78), rgba(113, 16, 12, 0.72)), var(--texture-active), var(--color-primary);
+  background:
+    linear-gradient(rgba(78, 9, 8, 0.78), rgba(113, 16, 12, 0.72)),
+    var(--texture-active), var(--color-primary);
   border-right: 4px double color-mix(in srgb, var(--color-accent), #000 18%);
 }
 
@@ -372,7 +395,9 @@ h3 {
 .success-panel,
 .empty-state-card,
 .recording-complete-card {
-  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
+    var(--texture-active), var(--color-surface);
   border: 2px var(--component-border-style) var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -431,7 +456,9 @@ h3 {
   place-items: center;
   min-height: var(--space-previewHeight);
   color: var(--color-mutedText);
-  background: linear-gradient(135deg, rgba(0, 0, 0, 0.08), rgba(255, 255, 255, 0.16)), var(--color-cards);
+  background:
+    linear-gradient(135deg, rgba(0, 0, 0, 0.08), rgba(255, 255, 255, 0.16)),
+    var(--color-cards);
   border: 2px dashed var(--color-border);
   border-radius: var(--component-card-radius);
 }
@@ -474,8 +501,11 @@ h3 {
   min-height: var(--space-controlHeight);
   padding: var(--space-md);
   color: var(--color-mutedText);
-  background: linear-gradient(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.46)), var(--texture-active), var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) color-mix(in srgb, var(--color-border), transparent 20%);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.46)),
+    var(--texture-active), var(--color-cards);
+  border: var(--component-border-width) var(--component-border-style)
+    color-mix(in srgb, var(--color-border), transparent 20%);
   border-radius: var(--component-border-radius);
   font-weight: 900;
 }
@@ -498,7 +528,9 @@ h3 {
 
 .journey-progress span.complete {
   color: var(--color-text);
-  background: linear-gradient(rgba(255, 244, 220, 0.9), rgba(230, 184, 126, 0.74)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.9), rgba(230, 184, 126, 0.74)),
+    var(--texture-active), var(--color-surface);
   border-color: var(--color-accent);
 }
 
@@ -523,7 +555,8 @@ h3 {
   height: var(--icon-button-size);
   color: var(--color-text);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
 }
 
@@ -537,7 +570,8 @@ h3 {
 .empty-state-card,
 .success-panel,
 .recording-complete-card {
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
 }
 
@@ -756,9 +790,11 @@ select:focus {
   padding: var(--space-md) var(--space-lg);
   color: var(--color-primary);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent), transparent 70%);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-accent), transparent 70%);
   font-weight: 900;
 }
 
@@ -1053,7 +1089,8 @@ select:focus {
   justify-content: space-between;
   gap: var(--space-lg);
   padding: var(--space-lg) 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border), transparent 55%);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-border), transparent 55%);
 }
 
 dt {
@@ -1111,7 +1148,8 @@ dd {
 .wai-modal,
 .wai-toast {
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
 }
@@ -1162,7 +1200,9 @@ dd {
   width: max-content;
   max-width: 220px;
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(12, 10, 9, 0.94), rgba(24, 18, 15, 0.96)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(12, 10, 9, 0.94), rgba(24, 18, 15, 0.96)),
+    var(--texture-active), var(--color-secondary);
   border: 1px solid color-mix(in srgb, var(--color-accent), #000 30%);
   border-radius: 6px;
   box-shadow: var(--component-shadow);
@@ -1199,8 +1239,11 @@ dd {
 .practice-steps span,
 .readiness-card,
 .friendly-state {
-  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.64)), var(--texture-active), var(--color-surface);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.64)),
+    var(--texture-active), var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
 }
@@ -1263,8 +1306,11 @@ dd {
 .setup-next-action,
 .studio-ready-summary,
 .secondary-studio-tools {
-  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.56)), var(--texture-active), var(--color-surface);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.56)),
+    var(--texture-active), var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
 }
@@ -1372,7 +1418,8 @@ dd {
   height: var(--icon-button-size);
   color: var(--color-text);
   background: var(--color-buttons);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   cursor: pointer;
   list-style: none;
@@ -1392,8 +1439,11 @@ dd {
   min-width: 240px;
   padding: var(--space-md);
   color: var(--color-text);
-  background: linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.74)), var(--texture-active), var(--color-surface);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.74)),
+    var(--texture-active), var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
 }
@@ -1408,7 +1458,8 @@ dd {
   min-height: var(--space-controlHeight);
   color: var(--color-danger);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   font-weight: 900;
 }
@@ -1421,14 +1472,18 @@ dd {
   min-height: 180px;
   overflow: hidden;
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28)), var(--texture-active), var(--color-secondary);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28)),
+    var(--texture-active), var(--color-secondary);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
 }
 
 .setup-live-preview.live {
   border-color: var(--color-success);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-success), transparent 72%);
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--color-success), transparent 72%);
 }
 
 .setup-live-preview.busy,
@@ -1513,7 +1568,8 @@ dd {
   padding: var(--space-md);
   color: var(--color-text);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
 }
 
@@ -1617,8 +1673,11 @@ dd {
 .recording-timer,
 .local-save-note,
 .mic-status-card {
-  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.64)), var(--texture-active), var(--color-surface);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.64)),
+    var(--texture-active), var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
 }
@@ -1636,7 +1695,9 @@ dd {
   place-items: center;
   min-height: calc(var(--space-controlHeight) * 2);
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.24)), var(--texture-active), var(--color-primary);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.24)),
+    var(--texture-active), var(--color-primary);
 }
 
 .recording-timer span {
@@ -1666,7 +1727,9 @@ dd {
 
 .local-save-note {
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.16)), var(--texture-active), var(--color-success);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.12), rgba(0, 0, 0, 0.16)),
+    var(--texture-active), var(--color-success);
 }
 
 .recovery-banner svg {
@@ -1685,8 +1748,11 @@ dd {
 }
 
 .tool-section {
-  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)), var(--texture-active), var(--color-surface);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
+    var(--texture-active), var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
   overflow: hidden;
@@ -1734,7 +1800,9 @@ dd {
 
 .teleprompter-card.dark textarea {
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.28)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.28)),
+    var(--texture-active), var(--color-secondary);
 }
 
 .teleprompter-card.light textarea {
@@ -1784,7 +1852,8 @@ input[type="range"] {
   padding: var(--space-md);
   color: var(--color-text);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   text-align: left;
   transition:
@@ -1823,7 +1892,8 @@ input[type="range"] {
 .marker-list span {
   padding: var(--space-sm) var(--space-md);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   font-weight: 900;
 }
@@ -1872,8 +1942,11 @@ input[type="range"] {
 .auto-edit-summary-grid,
 .auto-edit-review-grid,
 .locked-editing-tools {
-  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)), var(--texture-active), var(--color-surface);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.62)),
+    var(--texture-active), var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
 }
@@ -1883,7 +1956,11 @@ input[type="range"] {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-sm);
   padding: var(--space-sm);
-  background: color-mix(in srgb, var(--color-background), var(--color-surface) 45%);
+  background: color-mix(
+    in srgb,
+    var(--color-background),
+    var(--color-surface) 45%
+  );
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-border-radius);
 }
@@ -2079,7 +2156,11 @@ input[type="range"] {
 }
 
 .review-track-card.ready {
-  border-color: color-mix(in srgb, var(--color-success), var(--color-border) 35%);
+  border-color: color-mix(
+    in srgb,
+    var(--color-success),
+    var(--color-border) 35%
+  );
 }
 
 .review-track-card.selected {
@@ -2148,7 +2229,8 @@ input[type="range"] {
   padding: var(--space-md);
   color: var(--color-text);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   text-align: left;
   transition:
@@ -2196,7 +2278,8 @@ input[type="range"] {
 .hardware-inline-status {
   padding: var(--space-md);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   font-weight: 900;
 }
@@ -2254,7 +2337,8 @@ input[type="range"] {
   padding: var(--space-xl);
   color: var(--color-text);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-button-shadow);
   text-align: left;
@@ -2306,7 +2390,8 @@ input[type="range"] {
   gap: var(--space-md);
   padding: var(--space-md) var(--space-lg);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   font-weight: 900;
 }
@@ -2334,7 +2419,8 @@ input[type="range"] {
 
 .auto-edit-error {
   padding: var(--space-md) var(--space-lg);
-  border: var(--component-border-width) var(--component-border-style) var(--color-danger);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-danger);
   border-radius: var(--component-border-radius);
   background: color-mix(in srgb, var(--color-danger) 12%, var(--color-cards));
   font-weight: 800;
@@ -2352,7 +2438,8 @@ input[type="range"] {
   gap: var(--space-sm);
   padding: var(--space-lg);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
 }
 
@@ -2370,7 +2457,8 @@ input[type="range"] {
 .auto-edit-list-card {
   padding: var(--space-lg);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
 }
 
@@ -2389,7 +2477,8 @@ input[type="range"] {
   margin: 0 var(--space-xl) var(--space-xl);
   padding: var(--space-lg);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
 }
 
@@ -2454,7 +2543,8 @@ input[type="range"] {
   padding: var(--space-xl);
   color: var(--color-text);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-button-shadow);
   text-align: left;
@@ -2608,7 +2698,8 @@ input[type="range"] {
   padding: var(--space-sm) var(--space-lg);
   color: var(--color-text);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   font-weight: 900;
 }
@@ -2652,7 +2743,8 @@ input[type="range"] {
   padding: var(--space-xs) var(--space-md);
   color: var(--color-text);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   font-weight: 900;
 }
@@ -2673,7 +2765,8 @@ input[type="range"] {
   height: calc(var(--space-md) * 1.25);
   overflow: hidden;
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
 }
 
@@ -2753,7 +2846,8 @@ input[type="range"] {
   padding: var(--space-md) var(--space-lg);
   color: var(--color-primary);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   font-weight: 900;
 }
@@ -2808,10 +2902,16 @@ input[type="range"] {
   grid-column: 2;
   display: block;
   min-height: calc(var(--space-controlHeight) * 0.82);
-  background: linear-gradient(90deg, var(--color-primary), color-mix(in srgb, var(--color-accent), var(--color-cards) 35%));
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  background: linear-gradient(
+    90deg,
+    var(--color-primary),
+    color-mix(in srgb, var(--color-accent), var(--color-cards) 35%)
+  );
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
-  box-shadow: inset 0 0 0 4px color-mix(in srgb, var(--color-cards), transparent 80%);
+  box-shadow: inset 0 0 0 4px
+    color-mix(in srgb, var(--color-cards), transparent 80%);
 }
 
 .timeline-track.selected i {
@@ -2824,11 +2924,19 @@ input[type="range"] {
 }
 
 .timeline-track.microphone i {
-  background: linear-gradient(90deg, var(--color-audioMeters), var(--color-cards));
+  background: linear-gradient(
+    90deg,
+    var(--color-audioMeters),
+    var(--color-cards)
+  );
 }
 
 .timeline-track.markers i {
-  background: repeating-linear-gradient(90deg, var(--color-warning) 0 18px, var(--color-cards) 18px 36px);
+  background: repeating-linear-gradient(
+    90deg,
+    var(--color-warning) 0 18px,
+    var(--color-cards) 18px 36px
+  );
 }
 
 .timeline-marker-row,
@@ -2847,7 +2955,8 @@ input[type="range"] {
   padding: var(--space-sm) var(--space-md);
   color: var(--color-text);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   font-weight: 900;
 }
@@ -2871,7 +2980,8 @@ input[type="range"] {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-md);
   padding-block: var(--space-md);
-  border-block: 1px solid color-mix(in srgb, var(--color-border), transparent 40%);
+  border-block: 1px solid
+    color-mix(in srgb, var(--color-border), transparent 40%);
 }
 
 .source-mix-controls button,
@@ -2944,8 +3054,32 @@ input[type="range"] {
 .edit-history-list li {
   padding: var(--space-md) var(--space-lg);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
+}
+
+.timeline-checkpoint-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.timeline-checkpoint-list button {
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-cards), var(--color-primary) 8%);
+  border: 1px solid color-mix(in srgb, var(--color-primary), transparent 68%);
+  border-radius: 8px;
+  text-align: left;
+}
+
+.timeline-checkpoint-list span {
+  color: var(--color-mutedText);
+  font-size: 0.72rem;
 }
 
 .edit-history-list strong {
@@ -2965,7 +3099,8 @@ input[type="range"] {
   gap: var(--space-lg);
   padding: var(--space-lg);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
 }
 
@@ -3042,7 +3177,9 @@ input[type="range"] {
   align-content: start;
   padding: var(--space-lg);
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.24)), var(--texture-active), var(--color-primary);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.16), rgba(0, 0, 0, 0.24)),
+    var(--texture-active), var(--color-primary);
   border: 3px double var(--color-accent);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -3054,7 +3191,9 @@ input[type="range"] {
   min-height: 140px;
   padding: var(--space-lg);
   text-align: center;
-  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.58)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.58)),
+    var(--texture-active), var(--color-surface);
   color: var(--color-primary);
   border: 4px double var(--color-border);
   border-radius: var(--component-card-radius);
@@ -3086,7 +3225,8 @@ input[type="range"] {
 .torn-edge-header,
 .studio-control-button,
 .rustic-button {
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
 }
@@ -3124,7 +3264,9 @@ input[type="range"] {
 .ripped-paper-card,
 .vintage-panel,
 .torn-edge-header {
-  background: linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.58)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.58)),
+    var(--texture-active), var(--color-surface);
 }
 
 .ripped-paper-card {
@@ -3140,7 +3282,19 @@ input[type="range"] {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: linear-gradient(135deg, transparent 0 12px, color-mix(in srgb, var(--color-border), transparent 70%) 12px 14px, transparent 14px), linear-gradient(315deg, transparent 0 14px, color-mix(in srgb, var(--color-border), transparent 72%) 14px 16px, transparent 16px);
+  background:
+    linear-gradient(
+      135deg,
+      transparent 0 12px,
+      color-mix(in srgb, var(--color-border), transparent 70%) 12px 14px,
+      transparent 14px
+    ),
+    linear-gradient(
+      315deg,
+      transparent 0 14px,
+      color-mix(in srgb, var(--color-border), transparent 72%) 14px 16px,
+      transparent 16px
+    );
   opacity: calc(var(--texture-intensity, 0.5) * 0.55);
 }
 
@@ -3261,7 +3415,9 @@ input[type="range"] {
   aspect-ratio: 16 / 8.4;
   overflow: hidden;
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(0, 0, 0, 0.24), rgba(0, 0, 0, 0.34)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.24), rgba(0, 0, 0, 0.34)),
+    var(--texture-active), var(--color-secondary);
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-card-radius);
 }
@@ -3392,7 +3548,8 @@ input[type="range"] {
   min-height: 38px;
   padding: var(--space-xs) var(--space-sm);
   background: var(--color-cards);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-border-radius);
   box-shadow: var(--component-button-shadow);
   color: var(--color-text);
@@ -3485,8 +3642,11 @@ input[type="range"] {
   position: static;
   z-index: auto;
   padding: var(--space-sm);
-  background: linear-gradient(rgba(20, 12, 9, 0.9), rgba(14, 10, 9, 0.95)), var(--texture-active), var(--color-secondary);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  background:
+    linear-gradient(rgba(20, 12, 9, 0.9), rgba(14, 10, 9, 0.95)),
+    var(--texture-active), var(--color-secondary);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
 }
@@ -3500,7 +3660,9 @@ input[type="range"] {
   min-height: 42px;
   padding: var(--space-sm) var(--space-md);
   color: var(--color-text);
-  background: linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.48)), var(--texture-active), var(--color-cards);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.48)),
+    var(--texture-active), var(--color-cards);
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
   text-transform: uppercase;
@@ -3577,7 +3739,8 @@ input[type="range"] {
 
 .popout-actions {
   padding-bottom: var(--space-xs);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border), transparent 35%);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-border), transparent 35%);
 }
 
 .mixer-panel {
@@ -3665,7 +3828,13 @@ input[type="range"] {
   min-height: 100vh;
   padding: var(--space-md);
   color: var(--color-text);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--color-background), #000 12%), var(--color-surface)), var(--texture-active);
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--color-background), #000 12%),
+      var(--color-surface)
+    ),
+    var(--texture-active);
 }
 
 .popout-titlebar {
@@ -3747,7 +3916,8 @@ input[type="range"] {
   background: var(--color-cards);
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-border-radius);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent), transparent 78%);
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, var(--color-accent), transparent 78%);
 }
 
 .channel-topline,
@@ -3773,7 +3943,12 @@ input[type="range"] {
 .distressed-meter i {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, var(--color-success) 0 58%, var(--color-warning) 58% 82%, var(--color-danger) 82%);
+  background: linear-gradient(
+    90deg,
+    var(--color-success) 0 58%,
+    var(--color-warning) 58% 82%,
+    var(--color-danger) 82%
+  );
   transition: inline-size var(--animation-fast);
 }
 
@@ -3971,7 +4146,9 @@ input[type="range"] {
 .teleprompter-panel textarea.focus-mode {
   min-height: 260px;
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.32)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.2), rgba(0, 0, 0, 0.32)),
+    var(--texture-active), var(--color-secondary);
   font-size: 1.35rem;
   line-height: 1.55;
 }
@@ -3980,12 +4157,16 @@ input[type="range"] {
   flex: 1 1 140px;
   min-height: calc(var(--space-controlHeight) * 1.55);
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.16)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.16)),
+    var(--texture-active), var(--color-secondary);
   box-shadow: var(--component-button-shadow);
 }
 
 .studio-control-button.record {
-  background: linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.16)), var(--texture-active), var(--color-primary);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.06), rgba(0, 0, 0, 0.16)),
+    var(--texture-active), var(--color-primary);
 }
 
 .studio-control-button:disabled {
@@ -4023,7 +4204,9 @@ input[type="range"] {
   gap: var(--space-sm);
   padding: var(--space-sm);
   color: var(--color-inverseText);
-  background: linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.18)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.18)),
+    var(--texture-active), var(--color-secondary);
   border: 3px double var(--color-accent);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -4055,14 +4238,18 @@ input[type="range"] {
   color: var(--color-text);
 }
 
-.studio-shell--recording .live-studio:has(.recovery-banner) .reference-studio-board {
+.studio-shell--recording
+  .live-studio:has(.recovery-banner)
+  .reference-studio-board {
   min-height: calc(100vh - 65px);
 }
 
 .reference-studio-board .torn-edge-header {
   min-height: 82px;
   padding: 12px 16px;
-  background: linear-gradient(rgba(255, 245, 220, 0.82), rgba(239, 197, 139, 0.58)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 245, 220, 0.82), rgba(239, 197, 139, 0.58)),
+    var(--texture-active), var(--color-surface);
   border-radius: 8px 8px 0 0;
 }
 
@@ -4150,7 +4337,9 @@ input[type="range"] {
   height: clamp(340px, 42vh, 420px);
   min-height: 0;
   overflow: hidden;
-  background: linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0.28)),
+    var(--texture-active), var(--color-secondary);
   border: 3px solid var(--color-border);
   border-radius: 8px;
 }
@@ -4250,7 +4439,9 @@ input[type="range"] {
   grid-template-columns: repeat(9, minmax(0, 1fr));
   gap: 5px;
   padding: 8px 12px;
-  background: linear-gradient(rgba(13, 13, 12, 0.92), rgba(23, 22, 20, 0.94)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(13, 13, 12, 0.92), rgba(23, 22, 20, 0.94)),
+    var(--texture-active), var(--color-secondary);
 }
 
 .reference-studio-board .layout-row .rustic-button {
@@ -4271,7 +4462,10 @@ input[type="range"] {
 
 .reference-console-row {
   display: grid;
-  grid-template-columns: minmax(640px, 2.7fr) minmax(180px, 0.68fr) minmax(180px, 0.68fr);
+  grid-template-columns: minmax(640px, 2.7fr) minmax(180px, 0.68fr) minmax(
+      180px,
+      0.68fr
+    );
   gap: 12px;
   min-height: 0;
 }
@@ -4280,7 +4474,9 @@ input[type="range"] {
 .studio-side-stack .compact-side-panel {
   overflow: hidden;
   color: var(--color-accent);
-  background: linear-gradient(rgba(9, 10, 10, 0.88), rgba(19, 19, 18, 0.92)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(9, 10, 10, 0.88), rgba(19, 19, 18, 0.92)),
+    var(--texture-active), var(--color-secondary);
   border: 3px solid var(--color-border);
   border-radius: 8px;
   box-shadow: none;
@@ -4296,7 +4492,9 @@ input[type="range"] {
   min-height: 34px;
   padding: 7px 12px;
   color: var(--color-accent);
-  background: linear-gradient(rgba(164, 24, 18, 0.92), rgba(120, 17, 13, 0.92)), var(--texture-active), var(--color-primary);
+  background:
+    linear-gradient(rgba(164, 24, 18, 0.92), rgba(120, 17, 13, 0.92)),
+    var(--texture-active), var(--color-primary);
 }
 
 .reference-console-row .vintage-panel-heading h3,
@@ -4360,7 +4558,9 @@ input[type="range"] {
   gap: 10px;
   min-height: 360px;
   padding: 12px;
-  background: linear-gradient(180deg, rgba(255, 244, 220, 0.08), rgba(0, 0, 0, 0.1)), rgba(255, 244, 220, 0.04);
+  background:
+    linear-gradient(180deg, rgba(255, 244, 220, 0.08), rgba(0, 0, 0, 0.1)),
+    rgba(255, 244, 220, 0.04);
   border: 1px solid color-mix(in srgb, var(--color-accent), transparent 42%);
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.45);
 }
@@ -4469,7 +4669,9 @@ input[type="range"] {
   min-height: 34px;
   padding: 5px 6px;
   color: var(--color-text);
-  background: linear-gradient(rgba(255, 244, 220, 0.94), rgba(230, 184, 126, 0.78)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.94), rgba(230, 184, 126, 0.78)),
+    var(--texture-active), var(--color-surface);
   border-color: color-mix(in srgb, var(--color-accent), #000 42%);
   border-radius: 999px;
   font-family: var(--font-heading);
@@ -4479,7 +4681,9 @@ input[type="range"] {
 
 .reference-console-row .channel-buttons button.selected {
   color: var(--color-accent);
-  background: linear-gradient(rgba(174, 24, 18, 0.95), rgba(108, 13, 10, 0.95)), var(--texture-active), var(--color-primary);
+  background:
+    linear-gradient(rgba(174, 24, 18, 0.95), rgba(108, 13, 10, 0.95)),
+    var(--texture-active), var(--color-primary);
 }
 
 .reference-console-row .channel-buttons button svg {
@@ -4616,7 +4820,10 @@ input[type="range"] {
 
 .studio-side-stack {
   display: grid;
-  grid-template-rows: minmax(92px, 0.58fr) minmax(92px, 0.58fr) minmax(190px, 1.2fr);
+  grid-template-rows: minmax(92px, 0.58fr) minmax(92px, 0.58fr) minmax(
+      190px,
+      1.2fr
+    );
   align-self: start;
   gap: 10px;
   height: clamp(520px, calc(100vh - 210px), 760px);
@@ -4707,7 +4914,9 @@ input[type="range"] {
   justify-content: flex-start;
   padding: 12px 18px;
   color: var(--color-accent);
-  background: linear-gradient(rgba(150, 18, 13, 0.88), rgba(108, 13, 10, 0.94)), var(--texture-active), var(--color-primary);
+  background:
+    linear-gradient(rgba(150, 18, 13, 0.88), rgba(108, 13, 10, 0.94)),
+    var(--texture-active), var(--color-primary);
   border: 3px solid var(--color-border);
   border-radius: 8px;
   box-shadow: inset 0 0 0 2px rgba(255, 244, 220, 0.08);
@@ -4717,7 +4926,9 @@ input[type="range"] {
 .reference-studio-board .studio-control-button:nth-child(2),
 .reference-studio-board .studio-control-button:nth-child(4) {
   color: var(--color-text);
-  background: linear-gradient(rgba(255, 244, 220, 0.9), rgba(232, 185, 126, 0.72)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.9), rgba(232, 185, 126, 0.72)),
+    var(--texture-active), var(--color-surface);
 }
 
 .reference-studio-board .studio-control-button svg {
@@ -4805,7 +5016,9 @@ input[type="range"] {
     height: calc(100vh - 14px);
   }
 
-  .studio-shell--recording .live-studio:has(.recovery-banner) .reference-studio-board {
+  .studio-shell--recording
+    .live-studio:has(.recovery-banner)
+    .reference-studio-board {
     height: calc(100vh - 47px);
   }
 
@@ -4887,7 +5100,10 @@ input[type="range"] {
   }
 
   .reference-console-row {
-    grid-template-columns: minmax(380px, 2.1fr) minmax(150px, 0.56fr) minmax(150px, 0.56fr);
+    grid-template-columns: minmax(380px, 2.1fr) minmax(150px, 0.56fr) minmax(
+        150px,
+        0.56fr
+      );
     gap: 6px;
   }
 
@@ -5004,7 +5220,10 @@ input[type="range"] {
   }
 
   .studio-side-stack {
-    grid-template-rows: minmax(65px, 0.44fr) minmax(65px, 0.44fr) minmax(128px, 1fr);
+    grid-template-rows: minmax(65px, 0.44fr) minmax(65px, 0.44fr) minmax(
+        128px,
+        1fr
+      );
     gap: 6px;
   }
 
@@ -5092,7 +5311,10 @@ input[type="range"] {
   }
 
   .studio-side-stack {
-    grid-template-rows: minmax(56px, 0.38fr) minmax(56px, 0.38fr) minmax(105px, 0.92fr);
+    grid-template-rows: minmax(56px, 0.38fr) minmax(56px, 0.38fr) minmax(
+        105px,
+        0.92fr
+      );
   }
 
   .reference-studio-board .studio-control-button {
@@ -5111,7 +5333,10 @@ input[type="range"] {
 }
 
 .studio-shell--recording .reference-console-row {
-  grid-template-columns: minmax(640px, 2.7fr) minmax(180px, 0.68fr) minmax(180px, 0.68fr);
+  grid-template-columns: minmax(640px, 2.7fr) minmax(180px, 0.68fr) minmax(
+      180px,
+      0.68fr
+    );
   gap: 12px;
 }
 
@@ -5208,7 +5433,9 @@ input[type="range"] {
   position: absolute;
   inset: -6px;
   z-index: -1;
-  background: linear-gradient(rgba(20, 12, 9, 0.12), rgba(20, 12, 9, 0.18)), var(--texture-active), transparent;
+  background:
+    linear-gradient(rgba(20, 12, 9, 0.12), rgba(20, 12, 9, 0.18)),
+    var(--texture-active), transparent;
   border-radius: 10px;
   pointer-events: none;
 }
@@ -5219,7 +5446,8 @@ input[type="range"] {
   text-align: center;
 }
 
-.studio-shell:not(.studio-shell--recording):not(.sidebar-collapsed) .brand-badge {
+.studio-shell:not(.studio-shell--recording):not(.sidebar-collapsed)
+  .brand-badge {
   display: none;
 }
 
@@ -5229,7 +5457,13 @@ input[type="range"] {
   height: 94px;
   margin-inline: auto;
   color: var(--color-accent);
-  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--color-primary), #fff 7%), var(--color-primary)), var(--texture-active);
+  background:
+    radial-gradient(
+      circle at 50% 30%,
+      color-mix(in srgb, var(--color-primary), #fff 7%),
+      var(--color-primary)
+    ),
+    var(--texture-active);
   border: 4px double color-mix(in srgb, var(--color-accent), #000 18%);
 }
 
@@ -5264,7 +5498,9 @@ input[type="range"] {
 .studio-shell:not(.studio-shell--recording) .nav-stack button:hover,
 .studio-shell:not(.studio-shell--recording) .nav-stack button.active {
   color: var(--color-text);
-  background: linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.54)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.78), rgba(255, 255, 255, 0.54)),
+    var(--texture-active), var(--color-surface);
 }
 
 .studio-shell:not(.studio-shell--recording) .wizard-intro,
@@ -5273,20 +5509,26 @@ input[type="range"] {
 .studio-shell:not(.studio-shell--recording) .setup-next-action,
 .studio-shell:not(.studio-shell--recording) .studio-ready-summary,
 .studio-shell:not(.studio-shell--recording) .secondary-studio-tools {
-  background: linear-gradient(rgba(255, 244, 220, 0.92), rgba(236, 184, 126, 0.68)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.92), rgba(236, 184, 126, 0.68)),
+    var(--texture-active), var(--color-surface);
   border: 3px solid var(--color-border);
   border-radius: 8px;
   box-shadow: var(--component-shadow);
 }
 
 .studio-shell:not(.studio-shell--recording) .wizard-intro {
-  background: linear-gradient(rgba(255, 244, 220, 0.96), rgba(247, 212, 158, 0.72)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.96), rgba(247, 212, 158, 0.72)),
+    var(--texture-active), var(--color-surface);
 }
 
 .studio-shell:not(.studio-shell--recording) .wizard-steps button,
 .studio-shell:not(.studio-shell--recording) .setup-guide-card span {
   color: var(--color-text);
-  background: linear-gradient(rgba(255, 244, 220, 0.92), rgba(230, 184, 126, 0.74)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 244, 220, 0.92), rgba(230, 184, 126, 0.74)),
+    var(--texture-active), var(--color-surface);
   border: 2px solid var(--color-border);
   border-radius: 8px;
 }
@@ -5295,7 +5537,9 @@ input[type="range"] {
 .studio-shell:not(.studio-shell--recording) .wizard-steps button:hover,
 .studio-shell:not(.studio-shell--recording) .setup-guide-card span.ready {
   color: var(--color-accent);
-  background: linear-gradient(rgba(160, 20, 15, 0.94), rgba(104, 13, 10, 0.95)), var(--texture-active), var(--color-primary);
+  background:
+    linear-gradient(rgba(160, 20, 15, 0.94), rgba(104, 13, 10, 0.95)),
+    var(--texture-active), var(--color-primary);
   border-color: var(--color-accent);
 }
 
@@ -5327,7 +5571,9 @@ input[type="range"] {
   width: 100%;
   min-width: 0;
   min-height: clamp(135px, 13vw, 180px);
-  background: linear-gradient(rgba(5, 5, 5, 0.24), rgba(15, 9, 8, 0.34)), var(--texture-active), var(--color-secondary);
+  background:
+    linear-gradient(rgba(5, 5, 5, 0.24), rgba(15, 9, 8, 0.34)),
+    var(--texture-active), var(--color-secondary);
   border-radius: 8px;
 }
 
@@ -5520,8 +5766,11 @@ input[type="range"] {
   gap: 8px;
   align-items: center;
   padding: 8px;
-  background: linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.54)), var(--texture-active), var(--color-surface);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.54)),
+    var(--texture-active), var(--color-surface);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
 }
@@ -5618,10 +5867,12 @@ input[type="range"] {
   overflow-x: auto;
   overflow-y: hidden;
   background: color-mix(in srgb, var(--color-background), #000 22%);
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
-  scrollbar-color: var(--color-primary) color-mix(in srgb, var(--color-background), #000 22%);
+  scrollbar-color: var(--color-primary)
+    color-mix(in srgb, var(--color-background), #000 22%);
 }
 
 .pro-timeline-viewport .pro-timeline {
@@ -5665,7 +5916,16 @@ input[type="range"] {
   overflow: hidden;
   padding: 0 5px;
   color: var(--color-inverseText);
-  background: linear-gradient(90deg, transparent 0 10%, rgba(255, 255, 255, 0.07) 10% 11%, transparent 11% 24%, rgba(255, 255, 255, 0.07) 24% 25%, transparent 25%), var(--color-primary);
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0 10%,
+      rgba(255, 255, 255, 0.07) 10% 11%,
+      transparent 11% 24%,
+      rgba(255, 255, 255, 0.07) 24% 25%,
+      transparent 25%
+    ),
+    var(--color-primary);
   border: 1px solid color-mix(in srgb, var(--color-accent), transparent 35%);
   border-radius: 3px;
   font-size: 0.62rem;
@@ -5675,7 +5935,16 @@ input[type="range"] {
 
 .edit-track-lane.camera .timeline-clip {
   color: var(--color-text);
-  background: linear-gradient(90deg, transparent 0 13%, rgba(255, 255, 255, 0.2) 13% 14%, transparent 14% 30%, rgba(255, 255, 255, 0.2) 30% 31%, transparent 31%), color-mix(in srgb, var(--color-accent), var(--color-cards) 48%);
+  background:
+    linear-gradient(
+      90deg,
+      transparent 0 13%,
+      rgba(255, 255, 255, 0.2) 13% 14%,
+      transparent 14% 30%,
+      rgba(255, 255, 255, 0.2) 30% 31%,
+      transparent 31%
+    ),
+    color-mix(in srgb, var(--color-accent), var(--color-cards) 48%);
 }
 
 .edit-track-lane.camera .timeline-clip[draggable="true"] {
@@ -5687,12 +5956,23 @@ input[type="range"] {
 }
 
 .edit-track-lane.microphone .timeline-clip {
-  background: linear-gradient(180deg, transparent 44%, rgba(255, 255, 255, 0.35) 45% 55%, transparent 56%), color-mix(in srgb, var(--color-success), var(--color-background) 35%);
+  background:
+    linear-gradient(
+      180deg,
+      transparent 44%,
+      rgba(255, 255, 255, 0.35) 45% 55%,
+      transparent 56%
+    ),
+    color-mix(in srgb, var(--color-success), var(--color-background) 35%);
 }
 
 .edit-track-clips > .timeline-clip.removed {
   color: color-mix(in srgb, var(--color-accent), transparent 45%);
-  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0 7px, rgba(255, 255, 255, 0.09) 7px 14px);
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.03) 0 7px,
+    rgba(255, 255, 255, 0.09) 7px 14px
+  );
   text-decoration: line-through;
 }
 
@@ -5822,7 +6102,10 @@ input[type="range"] {
     border-radius: var(--component-border-radius);
   }
 
-  .studio-shell--recording .reference-studio-board .secondary-studio-tools > summary {
+  .studio-shell--recording
+    .reference-studio-board
+    .secondary-studio-tools
+    > summary {
     min-height: 42px;
     padding: 10px 14px;
     color: var(--color-accent);
@@ -5832,7 +6115,10 @@ input[type="range"] {
     cursor: pointer;
   }
 
-  .studio-shell--recording .reference-studio-board .secondary-studio-tools .live-studio-grid {
+  .studio-shell--recording
+    .reference-studio-board
+    .secondary-studio-tools
+    .live-studio-grid {
     padding: 12px;
   }
 }
@@ -5855,8 +6141,14 @@ input[type="range"] {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
-  .studio-shell--recording .reference-studio-board .giant-control-row .studio-control-button:nth-child(4),
-  .studio-shell--recording .reference-studio-board .giant-control-row .studio-control-button:nth-child(5) {
+  .studio-shell--recording
+    .reference-studio-board
+    .giant-control-row
+    .studio-control-button:nth-child(4),
+  .studio-shell--recording
+    .reference-studio-board
+    .giant-control-row
+    .studio-control-button:nth-child(5) {
     grid-column: span 1;
   }
 }
@@ -5894,7 +6186,11 @@ input[type="range"] {
   margin-bottom: 12px;
   padding: 10px 12px;
   color: var(--color-text);
-  background: color-mix(in srgb, var(--color-cards), var(--color-background) 14%);
+  background: color-mix(
+    in srgb,
+    var(--color-cards),
+    var(--color-background) 14%
+  );
   border: 1px solid var(--color-border);
   border-radius: var(--component-border-radius);
 }
@@ -5938,7 +6234,11 @@ input[type="range"] {
   min-width: 0;
   padding: 7px 9px;
   color: var(--color-text);
-  background: color-mix(in srgb, var(--color-cards), var(--color-background) 18%);
+  background: color-mix(
+    in srgb,
+    var(--color-cards),
+    var(--color-background) 18%
+  );
   border: 1px solid var(--color-border);
   border-left: 4px solid var(--color-mutedText);
   border-radius: var(--component-border-radius);
@@ -6136,7 +6436,9 @@ input[type="range"] {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
   padding: 8px;
-  background: linear-gradient(rgba(247, 212, 158, 0.94), rgba(236, 184, 120, 0.9)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(247, 212, 158, 0.94), rgba(236, 184, 120, 0.9)),
+    var(--texture-active), var(--color-surface);
   border: 2px solid color-mix(in srgb, var(--color-border), transparent 18%);
   border-radius: var(--component-border-radius);
   box-shadow: 0 7px 16px rgba(35, 16, 10, 0.15);
@@ -6150,7 +6452,9 @@ input[type="range"] {
   min-height: 44px;
   padding: 8px 12px;
   color: var(--color-mutedText);
-  background: linear-gradient(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.52)), var(--texture-active), var(--color-cards);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.52)),
+    var(--texture-active), var(--color-cards);
   border: 1px solid color-mix(in srgb, var(--color-border), transparent 20%);
   border-radius: var(--component-border-radius);
   font-weight: 900;
@@ -6315,7 +6619,11 @@ input[type="range"] {
 
 .local-save-note.saving {
   color: var(--color-text);
-  background: color-mix(in srgb, var(--color-warning), var(--color-surface) 72%);
+  background: color-mix(
+    in srgb,
+    var(--color-warning),
+    var(--color-surface) 72%
+  );
   border-color: var(--color-warning);
 }
 
@@ -6619,7 +6927,8 @@ input[type="range"] {
   gap: 12px;
   padding: 10px;
   background: color-mix(in srgb, var(--color-accent), transparent 88%);
-  border: 1px solid color-mix(in srgb, var(--color-accent), var(--color-border) 65%);
+  border: 1px solid
+    color-mix(in srgb, var(--color-accent), var(--color-border) 65%);
   border-radius: var(--component-border-radius);
 }
 
@@ -6684,6 +6993,46 @@ input[type="range"] {
 .editor-caption-list {
   display: grid;
   gap: 8px;
+}
+
+.editor-caption-search {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.editor-caption-search label {
+  display: flex;
+  flex: 1 1 240px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+}
+
+.editor-caption-search input {
+  width: 100%;
+  min-height: 36px;
+  color: var(--color-text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.editor-caption-search button.selected {
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+}
+
+.export-quick-preview {
+  justify-self: start;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-accent), transparent 88%);
+  border: 1px solid
+    color-mix(in srgb, var(--color-accent), var(--color-border) 65%);
 }
 
 .editor-caption-cue {
@@ -6767,7 +7116,8 @@ input[type="range"] {
 .pro-timeline,
 .edit-command-bar,
 .edit-track-inspector {
-  border: var(--component-border-width) var(--component-border-style) var(--color-border);
+  border: var(--component-border-width) var(--component-border-style)
+    var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
 }
@@ -6778,7 +7128,9 @@ input[type="range"] {
   justify-content: space-between;
   gap: var(--space-xl);
   padding: var(--space-lg) var(--space-xl);
-  background: linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.58)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.76), rgba(255, 255, 255, 0.58)),
+    var(--texture-active), var(--color-surface);
 }
 
 .edit-studio-header h2 {
@@ -6787,10 +7139,17 @@ input[type="range"] {
 
 .episode-build-guide {
   display: grid;
-  grid-template-columns: minmax(170px, 0.75fr) minmax(260px, 1fr) minmax(300px, 1.15fr);
+  grid-template-columns: minmax(170px, 0.75fr) minmax(260px, 1fr) minmax(
+      300px,
+      1.15fr
+    );
   gap: var(--space-sm);
   padding: var(--space-sm);
-  background: color-mix(in srgb, var(--color-background), var(--color-surface) 45%);
+  background: color-mix(
+    in srgb,
+    var(--color-background),
+    var(--color-surface) 45%
+  );
   border: var(--component-border-width) solid var(--color-border);
   border-radius: var(--component-card-radius);
   box-shadow: var(--component-shadow);
@@ -6965,7 +7324,8 @@ input[type="range"] {
 
 .multicam-grid > button.active {
   border-color: var(--color-warning);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-warning), transparent 65%);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--color-warning), transparent 65%);
 }
 
 .multicam-grid video {
@@ -6994,7 +7354,11 @@ input[type="range"] {
   min-width: 0;
   padding: 7px 9px;
   color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-background), var(--color-cards) 8%);
+  background: color-mix(
+    in srgb,
+    var(--color-background),
+    var(--color-cards) 8%
+  );
   border-color: color-mix(in srgb, var(--color-accent), transparent 58%);
 }
 
@@ -7117,7 +7481,8 @@ input[type="range"] {
   min-width: 0;
   padding: 8px;
   background: rgba(255, 255, 255, 0.04);
-  border-block: 1px solid color-mix(in srgb, var(--color-accent), transparent 70%);
+  border-block: 1px solid
+    color-mix(in srgb, var(--color-accent), transparent 70%);
 }
 
 .inspector-status span {
@@ -7352,7 +7717,8 @@ input[type="range"] {
   position: relative;
   height: 24px;
   margin-left: 190px;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-accent), transparent 64%);
+  border-bottom: 1px solid
+    color-mix(in srgb, var(--color-accent), transparent 64%);
 }
 
 .timeline-time-ruler span {
@@ -7396,7 +7762,8 @@ input[type="range"] {
   gap: 5px;
   min-width: 0;
   padding: 5px 7px;
-  border-right: 1px solid color-mix(in srgb, var(--color-accent), transparent 70%);
+  border-right: 1px solid
+    color-mix(in srgb, var(--color-accent), transparent 70%);
 }
 
 .track-name {
@@ -7505,12 +7872,20 @@ input[type="range"] {
 }
 
 .edit-track-lane.microphone .edit-track-clips > button {
-  background: color-mix(in srgb, var(--color-success), var(--color-background) 35%);
+  background: color-mix(
+    in srgb,
+    var(--color-success),
+    var(--color-background) 35%
+  );
 }
 
 .edit-track-clips > button.removed {
   color: color-mix(in srgb, var(--color-accent), transparent 45%);
-  background: repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0 7px, rgba(255, 255, 255, 0.09) 7px 14px);
+  background: repeating-linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.03) 0 7px,
+    rgba(255, 255, 255, 0.09) 7px 14px
+  );
   text-decoration: line-through;
 }
 
@@ -7540,7 +7915,8 @@ input[type="range"] {
   width: 2px;
   pointer-events: none;
   background: var(--color-warning);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-background), transparent 30%);
+  box-shadow: 0 0 0 1px
+    color-mix(in srgb, var(--color-background), transparent 30%);
 }
 
 .timeline-marker-lane {
@@ -7588,7 +7964,9 @@ input[type="range"] {
   gap: var(--space-md);
   align-items: center;
   padding: 10px;
-  background: linear-gradient(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.58)), var(--texture-active), var(--color-surface);
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.58)),
+    var(--texture-active), var(--color-surface);
 }
 
 .edit-command-bar > div:first-child {
@@ -7789,7 +8167,13 @@ input[type="range"] {
   height: 52px;
   margin-inline: auto;
   color: var(--color-accent);
-  background: radial-gradient(circle at 50% 30%, color-mix(in srgb, var(--color-primary), #fff 7%), var(--color-primary)), var(--texture-active);
+  background:
+    radial-gradient(
+      circle at 50% 30%,
+      color-mix(in srgb, var(--color-primary), #fff 7%),
+      var(--color-primary)
+    ),
+    var(--texture-active);
   border: 3px double color-mix(in srgb, var(--color-accent), #000 18%);
   font-size: 0.78rem;
 }

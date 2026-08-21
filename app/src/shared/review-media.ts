@@ -1,6 +1,12 @@
 export type ReviewMediaKind = "program" | "camera" | "audio";
 export type ReviewMediaStatus = "ready" | "missing" | "needs-proxy" | "error";
-export type ReviewMediaImportSlot = "camera-1" | "camera-2" | "camera-3" | "morgan-mic" | "guest-mic" | "extra-mic";
+export type ReviewMediaImportSlot =
+  | "camera-1"
+  | "camera-2"
+  | "camera-3"
+  | "morgan-mic"
+  | "guest-mic"
+  | "extra-mic";
 
 export interface ReviewMediaAsset {
   id: string;
@@ -42,6 +48,12 @@ export interface ReviewMediaImportResult {
 export interface ReviewMediaImportProgress {
   episodeId: string;
   slot: ReviewMediaImportSlot;
+  progress: number;
+  message: string;
+}
+
+export interface ReviewMediaPreparationProgress {
+  episodeId: string;
   progress: number;
   message: string;
 }

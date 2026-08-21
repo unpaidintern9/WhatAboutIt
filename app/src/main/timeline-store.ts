@@ -1,15 +1,28 @@
 import path from "node:path";
 import fs from "node:fs/promises";
 import type { TimelineDraft } from "../shared/timeline";
-import { compactTimelineDraftForPersistence, markTimelineSaved } from "../shared/timeline";
+import {
+  markTimelineSaved,
+  prepareTimelineDraftForStorage,
+} from "../shared/timeline";
 import { getEpisodesRoot } from "./config-service";
 import { logger } from "./logger";
 
 function timelinePath(episodeId: string) {
-  if (!episodeId || path.basename(episodeId) !== episodeId || episodeId === "." || episodeId === "..") {
+  if (
+    !episodeId ||
+    path.basename(episodeId) !== episodeId ||
+    episodeId === "." ||
+    episodeId === ".."
+  ) {
     throw new Error("Invalid episode identifier for timeline storage.");
   }
-  return path.join(getEpisodesRoot(), episodeId, "Session", "draft-timeline.json");
+  return path.join(
+    getEpisodesRoot(),
+    episodeId,
+    "Session",
+    "draft-timeline.json",
+  );
 }
 
 function backupPath(filePath: string) {
@@ -37,7 +50,9 @@ async function syncDirectory(directory: string) {
   }
 }
 
-export async function loadTimelineDraft(episodeId: string): Promise<TimelineDraft | null> {
+export async function loadTimelineDraft(
+  episodeId: string,
+): Promise<TimelineDraft | null> {
   const filePath = timelinePath(episodeId);
   try {
     return await readJsonFile<TimelineDraft>(filePath);
@@ -45,23 +60,40 @@ export async function loadTimelineDraft(episodeId: string): Promise<TimelineDraf
     const backupFilePath = backupPath(filePath);
     try {
       const recovered = await readJsonFile<TimelineDraft>(backupFilePath);
-      await logger.warning("TimelineReview", "Recovered draft timeline from the previous good save.", { episodeId });
+      await logger.warning(
+        "TimelineReview",
+        "Recovered draft timeline from the previous good save.",
+        { episodeId },
+      );
       return recovered;
     } catch (backupError) {
-      if (isMissingFile(primaryError) && isMissingFile(backupError)) return null;
-      await logger.error("TimelineReview", "Draft timeline could not be read from the primary or backup file.", {
-        episodeId,
-        primaryError: String(primaryError),
-        backupError: String(backupError)
-      });
-      throw new Error("This episode's saved draft is damaged and could not be recovered automatically.", { cause: backupError });
+      if (isMissingFile(primaryError) && isMissingFile(backupError))
+        return null;
+      await logger.error(
+        "TimelineReview",
+        "Draft timeline could not be read from the primary or backup file.",
+        {
+          episodeId,
+          primaryError: String(primaryError),
+          backupError: String(backupError),
+        },
+      );
+      throw new Error(
+        "This episode's saved draft is damaged and could not be recovered automatically.",
+        { cause: backupError },
+      );
     }
   }
 }
 
-export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft): Promise<TimelineDraft> {
+export async function saveTimelineDraft(
+  episodeId: string,
+  draft: TimelineDraft,
+): Promise<TimelineDraft> {
   if (draft.episodeId && draft.episodeId !== episodeId) {
-    throw new Error(`Refusing to save draft for ${draft.episodeId} into episode ${episodeId}.`);
+    throw new Error(
+      `Refusing to save draft for ${draft.episodeId} into episode ${episodeId}.`,
+    );
   }
   const filePath = timelinePath(episodeId);
   const directory = path.dirname(filePath);
@@ -70,13 +102,16 @@ export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft)
   const nextDraft = markTimelineSaved({
     ...draft,
     episodeId,
-    nonDestructive: true as const
+    nonDestructive: true as const,
   });
-  const persistedDraft = compactTimelineDraftForPersistence(nextDraft);
+  const persistedDraft = prepareTimelineDraftForStorage(nextDraft);
   let temporaryHandle: Awaited<ReturnType<typeof fs.open>> | undefined;
   try {
     temporaryHandle = await fs.open(temporaryPath, "wx");
-    await temporaryHandle.writeFile(JSON.stringify(persistedDraft, null, 2), "utf8");
+    await temporaryHandle.writeFile(
+      JSON.stringify(persistedDraft, null, 2),
+      "utf8",
+    );
     await temporaryHandle.sync();
     await temporaryHandle.close();
     temporaryHandle = undefined;
@@ -92,7 +127,7 @@ export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft)
     await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
   }
   await logger.info("TimelineReview", "Saved local draft timeline.", {
-    episodeId
+    episodeId,
   });
   return nextDraft;
 }

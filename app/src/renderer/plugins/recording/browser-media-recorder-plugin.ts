@@ -1,8 +1,23 @@
-import type { RecordingEngineHealth, RecordingEnginePlugin, RecordingStartRequest } from "./types";
-import type { RecordingMediaTarget, RecordingSession, RecordingTrackKind, RecordingTrackSaveInput, RecordingTrackSlot } from "../../../shared/recording";
+import type {
+  RecordingEngineHealth,
+  RecordingEnginePlugin,
+  RecordingStartRequest,
+} from "./types";
+import type {
+  RecordingMediaTarget,
+  RecordingSession,
+  RecordingTrackKind,
+  RecordingTrackSaveInput,
+  RecordingTrackSlot,
+} from "../../../shared/recording";
 import type { MicrophoneInputChannel } from "../../../shared/types";
 import { getDeviceAssignmentConflicts } from "../../../shared/device-config";
-import { createRoutedMonoStream, getAudioStreamDiagnostics, openAudioStreamWithFallback, stopStudioMediaStream } from "../audio/studio-audio";
+import {
+  createRoutedMonoStream,
+  getAudioStreamDiagnostics,
+  openAudioStreamWithFallback,
+  stopStudioMediaStream,
+} from "../audio/studio-audio";
 
 interface ActiveTrackRecorder {
   slot: RecordingTrackSlot;
@@ -17,6 +32,8 @@ interface ActiveTrackRecorder {
   lastChunkAt?: string;
   writeError?: string;
 }
+
+const RECORDER_STOP_TIMEOUT_MS = 7500;
 
 export interface BrowserMediaRecorderStreamResolver {
   getCameraStream?: (deviceId?: string) => MediaStream | undefined;
@@ -41,7 +58,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   private programLastChunkAt?: string;
   private programWriteError?: string;
 
-  constructor(private readonly streams: BrowserMediaRecorderStreamResolver = {}) {}
+  constructor(
+    private readonly streams: BrowserMediaRecorderStreamResolver = {},
+  ) {}
 
   async start(request: RecordingStartRequest) {
     await this.shutdown();
@@ -53,36 +72,60 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       return;
     }
 
-    this.expectedCameraTracks = Object.values(request.deviceDefaults.cameras).filter(Boolean).length;
-    this.expectedAudioTracks = Object.values(request.deviceDefaults.microphones).filter(Boolean).length;
-    this.diskSession = request.session && window.studio.beginRecordingMedia && window.studio.appendRecordingChunk
-      ? request.session
-      : undefined;
-    if (this.diskSession) await window.studio.beginRecordingMedia?.(this.diskSession.folderPath);
+    this.expectedCameraTracks = Object.values(
+      request.deviceDefaults.cameras,
+    ).filter(Boolean).length;
+    this.expectedAudioTracks = Object.values(
+      request.deviceDefaults.microphones,
+    ).filter(Boolean).length;
+    this.diskSession =
+      request.session &&
+      window.studio.beginRecordingMedia &&
+      window.studio.appendRecordingChunk
+        ? request.session
+        : undefined;
+    if (this.diskSession)
+      await window.studio.beginRecordingMedia?.(this.diskSession.folderPath);
 
-    if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera needs attention");
+    if (!navigator.mediaDevices?.getUserMedia)
+      throw new Error("Camera needs attention");
     if (getDeviceAssignmentConflicts(request.deviceDefaults).length > 0) {
       throw new Error("Source routing needs attention");
     }
 
     const videoDeviceId = request.deviceDefaults.cameras.camera1;
-    const programMicSlot = request.deviceDefaults.cameraMicrophones?.camera1 ?? "morganMic";
+    const programMicSlot =
+      request.deviceDefaults.cameraMicrophones?.camera1 ?? "morganMic";
     this.programMicSlot = programMicSlot;
-    const audioDeviceId = request.deviceDefaults.microphones[programMicSlot] ?? request.deviceDefaults.microphones.morganMic;
-    const audioChannel = request.deviceDefaults.microphoneChannels?.[programMicSlot] ?? "mix";
+    const audioDeviceId =
+      request.deviceDefaults.microphones[programMicSlot] ??
+      request.deviceDefaults.microphones.morganMic;
+    const audioChannel =
+      request.deviceDefaults.microphoneChannels?.[programMicSlot] ?? "mix";
 
     try {
-      this.stream = await this.openProgramStream(videoDeviceId, audioDeviceId, audioChannel);
+      this.stream = await this.openProgramStream(
+        videoDeviceId,
+        audioDeviceId,
+        audioChannel,
+      );
     } catch (error) {
       const message = String(error);
-      if (message.includes("audio") || message.includes("microphone")) throw new Error("Mic needs attention", { cause: error });
+      if (message.includes("audio") || message.includes("microphone"))
+        throw new Error("Mic needs attention", { cause: error });
       throw new Error("Camera needs attention", { cause: error });
     }
 
     this.chunks = [];
-    this.recorder = new MediaRecorder(this.stream, { mimeType: pickMimeType() });
+    this.recorder = new MediaRecorder(this.stream, {
+      mimeType: pickMimeType(),
+    });
     this.recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) this.queueProgramChunk(event.data, this.recorder?.mimeType || "video/webm");
+      if (event.data.size > 0)
+        this.queueProgramChunk(
+          event.data,
+          this.recorder?.mimeType || "video/webm",
+        );
     };
     this.programStartedAtMs = Date.now();
     this.recorder.start(1000);
@@ -93,9 +136,21 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   getHealth(): RecordingEngineHealth {
     const activeStates = new Set(["recording", "paused"]);
     const now = Date.now();
-    const programRecorderActive = Boolean(this.recorder && activeStates.has(this.recorder.state) && streamIsLive(this.stream));
+    const programRecorderActive = Boolean(
+      this.recorder &&
+      activeStates.has(this.recorder.state) &&
+      streamIsLive(this.stream),
+    );
     const programFirstChunkReceived = this.programBytesWritten > 0;
-    const programSourceActive = this.practiceActive || sourceIsWriting(programRecorderActive, programFirstChunkReceived, this.programLastChunkAt, this.programStartedAtMs, now);
+    const programSourceActive =
+      this.practiceActive ||
+      sourceIsWriting(
+        programRecorderActive,
+        programFirstChunkReceived,
+        this.programLastChunkAt,
+        this.programStartedAtMs,
+        now,
+      );
     const sources = [
       {
         target: "program" as const,
@@ -104,12 +159,25 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
         firstChunkReceived: this.practiceActive || programFirstChunkReceived,
         bytesWritten: this.programBytesWritten,
         lastChunkAt: this.programLastChunkAt,
-        message: this.programWriteError ?? sourceHealthMessage(programRecorderActive, programFirstChunkReceived, programSourceActive)
+        message:
+          this.programWriteError ??
+          sourceHealthMessage(
+            programRecorderActive,
+            programFirstChunkReceived,
+            programSourceActive,
+          ),
       },
       ...this.trackRecorders.map((track) => {
-        const recorderActive = activeStates.has(track.recorder.state) && streamIsLive(track.stream);
+        const recorderActive =
+          activeStates.has(track.recorder.state) && streamIsLive(track.stream);
         const firstChunkReceived = track.bytesWritten > 0;
-        const active = sourceIsWriting(recorderActive, firstChunkReceived, track.lastChunkAt, track.startedAtMs, now);
+        const active = sourceIsWriting(
+          recorderActive,
+          firstChunkReceived,
+          track.lastChunkAt,
+          track.startedAtMs,
+          now,
+        );
         return {
           target: track.slot,
           kind: track.kind,
@@ -117,37 +185,67 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
           firstChunkReceived,
           bytesWritten: track.bytesWritten,
           lastChunkAt: track.lastChunkAt,
-          message: track.writeError ?? sourceHealthMessage(recorderActive, firstChunkReceived, active)
+          message:
+            track.writeError ??
+            sourceHealthMessage(recorderActive, firstChunkReceived, active),
         };
-      })
+      }),
     ];
-    const sourceWarnings = sources.filter((source) => !source.active || source.message.includes("failed")).map((source) => `${source.target}: ${source.message}`);
-    const recentTimestamps = sources.map((source) => source.lastChunkAt ? new Date(source.lastChunkAt).getTime() : undefined).filter((timestamp): timestamp is number => timestamp !== undefined);
-    if (recentTimestamps.length > 1 && Math.max(...recentTimestamps) - Math.min(...recentTimestamps) > 2500) {
-      sourceWarnings.push("Camera and audio chunk timing has drifted by more than 2.5 seconds.");
+    const sourceWarnings = sources
+      .filter((source) => !source.active || source.message.includes("failed"))
+      .map((source) => `${source.target}: ${source.message}`);
+    const recentTimestamps = sources
+      .map((source) =>
+        source.lastChunkAt ? new Date(source.lastChunkAt).getTime() : undefined,
+      )
+      .filter((timestamp): timestamp is number => timestamp !== undefined);
+    if (
+      recentTimestamps.length > 1 &&
+      Math.max(...recentTimestamps) - Math.min(...recentTimestamps) > 2500
+    ) {
+      sourceWarnings.push(
+        "Camera and audio chunk timing has drifted by more than 2.5 seconds.",
+      );
     }
     return {
       programActive: programSourceActive,
-      activeCameraTracks: this.trackRecorders.filter((track) => track.kind === "camera" && activeStates.has(track.recorder.state) && streamIsLive(track.stream)).length,
-      activeAudioTracks: this.trackRecorders.filter((track) => track.kind === "audio" && activeStates.has(track.recorder.state) && streamIsLive(track.stream)).length,
+      activeCameraTracks: this.trackRecorders.filter(
+        (track) =>
+          track.kind === "camera" &&
+          activeStates.has(track.recorder.state) &&
+          streamIsLive(track.stream),
+      ).length,
+      activeAudioTracks: this.trackRecorders.filter(
+        (track) =>
+          track.kind === "audio" &&
+          activeStates.has(track.recorder.state) &&
+          streamIsLive(track.stream),
+      ).length,
       expectedCameraTracks: this.expectedCameraTracks,
       expectedAudioTracks: this.expectedAudioTracks,
-      warnings: [...this.trackResults.map((track) => track.message).filter((message): message is string => Boolean(message)), ...sourceWarnings],
-      sources
+      warnings: [
+        ...this.trackResults
+          .map((track) => track.message)
+          .filter((message): message is string => Boolean(message)),
+        ...sourceWarnings,
+      ],
+      sources,
     };
   }
 
   async pause() {
     if (this.recorder?.state === "recording") this.recorder.pause();
     for (const trackRecorder of this.trackRecorders) {
-      if (trackRecorder.recorder.state === "recording") trackRecorder.recorder.pause();
+      if (trackRecorder.recorder.state === "recording")
+        trackRecorder.recorder.pause();
     }
   }
 
   async resume() {
     if (this.recorder?.state === "paused") this.recorder.resume();
     for (const trackRecorder of this.trackRecorders) {
-      if (trackRecorder.recorder.state === "paused") trackRecorder.recorder.resume();
+      if (trackRecorder.recorder.state === "paused")
+        trackRecorder.recorder.resume();
     }
   }
 
@@ -155,35 +253,45 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     if (!this.recorder) {
       this.stopStream();
       return {
-        warning: "Practice recording stopped without writing media."
+        warning: "Practice recording stopped without writing media.",
       };
     }
 
     const recorder = this.recorder;
-    const stopped = recorder.state === "inactive"
-      ? Promise.resolve()
-      : new Promise<void>((resolve) => {
-          recorder.addEventListener("stop", () => resolve(), { once: true });
-          recorder.stop();
-        });
-
-    const trackResults = await Promise.all(this.trackRecorders.map((trackRecorder) => stopTrackRecorder(trackRecorder, Boolean(this.diskSession))));
-    await stopped;
+    const [programStopped, trackResults] = await Promise.all([
+      stopMediaRecorder(recorder),
+      Promise.all(
+        this.trackRecorders.map((trackRecorder) =>
+          stopTrackRecorder(trackRecorder, Boolean(this.diskSession)),
+        ),
+      ),
+    ]);
     await this.programWriteQueue;
     this.stopStream();
     const previewResults = [...this.trackResults];
 
     if (this.diskSession) {
-      const warning = [this.programWriteError, ...this.trackRecorders.map((track) => track.writeError)].filter(Boolean).join(" ") || undefined;
+      const warning =
+        [
+          !programStopped
+            ? "Program recorder did not confirm stop; saved disk chunks will be verified."
+            : undefined,
+          this.programWriteError,
+          ...this.trackRecorders.map((track) => track.writeError),
+        ]
+          .filter(Boolean)
+          .join(" ") || undefined;
       this.resetRecorder();
       return {
         persisted: true,
         tracks: [...previewResults, ...trackResults],
-        warning
+        warning,
       };
     }
 
-    const blob = new Blob(this.chunks, { type: recorder.mimeType || "video/webm" });
+    const blob = new Blob(this.chunks, {
+      type: recorder.mimeType || "video/webm",
+    });
     const buffer = await blob.arrayBuffer();
     const bytes = new Uint8Array(buffer);
 
@@ -192,7 +300,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     return {
       bytes,
       mimeType: blob.type,
-      tracks: [...previewResults, ...trackResults]
+      tracks: [...previewResults, ...trackResults],
     };
   }
 
@@ -209,59 +317,113 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   }
 
   private async startTrackRecorders(request: RecordingStartRequest) {
-    const cameraEntries: Array<{ slot: RecordingTrackSlot; deviceId?: string }> = [
+    const cameraEntries: Array<{
+      slot: RecordingTrackSlot;
+      deviceId?: string;
+    }> = [
       { slot: "camera1", deviceId: request.deviceDefaults.cameras.camera1 },
       { slot: "camera2", deviceId: request.deviceDefaults.cameras.camera2 },
-      { slot: "camera3", deviceId: request.deviceDefaults.cameras.camera3 }
+      { slot: "camera3", deviceId: request.deviceDefaults.cameras.camera3 },
     ];
-    const micEntries: Array<{ slot: RecordingTrackSlot; deviceId?: string; channel: MicrophoneInputChannel }> = [
-      { slot: "morganMic", deviceId: request.deviceDefaults.microphones.morganMic, channel: request.deviceDefaults.microphoneChannels?.morganMic ?? "mix" },
-      { slot: "guestMic", deviceId: request.deviceDefaults.microphones.guestMic, channel: request.deviceDefaults.microphoneChannels?.guestMic ?? "mix" },
-      { slot: "extraMic", deviceId: request.deviceDefaults.microphones.extraMic, channel: request.deviceDefaults.microphoneChannels?.extraMic ?? "mix" }
+    const micEntries: Array<{
+      slot: RecordingTrackSlot;
+      deviceId?: string;
+      channel: MicrophoneInputChannel;
+    }> = [
+      {
+        slot: "morganMic",
+        deviceId: request.deviceDefaults.microphones.morganMic,
+        channel: request.deviceDefaults.microphoneChannels?.morganMic ?? "mix",
+      },
+      {
+        slot: "guestMic",
+        deviceId: request.deviceDefaults.microphones.guestMic,
+        channel: request.deviceDefaults.microphoneChannels?.guestMic ?? "mix",
+      },
+      {
+        slot: "extraMic",
+        deviceId: request.deviceDefaults.microphones.extraMic,
+        channel: request.deviceDefaults.microphoneChannels?.extraMic ?? "mix",
+      },
     ];
 
     await Promise.all([
-      ...cameraEntries.map((entry) => this.startCameraTrackRecorder(entry.slot, entry.deviceId)),
-      ...micEntries.map((entry) => this.startMicTrackRecorder(entry.slot, entry.deviceId, entry.channel))
+      ...cameraEntries.map((entry) =>
+        this.startCameraTrackRecorder(entry.slot, entry.deviceId),
+      ),
+      ...micEntries.map((entry) =>
+        this.startMicTrackRecorder(entry.slot, entry.deviceId, entry.channel),
+      ),
     ]);
   }
 
-  private async startCameraTrackRecorder(slot: RecordingTrackSlot, deviceId?: string) {
+  private async startCameraTrackRecorder(
+    slot: RecordingTrackSlot,
+    deviceId?: string,
+  ) {
     if (!deviceId) return;
 
     try {
       const stream = await this.openCameraTrackStream(slot, deviceId);
-      this.trackRecorders.push(createTrackRecorder(slot, "camera", stream, pickMimeType(), (track, blob) => this.queueTrackChunk(track, blob)));
+      this.trackRecorders.push(
+        createTrackRecorder(
+          slot,
+          "camera",
+          stream,
+          pickMimeType(),
+          (track, blob) => this.queueTrackChunk(track, blob),
+        ),
+      );
     } catch {
       this.trackResults.push({
         slot,
         kind: "camera",
         status: "preview-only",
-        message: "This device can preview but could not save separately"
+        message: "This device can preview but could not save separately",
       });
     }
   }
 
-  private async startMicTrackRecorder(slot: RecordingTrackSlot, deviceId: string | undefined, channel: MicrophoneInputChannel) {
+  private async startMicTrackRecorder(
+    slot: RecordingTrackSlot,
+    deviceId: string | undefined,
+    channel: MicrophoneInputChannel,
+  ) {
     if (!deviceId) return;
 
     try {
       const stream = await this.openMicTrackStream(slot, deviceId, channel);
-      this.trackRecorders.push(createTrackRecorder(slot, "audio", stream, pickAudioMimeType(), (track, blob) => this.queueTrackChunk(track, blob)));
+      this.trackRecorders.push(
+        createTrackRecorder(
+          slot,
+          "audio",
+          stream,
+          pickAudioMimeType(),
+          (track, blob) => this.queueTrackChunk(track, blob),
+        ),
+      );
     } catch {
       this.trackResults.push({
         slot,
         kind: "audio",
         status: "preview-only",
-        message: "This device can preview but could not save separately"
+        message: "This device can preview but could not save separately",
       });
     }
   }
 
-  private async openProgramStream(videoDeviceId: string | undefined, audioDeviceId: string | undefined, channel: MicrophoneInputChannel) {
+  private async openProgramStream(
+    videoDeviceId: string | undefined,
+    audioDeviceId: string | undefined,
+    channel: MicrophoneInputChannel,
+  ) {
     const tracks: MediaStreamTrack[] = [];
-    const activeVideoTrack = cloneLiveTrack(this.streams.getCameraStream?.(videoDeviceId)?.getVideoTracks()[0]);
-    const activeAudioTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(audioDeviceId)?.getAudioTracks()[0]);
+    const activeVideoTrack = cloneLiveTrack(
+      this.streams.getCameraStream?.(videoDeviceId)?.getVideoTracks()[0],
+    );
+    const activeAudioTrack = cloneLiveTrack(
+      this.streams.getMicrophoneStream?.(audioDeviceId)?.getAudioTracks()[0],
+    );
 
     if (activeVideoTrack) tracks.push(activeVideoTrack);
     if (activeAudioTrack) tracks.push(activeAudioTrack);
@@ -270,7 +432,10 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const needsAudio = !activeAudioTrack;
     if (needsVideo || needsAudio) {
       if (needsVideo) {
-        const fallbackVideo = await navigator.mediaDevices.getUserMedia({ video: deviceConstraint(videoDeviceId), audio: false });
+        const fallbackVideo = await navigator.mediaDevices.getUserMedia({
+          video: deviceConstraint(videoDeviceId),
+          audio: false,
+        });
         tracks.push(...fallbackVideo.getVideoTracks());
       }
       if (needsAudio) {
@@ -280,36 +445,67 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
 
     const programSource = new MediaStream(tracks);
-    if (audioDeviceId) logAudioCapture(this.programMicSlot, audioDeviceId, channel, programSource);
-    return createRoutedMonoStream(programSource, channel, { preserveVideo: true });
+    if (audioDeviceId)
+      logAudioCapture(
+        this.programMicSlot,
+        audioDeviceId,
+        channel,
+        programSource,
+      );
+    return createRoutedMonoStream(programSource, channel, {
+      preserveVideo: true,
+    });
   }
 
-  private async openCameraTrackStream(slot: RecordingTrackSlot, deviceId: string) {
-    const activeTrack = cloneLiveTrack(this.streams.getCameraStream?.(deviceId)?.getVideoTracks()[0]);
+  private async openCameraTrackStream(
+    slot: RecordingTrackSlot,
+    deviceId: string,
+  ) {
+    const activeTrack = cloneLiveTrack(
+      this.streams.getCameraStream?.(deviceId)?.getVideoTracks()[0],
+    );
     if (activeTrack) return this.withSyncAudio(activeTrack);
 
-    const programTrack = slot === "camera1" ? cloneLiveTrack(this.stream?.getVideoTracks()[0]) : undefined;
+    const programTrack =
+      slot === "camera1"
+        ? cloneLiveTrack(this.stream?.getVideoTracks()[0])
+        : undefined;
     if (programTrack) return this.withSyncAudio(programTrack);
 
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { deviceId: { exact: deviceId } },
+      audio: false,
+    });
     const videoTrack = stream.getVideoTracks()[0];
     return videoTrack ? this.withSyncAudio(videoTrack) : stream;
   }
 
   private withSyncAudio(videoTrack: MediaStreamTrack) {
     const syncAudioTrack = cloneLiveTrack(this.stream?.getAudioTracks()[0]);
-    return new MediaStream([videoTrack, ...(syncAudioTrack ? [syncAudioTrack] : [])]);
+    return new MediaStream([
+      videoTrack,
+      ...(syncAudioTrack ? [syncAudioTrack] : []),
+    ]);
   }
 
-  private async openMicTrackStream(slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel) {
-    const activeTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(deviceId)?.getAudioTracks()[0]);
+  private async openMicTrackStream(
+    slot: RecordingTrackSlot,
+    deviceId: string,
+    channel: MicrophoneInputChannel,
+  ) {
+    const activeTrack = cloneLiveTrack(
+      this.streams.getMicrophoneStream?.(deviceId)?.getAudioTracks()[0],
+    );
     if (activeTrack) {
       const stream = new MediaStream([activeTrack]);
       logAudioCapture(slot, deviceId, channel, stream);
       return createRoutedMonoStream(stream, channel);
     }
 
-    const programTrack = slot === this.programMicSlot ? cloneLiveTrack(this.stream?.getAudioTracks()[0]) : undefined;
+    const programTrack =
+      slot === this.programMicSlot
+        ? cloneLiveTrack(this.stream?.getAudioTracks()[0])
+        : undefined;
     if (programTrack) return new MediaStream([programTrack]);
 
     const stream = await openRecordingAudioStream(deviceId);
@@ -355,13 +551,22 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
     const sequence = this.programSequence++;
     const session = this.diskSession;
-    this.programWriteQueue = this.programWriteQueue.then(async () => {
-      const result = await persistChunk(session, "program", "program", mimeType, sequence, blob);
-      this.programBytesWritten = result.bytesWritten;
-      this.programLastChunkAt = result.lastChunkAt;
-    }).catch((error) => {
-      this.programWriteError = `disk write failed: ${String(error)}`;
-    });
+    this.programWriteQueue = this.programWriteQueue
+      .then(async () => {
+        const result = await persistChunk(
+          session,
+          "program",
+          "program",
+          mimeType,
+          sequence,
+          blob,
+        );
+        this.programBytesWritten = result.bytesWritten;
+        this.programLastChunkAt = result.lastChunkAt;
+      })
+      .catch((error) => {
+        this.programWriteError = `disk write failed: ${String(error)}`;
+      });
   }
 
   private queueTrackChunk(track: ActiveTrackRecorder, blob: Blob) {
@@ -373,20 +578,39 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
     const sequence = track.sequence++;
     const session = this.diskSession;
-    track.writeQueue = track.writeQueue.then(async () => {
-      const result = await persistChunk(session, track.slot, track.kind, track.recorder.mimeType, sequence, blob);
-      track.bytesWritten = result.bytesWritten;
-      track.lastChunkAt = result.lastChunkAt;
-    }).catch((error) => {
-      track.writeError = `disk write failed: ${String(error)}`;
-    });
+    track.writeQueue = track.writeQueue
+      .then(async () => {
+        const result = await persistChunk(
+          session,
+          track.slot,
+          track.kind,
+          track.recorder.mimeType,
+          sequence,
+          blob,
+        );
+        track.bytesWritten = result.bytesWritten;
+        track.lastChunkAt = result.lastChunkAt;
+      })
+      .catch((error) => {
+        track.writeError = `disk write failed: ${String(error)}`;
+      });
   }
 }
 
-function logAudioCapture(slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel, stream: MediaStream) {
+function logAudioCapture(
+  slot: RecordingTrackSlot,
+  deviceId: string,
+  channel: MicrophoneInputChannel,
+  stream: MediaStream,
+) {
   try {
     if (window.localStorage.getItem("waiDeviceDebug") !== "1") return;
-    console.info("[AudioCapture] recording route", { slot, deviceId: deviceId ? "present" : "missing", channel, ...getAudioStreamDiagnostics(stream) });
+    console.info("[AudioCapture] recording route", {
+      slot,
+      deviceId: deviceId ? "present" : "missing",
+      channel,
+      ...getAudioStreamDiagnostics(stream),
+    });
   } catch {
     // Diagnostics must never interrupt recording.
   }
@@ -403,7 +627,7 @@ function deviceConstraint(deviceId?: string) {
 function openRecordingAudioStream(deviceId?: string) {
   return openAudioStreamWithFallback(
     (audio) => navigator.mediaDevices.getUserMedia({ audio, video: false }),
-    deviceId
+    deviceId,
   );
 }
 
@@ -412,11 +636,21 @@ function createTrackRecorder(
   kind: RecordingTrackKind,
   stream: MediaStream,
   mimeType: string,
-  onChunk: (track: ActiveTrackRecorder, blob: Blob) => void
+  onChunk: (track: ActiveTrackRecorder, blob: Blob) => void,
 ): ActiveTrackRecorder {
   const chunks: Blob[] = [];
   const recorder = new MediaRecorder(stream, { mimeType });
-  const track: ActiveTrackRecorder = { slot, kind, recorder, stream, chunks, writeQueue: Promise.resolve(), startedAtMs: Date.now(), sequence: 0, bytesWritten: 0 };
+  const track: ActiveTrackRecorder = {
+    slot,
+    kind,
+    recorder,
+    stream,
+    chunks,
+    writeQueue: Promise.resolve(),
+    startedAtMs: Date.now(),
+    sequence: 0,
+    bytesWritten: 0,
+  };
   recorder.ondataavailable = (event) => {
     if (event.data.size > 0) onChunk(track, event.data);
   };
@@ -424,33 +658,82 @@ function createTrackRecorder(
   return track;
 }
 
-async function stopTrackRecorder(trackRecorder: ActiveTrackRecorder, persisted: boolean): Promise<RecordingTrackSaveInput> {
+async function stopTrackRecorder(
+  trackRecorder: ActiveTrackRecorder,
+  persisted: boolean,
+): Promise<RecordingTrackSaveInput> {
   const { recorder } = trackRecorder;
-  const stopped = recorder.state === "inactive"
-    ? Promise.resolve()
-    : new Promise<void>((resolve) => {
-        recorder.addEventListener("stop", () => resolve(), { once: true });
-        recorder.stop();
-      });
-
-  await stopped;
-  await trackRecorder.writeQueue;
-  stopStudioMediaStream(trackRecorder.stream);
-  if (persisted) {
-    return trackRecorder.writeError
-      ? { slot: trackRecorder.slot, kind: trackRecorder.kind, status: "needs-attention", message: trackRecorder.writeError }
-      : { slot: trackRecorder.slot, kind: trackRecorder.kind, status: "saved", message: "Written safely to disk" };
+  let stopped: boolean;
+  try {
+    stopped = await stopMediaRecorder(recorder);
+    await trackRecorder.writeQueue;
+  } finally {
+    stopStudioMediaStream(trackRecorder.stream);
   }
-  const blob = new Blob(trackRecorder.chunks, { type: recorder.mimeType || (trackRecorder.kind === "audio" ? pickAudioMimeType() : pickMimeType()) });
+  if (persisted) {
+    return trackRecorder.writeError || !stopped
+      ? {
+          slot: trackRecorder.slot,
+          kind: trackRecorder.kind,
+          status: "needs-attention",
+          message:
+            trackRecorder.writeError ??
+            "Recorder did not confirm stop; saved disk chunks will be verified",
+        }
+      : {
+          slot: trackRecorder.slot,
+          kind: trackRecorder.kind,
+          status: "saved",
+          message: "Written safely to disk",
+        };
+  }
+  const blob = new Blob(trackRecorder.chunks, {
+    type:
+      recorder.mimeType ||
+      (trackRecorder.kind === "audio" ? pickAudioMimeType() : pickMimeType()),
+  });
   const bytes = new Uint8Array(await blob.arrayBuffer());
   return bytes.length > 0
-    ? { slot: trackRecorder.slot, kind: trackRecorder.kind, bytes, mimeType: blob.type }
+    ? {
+        slot: trackRecorder.slot,
+        kind: trackRecorder.kind,
+        bytes,
+        mimeType: blob.type,
+      }
     : {
         slot: trackRecorder.slot,
         kind: trackRecorder.kind,
         status: "needs-attention",
-        message: "This device can preview but could not save separately"
+        message: "This device can preview but could not save separately",
       };
+}
+
+async function stopMediaRecorder(
+  recorder: MediaRecorder,
+  timeoutMs = RECORDER_STOP_TIMEOUT_MS,
+) {
+  if (recorder.state === "inactive") return true;
+  try {
+    recorder.requestData?.();
+  } catch {
+    // Some browser/driver combinations reject requestData while stopping.
+  }
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (confirmed: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(confirmed);
+    };
+    const timeout = window.setTimeout(() => finish(false), timeoutMs);
+    recorder.addEventListener("stop", () => finish(true), { once: true });
+    try {
+      recorder.stop();
+    } catch {
+      finish(false);
+    }
+  });
 }
 
 async function persistChunk(
@@ -459,22 +742,26 @@ async function persistChunk(
   kind: "program" | RecordingTrackKind,
   mimeType: string,
   sequence: number,
-  blob: Blob
+  blob: Blob,
 ) {
-  if (!session || !window.studio.appendRecordingChunk) throw new Error("Recording disk writer is unavailable.");
+  if (!session || !window.studio.appendRecordingChunk)
+    throw new Error("Recording disk writer is unavailable.");
   return window.studio.appendRecordingChunk(session.folderPath, {
     target,
     kind,
     mimeType,
     sequence,
-    bytes: new Uint8Array(await blob.arrayBuffer())
+    bytes: new Uint8Array(await blob.arrayBuffer()),
   });
 }
 
 function streamIsLive(stream?: MediaStream | null) {
   if (!stream) return false;
   const tracks = stream.getTracks();
-  return tracks.length > 0 && tracks.every((track) => track.readyState === "live" && !track.muted);
+  return (
+    tracks.length > 0 &&
+    tracks.every((track) => track.readyState === "live" && !track.muted)
+  );
 }
 
 function chunkIsRecent(lastChunkAt: string | undefined, now: number) {
@@ -484,24 +771,45 @@ function chunkIsRecent(lastChunkAt: string | undefined, now: number) {
 
 const FIRST_CHUNK_GRACE_MS = 8000;
 
-function sourceIsWriting(recorderActive: boolean, firstChunkReceived: boolean, lastChunkAt: string | undefined, startedAtMs: number, now: number) {
+function sourceIsWriting(
+  recorderActive: boolean,
+  firstChunkReceived: boolean,
+  lastChunkAt: string | undefined,
+  startedAtMs: number,
+  now: number,
+) {
   if (!recorderActive) return false;
   if (firstChunkReceived) return chunkIsRecent(lastChunkAt, now);
   return startedAtMs > 0 && now - startedAtMs < FIRST_CHUNK_GRACE_MS;
 }
 
-function sourceHealthMessage(recorderActive: boolean, firstChunkReceived: boolean, active: boolean) {
+function sourceHealthMessage(
+  recorderActive: boolean,
+  firstChunkReceived: boolean,
+  active: boolean,
+) {
   if (!recorderActive) return "Source stopped";
-  if (!firstChunkReceived) return active ? "Starting disk writer" : "No media data was written";
+  if (!firstChunkReceived)
+    return active ? "Starting disk writer" : "No media data was written";
   return active ? "Writing to disk" : "Media data stopped arriving";
 }
 
 function pickMimeType() {
-  const options = ["video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm"];
-  return options.find((option) => MediaRecorder.isTypeSupported(option)) ?? "video/webm";
+  const options = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm",
+  ];
+  return (
+    options.find((option) => MediaRecorder.isTypeSupported(option)) ??
+    "video/webm"
+  );
 }
 
 function pickAudioMimeType() {
   const options = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"];
-  return options.find((option) => MediaRecorder.isTypeSupported(option)) ?? "audio/webm";
+  return (
+    options.find((option) => MediaRecorder.isTypeSupported(option)) ??
+    "audio/webm"
+  );
 }

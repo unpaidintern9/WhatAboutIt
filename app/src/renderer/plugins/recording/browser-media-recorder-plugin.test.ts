@@ -5,10 +5,16 @@ import type { RecordingChunkInput } from "../../../shared/recording";
 class FakeTrack {
   readyState: MediaStreamTrackState = "live";
 
-  constructor(readonly kind: "audio" | "video", readonly id: string) {}
+  constructor(
+    readonly kind: "audio" | "video",
+    readonly id: string,
+  ) {}
 
   clone() {
-    return new FakeTrack(this.kind, `${this.id}-clone`) as unknown as MediaStreamTrack;
+    return new FakeTrack(
+      this.kind,
+      `${this.id}-clone`,
+    ) as unknown as MediaStreamTrack;
   }
 
   stop() {
@@ -35,6 +41,7 @@ class FakeMediaStream {
 class FakeMediaRecorder extends EventTarget {
   static streams: MediaStream[] = [];
   static emitData = true;
+  static emitStop = true;
 
   static isTypeSupported() {
     return true;
@@ -52,7 +59,10 @@ class FakeMediaRecorder extends EventTarget {
 
   start() {
     this.state = "recording";
-    if (FakeMediaRecorder.emitData) this.ondataavailable?.({ data: new Blob(["recorded"], { type: this.mimeType }) } as BlobEvent);
+    if (FakeMediaRecorder.emitData)
+      this.ondataavailable?.({
+        data: new Blob(["recorded"], { type: this.mimeType }),
+      } as BlobEvent);
   }
 
   pause() {
@@ -63,20 +73,25 @@ class FakeMediaRecorder extends EventTarget {
     this.state = "recording";
   }
 
+  requestData() {}
+
   stop() {
     this.state = "inactive";
-    this.dispatchEvent(new Event("stop"));
+    if (FakeMediaRecorder.emitStop) this.dispatchEvent(new Event("stop"));
   }
 }
 
 function streamWith(track: FakeTrack) {
-  return new FakeMediaStream([track as unknown as MediaStreamTrack]) as unknown as MediaStream;
+  return new FakeMediaStream([
+    track as unknown as MediaStreamTrack,
+  ]) as unknown as MediaStream;
 }
 
 describe("BrowserMediaRecorderPlugin", () => {
   beforeEach(() => {
     FakeMediaRecorder.streams = [];
     FakeMediaRecorder.emitData = true;
+    FakeMediaRecorder.emitStop = true;
     vi.stubGlobal("MediaStream", FakeMediaStream);
     vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
   });
@@ -92,13 +107,13 @@ describe("BrowserMediaRecorderPlugin", () => {
     const getUserMedia = vi.fn();
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia }
+      value: { getUserMedia },
     });
     const activeStreams = {
       camera1: streamWith(new FakeTrack("video", "camera-1")),
       camera2: streamWith(new FakeTrack("video", "camera-2")),
       camera3: streamWith(new FakeTrack("video", "camera-3")),
-      morganMic: streamWith(new FakeTrack("audio", "morgan-mic"))
+      morganMic: streamWith(new FakeTrack("audio", "morgan-mic")),
     };
     const plugin = new BrowserMediaRecorderPlugin({
       getCameraStream: (deviceId) => {
@@ -107,15 +122,24 @@ describe("BrowserMediaRecorderPlugin", () => {
         if (deviceId === "camera-c") return activeStreams.camera3;
         return undefined;
       },
-      getMicrophoneStream: (deviceId) => deviceId === "mic-a" ? activeStreams.morganMic : undefined
+      getMicrophoneStream: (deviceId) =>
+        deviceId === "mic-a" ? activeStreams.morganMic : undefined,
     });
 
     await plugin.start({
       deviceDefaults: {
-        cameras: { camera1: "camera-a", camera2: "camera-b", camera3: "camera-c" },
-        cameraMicrophones: { camera1: "morganMic", camera2: "guestMic", camera3: "extraMic" },
-        microphones: { morganMic: "mic-a" }
-      }
+        cameras: {
+          camera1: "camera-a",
+          camera2: "camera-b",
+          camera3: "camera-c",
+        },
+        cameraMicrophones: {
+          camera1: "morganMic",
+          camera2: "guestMic",
+          camera3: "extraMic",
+        },
+        microphones: { morganMic: "mic-a" },
+      },
     });
     expect(plugin.getHealth()).toMatchObject({
       programActive: true,
@@ -123,21 +147,29 @@ describe("BrowserMediaRecorderPlugin", () => {
       activeAudioTracks: 1,
       expectedCameraTracks: 3,
       expectedAudioTracks: 1,
-      warnings: []
+      warnings: [],
     });
-    const isolatedCameraStreams = FakeMediaRecorder.streams.slice(1).filter((stream) => stream.getVideoTracks().length > 0);
+    const isolatedCameraStreams = FakeMediaRecorder.streams
+      .slice(1)
+      .filter((stream) => stream.getVideoTracks().length > 0);
     expect(isolatedCameraStreams).toHaveLength(3);
-    expect(isolatedCameraStreams.every((stream) => stream.getAudioTracks().length === 1)).toBe(true);
+    expect(
+      isolatedCameraStreams.every(
+        (stream) => stream.getAudioTracks().length === 1,
+      ),
+    ).toBe(true);
     const result = await plugin.stop();
 
     expect(getUserMedia).not.toHaveBeenCalled();
     expect(result.bytes?.length).toBeGreaterThan(0);
-    expect(result.tracks).toEqual(expect.arrayContaining([
-      expect.objectContaining({ slot: "camera1", kind: "camera" }),
-      expect.objectContaining({ slot: "camera2", kind: "camera" }),
-      expect.objectContaining({ slot: "camera3", kind: "camera" }),
-      expect.objectContaining({ slot: "morganMic", kind: "audio" })
-    ]));
+    expect(result.tracks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slot: "camera1", kind: "camera" }),
+        expect.objectContaining({ slot: "camera2", kind: "camera" }),
+        expect.objectContaining({ slot: "camera3", kind: "camera" }),
+        expect.objectContaining({ slot: "morganMic", kind: "audio" }),
+      ]),
+    );
   });
 
   it("marks a selected source unhealthy when its first media chunk never arrives", async () => {
@@ -146,42 +178,58 @@ describe("BrowserMediaRecorderPlugin", () => {
     FakeMediaRecorder.emitData = false;
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia: vi.fn() }
+      value: { getUserMedia: vi.fn() },
     });
     const plugin = new BrowserMediaRecorderPlugin({
       getCameraStream: () => streamWith(new FakeTrack("video", "camera-1")),
-      getMicrophoneStream: () => streamWith(new FakeTrack("audio", "mic-1"))
+      getMicrophoneStream: () => streamWith(new FakeTrack("audio", "mic-1")),
     });
 
     await plugin.start({
-      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+      deviceDefaults: {
+        cameras: { camera1: "camera-a" },
+        microphones: { morganMic: "mic-a" },
+      },
     });
-    expect(plugin.getHealth().sources.every((source) => source.active && !source.firstChunkReceived)).toBe(true);
+    expect(
+      plugin
+        .getHealth()
+        .sources.every((source) => source.active && !source.firstChunkReceived),
+    ).toBe(true);
 
     await vi.advanceTimersByTimeAsync(8001);
-    expect(plugin.getHealth().sources.every((source) => !source.active && source.message === "No media data was written")).toBe(true);
+    expect(
+      plugin
+        .getHealth()
+        .sources.every(
+          (source) =>
+            !source.active && source.message === "No media data was written",
+        ),
+    ).toBe(true);
     await plugin.stop();
   });
 
   it("uses the camera one mic route for the program recording", async () => {
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia: vi.fn() }
+      value: { getUserMedia: vi.fn() },
     });
     const getMicrophoneStream = vi.fn((deviceId?: string) =>
-      deviceId === "guest-input" ? streamWith(new FakeTrack("audio", "guest-input")) : undefined
+      deviceId === "guest-input"
+        ? streamWith(new FakeTrack("audio", "guest-input"))
+        : undefined,
     );
     const plugin = new BrowserMediaRecorderPlugin({
       getCameraStream: () => streamWith(new FakeTrack("video", "camera-1")),
-      getMicrophoneStream
+      getMicrophoneStream,
     });
 
     await plugin.start({
       deviceDefaults: {
         cameras: { camera1: "camera-a" },
         cameraMicrophones: { camera1: "guestMic" },
-        microphones: { morganMic: "morgan-input", guestMic: "guest-input" }
-      }
+        microphones: { morganMic: "morgan-input", guestMic: "guest-input" },
+      },
     });
     await plugin.stop();
 
@@ -191,20 +239,22 @@ describe("BrowserMediaRecorderPlugin", () => {
   it("streams program and source chunks to disk instead of retaining the episode in renderer memory", async () => {
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia: vi.fn() }
+      value: { getUserMedia: vi.fn() },
     });
     const beginRecordingMedia = vi.fn(async () => undefined);
-    const appendRecordingChunk = vi.fn(async (_folderPath: string, chunk: RecordingChunkInput) => ({
-      bytesWritten: chunk.bytes.length,
-      lastChunkAt: "2026-08-15T12:00:00.000Z"
-    }));
+    const appendRecordingChunk = vi.fn(
+      async (_folderPath: string, chunk: RecordingChunkInput) => ({
+        bytesWritten: chunk.bytes.length,
+        lastChunkAt: "2026-08-15T12:00:00.000Z",
+      }),
+    );
     Object.defineProperty(window, "studio", {
       configurable: true,
-      value: { beginRecordingMedia, appendRecordingChunk }
+      value: { beginRecordingMedia, appendRecordingChunk },
     });
     const plugin = new BrowserMediaRecorderPlugin({
       getCameraStream: () => streamWith(new FakeTrack("video", "camera-1")),
-      getMicrophoneStream: () => streamWith(new FakeTrack("audio", "mic-1"))
+      getMicrophoneStream: () => streamWith(new FakeTrack("audio", "mic-1")),
     });
 
     await plugin.start({
@@ -215,17 +265,21 @@ describe("BrowserMediaRecorderPlugin", () => {
         folderPath: "C:/recording/episode-disk",
         startedAt: "2026-08-15T12:00:00.000Z",
         status: "recording",
-        practice: false
+        practice: false,
       },
       deviceDefaults: {
         cameras: { camera1: "camera-a" },
-        microphones: { morganMic: "mic-a" }
-      }
+        microphones: { morganMic: "mic-a" },
+      },
     });
     const result = await plugin.stop();
 
-    expect(beginRecordingMedia).toHaveBeenCalledWith("C:/recording/episode-disk");
-    expect(appendRecordingChunk.mock.calls.map((call) => call[1].target)).toEqual(expect.arrayContaining(["program", "camera1", "morganMic"]));
+    expect(beginRecordingMedia).toHaveBeenCalledWith(
+      "C:/recording/episode-disk",
+    );
+    expect(
+      appendRecordingChunk.mock.calls.map((call) => call[1].target),
+    ).toEqual(expect.arrayContaining(["program", "camera1", "morganMic"]));
     expect(result.persisted).toBe(true);
     expect(result.bytes).toBeUndefined();
   });
@@ -234,17 +288,82 @@ describe("BrowserMediaRecorderPlugin", () => {
     const getUserMedia = vi.fn();
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
-      value: { getUserMedia }
+      value: { getUserMedia },
     });
     const plugin = new BrowserMediaRecorderPlugin();
 
-    await expect(plugin.start({
-      deviceDefaults: {
-        cameras: { camera1: "sony-a", camera2: "sony-a" },
-        microphones: { morganMic: "audiobox", guestMic: "audiobox" },
-        microphoneChannels: { morganMic: "input-1", guestMic: "input-1" }
-      }
-    })).rejects.toThrow("Source routing needs attention");
+    await expect(
+      plugin.start({
+        deviceDefaults: {
+          cameras: { camera1: "sony-a", camera2: "sony-a" },
+          microphones: { morganMic: "audiobox", guestMic: "audiobox" },
+          microphoneChannels: { morganMic: "input-1", guestMic: "input-1" },
+        },
+      }),
+    ).rejects.toThrow("Source routing needs attention");
     expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("releases every stream and returns recoverable track states when stop events never arrive", async () => {
+    vi.useFakeTimers();
+    FakeMediaRecorder.emitStop = false;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() },
+    });
+    Object.defineProperty(window, "studio", {
+      configurable: true,
+      value: {
+        beginRecordingMedia: vi.fn(async () => undefined),
+        appendRecordingChunk: vi.fn(
+          async (_folderPath: string, chunk: RecordingChunkInput) => ({
+            bytesWritten: chunk.bytes.length,
+            lastChunkAt: "2026-08-21T12:00:00.000Z",
+          }),
+        ),
+      },
+    });
+    const camera = new FakeTrack("video", "camera-1");
+    const microphone = new FakeTrack("audio", "mic-1");
+    const plugin = new BrowserMediaRecorderPlugin({
+      getCameraStream: () => streamWith(camera),
+      getMicrophoneStream: () => streamWith(microphone),
+    });
+
+    await plugin.start({
+      session: {
+        id: "session-timeout",
+        episodeId: "episode-timeout",
+        episodeTitle: "Stop Timeout",
+        folderPath: "C:/recording/episode-timeout",
+        startedAt: "2026-08-21T12:00:00.000Z",
+        status: "recording",
+        practice: false,
+      },
+      deviceDefaults: {
+        cameras: { camera1: "camera-a" },
+        microphones: { morganMic: "mic-a" },
+      },
+    });
+    const stopPromise = plugin.stop();
+    await vi.advanceTimersByTimeAsync(7501);
+    const result = await stopPromise;
+
+    expect(result.persisted).toBe(true);
+    expect(result.warning).toContain("did not confirm stop");
+    expect(result.tracks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slot: "camera1", status: "needs-attention" }),
+        expect.objectContaining({
+          slot: "morganMic",
+          status: "needs-attention",
+        }),
+      ]),
+    );
+    expect(
+      FakeMediaRecorder.streams
+        .flatMap((stream) => stream.getTracks())
+        .every((track) => track.readyState === "ended"),
+    ).toBe(true);
   });
 });

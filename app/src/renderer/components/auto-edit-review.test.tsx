@@ -6,7 +6,17 @@ import { AutoEditReview } from "./AutoEditReview";
 
 describe("AutoEditReview", () => {
   it("renders modes, progress, and friendly safe copy", () => {
-    const markup = renderToStaticMarkup(<AutoEditReview mode="balanced" running={false} onModeChange={vi.fn()} onRun={vi.fn()} onReview={vi.fn()} onExport={vi.fn()} onToggleSilenceCut={vi.fn()} />);
+    const markup = renderToStaticMarkup(
+      <AutoEditReview
+        mode="balanced"
+        running={false}
+        onModeChange={vi.fn()}
+        onRun={vi.fn()}
+        onReview={vi.fn()}
+        onExport={vi.fn()}
+        onToggleSilenceCut={vi.fn()}
+      />,
+    );
 
     expect(markup).toContain("Auto Edit");
     expect(markup).toContain("polished first draft");
@@ -21,13 +31,22 @@ describe("AutoEditReview", () => {
     const result = runOfflineAutoEdit({
       draft: createTimelineDraft({
         deviceDefaults: { cameras: {}, microphones: {} },
-        durationMs: 120000
+        durationMs: 120000,
       }),
       mode: "balanced",
-      now: "2026-06-27T10:00:00.000Z"
+      now: "2026-06-27T10:00:00.000Z",
     });
     const markup = renderToStaticMarkup(
-      <AutoEditReview mode="balanced" running={false} result={result} onModeChange={vi.fn()} onRun={vi.fn()} onReview={vi.fn()} onExport={vi.fn()} onToggleSilenceCut={vi.fn()} />
+      <AutoEditReview
+        mode="balanced"
+        running={false}
+        result={result}
+        onModeChange={vi.fn()}
+        onRun={vi.fn()}
+        onReview={vi.fn()}
+        onExport={vi.fn()}
+        onToggleSilenceCut={vi.fn()}
+      />,
     );
 
     expect(markup).toContain("Your first draft is ready");
@@ -45,11 +64,47 @@ describe("AutoEditReview", () => {
 
   it("shows a recoverable error without claiming the draft changed", () => {
     const markup = renderToStaticMarkup(
-      <AutoEditReview mode="balanced" running={false} error="Audio analysis failed." onModeChange={vi.fn()} onRun={vi.fn()} onReview={vi.fn()} onExport={vi.fn()} onToggleSilenceCut={vi.fn()} />
+      <AutoEditReview
+        mode="balanced"
+        running={false}
+        error="Audio analysis failed."
+        onModeChange={vi.fn()}
+        onRun={vi.fn()}
+        onReview={vi.fn()}
+        onExport={vi.fn()}
+        onToggleSilenceCut={vi.fn()}
+      />,
     );
 
     expect(markup).toContain("Auto Edit stopped: Audio analysis failed.");
     expect(markup).toContain("Your current draft was not replaced");
     expect(markup).toContain('role="alert"');
+  });
+
+  it("shows live analysis progress and an enabled cancel action", () => {
+    const markup = renderToStaticMarkup(
+      <AutoEditReview
+        mode="balanced"
+        running
+        progress={{
+          episodeId: "episode-a",
+          stage: "speaker-detection",
+          progress: 42,
+          message: "Finding active speakers",
+        }}
+        onModeChange={vi.fn()}
+        onRun={vi.fn()}
+        onCancel={vi.fn()}
+        onReview={vi.fn()}
+        onExport={vi.fn()}
+        onToggleSilenceCut={vi.fn()}
+      />,
+    );
+
+    expect(markup).toContain("Finding active speakers 42%");
+    expect(markup).toContain('aria-label="Auto Edit progress"');
+    expect(markup).toMatch(
+      /<button[^>]*>[^<]*(?:<svg[\s\S]*?<\/svg>)?[^<]*Cancel/,
+    );
   });
 });

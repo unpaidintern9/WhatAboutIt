@@ -49,6 +49,23 @@ jobs:
       - name: Build Windows installer
         shell: pwsh
         run: npx electron-builder --win nsis --publish never
+        env:
+          CSC_LINK: ${{ secrets.WINDOWS_CERTIFICATE_P12_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+      - name: Verify Windows installer signature readiness
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem -Path release -Filter "*.exe" -File | Select-Object -First 1
+          if (-not $installer) { throw "Windows installer was not generated." }
+          $signature = Get-AuthenticodeSignature $installer.FullName
+          if ($signature.Status -eq "Valid") {
+            "Signed installer verified: $($signature.SignerCertificate.Subject)" | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          } elseif ("${{ vars.REQUIRE_WINDOWS_SIGNING }}" -eq "true") {
+            throw "Windows signing is required, but the installer signature status is $($signature.Status)."
+          } else {
+            "::warning::Installer is unsigned. Add WINDOWS_CERTIFICATE_P12_BASE64 and WINDOWS_CERTIFICATE_PASSWORD, then set REQUIRE_WINDOWS_SIGNING=true."
+            "Unsigned internal beta installer. Public distribution remains blocked until signing is configured." | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+          }
       - name: Publish and verify GitHub prerelease assets
         shell: pwsh
         run: |

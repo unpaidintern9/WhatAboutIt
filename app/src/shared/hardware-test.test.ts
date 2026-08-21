@@ -7,7 +7,7 @@ import {
   getHardwareDeviceReadiness,
   getNextHardwareTestStep,
   getPreviousHardwareTestStep,
-  getRecordingTestStatus
+  getRecordingTestStatus,
 } from "./hardware-test";
 
 describe("hardware test flow", () => {
@@ -23,14 +23,15 @@ describe("hardware test flow", () => {
   it("reports camera and mic result states without guessing missing devices", () => {
     const results = createHardwareTestResults({
       cameraReady: [true, false, undefined],
-      morganMicReady: true,
-      exportStatus: "complete"
+      microphoneReady: [true, false, undefined],
+      exportStatus: "complete",
     });
 
     expect(results.camera1.status).toBe("ready");
     expect(results.camera2.status).toBe("needs-attention");
     expect(results.camera3.status).toBe("not-run");
     expect(results.morganMic.message).toBe("Morgan Mic Ready");
+    expect(results.guestMic.status).toBe("needs-attention");
     expect(results.exportReady.status).toBe("ready");
   });
 
@@ -43,7 +44,9 @@ describe("hardware test flow", () => {
   });
 
   it("uses friendly failure messages", () => {
-    expect(getFriendlyHardwareFailureMessage("recording")).toContain("local files are still safe");
+    expect(getFriendlyHardwareFailureMessage("recording")).toContain(
+      "local files are still safe",
+    );
     expect(getFriendlyHardwareFailureMessage("export")).not.toContain("FFmpeg");
   });
 
@@ -51,12 +54,12 @@ describe("hardware test flow", () => {
     const readiness = getHardwareDeviceReadiness(
       {
         cameras: { camera1: "saved-camera", camera2: "missing-camera" },
-        microphones: { morganMic: "saved-mic" }
+        microphones: { morganMic: "saved-mic" },
       },
       [
         { id: "saved-camera", label: "Camera", kind: "camera" },
-        { id: "saved-mic", label: "Mic", kind: "microphone" }
-      ]
+        { id: "saved-mic", label: "Mic", kind: "microphone" },
+      ],
     );
 
     expect(readiness.cameraReady).toEqual([true, false, false]);
@@ -64,30 +67,56 @@ describe("hardware test flow", () => {
     expect(readiness.message).toContain("saved device is missing");
   });
 
-  it("updates readiness when a hot-plugged camera appears", () => {
+  it("requires the complete three-camera and three-microphone rig before certification", () => {
     const before = getHardwareDeviceReadiness(
       { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
-      [{ id: "mic-a", label: "Mic", kind: "microphone" }]
+      [{ id: "mic-a", label: "Mic", kind: "microphone" }],
     );
-    const after = getHardwareDeviceReadiness(
+    const partial = getHardwareDeviceReadiness(
       { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
       [
         { id: "camera-a", label: "Camera", kind: "camera" },
-        { id: "mic-a", label: "Mic", kind: "microphone" }
-      ]
+        { id: "mic-a", label: "Mic", kind: "microphone" },
+      ],
+    );
+    const complete = getHardwareDeviceReadiness(
+      {
+        cameras: {
+          camera1: "camera-a",
+          camera2: "camera-b",
+          camera3: "camera-c",
+        },
+        microphones: {
+          morganMic: "mic-a",
+          guestMic: "mic-b",
+          extraMic: "mic-c",
+        },
+      },
+      [
+        { id: "camera-a", label: "Camera A", kind: "camera" },
+        { id: "camera-b", label: "Camera B", kind: "camera" },
+        { id: "camera-c", label: "Camera C", kind: "camera" },
+        { id: "mic-a", label: "Mic A", kind: "microphone" },
+        { id: "mic-b", label: "Mic B", kind: "microphone" },
+        { id: "mic-c", label: "Mic C", kind: "microphone" },
+      ],
     );
 
     expect(before.cameraReady[0]).toBe(false);
-    expect(after.summary).toBe("Everything Ready");
+    expect(partial.summary).toBe("Needs Attention");
+    expect(complete.summary).toBe("Everything Ready");
   });
 
   it("detects a saved device disconnect during recording", () => {
     expect(
       didDeviceDisconnectDuringRecording({
         status: "recording",
-        defaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
-        devices: [{ id: "camera-a", label: "Camera", kind: "camera" }]
-      })
+        defaults: {
+          cameras: { camera1: "camera-a" },
+          microphones: { morganMic: "mic-a" },
+        },
+        devices: [{ id: "camera-a", label: "Camera", kind: "camera" }],
+      }),
     ).toBe(true);
   });
 });

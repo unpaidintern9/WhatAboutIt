@@ -2,12 +2,26 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { app } from "electron";
-import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
-import { getAppPathSummary, getDiagnosticsRoot, getEpisodesRoot, getLogsRoot } from "./config-service";
+import type {
+  DiagnosticsBundleRequest,
+  DiagnosticsBundleResult,
+  StorageStatus,
+} from "../shared/diagnostics";
+import {
+  getAppPathSummary,
+  getDiagnosticsRoot,
+  getEpisodesRoot,
+  getLogsRoot,
+} from "./config-service";
 import { logger } from "./logger";
 
 function safeName(input: string) {
-  return input.replace(/[^a-z0-9-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "diagnostics";
+  return (
+    input
+      .replace(/[^a-z0-9-]+/gi, "-")
+      .replace(/^-+|-+$/g, "")
+      .toLowerCase() || "diagnostics"
+  );
 }
 
 async function copyIfExists(source: string, destination: string) {
@@ -27,14 +41,16 @@ export async function getStorageStatus(): Promise<StorageStatus> {
     const stats = await fs.statfs(episodesRoot);
     return {
       availableBytes: Number(stats.bavail) * Number(stats.bsize),
-      message: "Storage check ready"
+      message: "Storage check ready",
     };
   } catch {
     return { message: "Storage check unavailable" };
   }
 }
 
-export async function createDiagnosticsBundle(input: DiagnosticsBundleRequest): Promise<DiagnosticsBundleResult> {
+export async function createDiagnosticsBundle(
+  input: DiagnosticsBundleRequest,
+): Promise<DiagnosticsBundleResult> {
   const now = new Date().toISOString();
   const folderName = `${now.slice(0, 10)}-${safeName(input.activeEpisodeId ?? "hardware-test")}-${Date.now()}`;
   const folderPath = path.join(getDiagnosticsRoot(), folderName);
@@ -49,9 +65,9 @@ export async function createDiagnosticsBundle(input: DiagnosticsBundleRequest): 
     os: {
       platform: os.platform(),
       release: os.release(),
-      arch: os.arch()
+      arch: os.arch(),
     },
-    paths: getAppPathSummary()
+    paths: getAppPathSummary(),
   };
 
   const write = async (name: string, value: unknown) => {
@@ -64,30 +80,65 @@ export async function createDiagnosticsBundle(input: DiagnosticsBundleRequest): 
   await write("device-list.json", input.devices);
   await write("hardware-test-results.json", {
     results: input.results,
-    message: input.message
+    message: input.message,
+  });
+  const requiredChecksReady = Object.values(input.results).every(
+    (result) => result.status === "ready",
+  );
+  const recordingReady =
+    input.recording?.status === "stopped" &&
+    Boolean(input.recording.integrity?.playable);
+  const exportReady = input.export?.status === "complete";
+  await write("hardware-certification.json", {
+    passed: requiredChecksReady && recordingReady && exportReady,
+    certifiedAt: now,
+    results: input.results,
+    recording: input.recording,
+    export: input.export,
+    note:
+      requiredChecksReady && recordingReady && exportReady
+        ? "This computer completed the configured device, disk recording, integrity, and export checks."
+        : "One or more configured device, recording integrity, or export checks still need attention.",
   });
 
   if (input.recordingSessionFolder) {
     const sessionFolder = path.join(input.recordingSessionFolder, "Session");
     const logsFolder = path.join(input.recordingSessionFolder, "Logs");
-    for (const fileName of ["recording-session.json", "recording-state.json", "device-map.json", "sync-metadata.json"]) {
-      const copied = await copyIfExists(path.join(sessionFolder, fileName), path.join(folderPath, "session", fileName));
+    for (const fileName of [
+      "recording-session.json",
+      "recording-state.json",
+      "recording-integrity.json",
+      "device-map.json",
+      "sync-metadata.json",
+    ]) {
+      const copied = await copyIfExists(
+        path.join(sessionFolder, fileName),
+        path.join(folderPath, "session", fileName),
+      );
       if (copied) files.push(copied);
     }
-    const copiedErrors = await copyIfExists(path.join(logsFolder, "errors.log"), path.join(folderPath, "logs", "errors.log"));
+    const copiedErrors = await copyIfExists(
+      path.join(logsFolder, "errors.log"),
+      path.join(folderPath, "logs", "errors.log"),
+    );
     if (copiedErrors) files.push(copiedErrors);
   }
 
   try {
     const logs = await fs.readdir(getLogsRoot());
     for (const logFile of logs.slice(-3)) {
-      const copied = await copyIfExists(path.join(getLogsRoot(), logFile), path.join(folderPath, "logs", logFile));
+      const copied = await copyIfExists(
+        path.join(getLogsRoot(), logFile),
+        path.join(folderPath, "logs", logFile),
+      );
       if (copied) files.push(copied);
     }
   } catch {
     // Logs are helpful but not required for a diagnostics bundle.
   }
 
-  await logger.info("DiagnosticsService", "Created local diagnostics bundle.", { folderPath });
+  await logger.info("DiagnosticsService", "Created local diagnostics bundle.", {
+    folderPath,
+  });
   return { folderPath, files };
 }
