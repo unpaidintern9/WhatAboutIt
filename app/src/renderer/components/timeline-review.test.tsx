@@ -19,7 +19,9 @@ const media: ReviewMediaInventory = {
     relativePath: "Program/program.webm",
     filePath: "C:/episodes/episode-a/Program/program.webm",
     playbackUrl: "file:///C:/episodes/episode-a/Program/program.webm",
+    posterUrl: "file:///C:/episodes/episode-a/Session/Review/program-poster.jpg",
     waveformUrl: "file:///C:/episodes/episode-a/Session/Review/program-waveform.png",
+    filmstripUrl: "file:///C:/episodes/episode-a/Session/Review/program-filmstrip.jpg",
     status: "ready",
     durationMs: 30000,
     codecSummary: "vp9 1280x720",
@@ -34,6 +36,7 @@ const media: ReviewMediaInventory = {
       relativePath: "Cameras/camera-1.webm",
       playbackUrl: "file:///C:/episodes/episode-a/Cameras/camera-1.webm",
       waveformUrl: "file:///C:/episodes/episode-a/Session/Review/camera-1-waveform.png",
+      filmstripUrl: "file:///C:/episodes/episode-a/Session/Review/camera-1-filmstrip.jpg",
       pairedAudioId: "morgan-mic",
       pairedAudioLabel: "Morgan Mic",
       status: "ready",
@@ -74,16 +77,15 @@ describe("TimelineReview", () => {
     });
     const markup = renderToStaticMarkup(<TimelineReview draft={draft} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} onRelinkMedia={vi.fn()} onVerifyOriginals={vi.fn()} onGetEpisodeStorage={vi.fn()} onCleanupEpisodeStorage={vi.fn()} />);
 
-    expect(markup).toContain("Edit Studio");
-    expect(markup).toContain("Originals always stay untouched");
+    expect(markup).toContain("Episode editor");
     expect(markup).toContain("Originals safe");
     expect(markup).toContain("Program video");
-    expect(markup).toContain("Source monitor");
+    expect(markup).toContain('aria-label="Edited Program playback"');
+    expect(markup).toContain('poster="file:///C:/episodes/episode-a/Session/Review/program-poster.jpg"');
     expect(markup).toContain("Camera 1");
     expect(markup).toContain("Morgan Mic");
     expect(markup).toContain("Not recorded");
     expect(markup).toContain("Auto Edit");
-    expect(markup).toContain("camera choices from saved mic activity");
     expect(markup).toContain("Highlight");
     expect(markup).toContain("Synchronized episode timeline");
     expect(markup).toContain("Full-quality originals stay protected");
@@ -112,17 +114,14 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Import SRT, VTT, or TXT");
     expect(markup).toContain("never uploaded");
     expect(markup).toContain("Restore");
-    expect(markup).toContain("Create combined video");
-    expect(markup).toContain("Build one finished episode");
-    expect(markup).toContain("Auto-build first cut");
-    expect(markup.match(/timeline-waveform-image/g)).toHaveLength(3);
-    expect(markup).toContain("Previous marker");
-    expect(markup).toContain("Next marker");
-    expect(markup).toContain("Go back 5 seconds (J)");
-    expect(markup).toContain("Go forward 5 seconds (L)");
+    expect(markup).toContain("Export</button>");
+    expect(markup.match(/timeline-waveform-image/g)).toHaveLength(1);
+    expect(markup.match(/timeline-filmstrip-image/g)).toHaveLength(2);
+    expect(markup).toContain("Back 5 seconds (J)");
+    expect(markup).toContain("Forward 5 seconds (L)");
     expect(markup).toContain('aria-label="Playback speed"');
     expect(markup).toContain("Edit history");
-    expect(markup).toContain("Manual Edit");
+    expect(markup).toContain("Manual</button>");
     expect(markup).toContain("Draft saved");
     expect(markup).toContain("Selected track");
     expect(markup).toContain("Program cuts remove time from every source");
@@ -223,6 +222,36 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Save failed — retry");
     expect(markup).not.toContain("Draft saved");
     expect(markup).toContain('role="status"');
+  });
+
+  it("falls back to audible Program audio when microphone stems cannot play", async () => {
+    const draft = createTimelineDraft({
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+      durationMs: 30000
+    });
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<TimelineReview draft={draft} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+    });
+    const video = host.querySelector("video") as HTMLVideoElement;
+    const audio = host.querySelector("audio") as HTMLAudioElement;
+    video.play = vi.fn().mockResolvedValue(undefined);
+    video.pause = vi.fn();
+    audio.play = vi.fn().mockRejectedValue(new Error("decode failed"));
+    audio.pause = vi.fn();
+
+    await act(async () => {
+      (host.querySelector(".transport-play") as HTMLButtonElement).click();
+    });
+
+    expect(audio.play).toHaveBeenCalled();
+    expect(video.play).toHaveBeenCalled();
+    expect(video.muted).toBe(false);
+    expect(host.textContent).toContain("Using recorded Program audio");
+    act(() => root.unmount());
+    host.remove();
   });
 
   it("creates a real timeline range by dragging across a track", () => {

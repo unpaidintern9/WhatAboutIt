@@ -10,7 +10,10 @@ const mediaTypes: Record<string, string> = {
   ".m4a": "audio/mp4",
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
-  ".mkv": "video/x-matroska"
+  ".mkv": "video/x-matroska",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg"
 };
 
 export interface MediaPlaybackServer {

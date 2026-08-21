@@ -38,17 +38,39 @@ export class DeviceService {
   private readonly idleSourceTimers = new Map<string, number>();
   private readonly microphoneSources = new Map<string, MediaStream>();
   private readonly microphoneOpenPromises = new Map<string, Promise<MediaStream>>();
+  private deviceDetectionPromise?: Promise<DeviceDetectionResult>;
+  private permissionRequestPromise?: Promise<DeviceDetectionResult>;
+  private lastDeviceDetection?: { result: DeviceDetectionResult; timestamp: number };
   private cameraGeneration = 0;
   private microphoneGeneration = 0;
 
   constructor(private readonly plugin: DevicePlugin) {}
 
   detectDevices() {
-    return this.plugin.detectDevices();
+    if (this.deviceDetectionPromise) return this.deviceDetectionPromise;
+    if (this.lastDeviceDetection && Date.now() - this.lastDeviceDetection.timestamp < 750) {
+      return Promise.resolve(this.lastDeviceDetection.result);
+    }
+    const pending = this.plugin.detectDevices().then((result) => {
+      this.lastDeviceDetection = { result, timestamp: Date.now() };
+      return result;
+    }).finally(() => {
+      if (this.deviceDetectionPromise === pending) this.deviceDetectionPromise = undefined;
+    });
+    this.deviceDetectionPromise = pending;
+    return pending;
   }
 
   requestStudioPermissions() {
-    return this.plugin.requestStudioPermissions();
+    if (this.permissionRequestPromise) return this.permissionRequestPromise;
+    const pending = this.plugin.requestStudioPermissions().then((result) => {
+      this.lastDeviceDetection = { result, timestamp: Date.now() };
+      return result;
+    }).finally(() => {
+      if (this.permissionRequestPromise === pending) this.permissionRequestPromise = undefined;
+    });
+    this.permissionRequestPromise = pending;
+    return pending;
   }
 
   sampleMicrophoneLevel(deviceId?: string) {

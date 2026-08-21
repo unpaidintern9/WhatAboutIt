@@ -35,4 +35,18 @@ describe("media playback server", () => {
     const outsidePath = Buffer.from(path.join(os.tmpdir(), "outside.webm"), "utf8").toString("base64url");
     expect((await fetch(`${server.baseUrl}/media/${outsidePath}`)).status).toBe(404);
   });
+
+  it("serves generated timeline artwork with browser-decodable image types", async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "wai-media-server-images-"));
+    const imagePath = path.join(root, "episode-a", "Session", "Review", "morgan-mic-waveform.png");
+    await fs.mkdir(path.dirname(imagePath), { recursive: true });
+    await fs.writeFile(imagePath, Buffer.from("png-data"));
+    server = await startMediaPlaybackServer(root);
+    const encodedImagePath = Buffer.from(imagePath, "utf8").toString("base64url");
+
+    const response = await fetch(`${server.baseUrl}/media/${encodedImagePath}`);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+  });
 });

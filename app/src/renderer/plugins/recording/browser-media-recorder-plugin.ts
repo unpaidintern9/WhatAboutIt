@@ -325,7 +325,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     if (activeAudioTrack) {
       tracks.push(activeAudioTrack);
       const programSource = new MediaStream(tracks);
-      logAudioCapture(this.programMicSlot, audioDeviceId ?? "default", channel, programSource);
+      logAudioCapture("program", this.programMicSlot, audioDeviceId ?? "default", channel, programSource);
       return createRoutedMonoStream(programSource, channel, { preserveVideo: true });
     }
 
@@ -388,7 +388,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       bridge.connected = true;
       await bridge.audioContext.resume();
       this.trackResults = this.trackResults.filter((result) => !(result.slot === this.programMicSlot && result.message?.includes("connecting in the background")));
-      logAudioCapture(this.programMicSlot, deviceId, channel, inputStream);
+      logAudioCapture("program", this.programMicSlot, deviceId, channel, inputStream);
       logRecorderEvent("info", "Host microphone connected to the always-present Program audio track.", { slot: this.programMicSlot, channel });
       return true;
     } catch (error) {
@@ -431,7 +431,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const activeTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(deviceId)?.getAudioTracks()[0]);
     if (activeTrack) {
       const stream = new MediaStream([activeTrack]);
-      logAudioCapture(slot, deviceId, channel, stream);
+      logAudioCapture("isolated", slot, deviceId, channel, stream);
       return createRoutedMonoStream(stream, channel);
     }
 
@@ -439,10 +439,14 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const programTrack = slot === this.programMicSlot && (!this.programAudioBridge || this.programAudioBridge.connected)
       ? cloneLiveTrack(this.stream?.getAudioTracks()[0])
       : undefined;
-    if (programTrack) return new MediaStream([programTrack]);
+    if (programTrack) {
+      const stream = new MediaStream([programTrack]);
+      logAudioCapture("isolated", slot, deviceId, channel, stream);
+      return stream;
+    }
 
     const stream = await openRecordingAudioStream(deviceId);
-    logAudioCapture(slot, deviceId, channel, stream);
+    logAudioCapture("isolated", slot, deviceId, channel, stream);
     return createRoutedMonoStream(stream, channel);
   }
 
@@ -539,12 +543,12 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   }
 }
 
-function logAudioCapture(slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel, stream: MediaStream) {
-  const details = { slot, deviceId, channel, ...getAudioStreamDiagnostics(stream) };
+function logAudioCapture(route: "program" | "isolated", slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel, stream: MediaStream) {
+  const details = { route, slot, deviceId, channel, ...getAudioStreamDiagnostics(stream) };
   void window.studio?.writeRuntimeLog?.({
     level: "info",
     source: "AudioCapture",
-    message: "Opened isolated recording route.",
+    message: route === "program" ? "Opened Program audio route." : "Opened isolated microphone route.",
     details
   }).catch(() => undefined);
   try {
