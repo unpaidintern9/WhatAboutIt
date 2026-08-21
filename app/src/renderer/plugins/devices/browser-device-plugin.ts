@@ -174,6 +174,11 @@ export const browserDevicePlugin: DevicePlugin = {
     const failures: unknown[] = [];
     const before = await enumerateStudioDevices();
 
+    // Once Windows exposes labeled inputs, permission has already been granted.
+    // Opening and immediately stopping a USB camera here races the live preview
+    // owners and can reset other identical UVC endpoints on the same hub.
+    if (!before.permissionNeeded) return before;
+
     // A busy Sony endpoint can be Windows' default camera. Try every enumerated
     // camera independently so that a busy Sony body cannot hide the laptop camera
     // or prevent Chromium from granting camera access at all.

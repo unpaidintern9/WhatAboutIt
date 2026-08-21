@@ -115,12 +115,13 @@ describe("RecordingStudio", () => {
     expect(workbench).toBeTruthy();
     expect(mainColumn?.contains(cameraStrip)).toBe(true);
     expect(mainColumn?.contains(audioDeck)).toBe(true);
-    expect(mainColumn?.contains(controls)).toBe(true);
+    expect(workbench?.contains(controls)).toBe(true);
+    expect(mainColumn?.contains(controls)).toBe(false);
     expect(cameraStrip).toBeTruthy();
     expect(audioDeck).toBeTruthy();
     expect(controls).toBeTruthy();
     expect((cameraStrip as Element).compareDocumentPosition(controls as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect((controls as Element).compareDocumentPosition(audioDeck as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect((audioDeck as Element).compareDocumentPosition(controls as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(sideStack?.textContent).toContain("Episode Notes");
     expect(sideStack?.textContent).toContain("Teleprompter");
     expect(cameraStrip?.querySelectorAll(".camera-live-card")).toHaveLength(1);
@@ -128,7 +129,11 @@ describe("RecordingStudio", () => {
     expect(soundboard?.textContent).toContain("Add Sound");
     expect(markers?.textContent).toContain("Funny");
     expect(controls?.textContent).toContain("Record");
-    expect(controls?.textContent).not.toContain("Stop");
+    expect(controls?.textContent).toContain("Pause");
+    expect(controls?.textContent).toContain("Stop");
+    expect(controls?.textContent).toContain("Auto Edit");
+    expect(controls?.textContent).toContain("Export");
+    expect(controls?.querySelectorAll("button")).toHaveLength(5);
     expect(host.textContent).toContain("Cameras Ready");
     expect(host.textContent).toContain("Recording Healthy");
     expect(tools?.querySelector("summary")?.textContent).toContain("Show notes, markers, teleprompter, and soundboard");
@@ -161,7 +166,7 @@ describe("RecordingStudio", () => {
     const onResume = vi.fn();
     const onStop = vi.fn();
     const { host: idleHost } = renderStudio({ onStart });
-    click(idleHost, "Record Full Episode");
+    click(idleHost, "Record");
     expect(onStart).toHaveBeenCalledTimes(1);
 
     const { host: recordingHost } = renderStudio({ snapshot: { status: "recording", elapsedMs: 1000, localSaveMessage: "Everything is saving locally", trackStatuses: [] }, onPause, onStop });
@@ -175,6 +180,33 @@ describe("RecordingStudio", () => {
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the five reference transport actions visible in every recording state", () => {
+    const findControl = (host: HTMLElement, label: string) => Array.from(host.querySelectorAll(".giant-control-row button"))
+      .find((button) => button.textContent?.includes(label)) as HTMLButtonElement;
+    const { host: idleHost } = renderStudio();
+
+    expect(idleHost.querySelectorAll(".giant-control-row button")).toHaveLength(5);
+    expect(findControl(idleHost, "Start recording").disabled).toBe(false);
+    expect(findControl(idleHost, "Pause recording").disabled).toBe(true);
+    expect(findControl(idleHost, "Stop recording").disabled).toBe(true);
+    expect(findControl(idleHost, "Smart first draft").disabled).toBe(true);
+    expect(findControl(idleHost, "Export episode").disabled).toBe(true);
+
+    const { host: recordingHost } = renderStudio({
+      snapshot: { status: "recording", elapsedMs: 1000, localSaveMessage: "Writing to disk", trackStatuses: [] }
+    });
+    expect(recordingHost.querySelectorAll(".giant-control-row button")).toHaveLength(5);
+    expect(findControl(recordingHost, "Start recording").disabled).toBe(true);
+    expect(findControl(recordingHost, "Pause recording").disabled).toBe(false);
+    expect(findControl(recordingHost, "Stop recording").disabled).toBe(false);
+
+    const { host: pausedHost } = renderStudio({
+      snapshot: { status: "paused", elapsedMs: 1000, localSaveMessage: "Writing to disk", trackStatuses: [] }
+    });
+    expect(findControl(pausedHost, "Resume recording").disabled).toBe(false);
+    expect(findControl(pausedHost, "Stop recording").disabled).toBe(false);
+  });
+
   it("shows honest starting and saving states while recorder work is pending", async () => {
     let finishStart: (() => void) | undefined;
     let finishStop: (() => void) | undefined;
@@ -182,7 +214,7 @@ describe("RecordingStudio", () => {
     const onStop = vi.fn(() => new Promise<void>((resolve) => { finishStop = resolve; }));
     const { host: idleHost } = renderStudio({ onStart });
 
-    click(idleHost, "Record Full Episode");
+    click(idleHost, "Record");
     expect(idleHost.textContent).toContain("Starting the Program recording now");
     expect(idleHost.textContent).toContain("Starting");
     await act(async () => finishStart?.());
@@ -207,11 +239,11 @@ describe("RecordingStudio", () => {
     };
     const onStart = vi.fn(async () => failedSnapshot);
     const { host } = renderStudio({ snapshot: failedSnapshot, onStart });
-    const recordButton = Array.from(host.querySelectorAll("button")).find((candidate) => candidate.textContent?.includes("Record Full Episode")) as HTMLButtonElement;
+    const recordButton = Array.from(host.querySelectorAll("button")).find((candidate) => candidate.textContent?.includes("Start recording")) as HTMLButtonElement;
 
     expect(recordButton.disabled).toBe(false);
     expect(host.textContent).toContain("Recording Needs Attention");
-    await act(async () => click(host, "Record Full Episode"));
+    await act(async () => click(host, "Record"));
 
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain("The camera did not start.");
@@ -475,8 +507,9 @@ describe("RecordingStudio", () => {
 
     expect(onAutoEdit).not.toHaveBeenCalled();
     expect(onExport).not.toHaveBeenCalled();
-    expect(host.querySelector(".giant-control-row")?.textContent).not.toContain("Auto Edit");
-    expect(host.querySelector(".giant-control-row")?.textContent).not.toContain("Export");
+    const controls = Array.from(host.querySelectorAll(".giant-control-row button")) as HTMLButtonElement[];
+    expect(controls.find((button) => button.textContent?.includes("Auto Edit"))?.disabled).toBe(true);
+    expect(controls.find((button) => button.textContent?.includes("Export"))?.disabled).toBe(true);
   });
 
   it("shows only connected cameras and recording microphone channels", () => {
@@ -671,7 +704,7 @@ describe("RecordingStudio", () => {
       recordingPreferences: { ...defaultRecordingPreferences, countdownSeconds: 3 }
     });
 
-    click(host, "Record Full Episode");
+    click(host, "Record");
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(host.textContent).not.toContain("Ready to record?");
     expect(host.textContent).not.toContain("Countdown");
@@ -686,7 +719,7 @@ describe("RecordingStudio", () => {
       onStart
     });
 
-    click(host, "Record Full Episode");
+    click(host, "Record");
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(host.textContent).not.toContain("D:/What About It Recordings");
     expect(host.textContent).not.toContain("Choose Primary Drive");
@@ -733,5 +766,15 @@ describe("RecordingStudio", () => {
     const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "app/package.json"), "utf8")) as { build: { files: string[] } };
     expect(packageJson.build.files).not.toContain("assets/**/*");
     expect(packageJson.build.files).not.toContain("../assets/**/*");
+  });
+
+  it("locks Record previews to a full-frame 16:9 CSS contract", () => {
+    const repoRoot = path.resolve(__dirname, "../../../..");
+    const styles = fs.readFileSync(path.join(repoRoot, "app/src/renderer/styles.css"), "utf8");
+    const recordingPreviewRule = styles.match(/\.studio-shell--recording \.reference-studio-board \.live-video-frame \{([\s\S]*?)\}/)?.[1] ?? "";
+    const recordingVideoRule = styles.match(/\.studio-shell--recording \.reference-studio-board \.live-video-frame video \{([\s\S]*?)\}/)?.[1] ?? "";
+
+    expect(recordingPreviewRule).toContain("aspect-ratio: 16 / 9");
+    expect(recordingVideoRule).toContain("object-fit: contain");
   });
 });

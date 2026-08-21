@@ -164,8 +164,8 @@ function getStudioBridge(): StudioBridge {
   const demoSettings: StudioSettings = {
     ...fallbackSettings,
     deviceDefaults: {
-      cameras: isWelcomeReview ? {} : { camera1: "demo-camera-1", camera2: "demo-camera-2" },
-      microphones: isWelcomeReview ? {} : { morganMic: "demo-mic-1", guestMic: "demo-mic-2" },
+      cameras: isWelcomeReview ? {} : { camera1: "demo-camera-1", camera2: "demo-camera-2", camera3: "demo-camera-3" },
+      microphones: isWelcomeReview ? {} : { morganMic: "demo-mic-1", guestMic: "demo-mic-2", extraMic: "demo-mic-3" },
       audioOutputId: isWelcomeReview ? undefined : "demo-speakers"
     },
     onboarding: { guidedTour: isWelcomeReview ? "show" : "never" }
@@ -574,7 +574,13 @@ export default function App() {
 
   useEffect(() => {
     if (reviewMode || view !== "device-setup") return;
-    void requestStudioPermissions(true);
+    let cancelled = false;
+    void refreshDevices().then((detectedDevices) => {
+      if (!cancelled && detectedDevices.permissionNeeded) void requestStudioPermissions(false);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [reviewMode, view]);
 
   useEffect(() => {
@@ -1168,9 +1174,25 @@ export default function App() {
               maxResolution: "Auto",
               maxFps: 30
             }
+          },
+          {
+            id: "demo-camera-3",
+            label: "Wide Studio Camera",
+            kind: "camera",
+            camera: {
+              connectionType: "usb",
+              signal: "good",
+              autoReconnect: true,
+              maxResolution: "Auto",
+              maxFps: 30
+            }
           }
         ],
-        microphones: [{ id: "demo-mic-1", label: "Morgan Mic", kind: "microphone" }],
+        microphones: [
+          { id: "demo-mic-1", label: "Morgan Mic", kind: "microphone" },
+          { id: "demo-mic-2", label: "Guest Mic", kind: "microphone" },
+          { id: "demo-mic-3", label: "Headset Mic", kind: "microphone" }
+        ],
         speakers: [{ id: "demo-speakers", label: "Studio Headphones", kind: "speaker" }],
         permissionNeeded: false
       } satisfies DeviceDetectionResult;
@@ -1190,6 +1212,14 @@ export default function App() {
     }
     const detectedDevices = await deviceService.requestStudioPermissions();
     setDeviceDetection(await withCameraAccessStatus(detectedDevices));
+  }
+
+  async function refreshStudioDevices(resetConnections = true) {
+    if (resetConnections && recordingService.getSnapshot().status !== "recording" && recordingService.getSnapshot().status !== "paused") {
+      deviceService.releaseAll();
+      setDeviceRefreshKey((current) => current + 1);
+    }
+    return refreshDevices();
   }
 
   async function withCameraAccessStatus(detectedDevices: DeviceDetectionResult) {
@@ -1585,7 +1615,7 @@ export default function App() {
               microphoneLevel={microphoneLevel}
               currentStep={wizardStep}
               onStepChange={setWizardStep}
-              onRefresh={() => void requestStudioPermissions()}
+              onRefresh={() => void refreshStudioDevices()}
               onRequestPermission={() => void requestStudioPermissions()}
               onOpenCameraPrivacySettings={() => void studio.openCameraPrivacySettings?.()}
               onDefaultsChange={(defaults) => void saveDeviceDefaults(defaults)}

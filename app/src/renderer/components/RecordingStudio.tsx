@@ -528,6 +528,17 @@ export function RecordingStudio({
               >
                 <LayoutGrid size={16} /> {layoutsOpen ? "Hide Layouts" : "View Layouts"}
               </RusticButton>
+              {!recordingInProgress && !isComplete && onQuickTest && (
+                <RusticButton
+                  className="studio-quick-test"
+                  aria-label="Run 15 second setup test"
+                  title="Run a short camera and microphone recording test"
+                  disabled={!studioReady || recordingAction !== "idle"}
+                  onClick={() => void onQuickTest()}
+                >
+                  <Play size={16} /> <span>Setup Test</span>
+                </RusticButton>
+              )}
             </div>
           }
         />
@@ -579,50 +590,6 @@ export function RecordingStudio({
                   </RusticButton>
                 ))}
               </section> : null}
-            </section>
-
-            <section className="giant-control-row" aria-label="Recording controls">
-              {!recordingInProgress && !isComplete && (
-                <StudioControlButton tone="record" disabled={!studioReady || recordingAction !== "idle"} onClick={() => void startStudioRecording()}>
-                  {recordingAction === "starting" ? <LoaderCircle className="control-spinner" size={28} /> : <Circle size={28} />} {recordingAction === "starting" ? "Starting" : "Record Full Episode"}
-                </StudioControlButton>
-              )}
-              {recordingInProgress && (
-                isPaused ? (
-                  <StudioControlButton disabled={recordingAction !== "idle"} onClick={() => void onResume()}>
-                    <Play size={28} /> Resume
-                  </StudioControlButton>
-                ) : (
-                  <StudioControlButton disabled={recordingAction !== "idle"} onClick={() => void onPause()}>
-                    <Pause size={28} /> Pause
-                  </StudioControlButton>
-                )
-              )}
-              {recordingInProgress && (
-                <StudioControlButton disabled={recordingAction !== "idle"} onClick={requestStop}>
-                  {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={28} /> : <Square size={28} />} {recordingAction === "saving" ? "Saving" : "Stop"}
-                </StudioControlButton>
-              )}
-              {recordingInProgress && (
-                <StudioControlButton disabled={!isRecording || recordingAction !== "idle"} onClick={() => mark("Retake")}>
-                  <Sparkles size={28} /> Retake
-                </StudioControlButton>
-              )}
-              {isComplete && (
-                <StudioControlButton onClick={goAutoEdit}>
-                  <Sparkles size={28} /> Auto Edit
-                </StudioControlButton>
-              )}
-              {isComplete && (
-                <StudioControlButton onClick={goExport}>
-                  <Download size={28} /> Export
-                </StudioControlButton>
-              )}
-              {!recordingInProgress && !isComplete && onQuickTest && (
-                <StudioControlButton disabled={!studioReady || recordingAction !== "idle"} onClick={() => void onQuickTest()}>
-                  <Play size={28} /> Run 15s Setup Test
-                </StudioControlButton>
-              )}
             </section>
 
             {recordingInProgress && snapshot.health && (
@@ -727,6 +694,38 @@ export function RecordingStudio({
             onPatchTools={patchTools}
             onPatchNotes={patchNotes}
           />
+
+          <section className="giant-control-row" aria-label="Recording controls">
+            <StudioControlButton
+              tone="record"
+              disabled={recordingInProgress || isComplete || !studioReady || recordingAction !== "idle"}
+              onClick={() => void startStudioRecording()}
+            >
+              {recordingAction === "starting" ? <LoaderCircle className="control-spinner" size={28} /> : <Circle size={28} />}
+              <span><strong>{recordingAction === "starting" ? "Starting" : "Record"}</strong><small>Start recording</small></span>
+            </StudioControlButton>
+            <StudioControlButton
+              className="pause"
+              disabled={!recordingInProgress || recordingAction !== "idle"}
+              onClick={() => void (isPaused ? onResume() : onPause())}
+            >
+              {isPaused ? <Play size={28} /> : <Pause size={28} />}
+              <span><strong>{isPaused ? "Resume" : "Pause"}</strong><small>{isPaused ? "Resume recording" : "Pause recording"}</small></span>
+            </StudioControlButton>
+            <StudioControlButton className="stop" disabled={!recordingInProgress || recordingAction !== "idle"} onClick={requestStop}>
+              {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={28} /> : <Square size={28} />}
+              <span><strong>{recordingAction === "saving" ? "Saving" : "Stop"}</strong><small>{recordingAction === "saving" ? "Finalizing files" : "Stop recording"}</small></span>
+            </StudioControlButton>
+            <StudioControlButton className="auto-edit" disabled={!hasMedia || recordingAction !== "idle"} onClick={goAutoEdit}>
+              <Sparkles size={28} />
+              <span><strong>Auto Edit</strong><small>Smart first draft</small></span>
+            </StudioControlButton>
+            <StudioControlButton className="export" disabled={!hasMedia || recordingAction !== "idle"} onClick={goExport}>
+              <Download size={28} />
+              <span><strong>Export</strong><small>Export episode</small></span>
+            </StudioControlButton>
+          </section>
+
         </section>
 
         <ReadinessStrip
