@@ -70,6 +70,7 @@ interface TimelineReviewProps {
   onDraftChange: (draft: TimelineDraft) => void;
   onSaveDraft: () => void;
   onExport: () => void;
+  onCreateCombinedVideo?: () => void;
   onAutoEdit: () => void;
   onImportMedia?: (slot: ReviewMediaImportSlot) => Promise<string>;
   importProgress?: ReviewMediaImportProgress;
@@ -108,6 +109,7 @@ export function TimelineReview({
   onDraftChange,
   onSaveDraft,
   onExport,
+  onCreateCombinedVideo,
   onAutoEdit,
   onImportMedia,
   importProgress,
@@ -173,6 +175,9 @@ export function TimelineReview({
   const rangeEndMs = draft.selection?.endTimestampMs ?? Math.min(draft.durationMs, rangeStartMs + 15000);
   const readyCameraCount = media?.cameras.filter((asset) => asset.status === "ready").length ?? 0;
   const readyMicCount = media?.audio.filter((asset) => asset.status === "ready").length ?? 0;
+  const readySourceCount = readyCameraCount + readyMicCount;
+  const cameraSwitchCount = draft.cameraDecisions.length;
+  const cutCount = draft.editLog.filter((edit) => edit.type === "trim-before" || edit.type === "trim-after" || edit.type === "delete-section").length;
   const hasSelectedRange = draft.selection?.endTimestampMs !== undefined && rangeEndMs > rangeStartMs;
   const saveStatusLabel = saveState === "saving" ? "Saving draft…" : saveState === "failed" ? "Save failed — retry" : draft.hasUnsavedChanges ? "Draft changed" : "Draft saved";
   const liveVideoStyle: CSSProperties | undefined =
@@ -522,6 +527,23 @@ export function TimelineReview({
         </div>
       </header>
 
+      <section className="episode-build-guide" aria-label="Build one finished episode">
+        <div className={readySourceCount > 0 ? "complete" : "needs-attention"}>
+          <i>1</i>
+          <span><strong>Sources</strong><small>{readyCameraCount} cameras + {readyMicCount} microphones ready</small></span>
+        </div>
+        <div className={cameraSwitchCount > 0 || cutCount > 0 ? "complete" : "current"}>
+          <i>2</i>
+          <span><strong>Build the Program cut</strong><small>{cameraSwitchCount} camera switches · {cutCount} cuts</small></span>
+          <Button variant="secondary" icon={<Sparkles size={17} />} onClick={onAutoEdit}>Auto-build first cut</Button>
+        </div>
+        <div className="current">
+          <i>3</i>
+          <span><strong>Create one video</strong><small>Merge the Program cut and microphone mix into one MP4</small></span>
+          <Button variant="primary" icon={<Download size={18} />} onClick={onCreateCombinedVideo ?? onExport}>Create combined video</Button>
+        </div>
+      </section>
+
       <div className="editor-mode-switch" aria-label="Editing mode">
         <button type="button" className={draft.editMode === "manual" ? "selected" : ""} onClick={() => onDraftChange(setTimelineEditMode(draft, "manual"))}>
           <MousePointer2 size={18} /> Manual Edit
@@ -805,7 +827,7 @@ export function TimelineReview({
               onCameraDrop={track.kind === "program" ? dropCameraOnProgram : undefined}
               onToggleMute={() => updateTrack(track, { muted: !track.muted })}
               onToggleSolo={() => updateTrack(track, { solo: !track.solo })}
-              waveformUrl={track.kind === "microphone" ? media?.audio.find((asset) => asset.id === track.sourceAssetId)?.waveformUrl : undefined}
+              waveformUrl={[media?.program, ...(media?.cameras ?? []), ...(media?.audio ?? [])].find((asset) => asset?.id === track.sourceAssetId)?.waveformUrl}
             />
           ))}
           <div className="timeline-marker-lane">
@@ -849,8 +871,8 @@ export function TimelineReview({
           <Button variant="secondary" icon={<Save size={18} />} onClick={onSaveDraft}>
             Save draft
           </Button>
-          <Button variant="primary" icon={<Download size={19} />} onClick={onExport}>
-            Save &amp; Export
+          <Button variant="primary" icon={<Download size={19} />} onClick={onCreateCombinedVideo ?? onExport}>
+            Create combined video
           </Button>
         </div>
       </section>
@@ -928,6 +950,7 @@ function TrackLane({
   const durationMs = Math.max(1, draft.durationMs);
   const clipsRef = useRef<HTMLDivElement>(null);
   const dragStartRef = useRef<{ timestampMs: number; pointerId: number } | undefined>(undefined);
+  const handledPointerGestureRef = useRef(false);
   const [dragSelection, setDragSelection] = useState<{
     startMs: number;
     endMs: number;
@@ -951,8 +974,10 @@ function TrackLane({
 
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button !== 0) return;
+    handledPointerGestureRef.current = false;
     const timestampMs = timestampFromClientX(event.clientX);
     if (tool === "split") {
+      handledPointerGestureRef.current = true;
       onSplit(timestampMs);
       return;
     }
@@ -975,8 +1000,10 @@ function TrackLane({
     if (!start || start.pointerId !== event.pointerId) return;
     const endMs = timestampFromClientX(event.clientX);
     const distanceMs = Math.abs(endMs - start.timestampMs);
-    if (distanceMs >= Math.max(250, durationMs * 0.002)) onRange(start.timestampMs, endMs);
-    else onPoint(endMs);
+    if (distanceMs >= Math.max(250, durationMs * 0.002)) {
+      handledPointerGestureRef.current = true;
+      onRange(start.timestampMs, endMs);
+    } else onPoint(endMs);
     dragStartRef.current = undefined;
     setDragSelection(undefined);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
@@ -1014,13 +1041,6 @@ function TrackLane({
       <div
         ref={clipsRef}
         className={`edit-track-clips ${waveformUrl ? "has-waveform" : ""}`}
-        style={
-          waveformUrl
-            ? ({
-                "--waveform-image": `url(${JSON.stringify(waveformUrl).slice(1, -1)})`
-              } as CSSProperties)
-            : undefined
-        }
         role="group"
         aria-label={`${track.label} timeline`}
         tabIndex={0}
@@ -1047,6 +1067,7 @@ function TrackLane({
         onDragLeave={() => setDropReady(false)}
         onDrop={handleDrop}
       >
+        {waveformUrl ? <img className="timeline-waveform-image" src={waveformUrl} alt="" aria-hidden="true" /> : null}
         {segments.map((segment) => {
           const activeCameraId = track.kind === "program" ? getActiveCameraTrackId(draft, segment.startMs) : undefined;
           const segmentLabel = activeCameraId ? (draft.tracks.find((candidate) => candidate.id === activeCameraId)?.label ?? track.label) : track.label;
@@ -1060,8 +1081,11 @@ function TrackLane({
               }}
               aria-pressed={isSelectedClip}
               draggable={track.kind === "camera" && Boolean(track.sourceAssetId) && !segment.removed}
-              onPointerDown={(event) => event.stopPropagation()}
               onClick={() => {
+                if (handledPointerGestureRef.current) {
+                  handledPointerGestureRef.current = false;
+                  return;
+                }
                 if (!segment.removed) onRange(segment.startMs, segment.endMs);
               }}
               onDoubleClick={() => {

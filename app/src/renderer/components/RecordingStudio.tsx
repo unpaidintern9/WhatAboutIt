@@ -58,7 +58,7 @@ interface RecordingStudioProps {
   storageMessage?: string;
   recordingPreferences?: RecordingPreferences;
   recordingTemplate?: RecordingTemplate;
-  onStart: () => Promise<void> | void;
+  onStart: () => Promise<RecordingServiceSnapshot | void> | RecordingServiceSnapshot | void;
   onQuickTest?: () => Promise<void> | void;
   onPause: () => Promise<void> | void;
   onResume: () => Promise<void> | void;
@@ -198,7 +198,6 @@ export function RecordingStudio({
   const [recordingAction, setRecordingAction] = useState<RecordingAction>("idle");
   const [micSignals, setMicSignals] = useState<Partial<Record<MicKey, MicSignalState>>>({});
   const [audioDiagnostics, setAudioDiagnostics] = useState<Partial<Record<MicKey, LiveInputDiagnostics>>>({});
-  const [startAnywayArmed, setStartAnywayArmed] = useState(false);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const [countdown, setCountdown] = useState<number | undefined>();
@@ -234,14 +233,12 @@ export function RecordingStudio({
   const recordingInProgress = isRecording || isPaused;
   const recordingPreferences = { ...defaultRecordingPreferences, ...recordingPreferencesProp };
   const liveMode = recordingInProgress && recordingPreferences.liveModeEnabled;
-  const recordingHealthy = !snapshot.friendlyError
-    && snapshot.status !== "error"
-    && (!recordingInProgress || Boolean(snapshot.health?.programActive
+  const recordingHealthy = snapshot.status !== "error" && (!recordingInProgress || Boolean(snapshot.health?.programActive
       && snapshot.health.warnings.length === 0
       && snapshot.health.activeCameraTracks >= snapshot.health.expectedCameraTracks
       && snapshot.health.activeAudioTracks >= snapshot.health.expectedAudioTracks));
   const deviceAssignmentsHealthy = getDeviceAssignmentConflicts(defaults).length === 0;
-  const studioReady = cameraReadyCount > 0 && micReadyCount > 0 && storageReady && recordingHealthy && deviceAssignmentsHealthy;
+  const studioReady = cameraReadyCount > 0 && micReadyCount > 0 && storageReady && deviceAssignmentsHealthy && (!recordingInProgress || recordingHealthy);
   const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
   const selectedMicSlots = routableMicSlots.filter((slot) => Boolean(defaults.microphones[slot.key]));
   const uncheckedInputs = selectedMicSlots.filter((slot) => {
@@ -428,23 +425,23 @@ export function RecordingStudio({
     onExport();
   }
 
-  async function startStudioRecording(force = false) {
+  async function startStudioRecording() {
     if (!studioReady || recordingAction !== "idle") return;
-    if (uncheckedInputs.length > 0 && !force && !startAnywayArmed) {
-      const names = uncheckedInputs.map((slot) => defaults.microphoneNames?.[slot.key] || slot.label).join(" and ");
-      setStartAnywayArmed(true);
-      setStudioNotice({ tone: "needs-attention", message: `${names} ${uncheckedInputs.length === 1 ? "has" : "have"} not detected signal yet. Fix the input or choose Record Anyway.` });
-      return;
-    }
-    setStartAnywayArmed(false);
     setRecordingAction("starting");
     setStudioNotice({ tone: "recording", message: "Starting every ready camera and microphone together..." });
     try {
-      await onStart();
+      const nextSnapshot = await onStart();
+      if (nextSnapshot && nextSnapshot.status !== "recording") {
+        setStudioNotice({ tone: "needs-attention", message: nextSnapshot.friendlyError ?? "Recording did not start. Check the highlighted source and try again." });
+        return;
+      }
+      setStudioNotice({ tone: "recording", message: "Full episode recording is active and writing to disk." });
       if (recordingPreferences.syncCueEnabled) {
         playSyncCue();
         mark("Sync Cue");
       }
+    } catch (error) {
+      setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "Recording did not start. Check the highlighted source and try again." });
     } finally {
       setRecordingAction("idle");
     }
@@ -467,26 +464,18 @@ export function RecordingStudio({
     }
   }
 
-  function beginCountdown(force = false) {
-    if (uncheckedInputs.length > 0 && !force) {
-      const names = uncheckedInputs.map((slot) => defaults.microphoneNames?.[slot.key] || slot.label).join(" and ");
-      setStartAnywayArmed(true);
-      setStudioNotice({ tone: "needs-attention", message: `${names} ${uncheckedInputs.length === 1 ? "has" : "have"} not detected signal yet. Fix the input or choose Record Anyway.` });
-      setPreflightOpen(true);
-      return;
-    }
+  function beginCountdown() {
     setPreflightOpen(false);
-    setStartAnywayArmed(force);
     const seconds = recordingPreferences.countdownSeconds;
     if (seconds === 0) {
-      void startStudioRecording(force);
+      void startStudioRecording();
       return;
     }
     setCountdown(seconds);
     const tick = (remaining: number) => {
       if (remaining <= 1) {
         setCountdown(undefined);
-        void startStudioRecording(force);
+        void startStudioRecording();
         return;
       }
       countdownTimerRef.current = window.setTimeout(() => {
@@ -594,11 +583,10 @@ export function RecordingStudio({
               <RusticButton onClick={onSaveTemplate}><Save size={16} /> Save This Setup</RusticButton>
               {recordingTemplate && <RusticButton onClick={onApplyTemplate}><Play size={16} /> Load {recordingTemplate.name}</RusticButton>}
             </div>
-            {startAnywayArmed && <p className="preflight-warning" role="alert">One or more selected microphones has not shown a usable signal. The app will still protect every source that produces media.</p>}
+            {uncheckedInputs.length > 0 && <p className="preflight-warning" role="alert">{uncheckedInputs.map((slot) => defaults.microphoneNames?.[slot.key] || slot.label).join(" and ")} {uncheckedInputs.length === 1 ? "has" : "have"} not shown a usable signal yet. You can still start; live disk checks will stop safely if a source writes no media.</p>}
             <div className="preflight-actions">
               <RusticButton onClick={() => setPreflightOpen(false)}>Fix Inputs</RusticButton>
-              {startAnywayArmed && <RusticButton onClick={() => beginCountdown(true)}>Record Anyway</RusticButton>}
-              <Button variant="primary" icon={<Circle size={18} />} onClick={() => beginCountdown(false)} disabled={!studioReady}>Start {recordingPreferences.countdownSeconds ? `${recordingPreferences.countdownSeconds}-Second Countdown` : "Recording"}</Button>
+              <Button variant="primary" icon={<Circle size={18} />} onClick={beginCountdown} disabled={!studioReady}>Start Full Recording{recordingPreferences.countdownSeconds ? ` (${recordingPreferences.countdownSeconds}s countdown)` : ""}</Button>
             </div>
           </div>
         </Modal>
@@ -712,7 +700,7 @@ export function RecordingStudio({
 
             <section className="giant-control-row" aria-label="Recording controls">
               <StudioControlButton tone="record" disabled={!studioReady || isRecording || isPaused || recordingAction !== "idle"} onClick={() => setPreflightOpen(true)}>
-                {recordingAction === "starting" ? <LoaderCircle className="control-spinner" size={28} /> : <Circle size={28} />} {recordingAction === "starting" ? "Starting" : "Record"}
+                {recordingAction === "starting" ? <LoaderCircle className="control-spinner" size={28} /> : <Circle size={28} />} {recordingAction === "starting" ? "Starting" : "Record Full Episode"}
               </StudioControlButton>
               {isPaused ? (
                 <StudioControlButton disabled={recordingAction !== "idle"} onClick={() => void onResume()}>
@@ -737,7 +725,7 @@ export function RecordingStudio({
               </StudioControlButton>
               {!recordingInProgress && onQuickTest && (
                 <StudioControlButton disabled={!studioReady || recordingAction !== "idle"} onClick={() => void onQuickTest()}>
-                  <Play size={28} /> 15s Test
+                  <Play size={28} /> Run 15s Setup Test
                 </StudioControlButton>
               )}
             </section>

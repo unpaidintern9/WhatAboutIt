@@ -6785,6 +6785,66 @@ input[type="range"] {
   margin: 0;
 }
 
+.episode-build-guide {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.75fr) minmax(260px, 1fr) minmax(300px, 1.15fr);
+  gap: var(--space-sm);
+  padding: var(--space-sm);
+  background: color-mix(in srgb, var(--color-background), var(--color-surface) 45%);
+  border: var(--component-border-width) solid var(--color-border);
+  border-radius: var(--component-card-radius);
+  box-shadow: var(--component-shadow);
+}
+
+.episode-build-guide > div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px var(--space-sm);
+  min-width: 0;
+  padding: var(--space-sm);
+  background: var(--color-cards);
+  border: 1px solid color-mix(in srgb, var(--color-border), transparent 18%);
+  border-radius: var(--component-border-radius);
+}
+
+.episode-build-guide > div > i {
+  display: inline-grid;
+  grid-row: 1 / span 2;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+  border-radius: 50%;
+  font-family: var(--font-heading);
+  font-style: normal;
+  font-weight: 900;
+}
+
+.episode-build-guide > div.complete > i {
+  background: var(--color-success);
+}
+
+.episode-build-guide > div.needs-attention > i {
+  background: var(--color-danger);
+}
+
+.episode-build-guide span {
+  display: grid;
+  min-width: 0;
+}
+
+.episode-build-guide small {
+  color: var(--color-mutedText);
+  font-weight: 700;
+}
+
+.episode-build-guide .wai-button {
+  grid-column: 1 / -1;
+  width: 100%;
+}
+
 .edit-studio-confidence {
   display: grid;
   grid-template-columns: repeat(3, auto);
@@ -7405,14 +7465,24 @@ input[type="range"] {
 }
 
 .edit-track-clips.has-waveform {
-  background-image: linear-gradient(rgba(5, 5, 5, 0.38), rgba(5, 5, 5, 0.38)), var(--waveform-image);
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: 100% 82%;
+  background: rgba(5, 5, 5, 0.46);
+}
+
+.timeline-waveform-image {
+  position: absolute;
+  z-index: 2;
+  inset: 8% 5px;
+  width: calc(100% - 10px);
+  height: 84%;
+  object-fit: fill;
+  opacity: 0.78;
+  pointer-events: none;
+  mix-blend-mode: screen;
 }
 
 .edit-track-clips > button {
   position: relative;
+  z-index: 1;
   min-width: 2px;
   overflow: hidden;
   padding: 0 5px;
@@ -7423,6 +7493,10 @@ input[type="range"] {
   font-size: 0.62rem;
   font-weight: 900;
   text-align: left;
+}
+
+.edit-track-clips.has-waveform > button {
+  background: color-mix(in srgb, var(--color-primary) 48%, transparent);
 }
 
 .edit-track-lane.camera .edit-track-clips > button {
@@ -7577,6 +7651,10 @@ input[type="range"] {
 }
 
 @media (max-width: 920px) {
+  .episode-build-guide {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .edit-studio-header,
   .edit-studio-workspace {
     grid-template-columns: minmax(0, 1fr);
