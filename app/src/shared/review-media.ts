@@ -10,7 +10,9 @@ export interface ReviewMediaAsset {
   filePath?: string;
   originalFilePath?: string;
   playbackUrl?: string;
+  posterUrl?: string;
   waveformUrl?: string;
+  filmstripUrl?: string;
   reviewProxyPath?: string;
   status: ReviewMediaStatus;
   durationMs?: number;

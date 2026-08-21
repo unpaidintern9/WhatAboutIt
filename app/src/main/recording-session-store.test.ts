@@ -171,6 +171,38 @@ describe("recording session store", () => {
     expect(syncMetadata.trackStates?.guestMic?.message).toBe("Saved");
   }, 30000);
 
+  it("flags a decodable microphone file that contains no audible signal", async () => {
+    const { createRecordingSession, saveRecordedTracks } = await import("./recording-session-store");
+    const { runFfmpeg } = await import("./ffmpeg-tools");
+    const silentSourcePath = path.join(mockPaths.episodesRoot, "silent-audio.webm");
+    await runFfmpeg([
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "anullsrc=r=48000:cl=stereo",
+      "-t",
+      "1",
+      "-c:a",
+      "libopus",
+      silentSourcePath
+    ]);
+    const session = await createRecordingSession({
+      episodeId: "episode-silent-mic",
+      episodeTitle: "Silent Mic",
+      deviceDefaults: { cameras: {}, microphones: { morganMic: "mic-a" } }
+    });
+
+    const [result] = await saveRecordedTracks(session.folderPath, [
+      { slot: "morganMic", kind: "audio", bytes: await fs.readFile(silentSourcePath), mimeType: "audio/webm" }
+    ]);
+
+    expect(result.status).toBe("needs-attention");
+    expect(result.message).toBe("Saved, but no audible signal was detected");
+    await expect(fs.stat(result.filePath as string)).resolves.toBeTruthy();
+    await expect(fs.readFile(path.join(session.folderPath, "Logs", "errors.log"), "utf8")).resolves.toContain("contains no audible signal");
+  }, 20000);
+
   it("appends recoverable media chunks during recording, finalizes them, and mirrors verified media to a second folder", async () => {
     const { appendRecordingChunk, beginRecordingMedia, createRecordingSession, finalizeRecordingMedia } = await import("./recording-session-store");
     const { runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");

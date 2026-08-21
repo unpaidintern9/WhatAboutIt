@@ -127,11 +127,11 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
       };
     });
   const audio = await Promise.all(assets.filter((asset) => asset.kind === "audio").map((asset) => ensureMediaWaveform(episodeFolder, asset)));
-  const program = await ensureMediaWaveform(episodeFolder, await ensureReviewProxy(episodeFolder, rawProgram));
+  const program = await ensureVideoFilmstrip(episodeFolder, await ensureMediaWaveform(episodeFolder, await ensureReviewProxy(episodeFolder, rawProgram)));
   const cameras: ReviewMediaAsset[] = [];
   for (const camera of rawCameras) {
     const pairedAudio = camera.pairedAudioId ? audio.find((asset) => asset.id === camera.pairedAudioId) : undefined;
-    cameras.push(await ensureMediaWaveform(episodeFolder, await ensureReviewProxy(episodeFolder, camera, pairedAudio)));
+    cameras.push(await ensureVideoFilmstrip(episodeFolder, await ensureMediaWaveform(episodeFolder, await ensureReviewProxy(episodeFolder, camera, pairedAudio))));
   }
   const hasPlayableProgram = program.status === "ready";
 
@@ -145,6 +145,55 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
     hasPlayableProgram,
     message: hasPlayableProgram ? "Review your recording" : "No program video found yet"
   };
+}
+
+async function ensureVideoFilmstrip(episodeFolder: string, asset: ReviewMediaAsset): Promise<ReviewMediaAsset> {
+  if (asset.status !== "ready" || !asset.filePath || asset.kind === "audio") return asset;
+  const filmstripPath = path.join(episodeFolder, "Session", "Review", `${asset.id}-filmstrip.jpg`);
+  const posterPath = path.join(episodeFolder, "Session", "Review", `${asset.id}-poster.jpg`);
+  const durationSeconds = Math.max(1, (asset.durationMs ?? 0) / 1000);
+  const framesPerSecond = 12 / durationSeconds;
+  try {
+    await fs.mkdir(path.dirname(filmstripPath), { recursive: true });
+    if (await proxyNeedsRefresh(posterPath, [asset.filePath])) {
+      await runFfmpeg([
+        "-y",
+        "-ss",
+        String(Math.min(durationSeconds * 0.15, 5)),
+        "-i",
+        asset.filePath,
+        "-vf",
+        "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720",
+        "-frames:v",
+        "1",
+        "-q:v",
+        "3",
+        posterPath
+      ]);
+    }
+    if (await proxyNeedsRefresh(filmstripPath, [asset.filePath])) {
+      await runFfmpeg([
+        "-y",
+        "-i",
+        asset.filePath,
+        "-vf",
+        `fps=${framesPerSecond},scale=160:90:force_original_aspect_ratio=increase,crop=160:90,tile=12x1`,
+        "-frames:v",
+        "1",
+        "-q:v",
+        "4",
+        filmstripPath
+      ]);
+    }
+    return {
+      ...asset,
+      posterUrl: mediaFilePlaybackUrl(posterPath),
+      filmstripUrl: mediaFilePlaybackUrl(filmstripPath)
+    };
+  } catch (error) {
+    await logger.warning("ReviewMedia", "Video filmstrip could not be prepared.", { filePath: asset.filePath, error: String(error) });
+    return asset;
+  }
 }
 
 async function ensureMediaWaveform(episodeFolder: string, asset: ReviewMediaAsset): Promise<ReviewMediaAsset> {

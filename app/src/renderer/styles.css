@@ -6778,6 +6778,549 @@ input[type="range"] {
   }
 }
 
+/* Review is a focused editor: one compact app bar, a 16:9 monitor, and a visual timeline. */
+.studio-shell--review,
+.studio-shell--review.sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+  color: #f6efe5;
+  background: #110d0e;
+}
+
+.studio-shell--review .sidebar {
+  display: none;
+}
+
+.studio-shell--review .workspace,
+.studio-shell--review:not(.studio-shell--recording) .workspace {
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #110d0e;
+}
+
+.studio-shell--review .journey-progress {
+  position: relative;
+  z-index: 20;
+  gap: 1px;
+  height: 42px;
+  padding: 0;
+  background: #171113;
+  border: 0;
+  border-bottom: 1px solid #3b2a2e;
+  border-radius: 0;
+  box-shadow: none;
+  grid-template-columns: repeat(4, minmax(110px, 145px));
+  padding-right: 430px;
+}
+
+.studio-shell--review .journey-progress button {
+  min-height: 41px;
+  justify-content: center;
+  padding: 4px 12px;
+  color: #9e9291;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  font-size: 0.76rem;
+  letter-spacing: 0.01em;
+}
+
+.studio-shell--review .journey-progress button.active {
+  color: #fff9ef;
+  background: #7f2329;
+  box-shadow: inset 0 -2px #d6a85e;
+}
+
+.studio-shell--review .journey-progress button.complete:not(.active) {
+  color: #d4c6b6;
+  border: 0;
+}
+
+.studio-shell--review .journey-progress button i {
+  width: 17px;
+  height: 17px;
+  border-width: 1px;
+}
+
+.studio-shell--review .edit-studio {
+  position: relative;
+  display: grid;
+  grid-template-rows: 0 minmax(300px, 1fr) 44px minmax(220px, 0.78fr);
+  gap: 1px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #38272b;
+}
+
+.edit-studio-bar {
+  position: absolute;
+  z-index: 30;
+  top: -42px;
+  right: 8px;
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+  height: 42px;
+  padding: 5px 0;
+  background: transparent;
+  border: 0;
+}
+
+.edit-studio-title,
+.edit-studio-status,
+.edit-studio-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.edit-studio-title {
+  display: none;
+}
+
+.edit-studio-title strong {
+  color: #fff9ef;
+  font-family: var(--font-heading);
+  font-size: 1rem;
+}
+
+.edit-studio-title span,
+.edit-studio-status {
+  color: #a99b98;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.edit-studio-status {
+  gap: 8px;
+}
+
+.edit-studio-status > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #bfc8ac;
+}
+
+.edit-studio-status > span.needs-attention {
+  color: #e5bd73;
+}
+
+.edit-studio-actions {
+  gap: 5px;
+}
+
+.edit-studio-actions button,
+.edit-direct-toolbar button,
+.edit-transport button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 9px;
+  color: #e8ded2;
+  background: #251b1d;
+  border: 1px solid #49363a;
+  border-radius: 5px;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.edit-studio-actions button:hover,
+.edit-direct-toolbar button:hover:not(:disabled),
+.edit-transport button:hover:not(:disabled),
+.edit-studio-actions button.selected,
+.edit-direct-toolbar button.selected {
+  color: #fff9ef;
+  background: #5b2328;
+  border-color: #a65b4d;
+}
+
+.edit-studio-actions button.primary {
+  color: #fffaf1;
+  background: #8e2d32;
+  border-color: #c27459;
+}
+
+.studio-shell--review .edit-studio-workspace {
+  grid-template-columns: minmax(0, 1fr) minmax(265px, 22vw);
+  gap: 1px;
+  min-height: 0;
+  overflow: hidden;
+  background: #3a292d;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.studio-shell--review .edit-source-monitor {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 38px;
+  align-content: stretch;
+  gap: 5px;
+  min-height: 0;
+  padding: 6px 8px;
+  background: #0d0b0c;
+}
+
+.studio-shell--review .edit-source-monitor > .panel-heading {
+  display: none;
+}
+
+.studio-shell--review .monitor-view-switch {
+  display: none;
+}
+
+.studio-shell--review .monitor-view-switch button {
+  min-height: 28px;
+  padding: 3px 8px;
+  color: #cdbb9d;
+  background: #171315;
+  border: 1px solid #3d3032;
+}
+
+.studio-shell--review .monitor-view-switch > span {
+  color: #7f7472;
+}
+
+.studio-shell--review .edit-source-monitor .review-source-tabs {
+  display: none;
+}
+
+.studio-shell--review .edit-source-monitor .review-source-tabs button {
+  flex: 0 1 190px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 4px 8px;
+  color: #b9aaa6;
+  background: #171315;
+  border: 1px solid #3c3032;
+  border-radius: 5px;
+}
+
+.studio-shell--review .edit-source-monitor .review-source-tabs button.selected {
+  color: #fff7e9;
+  background: #74282d;
+  border-color: #bc7359;
+}
+
+.studio-shell--review .edit-source-monitor .review-source-tabs small {
+  display: none;
+}
+
+.studio-shell--review .review-player-stage {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  overflow: hidden;
+  place-items: center;
+  background: #050505;
+  border: 1px solid #2c2526;
+  border-radius: 5px;
+}
+
+.studio-shell--review .edit-source-monitor .review-player-stage video {
+  width: auto;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: #000;
+  border: 0;
+  border-radius: 0;
+}
+
+.studio-shell--review .review-audio-route {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  display: flex;
+  gap: 6px;
+  max-width: calc(100% - 16px);
+  padding: 4px 7px;
+  color: #e9dfd4;
+  background: rgba(15, 12, 13, 0.84);
+  border: 1px solid rgba(188, 115, 89, 0.42);
+  border-radius: 4px;
+  font-size: 0.6rem;
+}
+
+.studio-shell--review .review-audio-route span {
+  overflow: hidden;
+  color: #9d9290;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-shell--review .edit-transport {
+  display: grid;
+  grid-template-columns: 30px 34px 30px auto minmax(120px, 1fr) 30px 82px 58px;
+  gap: 5px;
+  align-items: center;
+  min-height: 0;
+}
+
+.studio-shell--review .edit-transport button {
+  min-height: 30px;
+  padding: 3px;
+}
+
+.studio-shell--review .edit-transport .transport-play {
+  color: #fff8ec;
+  background: #8d2e33;
+  border-color: #c4785b;
+}
+
+.studio-shell--review .transport-time {
+  color: #d6c9bd;
+  font-size: 0.65rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.studio-shell--review .edit-transport input,
+.studio-shell--review .edit-transport .transport-scrubber {
+  grid-column: auto;
+  width: 100%;
+  min-width: 0;
+}
+
+.studio-shell--review .edit-playback-speed select {
+  width: 100%;
+  min-height: 30px;
+  color: #e8ded2;
+  background: #251b1d;
+  border: 1px solid #49363a;
+  border-radius: 5px;
+}
+
+.studio-shell--review .edit-track-inspector {
+  display: block;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+  color: #e7ddd1;
+  background: #181315;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.editor-inspector-drawers {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.editor-inspector-drawers > details {
+  overflow: hidden;
+  background: #21191b;
+  border: 1px solid #49363a;
+  border-radius: 5px;
+}
+
+.editor-inspector-drawers summary {
+  padding: 8px;
+  color: #d6c8bc;
+  font-size: 0.7rem;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.editor-inspector-drawers details > :not(summary) {
+  margin: 7px;
+}
+
+.studio-shell--review .edit-direct-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 5px 8px;
+  background: #181315;
+  border: 0;
+  border-radius: 0;
+}
+
+.studio-shell--review .timeline-tool-group,
+.studio-shell--review .timeline-selection-readout,
+.studio-shell--review .timeline-view-controls {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.studio-shell--review .timeline-selection-readout {
+  margin-left: auto;
+}
+
+.studio-shell--review .timeline-selection-readout > div {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.studio-shell--review .timeline-selection-readout span,
+.studio-shell--review .timeline-view-controls input,
+.studio-shell--review .timeline-view-controls strong {
+  display: none;
+}
+
+.studio-shell--review .pro-timeline-viewport {
+  min-height: 0;
+  overflow: auto;
+  background: #0e0c0d;
+  border: 0;
+  border-radius: 0;
+}
+
+.studio-shell--review .pro-timeline-viewport .pro-timeline {
+  min-width: 100%;
+  min-height: 100%;
+  gap: 1px;
+  padding: 5px;
+  color: #daccbd;
+  background: #0e0c0d;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.studio-shell--review .timeline-time-ruler {
+  height: 19px;
+  margin-left: 148px;
+}
+
+.studio-shell--review .edit-track-lane {
+  grid-template-columns: 140px minmax(0, 1fr);
+  min-height: 42px;
+  background: #171315;
+}
+
+.studio-shell--review .edit-track-lane.selected {
+  border-color: #b96d55;
+  box-shadow: inset 2px 0 #c08a49;
+}
+
+.studio-shell--review .edit-track-header {
+  padding: 3px 6px;
+  border-right-color: #3d3032;
+}
+
+.studio-shell--review .track-name {
+  color: #dfd2c4;
+}
+
+.studio-shell--review .track-name strong {
+  font-size: 0.7rem;
+}
+
+.studio-shell--review .track-name small {
+  font-size: 0.53rem;
+}
+
+.studio-shell--review .edit-track-clips {
+  padding: 2px;
+  background: #111011;
+}
+
+.timeline-filmstrip-image,
+.studio-shell--review .timeline-waveform-image {
+  position: absolute;
+  z-index: 0;
+  inset: 2px;
+  width: calc(100% - 4px);
+  height: calc(100% - 4px);
+  object-fit: fill;
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.studio-shell--review .timeline-waveform-image {
+  inset-block: 8%;
+  height: 84%;
+  opacity: 0.86;
+  mix-blend-mode: screen;
+}
+
+.studio-shell--review .edit-track-clips > button,
+.studio-shell--review .edit-track-clips.has-waveform > button,
+.studio-shell--review .edit-track-lane.camera .edit-track-clips > button,
+.studio-shell--review .edit-track-lane.microphone .edit-track-clips > button {
+  z-index: 1;
+  color: transparent;
+  background: rgba(87, 31, 37, 0.16);
+  border-color: rgba(230, 190, 139, 0.34);
+}
+
+.studio-shell--review .edit-track-lane.microphone .edit-track-clips > button {
+  background: rgba(38, 112, 78, 0.26);
+  border-color: rgba(111, 204, 151, 0.42);
+}
+
+.studio-shell--review .timeline-marker-lane {
+  grid-template-columns: 140px minmax(0, 1fr);
+  min-height: 30px;
+}
+
+.studio-shell--review .camera-decision-panel,
+.studio-shell--review .edit-history-panel,
+.studio-shell--review .edit-command-bar {
+  display: none;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-width: 980px) {
+  .edit-studio-status,
+  .studio-shell--review .monitor-view-switch > span,
+  .edit-studio-actions button:first-child {
+    display: none;
+  }
+
+  .edit-studio-bar {
+    grid-template-columns: auto;
+  }
+
+  .studio-shell--review .journey-progress {
+    grid-template-columns: repeat(4, minmax(90px, 1fr));
+    padding-right: 260px;
+  }
+
+  .studio-shell--review .edit-studio-workspace {
+    grid-template-columns: minmax(0, 1fr) 245px;
+  }
+
+  .studio-shell--review .edit-transport {
+    grid-template-columns: 28px 32px 28px auto minmax(80px, 1fr) 28px 58px;
+  }
+
+  .studio-shell--review .edit-playback-speed {
+    display: none;
+  }
+}
+
 .edit-studio-header,
 .edit-studio-workspace,
 .edit-range-toolbar,
@@ -8026,4 +8569,9 @@ input[type="range"] {
     height: auto;
     min-height: 260px;
   }
+}
+
+main.studio-shell.studio-shell--review,
+main.studio-shell.studio-shell--review.sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr);
 }

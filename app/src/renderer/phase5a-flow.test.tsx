@@ -15,7 +15,7 @@ describe("Phase 5C flow", () => {
       ["new-episode", "New Episode"],
       ["device-setup", "Let's check your studio"],
       ["recording", "Everything is saving locally"],
-      ["timeline-review", "Edit Studio"],
+      ["timeline-review", "Episode editor"],
       ["auto-edit-review", "Auto Edit"],
       ["export", "Export your episode"]
     ];
@@ -124,8 +124,8 @@ describe("Phase 5C flow", () => {
       root.render(<App />);
     });
 
-    expect(host.textContent).toContain("Edit Studio");
-    expect(host.textContent).toContain("Originals always stay untouched");
+    expect(host.textContent).toContain("Episode editor");
+    expect(host.textContent).toContain("Originals safe");
     expect(host.textContent).toContain("Auto Edit");
     expect(host.textContent).toContain("Source monitor");
     expect(host.textContent).toContain("Delete range");

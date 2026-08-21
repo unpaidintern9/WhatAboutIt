@@ -242,11 +242,28 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
     await fs.rm(finalPath, { force: true });
     await runFfmpeg(["-y", "-i", source.partialPath, "-vn", "-c:a", "aac", "-b:a", "160k", finalPath]);
     if (!(await isPlayableRecording(finalPath))) throw new Error("Audio track failed validation.");
+    if (!(await hasAudibleSignal(finalPath))) {
+      await fs.rm(source.partialPath, { force: true });
+      await appendRecordingError(folderPath, `${slot} was saved but contains no audible signal.`);
+      return { slot, kind: "audio", status: "needs-attention", filePath: finalPath, message: "Saved, but no audible signal was detected" };
+    }
     await fs.rm(source.partialPath, { force: true });
     return { slot, kind: "audio", status: "saved", filePath: finalPath, message: "Saved and verified" };
   } catch (error) {
     await appendRecordingError(folderPath, `${slot} could not be finalized: ${String(error)}`);
     return { slot, kind: source.kind === "camera" ? "camera" : "audio", status: "needs-attention", message: "Partial recording kept for recovery" };
+  }
+}
+
+async function hasAudibleSignal(filePath: string) {
+  try {
+    const result = await runFfmpeg(["-nostats", "-i", filePath, "-map", "0:a:0", "-af", "volumedetect", "-f", "null", "-"]);
+    const match = /max_volume:\s*(-?inf|-?\d+(?:\.\d+)?)\s*dB/i.exec(result.stderr);
+    if (!match || match[1].toLowerCase() === "-inf") return false;
+    const maxVolumeDb = Number(match[1]);
+    return Number.isFinite(maxVolumeDb) && maxVolumeDb > -70;
+  } catch {
+    return false;
   }
 }
 
@@ -436,6 +453,17 @@ async function saveRecordedTrack(folderPath: string, track: RecordingTrackSaveIn
     const filePath = track.kind === "camera"
       ? await saveCameraTrack(folderPath, track.slot, track.bytes)
       : await saveAudioTrack(folderPath, track.slot, track.bytes, track.mimeType);
+
+    if (track.kind === "audio" && !(await hasAudibleSignal(filePath))) {
+      await appendRecordingError(folderPath, `${track.slot} was saved but contains no audible signal.`);
+      return {
+        slot: track.slot,
+        kind: track.kind,
+        status: "needs-attention",
+        filePath,
+        message: "Saved, but no audible signal was detected"
+      };
+    }
 
     return {
       slot: track.slot,

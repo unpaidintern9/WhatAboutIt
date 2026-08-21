@@ -79,6 +79,10 @@ const emptyDetection: DeviceDetectionResult = {
   permissionNeeded: false
 };
 
+const reviewFilmstripFixture = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="90" viewBox="0 0 1920 90"><rect width="1920" height="90" fill="#151012"/>${Array.from({ length: 12 }, (_, index) => `<g transform="translate(${index * 160})"><rect width="158" height="90" rx="2" fill="${index % 2 ? "#6e3032" : "#3d292d"}"/><circle cx="80" cy="36" r="17" fill="#d8b28a"/><path d="M45 90c3-26 18-38 35-38s32 12 35 38" fill="${index % 3 ? "#171416" : "#9a3d3d"}"/><rect x="2" y="2" width="154" height="86" fill="none" stroke="#d49b59" stroke-opacity=".35"/></g>`).join("")}</svg>`)}`;
+const reviewPosterFixture = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720"><defs><linearGradient id="bg" x2="1" y2="1"><stop stop-color="#24171b"/><stop offset="1" stop-color="#090708"/></linearGradient></defs><rect width="1280" height="720" fill="url(#bg)"/><rect x="42" y="42" width="1196" height="636" rx="18" fill="#1b1215" stroke="#9c4b48" stroke-width="3"/><circle cx="640" cy="294" r="116" fill="#d1a67c"/><path d="M380 678c20-194 116-285 260-285s240 91 260 285" fill="#8f393a"/><rect x="510" y="235" width="260" height="74" rx="35" fill="#161214"/><text x="640" y="625" fill="#f4dfbd" font-family="Arial, sans-serif" font-size="34" text-anchor="middle">PROGRAM PREVIEW</text></svg>`)}`;
+const reviewWaveformFixture = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="120" viewBox="0 0 1400 120"><rect width="1400" height="120" fill="#174d36"/><path d="${Array.from({ length: 175 }, (_, index) => { const x = index * 8; const amplitude = 9 + ((index * 17) % 43); return `M${x} ${60 - amplitude}V${60 + amplitude}`; }).join(" ")}" stroke="#d9f7df" stroke-width="4" opacity=".9"/></svg>`)}`;
+
 const idleRecordingSnapshot: RecordingServiceSnapshot = {
   status: "idle",
   elapsedMs: 0,
@@ -160,8 +164,8 @@ function getStudioBridge(): StudioBridge {
   const demoSettings: StudioSettings = {
     ...fallbackSettings,
     deviceDefaults: {
-      cameras: isWelcomeReview ? {} : { camera1: "demo-camera-1" },
-      microphones: isWelcomeReview ? {} : { morganMic: "demo-mic-1" },
+      cameras: isWelcomeReview ? {} : { camera1: "demo-camera-1", camera2: "demo-camera-2" },
+      microphones: isWelcomeReview ? {} : { morganMic: "demo-mic-1", guestMic: "demo-mic-2" },
       audioOutputId: isWelcomeReview ? undefined : "demo-speakers"
     },
     onboarding: { guidedTour: isWelcomeReview ? "show" : "never" }
@@ -257,18 +261,74 @@ function getStudioBridge(): StudioBridge {
       episodeId,
       episodeFolder: "review-only",
       loadedAt: now,
-      hasPlayableProgram: false,
-      message: "No program video found yet",
+      hasPlayableProgram: true,
+      message: "Review your recording",
       program: {
         id: "program",
         label: "Program video",
         kind: "program",
         relativePath: "Program/program.webm",
-        status: "missing",
-        message: "No program video found yet"
+        playbackUrl: "data:video/webm;base64,",
+        posterUrl: reviewPosterFixture,
+        filmstripUrl: reviewFilmstripFixture,
+        status: "ready",
+        durationMs: 112000,
+        message: "Ready"
       },
-      cameras: [],
-      audio: []
+      cameras: [
+        {
+          id: "camera-1",
+          label: "Camera 1",
+          kind: "camera",
+          relativePath: "Cameras/camera-1.webm",
+          playbackUrl: "data:video/webm;base64,",
+          posterUrl: reviewPosterFixture,
+          filmstripUrl: reviewFilmstripFixture,
+          pairedAudioId: "morgan-mic",
+          pairedAudioLabel: "Morgan Mic",
+          status: "ready",
+          durationMs: 112000,
+          message: "Ready"
+        },
+        {
+          id: "camera-2",
+          label: "Camera 2",
+          kind: "camera",
+          relativePath: "Cameras/camera-2.webm",
+          playbackUrl: "data:video/webm;base64,",
+          posterUrl: reviewPosterFixture,
+          filmstripUrl: reviewFilmstripFixture,
+          pairedAudioId: "guest-mic",
+          pairedAudioLabel: "Guest Mic",
+          status: "ready",
+          durationMs: 112000,
+          message: "Ready"
+        }
+      ],
+      audio: [
+        {
+          id: "morgan-mic",
+          label: "Morgan Mic",
+          kind: "audio",
+          relativePath: "Audio/morgan-mic.m4a",
+          playbackUrl: "data:audio/mp4;base64,",
+          waveformUrl: reviewWaveformFixture,
+          status: "ready",
+          durationMs: 112000,
+          message: "Ready"
+        },
+        {
+          id: "guest-mic",
+          label: "Guest Mic",
+          kind: "audio",
+          relativePath: "Audio/guest-mic.m4a",
+          playbackUrl: "data:audio/mp4;base64,",
+          waveformUrl: reviewWaveformFixture,
+          status: "ready",
+          durationMs: 112000,
+          message: "Ready"
+        }
+      ]
     }),
     runAutoEdit: async (episodeId, draft, mode, _practice, learningProfile) => runOfflineAutoEdit({ episodeId, draft, mode, learningProfile, now }),
     createExport: async (request) => ({
@@ -1144,7 +1204,20 @@ export default function App() {
   }
 
   async function saveDeviceDefaults(deviceDefaults: DeviceDefaults) {
-    const nextSettings = withRecordingSettings(withExportSettings(withDeviceDefaults({ ...settings, deviceDefaults })));
+    const resolvePhysicalDeviceId = (deviceId: string | undefined, devices: DeviceDetectionResult["microphones"] | DeviceDetectionResult["speakers"]) => {
+      if (!deviceId || (deviceId !== "default" && deviceId !== "communications")) return deviceId;
+      const alias = devices.find((device) => device.id === deviceId);
+      const physical = devices.find((device) => device.id !== "default" && device.id !== "communications" && alias?.groupId && device.groupId === alias.groupId);
+      return physical?.id ?? deviceId;
+    };
+    const pinnedDefaults: DeviceDefaults = {
+      ...deviceDefaults,
+      microphones: Object.fromEntries(
+        Object.entries(deviceDefaults.microphones).map(([slot, deviceId]) => [slot, resolvePhysicalDeviceId(deviceId, deviceDetection.microphones)])
+      ),
+      audioOutputId: resolvePhysicalDeviceId(deviceDefaults.audioOutputId, deviceDetection.speakers)
+    };
+    const nextSettings = withRecordingSettings(withExportSettings(withDeviceDefaults({ ...settings, deviceDefaults: pinnedDefaults })));
     setSettings(nextSettings);
     await studio.saveSettings(nextSettings);
   }
@@ -1410,7 +1483,7 @@ export default function App() {
   const effectiveSidebarCollapsed = sidebarCollapsed;
 
   return (
-    <main className={`studio-shell ${effectiveSidebarCollapsed ? "sidebar-collapsed" : ""} ${view === "recording" ? "studio-shell--recording" : ""}`.trim()}>
+    <main className={`studio-shell ${effectiveSidebarCollapsed ? "sidebar-collapsed" : ""} ${view === "recording" ? "studio-shell--recording" : ""} ${view === "timeline-review" ? "studio-shell--review" : ""}`.trim()}>
       <aside className="sidebar" aria-label="What About It Studio navigation">
         <div className="brand-lockup">
           <div className="brand-badge">WAI</div>
@@ -1610,6 +1683,7 @@ export default function App() {
             onRenderTreatmentPreview={renderTreatmentPreview}
             transcriptionStatus={localTranscriptionStatus}
             transcriptionProgress={localTranscriptionProgress?.episodeId === activeEpisode?.id ? localTranscriptionProgress : undefined}
+            audioOutputId={settings.deviceDefaults.audioOutputId}
             onTranscribeLocally={transcribeActiveEpisodeLocally}
             onCancelTranscription={cancelActiveEpisodeTranscription}
           />

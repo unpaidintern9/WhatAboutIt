@@ -57,6 +57,27 @@ describe("device service", () => {
     ).toBe("ready");
   });
 
+  it("coalesces simultaneous and rapid device refreshes", async () => {
+    const result = { cameras: [], microphones: [], speakers: [], permissionNeeded: false };
+    const plugin: DevicePlugin = {
+      detectDevices: vi.fn().mockResolvedValue(result),
+      requestStudioPermissions: vi.fn().mockResolvedValue(result),
+      sampleMicrophoneLevel: vi.fn(),
+      playTestSound: vi.fn(),
+      openCameraPreview: vi.fn(),
+      openMicrophoneStream: vi.fn()
+    };
+    const service = new DeviceService(plugin);
+
+    const [first, second] = await Promise.all([service.detectDevices(), service.detectDevices()]);
+    const third = await service.detectDevices();
+
+    expect(first).toBe(result);
+    expect(second).toBe(result);
+    expect(third).toBe(result);
+    expect(plugin.detectDevices).toHaveBeenCalledTimes(1);
+  });
+
   it("shares one physical microphone source across independent channel consumers", async () => {
     const first = createStream();
     const second = createStream();
