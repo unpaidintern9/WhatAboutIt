@@ -216,6 +216,8 @@ export function RecordingStudio({
   const deviceAssignmentsHealthy = getDeviceAssignmentConflicts(defaults).length === 0;
   const studioReady = cameraReadyCount > 0 && storageReady && (!recordingInProgress || recordingHealthy);
   const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
+  const visibleCameraSlots = cameraSlots.filter((slot) => slot.key === "camera1" || Boolean(defaults.cameras[slot.key]));
+  const visibleMicSlots = routableMicSlots.filter((slot) => slot.key !== "extraMic" || Boolean(defaults.microphones.extraMic));
 
   function patchTools(nextState: PodcastToolsState) {
     onPodcastToolsChange({ ...nextState, updatedAt: new Date().toISOString() });
@@ -538,7 +540,7 @@ export function RecordingStudio({
           <div className="reference-main-column">
             <section className="camera-command-panel" aria-label="Camera previews and layouts">
               <section className="camera-strip" aria-label="Camera previews">
-                {cameraSlots.map((slot) => (
+                {visibleCameraSlots.map((slot) => (
                   <CameraCard
                     key={slot.key}
                     label={slot.label}
@@ -578,31 +580,43 @@ export function RecordingStudio({
             </section>
 
             <section className="giant-control-row" aria-label="Recording controls">
-              <StudioControlButton tone="record" disabled={!studioReady || isRecording || isPaused || recordingAction !== "idle"} onClick={() => void startStudioRecording()}>
-                {recordingAction === "starting" ? <LoaderCircle className="control-spinner" size={28} /> : <Circle size={28} />} {recordingAction === "starting" ? "Starting" : "Record Full Episode"}
-              </StudioControlButton>
-              {isPaused ? (
-                <StudioControlButton disabled={recordingAction !== "idle"} onClick={() => void onResume()}>
-                  <Play size={28} /> Resume
-                </StudioControlButton>
-              ) : (
-                <StudioControlButton disabled={!isRecording || recordingAction !== "idle"} onClick={() => void onPause()}>
-                  <Pause size={28} /> Pause
+              {!recordingInProgress && !isComplete && (
+                <StudioControlButton tone="record" disabled={!studioReady || recordingAction !== "idle"} onClick={() => void startStudioRecording()}>
+                  {recordingAction === "starting" ? <LoaderCircle className="control-spinner" size={28} /> : <Circle size={28} />} {recordingAction === "starting" ? "Starting" : "Record Full Episode"}
                 </StudioControlButton>
               )}
-              <StudioControlButton disabled={(!isRecording && !isPaused) || recordingAction !== "idle"} onClick={requestStop}>
-                {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={28} /> : <Square size={28} />} {recordingAction === "saving" ? "Saving" : "Stop"}
-              </StudioControlButton>
-              <StudioControlButton disabled={!isRecording || recordingAction !== "idle"} onClick={() => mark("Retake")}>
-                <Sparkles size={28} /> Retake
-              </StudioControlButton>
-              <StudioControlButton onClick={goAutoEdit}>
-                <Sparkles size={28} /> Auto Edit
-              </StudioControlButton>
-              <StudioControlButton onClick={goExport}>
-                <Download size={28} /> Export
-              </StudioControlButton>
-              {!recordingInProgress && onQuickTest && (
+              {recordingInProgress && (
+                isPaused ? (
+                  <StudioControlButton disabled={recordingAction !== "idle"} onClick={() => void onResume()}>
+                    <Play size={28} /> Resume
+                  </StudioControlButton>
+                ) : (
+                  <StudioControlButton disabled={recordingAction !== "idle"} onClick={() => void onPause()}>
+                    <Pause size={28} /> Pause
+                  </StudioControlButton>
+                )
+              )}
+              {recordingInProgress && (
+                <StudioControlButton disabled={recordingAction !== "idle"} onClick={requestStop}>
+                  {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={28} /> : <Square size={28} />} {recordingAction === "saving" ? "Saving" : "Stop"}
+                </StudioControlButton>
+              )}
+              {recordingInProgress && (
+                <StudioControlButton disabled={!isRecording || recordingAction !== "idle"} onClick={() => mark("Retake")}>
+                  <Sparkles size={28} /> Retake
+                </StudioControlButton>
+              )}
+              {isComplete && (
+                <StudioControlButton onClick={goAutoEdit}>
+                  <Sparkles size={28} /> Auto Edit
+                </StudioControlButton>
+              )}
+              {isComplete && (
+                <StudioControlButton onClick={goExport}>
+                  <Download size={28} /> Export
+                </StudioControlButton>
+              )}
+              {!recordingInProgress && !isComplete && onQuickTest && (
                 <StudioControlButton disabled={!studioReady || recordingAction !== "idle"} onClick={() => void onQuickTest()}>
                   <Play size={28} /> Run 15s Setup Test
                 </StudioControlButton>
@@ -642,20 +656,18 @@ export function RecordingStudio({
                     </RusticButton>
                   </div>
                   <div className="meter-list pro-tools-mixer">
-                    {micSlots.map((slot) => {
-                      const deviceId = slot.key === "soundboard" || slot.key === "music" ? undefined : defaults.microphones[slot.key];
-                      const label = slot.key === "soundboard" && playingSlotId ? "We hear you" : slot.key === "music" ? "Add music first" : undefined;
+                    {visibleMicSlots.map((slot) => {
+                      const deviceId = defaults.microphones[slot.key];
                       const controls = mixerChannels[slot.key] ?? defaultMixerChannel;
-                      const isMicChannel = slot.key !== "soundboard" && slot.key !== "music";
-                      const micKey = isMicChannel ? slot.key as MicKey : undefined;
-                      const displayLabel = micKey ? defaults.microphoneNames?.[micKey] || slot.label : slot.label;
+                      const micKey = slot.key;
+                      const displayLabel = defaults.microphoneNames?.[micKey] || slot.label;
                       return (
                         <LiveMicMeter
                           key={slot.key}
                           label={displayLabel}
-                          roleLabel={micKey ? getMicRoleLabel(micKey) : undefined}
+                          roleLabel={getMicRoleLabel(micKey)}
                           deviceId={deviceId}
-                          inputOptions={isMicChannel ? detection.microphones : []}
+                          inputOptions={detection.microphones}
                           inputAssignments={defaults.microphones}
                           inputChannelAssignments={defaults.microphoneChannels}
                           micSlot={micKey}
@@ -666,14 +678,13 @@ export function RecordingStudio({
                           monitorLabel={getMonitorLabel(slot.label)}
                           monitoring={controls.monitor && !controls.muted && (soloedChannels.length === 0 || soloedChannels.includes(slot.key))}
                           outputDeviceId={defaults.audioOutputId}
-                          fallbackLevel={slot.key === "soundboard" && playingSlotId ? 72 : 0}
-                          fallbackLabel={label}
+                          fallbackLevel={0}
                           trackStatus={trackStatusBySlot[slot.key as RecordingTrackSlot]}
-                          onInputChange={micKey ? (deviceId) => setMicInput(micKey, deviceId) : undefined}
-                          onInputChannelChange={micKey ? (channel) => setMicInputChannel(micKey, channel) : undefined}
-                          onNameChange={micKey ? (name) => setMicName(micKey, name) : undefined}
-                          onSignalChange={micKey ? (signal) => updateMicSignal(micKey, signal) : undefined}
-                          onDiagnosticsChange={micKey ? (details) => setAudioDiagnostics((current) => ({ ...current, [micKey]: details })) : undefined}
+                          onInputChange={(deviceId) => setMicInput(micKey, deviceId)}
+                          onInputChannelChange={(channel) => setMicInputChannel(micKey, channel)}
+                          onNameChange={(name) => setMicName(micKey, name)}
+                          onSignalChange={(signal) => updateMicSignal(micKey, signal)}
+                          onDiagnosticsChange={(details) => setAudioDiagnostics((current) => ({ ...current, [micKey]: details }))}
                           onControlsChange={(nextState) => patchMixerChannel(slot.key, nextState)}
                           onEchoWarning={warnAboutEcho}
                           onOpenMicrophoneStream={onOpenMicrophoneStream}

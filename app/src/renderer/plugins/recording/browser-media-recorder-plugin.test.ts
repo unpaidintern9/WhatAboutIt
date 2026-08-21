@@ -14,6 +14,10 @@ class FakeTrack {
   stop() {
     this.readyState = "ended";
   }
+
+  getSettings() {
+    return this.kind === "audio" ? { channelCount: 2, sampleRate: 48000 } : {};
+  }
 }
 
 class FakeMediaStream {
@@ -67,6 +71,50 @@ class FakeMediaRecorder extends EventTarget {
   stop() {
     this.state = "inactive";
     if (FakeMediaRecorder.emitStop) this.dispatchEvent(new Event("stop"));
+  }
+}
+
+class FakeAudioNode {
+  connect(destination?: FakeAudioNode) {
+    return destination ?? this;
+  }
+
+  disconnect() {
+    return undefined;
+  }
+}
+
+class FakeAudioContext {
+  destination = new FakeAudioNode();
+
+  createGain() {
+    return Object.assign(new FakeAudioNode(), { gain: { value: 1 } });
+  }
+
+  createOscillator() {
+    return Object.assign(new FakeAudioNode(), { start: vi.fn(), stop: vi.fn() });
+  }
+
+  createChannelSplitter() {
+    return new FakeAudioNode();
+  }
+
+  createMediaStreamSource() {
+    return new FakeAudioNode();
+  }
+
+  createMediaStreamDestination() {
+    return Object.assign(new FakeAudioNode(), {
+      stream: streamWith(new FakeTrack("audio", "program-audio-bridge"))
+    });
+  }
+
+  async resume() {
+    return undefined;
+  }
+
+  async close() {
+    return undefined;
   }
 }
 
@@ -245,6 +293,51 @@ describe("BrowserMediaRecorderPlugin", () => {
     await plugin.stop();
     resolveMicrophone?.(lateMicrophone);
     await vi.waitFor(() => expect(lateMicrophone.getTracks()[0]?.readyState).toBe("ended"));
+  });
+
+  it("starts the Program with an audio track immediately and attaches a late host mic without delaying Record", async () => {
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    const hostMic = streamWith(new FakeTrack("audio", "late-host-mic"));
+    const getUserMedia = vi.fn(async (constraints: MediaStreamConstraints) => {
+      if (constraints.audio) return hostMic;
+      return streamWith(new FakeTrack("video", "fallback-camera"));
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    const plugin = new BrowserMediaRecorderPlugin({
+      getCameraStream: () => streamWith(new FakeTrack("video", "camera-1")),
+      getMicrophoneStream: () => undefined
+    });
+
+    await plugin.start({
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+    });
+
+    expect(FakeMediaRecorder.streams[0]?.getAudioTracks()).toHaveLength(1);
+    expect(plugin.getHealth().programActive).toBe(true);
+    await vi.waitFor(() => expect(plugin.getHealth().activeAudioTracks).toBe(1));
+    expect(plugin.getHealth().warnings.join(" ")).not.toContain("connecting in the background");
+    await plugin.stop();
+  });
+
+  it("keeps a silent audio carrier in a video-only Program so review and export remain playable", async () => {
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const plugin = new BrowserMediaRecorderPlugin({
+      getCameraStream: () => streamWith(new FakeTrack("video", "camera-1"))
+    });
+
+    await plugin.start({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: {} } });
+
+    expect(FakeMediaRecorder.streams[0]?.getVideoTracks()).toHaveLength(1);
+    expect(FakeMediaRecorder.streams[0]?.getAudioTracks()).toHaveLength(1);
+    expect(plugin.getHealth().programActive).toBe(true);
+    await plugin.stop();
   });
 
   it("streams program and source chunks to disk instead of retaining the episode in renderer memory", async () => {

@@ -123,12 +123,12 @@ describe("RecordingStudio", () => {
     expect((controls as Element).compareDocumentPosition(audioDeck as Node) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(sideStack?.textContent).toContain("Episode Notes");
     expect(sideStack?.textContent).toContain("Teleprompter");
-    expect(cameraStrip?.querySelectorAll(".camera-live-card")).toHaveLength(3);
+    expect(cameraStrip?.querySelectorAll(".camera-live-card")).toHaveLength(1);
     expect(audioDeck?.textContent).toContain("Morgan Mic");
     expect(soundboard?.textContent).toContain("Add Sound");
     expect(markers?.textContent).toContain("Funny");
     expect(controls?.textContent).toContain("Record");
-    expect(controls?.textContent).toContain("Stop");
+    expect(controls?.textContent).not.toContain("Stop");
     expect(host.textContent).toContain("Studio Ready");
     expect(host.textContent).toContain("Ready to record");
     expect(tools?.querySelector("summary")?.textContent).toContain("Show notes, markers, teleprompter, and soundboard");
@@ -457,7 +457,7 @@ describe("RecordingStudio", () => {
     ]);
   });
 
-  it("shows truthful setup states for empty soundboard, Auto Edit, and Export", () => {
+  it("keeps post-production actions out of the idle recording controls", () => {
     const onAutoEdit = vi.fn();
     const onExport = vi.fn();
     const { host } = renderStudio({ onAutoEdit, onExport });
@@ -465,11 +465,39 @@ describe("RecordingStudio", () => {
     click(host, "Intro");
     expect(host.textContent).toContain("Add a sound");
 
-    click(host, "Auto Edit");
-    click(host, "Export");
     expect(onAutoEdit).not.toHaveBeenCalled();
     expect(onExport).not.toHaveBeenCalled();
-    expect(host.textContent).toContain("Record something first");
+    expect(host.querySelector(".giant-control-row")?.textContent).not.toContain("Auto Edit");
+    expect(host.querySelector(".giant-control-row")?.textContent).not.toContain("Export");
+  });
+
+  it("shows only connected cameras and recording microphone channels", () => {
+    const { host } = renderStudio({
+      defaults: {
+        cameras: { camera1: "camera-a", camera2: "camera-b" },
+        cameraMicrophones: { camera1: "morganMic", camera2: "guestMic", camera3: "extraMic" },
+        microphones: { morganMic: "mic-a", guestMic: "mic-b" },
+        audioOutputId: "speaker-a"
+      },
+      detection: {
+        cameras: [
+          { id: "camera-a", label: "Main Camera", kind: "camera", camera: { connectionType: "usb", signal: "good", maxResolution: "1080p", maxFps: 30 } },
+          { id: "camera-b", label: "Guest Camera", kind: "camera", camera: { connectionType: "built-in", signal: "good", maxResolution: "1080p", maxFps: 30 } }
+        ],
+        microphones: [
+          { id: "mic-a", label: "Morgan Mic", kind: "microphone" },
+          { id: "mic-b", label: "Guest Mic", kind: "microphone" }
+        ],
+        speakers: [{ id: "speaker-a", label: "Studio Headphones", kind: "speaker" }],
+        permissionNeeded: false
+      }
+    });
+
+    expect(host.querySelectorAll(".camera-live-card")).toHaveLength(2);
+    expect(host.querySelectorAll(".live-meter-card")).toHaveLength(2);
+    expect(host.textContent).not.toContain("CAM 3");
+    expect(host.querySelector(".mixer-panel")?.textContent).not.toContain("Soundboard");
+    expect(host.querySelector(".mixer-panel")?.textContent).not.toContain("Music");
   });
 
   it("renders helpful unavailable states", () => {

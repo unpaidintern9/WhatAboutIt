@@ -7906,3 +7906,82 @@ input[type="range"] {
     grid-column: 1 / -1;
   }
 }
+
+/* Full-audit Studio density pass: fit the actual connected gear on a laptop. */
+.studio-shell--recording .reference-studio-board .camera-strip {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+.studio-shell--recording .camera-command-panel {
+  height: clamp(280px, 36vh, 360px);
+}
+
+.studio-shell--recording .reference-studio-board .giant-control-row {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px;
+  margin-top: 0;
+}
+
+.studio-shell--recording .reference-studio-board .studio-control-button {
+  min-height: 58px;
+  padding: 9px 14px;
+  font-size: clamp(0.82rem, 1.05vw, 1rem);
+}
+
+.studio-shell--recording .reference-studio-board .studio-control-button svg {
+  width: 25px;
+  height: 25px;
+}
+
+.studio-shell--recording .reference-console-row .meter-list {
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+  overflow: visible;
+}
+
+.studio-shell--recording .reference-console-row .live-meter-card {
+  min-height: 0;
+  gap: 8px;
+  padding: 10px;
+}
+
+.studio-shell--recording .reference-console-row .channel-console {
+  gap: 7px;
+}
+
+.studio-shell--recording .reference-console-row .channel-effect-copy {
+  min-height: 0;
+}
+
+.optional-device-slot {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 6px;
+  min-height: 150px;
+  padding: 18px;
+  color: var(--color-mutedText);
+  background: color-mix(in srgb, var(--color-cards), transparent 32%);
+  border: 2px dashed color-mix(in srgb, var(--color-border), transparent 35%);
+  border-radius: var(--component-card-radius);
+  text-align: center;
+}
+
+.optional-device-slot:hover,
+.optional-device-slot:focus-visible {
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+@media (max-width: 920px) {
+  .studio-shell--recording .reference-studio-board .camera-strip,
+  .studio-shell--recording .reference-console-row .meter-list,
+  .studio-shell--recording .reference-studio-board .giant-control-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .studio-shell--recording .camera-command-panel {
+    height: auto;
+    min-height: 260px;
+  }
+}

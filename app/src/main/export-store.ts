@@ -285,6 +285,10 @@ async function renderDraftExport(input: {
   const hasDraftDecisions = request.draft.cameraDecisions.length > 0
     || request.draft.editLog.length > 0
     || request.draft.tracks.some(hasTrackAdjustments)
+    // A clean, no-edit episode still needs the draft renderer when isolated
+    // microphones exist. Otherwise the simple path exports only the Program
+    // file's guide audio and silently leaves guest/extra voices out.
+    || audioInputs.length > 0
     || request.type === "social-clip-placeholder";
   if (!hasDraftDecisions) return false;
 

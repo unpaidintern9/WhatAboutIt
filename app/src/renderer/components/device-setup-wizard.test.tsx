@@ -56,10 +56,32 @@ describe("DeviceSetupWizard", () => {
     expect(markup).toContain("Refresh Cameras");
     expect(markup).toContain("Release Camera");
     expect(markup).toContain("Open Camera Help");
+    expect(markup).toContain("Add another camera (optional)");
+    expect(markup).not.toContain("Camera 3");
     expect(markup).toContain("Needs attention");
     expect(markup).toContain("Connection type");
     expect(markup).not.toContain("driver stack");
     expect(markup).not.toContain("backend provider");
+  });
+
+  it("keeps the third microphone optional instead of filling setup with an unused input", () => {
+    const markup = renderToStaticMarkup(
+      <DeviceSetupWizard
+        {...baseProps}
+        currentStep={1}
+        detection={{
+          cameras: [],
+          microphones: [{ id: "mic-a", label: "USB Audio Interface", kind: "microphone", audio: { interfaceLike: true } }],
+          speakers: [],
+          permissionNeeded: false
+        }}
+      />
+    );
+
+    expect(markup).toContain("Morgan Mic");
+    expect(markup).toContain("Guest Mic");
+    expect(markup).toContain("Add an optional third mic");
+    expect(markup).not.toContain("Assign Extra Mic");
   });
 
   it("keeps available cameras visible when a saved camera is missing", () => {
@@ -99,9 +121,9 @@ describe("DeviceSetupWizard", () => {
 
     expect(markup).toContain("Sony Camera (Imaging Edge)");
     expect(markup).toContain("Integrated Camera (13d3:540a)");
-    expect(markup).toContain("2 of 3 simultaneous camera feeds detected");
-    expect(markup).toContain("Windows exposes only 1 Imaging Edge feed");
-    expect(markup).toContain("USB Streaming or separate HDMI capture devices");
+    expect(markup).toContain("2 camera feeds detected");
+    expect(markup).toContain("Your Imaging Edge feed is ready");
+    expect(markup).toContain("Add another camera only when you want another angle");
   });
 
   it("reports three unique Windows camera feeds as simultaneously available", () => {
@@ -121,7 +143,7 @@ describe("DeviceSetupWizard", () => {
       />
     );
 
-    expect(markup).toContain("3 of 3 simultaneous camera feeds detected");
+    expect(markup).toContain("3 camera feeds detected");
     expect(markup).toContain("Pick any three");
     expect(markup).toContain("Each distinct Windows camera can be assigned to any camera slot");
   });
