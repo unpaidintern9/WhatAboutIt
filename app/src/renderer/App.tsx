@@ -20,7 +20,7 @@ import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscr
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
 import { createHardwareTestResults, didDeviceDisconnectDuringRecording, getHardwareDeviceReadiness, getExportTestStatus, getFriendlyHardwareFailureMessage, getNextHardwareTestStep, getRecordingTestStatus, type DiagnosticsBundleResult, type HardwareDeviceSummary } from "../shared/hardware-test";
-import type { StorageStatus } from "../shared/diagnostics";
+import type { LiveLogInfo, StorageStatus } from "../shared/diagnostics";
 import { assessRecordingStorage } from "../shared/diagnostics";
 import { cameraAccessMessage, type MediaAccessStatus } from "../shared/media-permissions";
 import { AutoEditReview, Button, CameraPreview, DeviceSetupWizard, ExportEpisode, RecordingStudio, TimelineReview } from "./components";
@@ -300,6 +300,9 @@ function getStudioBridge(): StudioBridge {
       folderPath: "review-only/diagnostics",
       files: ["app-info.json"]
     }),
+    getLiveLogInfo: async () => ({ folderPath: "review-only/logs", filePath: "review-only/logs/today.log" }),
+    openLiveLogs: async () => ({ folderPath: "review-only/logs", filePath: "review-only/logs/today.log" }),
+    writeRuntimeLog: async () => undefined,
     getStorageStatus: async () => ({
       message: "Storage check ready",
       availableBytes: 100 * 1024 * 1024 * 1024
@@ -360,6 +363,7 @@ export default function App() {
   const [deviceChangeState, setDeviceChangeState] = useState<"ready" | "disconnected" | "reconnecting" | "needs-attention">("ready");
   const [deviceRefreshKey, setDeviceRefreshKey] = useState(0);
   const [diagnosticsBundle, setDiagnosticsBundle] = useState<DiagnosticsBundleResult | undefined>();
+  const [liveLogInfo, setLiveLogInfo] = useState<LiveLogInfo | undefined>();
   const [storageStatus, setStorageStatus] = useState<StorageStatus | undefined>();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [popOutPlayingSlotId, setPopOutPlayingSlotId] = useState<string | undefined>();
@@ -435,6 +439,7 @@ export default function App() {
       }
     });
     void studio.getDisplays().then(setDisplays);
+    void studio.getLiveLogInfo?.().then(setLiveLogInfo);
     void refreshEpisodes();
     void refreshDevices();
     void refreshUnfinishedSessions();
@@ -1338,6 +1343,9 @@ export default function App() {
   async function stopRecording() {
     const nextSnapshot = await recordingService.stop();
     setRecordingSnapshot(nextSnapshot);
+    if (nextSnapshot.status === "error") {
+      throw new Error(nextSnapshot.friendlyError ?? "Recording stopped, but file verification needs attention.");
+    }
     const episodeId = nextSnapshot.session?.episodeId ?? activeEpisode?.id;
     const draft = createTimelineDraft({
       episodeId,
@@ -1349,12 +1357,21 @@ export default function App() {
     setTimelineDraft(draft);
     if (episodeId) {
       setTimelineDraft(await studio.saveTimelineDraft(episodeId, draft));
-      await loadReviewMediaForEpisode(episodeId);
-      if (episodeId !== activeEpisode?.id) {
-        const latestEpisodes = await studio.listEpisodes();
-        setEpisodes(latestEpisodes);
-        setActiveEpisode(latestEpisodes.find((episode) => episode.id === episodeId) ?? activeEpisode);
-      }
+      // Stop is complete once capture, disk finalization, and the timeline are
+      // safe. Waveforms, proxies, and library refreshes are derived work and
+      // must not leave the Stop button spinning after the files are protected.
+      void (async () => {
+        await loadReviewMediaForEpisode(episodeId);
+        if (episodeId !== activeEpisodeRef.current?.id) {
+          const latestEpisodes = await studio.listEpisodes();
+          setEpisodes(latestEpisodes);
+          setActiveEpisode(latestEpisodes.find((episode) => episode.id === episodeId) ?? activeEpisodeRef.current);
+        }
+        await refreshUnfinishedSessions();
+      })().catch((error) => {
+        setWorkspaceMessage(error instanceof Error ? error.message : "The recording is safe, but review media is still preparing.");
+      });
+      return;
     }
     await refreshUnfinishedSessions();
   }
@@ -1665,12 +1682,14 @@ export default function App() {
             workspaceState={workspaceState}
             workspaceMessage={workspaceMessage}
             appUpdateStatus={appUpdateStatus}
+            liveLogInfo={liveLogInfo}
             onWorkspaceSettingsChange={(patch) => void saveWorkspaceSettings(patch)}
             onApplyLayout={(layoutId) => void applyWorkspaceLayout(layoutId)}
             onResetLayout={() => void resetWorkspaceLayout()}
             onCheckForUpdate={() => void checkForAppUpdate()}
             onDownloadUpdate={() => void downloadAppUpdate()}
             onInstallUpdate={() => void installAppUpdate()}
+            onOpenLiveLogs={() => void studio.openLiveLogs?.().then(setLiveLogInfo)}
           />
         )}
       </section>
@@ -2152,12 +2171,14 @@ function SettingsView({
   workspaceState,
   workspaceMessage,
   appUpdateStatus,
+  liveLogInfo,
   onWorkspaceSettingsChange,
   onApplyLayout,
   onResetLayout,
   onCheckForUpdate,
   onDownloadUpdate,
-  onInstallUpdate
+  onInstallUpdate,
+  onOpenLiveLogs
 }: {
   settings: StudioSettings;
   activeThemeName: string;
@@ -2165,12 +2186,14 @@ function SettingsView({
   workspaceState: StudioWorkspaceState;
   workspaceMessage: string;
   appUpdateStatus: AppUpdateStatus;
+  liveLogInfo?: LiveLogInfo;
   onWorkspaceSettingsChange: (patch: Partial<NonNullable<StudioSettings["studioWorkspace"]>>) => void;
   onApplyLayout: (layoutId: StudioLayoutProfileId) => void;
   onResetLayout: () => void;
   onCheckForUpdate: () => void;
   onDownloadUpdate: () => void;
   onInstallUpdate: () => void;
+  onOpenLiveLogs: () => void;
 }) {
   const workspaceSettings = {
     ...defaultStudioWorkspaceState.settings,
@@ -2317,6 +2340,21 @@ function SettingsView({
           </button>
         </div>
       </div>
+      <details className="advanced-diagnostics-settings">
+        <summary>Advanced diagnostics</summary>
+        <div>
+          <p className="soft-copy">Live logs run automatically and record device discovery, input routing, recording state changes, disk writes, Stop, and final verification.</p>
+          <dl>
+            <div>
+              <dt>Current log</dt>
+              <dd>{liveLogInfo?.filePath ?? "Preparing live log path…"}</dd>
+            </div>
+          </dl>
+          <Button variant="secondary" icon={<FolderOpen size={18} />} onClick={onOpenLiveLogs}>
+            Open Live Logs
+          </Button>
+        </div>
+      </details>
     </section>
   );
 }

@@ -45,7 +45,7 @@ import {
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import type { RecordingServiceSnapshot } from "../services";
 import { formatRecordingTime } from "../services";
-import { Button, Modal, Tooltip } from ".";
+import { Button, Tooltip } from ".";
 import { StudioToolPanels } from "./StudioToolPanels";
 
 interface RecordingStudioProps {
@@ -182,7 +182,6 @@ export function RecordingStudio({
   const [recordingAction, setRecordingAction] = useState<RecordingAction>("idle");
   const [, setMicSignals] = useState<Partial<Record<MicKey, MicSignalState>>>({});
   const [audioDiagnostics, setAudioDiagnostics] = useState<Partial<Record<MicKey, LiveInputDiagnostics>>>({});
-  const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const [recoverySessionId, setRecoverySessionId] = useState<string | undefined>();
   const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
     Object.fromEntries(micSlots.map((slot) => [slot.key, { ...defaultMixerChannel }]))
@@ -442,16 +441,15 @@ export function RecordingStudio({
     setStudioNotice({ tone: "recording", message: "Saving every recorded source safely..." });
     try {
       await onStop();
+      setStudioNotice({ tone: "ready", message: "Recording stopped. Files are saved and verified." });
+    } catch (error) {
+      setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "Recording stopped, but file verification needs attention." });
     } finally {
       setRecordingAction("idle");
     }
   }
 
   function requestStop() {
-    if (snapshot.elapsedMs >= recordingPreferences.confirmStopAfterSeconds * 1000) {
-      setStopConfirmOpen(true);
-      return;
-    }
     void stopStudioRecording();
   }
 
@@ -479,21 +477,10 @@ export function RecordingStudio({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPaused, recordingInProgress, studioReady, snapshot.elapsedMs, recordingPreferences.confirmStopAfterSeconds, onPause, onResume]);
+  }, [isPaused, recordingInProgress, studioReady, onPause, onResume]);
 
   return (
     <section className={`live-studio ${liveMode ? "live-mode" : ""}`} aria-label="Live recording studio">
-      {stopConfirmOpen && (
-        <Modal title="Stop this episode?" onClose={() => setStopConfirmOpen(false)}>
-          <div className="recording-stop-confirm">
-            <p>The recording has been running for {formatRecordingTime(snapshot.elapsedMs)}. Pause if everyone only needs a break.</p>
-            <div>
-              <RusticButton onClick={() => setStopConfirmOpen(false)}>Keep Recording</RusticButton>
-              <Button variant="primary" icon={<Square size={18} />} onClick={() => { setStopConfirmOpen(false); void stopStudioRecording(); }}>Stop &amp; Verify Files</Button>
-            </div>
-          </div>
-        </Modal>
-      )}
       {unfinishedSessions.length > 0 && (
         <RippedPaperCard className="recovery-banner">
           <AlertTriangle size={28} />

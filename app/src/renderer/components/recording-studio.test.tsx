@@ -640,7 +640,7 @@ describe("RecordingStudio", () => {
     expect(host.textContent).not.toContain("Choose Primary Drive");
   });
 
-  it("protects a long episode from an accidental stop", () => {
+  it("stops a long episode with one click", () => {
     const onStop = vi.fn();
     const { host } = renderStudio({
       snapshot: { status: "recording", elapsedMs: 60000, localSaveMessage: "Writing to disk", trackStatuses: [] },
@@ -648,10 +648,8 @@ describe("RecordingStudio", () => {
     });
 
     click(host, "Stop");
-    expect(host.textContent).toContain("Stop this episode?");
-    expect(onStop).not.toHaveBeenCalled();
-    click(host, "Stop & Verify Files");
     expect(onStop).toHaveBeenCalledTimes(1);
+    expect(host.textContent).not.toContain("Stop this episode?");
   });
 
   it("offers one-click recovery and session-folder access for interrupted media", async () => {

@@ -79,6 +79,40 @@ describe("device config", () => {
     expect(getDeviceAssignmentConflicts(extra)).toEqual([]);
   });
 
+  it("migrates older combined routes on one interface into isolated physical inputs", () => {
+    const migrated = withDeviceDefaults({
+      activeThemeId: "what-about-it",
+      defaultEpisodeFolderName: "episodes",
+      practiceModeEnabled: false,
+      deviceDefaults: {
+        cameras: {},
+        microphones: { morganMic: "interface-a", guestMic: "interface-a" },
+        microphoneChannels: { morganMic: "mix", guestMic: "mix" }
+      }
+    } as StudioSettings);
+
+    expect(migrated.deviceDefaults.microphoneChannels).toMatchObject({
+      morganMic: "input-1",
+      guestMic: "input-2"
+    });
+    expect(getDeviceAssignmentConflicts(migrated.deviceDefaults)).toEqual([]);
+  });
+
+  it("preserves automatic combined mode for one laptop microphone", () => {
+    const migrated = withDeviceDefaults({
+      activeThemeId: "what-about-it",
+      defaultEpisodeFolderName: "episodes",
+      practiceModeEnabled: false,
+      deviceDefaults: {
+        cameras: {},
+        microphones: { morganMic: "laptop-mic" },
+        microphoneChannels: { morganMic: "mix" }
+      }
+    } as StudioSettings);
+
+    expect(migrated.deviceDefaults.microphoneChannels?.morganMic).toBe("mix");
+  });
+
   it("keeps a clear default mic route for each camera", () => {
     const routed = saveCameraMicrophoneSlot(defaultDeviceDefaults, "camera2", "morganMic");
 

@@ -67,6 +67,7 @@ describe("app mount", () => {
   });
 
   it("shows the simple workflow in the branded sidebar", async () => {
+    const openLiveLogs = vi.fn(async () => ({ folderPath: "C:/logs", filePath: "C:/logs/2026-08-21.log" }));
     window.studio = {
       listEpisodes: vi.fn(async () => []),
       createEpisode: vi.fn(),
@@ -100,6 +101,8 @@ describe("app mount", () => {
       cancelExport: vi.fn(),
       openExportFolder: vi.fn(),
       createDiagnosticsBundle: vi.fn(async () => ({ folderPath: "diagnostics", files: [] })),
+      getLiveLogInfo: vi.fn(async () => ({ folderPath: "C:/logs", filePath: "C:/logs/2026-08-21.log" })),
+      openLiveLogs,
       getStorageStatus: vi.fn(async () => ({ message: "Storage check ready" as const, availableBytes: 1024 }))
     };
 
@@ -125,6 +128,16 @@ describe("app mount", () => {
     expect(secondary?.textContent).toContain("Learn");
     expect(secondary?.textContent).toContain("More");
     expect(secondary?.querySelectorAll("button")).toHaveLength(3);
+    expect(host.textContent).not.toContain("Advanced diagnostics");
+
+    const settingsButton = Array.from(secondary?.querySelectorAll("button") ?? []).find((button) => button.textContent?.includes("Settings"));
+    await act(async () => settingsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(host.textContent).toContain("Advanced diagnostics");
+    expect(host.textContent).toContain("C:/logs/2026-08-21.log");
+
+    const openLogsButton = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Open Live Logs"));
+    await act(async () => openLogsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(openLiveLogs).toHaveBeenCalledTimes(1);
   });
 
   it("collapses the sidebar and saves the preference", async () => {

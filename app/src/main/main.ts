@@ -16,7 +16,8 @@ import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
 import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
 import { cancelExport, createExport, detectMediaTools, openExportFolder, renderTrackTreatmentPreview } from "./export-store";
 import { runAutoEdit } from "./auto-edit-store";
-import { createDiagnosticsBundle, getStorageStatus } from "./diagnostics-store";
+import { createDiagnosticsBundle, getLiveLogInfo, getStorageStatus, openLiveLogs } from "./diagnostics-store";
+import type { RuntimeLogEntry } from "../shared/diagnostics";
 import { analyzeReviewMediaSync, configureMediaPlaybackBaseUrl, importReviewMediaFile, loadReviewMedia, relinkImportedMediaFile, verifyImportedMediaIntegrity } from "./review-media-store";
 import { cleanupEpisodeStorage, getEpisodeStorageSummary } from "./episode-maintenance-store";
 import type { ReviewMediaImportSlot } from "../shared/review-media";
@@ -421,6 +422,14 @@ app.whenReady().then(async () => {
   ipcMain.handle("export:cancel", (_event, input) => cancelExport(input.episodeId, input.job));
   ipcMain.handle("export:open-folder", (_event, input) => openExportFolder(input.episodeId, input.outputFolder));
   ipcMain.handle("diagnostics:create", (_event, input) => createDiagnosticsBundle(input));
+  ipcMain.handle("diagnostics:get-live-log-info", getLiveLogInfo);
+  ipcMain.handle("diagnostics:open-live-logs", openLiveLogs);
+  ipcMain.handle("diagnostics:write-runtime-log", (_event, entry: RuntimeLogEntry) => {
+    const level = ["info", "warning", "error", "debug"].includes(entry?.level) ? entry.level : "info";
+    const source = String(entry?.source ?? "Renderer").slice(0, 80);
+    const message = String(entry?.message ?? "Runtime event").slice(0, 500);
+    return logger[level](source, message, entry?.details);
+  });
   ipcMain.handle("storage:status", getStorageStatus);
   ipcMain.handle("media-permissions:get-camera-status", () => systemPreferences.getMediaAccessStatus("camera"));
   ipcMain.handle("media-permissions:open-camera-settings", async () => {

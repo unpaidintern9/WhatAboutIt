@@ -6,7 +6,7 @@ import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
-import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
+import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, LiveLogInfo, RuntimeLogEntry, StorageStatus } from "../shared/diagnostics";
 import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaIntegrityResult, ReviewMediaInventory, ReviewMediaSyncResult, ReviewMediaTreatmentPreview } from "../shared/review-media";
 import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../shared/episode-maintenance";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
@@ -61,6 +61,9 @@ declare global {
       cancelExport: (episodeId: string, job: ExportJob) => Promise<ExportJob>;
       openExportFolder: (episodeId: string, outputFolder?: string) => Promise<string>;
       createDiagnosticsBundle: (input: DiagnosticsBundleRequest) => Promise<DiagnosticsBundleResult>;
+      getLiveLogInfo?: () => Promise<LiveLogInfo>;
+      openLiveLogs?: () => Promise<LiveLogInfo>;
+      writeRuntimeLog?: (entry: RuntimeLogEntry) => Promise<void>;
       getStorageStatus: () => Promise<StorageStatus>;
       getCameraAccessStatus?: () => Promise<MediaAccessStatus>;
       openCameraPrivacySettings?: () => Promise<boolean>;

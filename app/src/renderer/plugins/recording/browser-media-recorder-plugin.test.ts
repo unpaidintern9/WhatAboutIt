@@ -35,6 +35,7 @@ class FakeMediaStream {
 class FakeMediaRecorder extends EventTarget {
   static streams: MediaStream[] = [];
   static emitData = true;
+  static emitStop = true;
 
   static isTypeSupported() {
     return true;
@@ -65,7 +66,7 @@ class FakeMediaRecorder extends EventTarget {
 
   stop() {
     this.state = "inactive";
-    this.dispatchEvent(new Event("stop"));
+    if (FakeMediaRecorder.emitStop) this.dispatchEvent(new Event("stop"));
   }
 }
 
@@ -77,6 +78,7 @@ describe("BrowserMediaRecorderPlugin", () => {
   beforeEach(() => {
     FakeMediaRecorder.streams = [];
     FakeMediaRecorder.emitData = true;
+    FakeMediaRecorder.emitStop = true;
     vi.stubGlobal("MediaStream", FakeMediaStream);
     vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
   });
@@ -309,5 +311,26 @@ describe("BrowserMediaRecorderPlugin", () => {
     expect(plugin.getHealth().programActive).toBe(true);
     const result = await plugin.stop();
     expect(result.bytes?.length).toBeGreaterThan(0);
+  });
+
+  it("finishes Stop after a bounded wait when Chromium never emits recorder stop events", async () => {
+    vi.useFakeTimers();
+    FakeMediaRecorder.emitStop = false;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia: vi.fn() }
+    });
+    const plugin = new BrowserMediaRecorderPlugin({
+      getCameraStream: () => streamWith(new FakeTrack("video", "camera-1")),
+      getMicrophoneStream: () => streamWith(new FakeTrack("audio", "mic-1"))
+    });
+    await plugin.start({
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+    });
+
+    const stopping = plugin.stop();
+    await vi.advanceTimersByTimeAsync(5001);
+
+    await expect(stopping).resolves.toMatchObject({ bytes: expect.any(Uint8Array) });
   });
 });

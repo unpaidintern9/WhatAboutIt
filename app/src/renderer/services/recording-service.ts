@@ -1,7 +1,7 @@
 import type { DeviceDefaults } from "../../shared/types";
 import type { RecordingIntegrityReport, RecordingSession, RecordingState, RecordingStatus, RecordingTrackSaveResult } from "../../shared/recording";
 import { createInitialRecordingState, friendlyRecordingError } from "../../shared/recording";
-import type { RecordingEngineHealth, RecordingEnginePlugin } from "../plugins/recording/types";
+import type { RecordingEngineHealth, RecordingEnginePlugin, RecordingEngineResult } from "../plugins/recording/types";
 
 export interface RecordingServiceSnapshot {
   status: RecordingStatus;
@@ -31,6 +31,7 @@ export class RecordingService {
   private friendlyError?: string;
   private trackStatuses: RecordingTrackSaveResult[] = [];
   private integrity?: RecordingIntegrityReport;
+  private stopPromise?: Promise<RecordingServiceSnapshot>;
 
   constructor(private readonly plugin: RecordingEnginePlugin) {}
 
@@ -65,6 +66,13 @@ export class RecordingService {
     if (this.status === "recording" || this.status === "paused") return this.getSnapshot();
 
     try {
+      logRecordingEvent("info", "Recording start requested.", {
+        episodeId: options.episodeId,
+        practice: Boolean(options.practice),
+        cameras: deviceDefaults.cameras,
+        microphones: deviceDefaults.microphones,
+        microphoneChannels: deviceDefaults.microphoneChannels
+      });
       this.session = await window.studio.createRecordingSession({
         deviceDefaults,
         episodeId: options.episodeId,
@@ -83,6 +91,7 @@ export class RecordingService {
       await this.persistState();
       this.startStateTimer();
       this.startStartupHealthGate();
+      logRecordingEvent("info", "Recording capture is active.", { sessionId: this.session.id, folderPath: this.session.folderPath });
     } catch (error) {
       this.stopStartupHealthGate();
       this.status = "error";
@@ -95,6 +104,7 @@ export class RecordingService {
       if (this.session) await window.studio.appendRecordingError(this.session.folderPath, `${this.friendlyError} Startup detail: ${message}`);
       await this.persistState();
       window.studio?.setRecordingCloseProtection?.(false);
+      logRecordingEvent("error", "Recording start failed.", { error: message, sessionId: this.session?.id });
     }
 
     return this.getSnapshot();
@@ -107,6 +117,7 @@ export class RecordingService {
     this.elapsedBeforePause = this.elapsedMs();
     this.status = "paused";
     await this.persistState();
+    logRecordingEvent("info", "Recording paused.", { sessionId: this.session?.id, elapsedMs: this.elapsedBeforePause });
     return this.getSnapshot();
   }
 
@@ -117,18 +128,37 @@ export class RecordingService {
     this.status = "recording";
     await this.persistState();
     this.startStartupHealthGate();
+    logRecordingEvent("info", "Recording resumed.", { sessionId: this.session?.id, elapsedMs: this.elapsedBeforePause });
     return this.getSnapshot();
   }
 
   async stop() {
+    if (this.stopPromise) return this.stopPromise;
+    const stopPromise = this.stopActiveSession();
+    this.stopPromise = stopPromise;
+    try {
+      return await stopPromise;
+    } finally {
+      if (this.stopPromise === stopPromise) this.stopPromise = undefined;
+    }
+  }
+
+  private async stopActiveSession() {
     if (!this.session || (this.status !== "recording" && this.status !== "paused")) return this.getSnapshot();
     const session = this.session;
     const finalElapsed = this.elapsedMs();
     this.stopStartupHealthGate();
     this.stopStateTimer();
-    const result = await this.plugin.stop();
+    logRecordingEvent("info", "Stop requested; flushing browser recorders.", { sessionId: session.id, elapsedMs: finalElapsed });
 
     try {
+      const result: RecordingEngineResult = await this.plugin.stop();
+      logRecordingEvent(result.warning ? "warning" : "info", "Browser recorders stopped; finalizing protected media.", {
+        sessionId: session.id,
+        persisted: Boolean(result.persisted),
+        warning: result.warning,
+        reportedTracks: result.tracks?.length ?? 0
+      });
       if (result.persisted && window.studio.finalizeRecordingMedia) {
         const finalized = await window.studio.finalizeRecordingMedia(session.folderPath);
         const finalizedSlots = new Set(finalized.tracks.map((track) => track.slot));
@@ -162,6 +192,7 @@ export class RecordingService {
       await window.studio.appendRecordingError(session.folderPath, `${this.friendlyError} ${String(error)}`);
       await this.persistState(finalElapsed);
       window.studio?.setRecordingCloseProtection?.(false);
+      logRecordingEvent("error", "Recording finalization failed; recovery data was preserved.", { sessionId: session.id, error: String(error) });
       return this.getSnapshot();
     }
 
@@ -169,6 +200,14 @@ export class RecordingService {
     this.status = "stopped";
     await this.persistState(finalElapsed);
     window.studio?.setRecordingCloseProtection?.(false);
+    logRecordingEvent("info", "Recording stopped and verified.", {
+      sessionId: session.id,
+      elapsedMs: finalElapsed,
+      playable: this.integrity?.playable,
+      savedSourceCount: this.integrity?.savedSourceCount,
+      expectedSourceCount: this.integrity?.expectedSourceCount,
+      warnings: this.integrity?.warnings
+    });
     return this.getSnapshot();
   }
 
@@ -257,6 +296,10 @@ function formatBytes(bytes: number) {
   if (bytes < 1024 ** 2) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
   if (bytes < 1024 ** 3) return `${(bytes / 1024 ** 2).toFixed(1)} MB`;
   return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
+}
+
+function logRecordingEvent(level: "info" | "warning" | "error", message: string, details?: Record<string, unknown>) {
+  void window.studio?.writeRuntimeLog?.({ level, source: "RecordingService", message, details }).catch(() => undefined);
 }
 
 export function formatRecordingTime(elapsedMs: number) {

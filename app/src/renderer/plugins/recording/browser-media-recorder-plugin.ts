@@ -1,6 +1,7 @@
 import type { RecordingEngineHealth, RecordingEnginePlugin, RecordingStartRequest } from "./types";
 import type { RecordingMediaTarget, RecordingSession, RecordingTrackKind, RecordingTrackSaveInput, RecordingTrackSlot } from "../../../shared/recording";
 import type { MicrophoneInputChannel } from "../../../shared/types";
+import { normalizeSharedMicrophoneRoutes } from "../../../shared/device-config";
 import { createRoutedMonoStream, getAudioStreamDiagnostics, openAudioStreamWithFallback, stopStudioMediaStream } from "../audio/studio-audio";
 
 interface ActiveTrackRecorder {
@@ -46,6 +47,10 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   async start(request: RecordingStartRequest) {
     await this.shutdown();
     const generation = ++this.captureGeneration;
+    const normalizedRequest = {
+      ...request,
+      deviceDefaults: normalizeSharedMicrophoneRoutes(request.deviceDefaults)
+    };
 
     if (request.practice) {
       this.chunks = [];
@@ -54,19 +59,19 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       return;
     }
 
-    this.expectedCameraTracks = Object.values(request.deviceDefaults.cameras).filter(Boolean).length;
-    this.expectedAudioTracks = Object.values(request.deviceDefaults.microphones).filter(Boolean).length;
-    this.diskSession = request.session && window.studio.beginRecordingMedia && window.studio.appendRecordingChunk
-      ? request.session
+    this.expectedCameraTracks = Object.values(normalizedRequest.deviceDefaults.cameras).filter(Boolean).length;
+    this.expectedAudioTracks = Object.values(normalizedRequest.deviceDefaults.microphones).filter(Boolean).length;
+    this.diskSession = normalizedRequest.session && window.studio.beginRecordingMedia && window.studio.appendRecordingChunk
+      ? normalizedRequest.session
       : undefined;
     if (this.diskSession) await window.studio.beginRecordingMedia?.(this.diskSession.folderPath);
 
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera needs attention");
-    const videoDeviceId = request.deviceDefaults.cameras.camera1;
-    const programMicSlot = request.deviceDefaults.cameraMicrophones?.camera1 ?? "morganMic";
+    const videoDeviceId = normalizedRequest.deviceDefaults.cameras.camera1;
+    const programMicSlot = normalizedRequest.deviceDefaults.cameraMicrophones?.camera1 ?? "morganMic";
     this.programMicSlot = programMicSlot;
-    const audioDeviceId = request.deviceDefaults.microphones[programMicSlot] ?? request.deviceDefaults.microphones.morganMic;
-    const audioChannel = request.deviceDefaults.microphoneChannels?.[programMicSlot] ?? "mix";
+    const audioDeviceId = normalizedRequest.deviceDefaults.microphones[programMicSlot] ?? normalizedRequest.deviceDefaults.microphones.morganMic;
+    const audioChannel = normalizedRequest.deviceDefaults.microphoneChannels?.[programMicSlot] ?? "mix";
 
     try {
       this.stream = await this.openProgramStream(videoDeviceId, audioDeviceId, audioChannel);
@@ -87,7 +92,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     // Program recording is the only mandatory startup path. Isolated cameras
     // and microphones attach in the background so a sleeping USB endpoint can
     // never hold the Record button for several seconds.
-    void this.startTrackRecorders(request, generation);
+    void this.startTrackRecorders(normalizedRequest, generation);
   }
 
   getHealth(): RecordingEngineHealth {
@@ -161,16 +166,16 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
 
     const recorder = this.recorder;
-    const stopped = recorder.state === "inactive"
-      ? Promise.resolve()
-      : new Promise<void>((resolve) => {
-          recorder.addEventListener("stop", () => resolve(), { once: true });
-          recorder.stop();
-        });
+    const stopped = stopMediaRecorder(recorder);
 
     const trackResults = await Promise.all(this.trackRecorders.map((trackRecorder) => stopTrackRecorder(trackRecorder, Boolean(this.diskSession))));
-    await stopped;
-    await this.programWriteQueue;
+    const programStopTimedOut = await stopped;
+    if (programStopTimedOut) {
+      this.programWriteError = appendWarning(this.programWriteError, "recorder stop event timed out; protected chunks were finalized");
+      logRecorderEvent("warning", "Program recorder stop event timed out; continuing with protected chunks.");
+    }
+    const programWriteTimedOut = await waitForQueue(this.programWriteQueue);
+    if (programWriteTimedOut) this.programWriteError = appendWarning(this.programWriteError, "final disk write timed out; recovery chunks were preserved");
     this.stopStream();
     const previewResults = [...this.trackResults];
 
@@ -379,8 +384,10 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       const result = await persistChunk(session, "program", "program", mimeType, sequence, blob);
       this.programBytesWritten = result.bytesWritten;
       this.programLastChunkAt = result.lastChunkAt;
+      if (sequence === 0) logRecorderEvent("info", "Program wrote its first protected chunk.", { bytesWritten: result.bytesWritten, lastChunkAt: result.lastChunkAt });
     }).catch((error) => {
       this.programWriteError = `disk write failed: ${String(error)}`;
+      logRecorderEvent("error", "Program disk write failed.", { error: String(error) });
     });
   }
 
@@ -397,16 +404,25 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       const result = await persistChunk(session, track.slot, track.kind, track.recorder.mimeType, sequence, blob);
       track.bytesWritten = result.bytesWritten;
       track.lastChunkAt = result.lastChunkAt;
+      if (sequence === 0) logRecorderEvent("info", "Isolated source wrote its first protected chunk.", { slot: track.slot, kind: track.kind, bytesWritten: result.bytesWritten, lastChunkAt: result.lastChunkAt });
     }).catch((error) => {
       track.writeError = `disk write failed: ${String(error)}`;
+      logRecorderEvent("error", "Isolated source disk write failed.", { slot: track.slot, kind: track.kind, error: String(error) });
     });
   }
 }
 
 function logAudioCapture(slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel, stream: MediaStream) {
+  const details = { slot, deviceId, channel, ...getAudioStreamDiagnostics(stream) };
+  void window.studio?.writeRuntimeLog?.({
+    level: "info",
+    source: "AudioCapture",
+    message: "Opened isolated recording route.",
+    details
+  }).catch(() => undefined);
   try {
     if (window.localStorage.getItem("waiDeviceDebug") !== "1") return;
-    console.info("[AudioCapture] recording route", { slot, deviceId: deviceId ? "present" : "missing", channel, ...getAudioStreamDiagnostics(stream) });
+    console.info("[AudioCapture] recording route", details);
   } catch {
     // Diagnostics must never interrupt recording.
   }
@@ -475,15 +491,14 @@ function createTrackRecorder(
 
 async function stopTrackRecorder(trackRecorder: ActiveTrackRecorder, persisted: boolean): Promise<RecordingTrackSaveInput> {
   const { recorder } = trackRecorder;
-  const stopped = recorder.state === "inactive"
-    ? Promise.resolve()
-    : new Promise<void>((resolve) => {
-        recorder.addEventListener("stop", () => resolve(), { once: true });
-        recorder.stop();
-      });
-
-  await stopped;
-  await trackRecorder.writeQueue;
+  if (await stopMediaRecorder(recorder)) {
+    trackRecorder.writeError = appendWarning(trackRecorder.writeError, "recorder stop event timed out; protected chunks were finalized");
+    logRecorderEvent("warning", "Isolated recorder stop event timed out; continuing with protected chunks.", { slot: trackRecorder.slot, kind: trackRecorder.kind });
+  }
+  if (await waitForQueue(trackRecorder.writeQueue)) {
+    trackRecorder.writeError = appendWarning(trackRecorder.writeError, "final disk write timed out; recovery chunks were preserved");
+  }
+  recorder.ondataavailable = null;
   stopStudioMediaStream(trackRecorder.stream);
   if (persisted) {
     return trackRecorder.writeError
@@ -500,6 +515,59 @@ async function stopTrackRecorder(trackRecorder: ActiveTrackRecorder, persisted: 
         status: "needs-attention",
         message: "This device can preview but could not save separately"
       };
+}
+
+/**
+ * Chromium on Windows can occasionally leave MediaRecorder in a state where
+ * stop() was accepted but the stop event never arrives. Flush once, then use a
+ * bounded wait so disk-first chunks can still be finalized and recovered.
+ */
+function stopMediaRecorder(recorder: MediaRecorder, timeoutMs = RECORDER_STOP_TIMEOUT_MS) {
+  if (recorder.state === "inactive") return Promise.resolve(false);
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (timedOut: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      recorder.removeEventListener("stop", onStop);
+      recorder.removeEventListener("error", onError);
+      resolve(timedOut);
+    };
+    const onStop = () => finish(false);
+    const onError = () => finish(true);
+    const timer = window.setTimeout(() => finish(true), timeoutMs);
+    recorder.addEventListener("stop", onStop, { once: true });
+    recorder.addEventListener("error", onError, { once: true });
+    try {
+      if (typeof recorder.requestData === "function") recorder.requestData();
+      recorder.stop();
+    } catch {
+      finish(true);
+    }
+  });
+}
+
+function waitForQueue(queue: Promise<void>, timeoutMs = FINAL_WRITE_TIMEOUT_MS) {
+  return new Promise<boolean>((resolve) => {
+    let settled = false;
+    const finish = (timedOut: boolean) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(timedOut);
+    };
+    const timer = window.setTimeout(() => finish(true), timeoutMs);
+    void queue.then(() => finish(false), () => finish(false));
+  });
+}
+
+function appendWarning(current: string | undefined, warning: string) {
+  return current ? `${current} ${warning}` : warning;
+}
+
+function logRecorderEvent(level: "info" | "warning" | "error", message: string, details?: Record<string, unknown>) {
+  void window.studio?.writeRuntimeLog?.({ level, source: "BrowserMediaRecorder", message, details }).catch(() => undefined);
 }
 
 async function persistChunk(
@@ -532,6 +600,8 @@ function chunkIsRecent(lastChunkAt: string | undefined, now: number) {
 }
 
 const FIRST_CHUNK_GRACE_MS = 8000;
+const RECORDER_STOP_TIMEOUT_MS = 5000;
+const FINAL_WRITE_TIMEOUT_MS = 10000;
 
 function sourceIsWriting(recorderActive: boolean, firstChunkReceived: boolean, lastChunkAt: string | undefined, startedAtMs: number, now: number) {
   if (!recorderActive) return false;
