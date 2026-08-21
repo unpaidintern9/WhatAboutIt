@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, powerSaveBlocker, session, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, powerSaveBlocker, session, shell, systemPreferences } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
@@ -25,6 +25,7 @@ import { startMediaPlaybackServer, type MediaPlaybackServer } from "./media-play
 import { AppUpdateService } from "./app-update-service";
 import { cancelLocalTranscription, getLocalTranscriptionStatus, transcribeEpisodeLocally } from "./local-transcription-store";
 import { RecordingPowerProtection } from "./recording-power-protection";
+import { isStudioMediaPermission } from "../shared/media-permissions";
 
 app.setName("What About It Studio");
 
@@ -257,8 +258,13 @@ app.whenReady().then(async () => {
   await studioWindowManager.load();
   appUpdateService = new AppUpdateService();
 
+  // Chromium performs a synchronous permission check before it makes the
+  // request handled below. Electron requires both handlers for complete media
+  // permission handling; without the check handler every camera can disappear
+  // before Chromium reaches the normal capture request path.
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => isStudioMediaPermission(permission));
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === "media");
+    callback(isStudioMediaPermission(permission));
   });
 
   ipcMain.handle("episodes:list", listEpisodes);
@@ -414,6 +420,12 @@ app.whenReady().then(async () => {
   ipcMain.handle("export:open-folder", (_event, input) => openExportFolder(input.episodeId, input.outputFolder));
   ipcMain.handle("diagnostics:create", (_event, input) => createDiagnosticsBundle(input));
   ipcMain.handle("storage:status", getStorageStatus);
+  ipcMain.handle("media-permissions:get-camera-status", () => systemPreferences.getMediaAccessStatus("camera"));
+  ipcMain.handle("media-permissions:open-camera-settings", async () => {
+    if (process.platform !== "win32") return false;
+    await shell.openExternal("ms-settings:privacy-webcam");
+    return true;
+  });
   ipcMain.handle("app-update:get-status", () => appUpdateService.getStatus());
   ipcMain.handle("app-update:check", () => appUpdateService.checkForUpdates());
   ipcMain.handle("app-update:download", () => appUpdateService.downloadUpdate());

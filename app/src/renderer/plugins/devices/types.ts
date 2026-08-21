@@ -29,6 +29,7 @@ export interface DeviceDetectionResult {
   speakers: StudioDevice[];
   permissionNeeded: boolean;
   errorMessage?: string;
+  cameraAccessStatus?: import("../../../shared/media-permissions").MediaAccessStatus;
 }
 
 export interface DevicePlugin {

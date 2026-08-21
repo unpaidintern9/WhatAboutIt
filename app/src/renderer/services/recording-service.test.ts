@@ -125,6 +125,49 @@ describe("RecordingService", () => {
     );
   });
 
+  it("keeps the Program recording active when only optional isolated sources fail", async () => {
+    vi.useFakeTimers();
+    installStudioMock();
+    const plugin: RecordingEnginePlugin = {
+      ...createPlugin(),
+      getHealth: () => ({
+        programActive: true,
+        activeCameraTracks: 1,
+        activeAudioTracks: 0,
+        expectedCameraTracks: 2,
+        expectedAudioTracks: 1,
+        warnings: ["camera2: Source stopped", "morganMic: Source stopped"],
+        sources: [
+          {
+            target: "program",
+            kind: "program",
+            active: true,
+            firstChunkReceived: true,
+            bytesWritten: 2048,
+            lastChunkAt: "2026-08-21T10:00:00.000Z",
+            message: "Writing to disk"
+          },
+          {
+            target: "camera2",
+            kind: "camera",
+            active: false,
+            firstChunkReceived: false,
+            bytesWritten: 0,
+            message: "Source stopped"
+          }
+        ]
+      })
+    };
+    const service = new RecordingService(plugin);
+
+    await service.start({ cameras: { camera1: "camera-a", camera2: "camera-b" }, microphones: { morganMic: "mic-a" } });
+    await vi.advanceTimersByTimeAsync(8001);
+
+    expect(plugin.stop).not.toHaveBeenCalled();
+    expect(service.getSnapshot().status).toBe("recording");
+    await service.shutdown();
+  });
+
   it("saves separate recorder tracks after the Program recording", async () => {
     installStudioMock();
     const plugin: RecordingEnginePlugin = {
@@ -186,7 +229,10 @@ describe("RecordingService", () => {
 
     expect(snapshot.status).toBe("error");
     expect(snapshot.friendlyError).toBe("Camera needs attention");
-    expect(window.studio.appendRecordingError).toHaveBeenCalledWith("C:/recording/episode-a", "Camera needs attention");
+    expect(window.studio.appendRecordingError).toHaveBeenCalledWith(
+      "C:/recording/episode-a",
+      expect.stringContaining("Camera needs attention Startup detail: Error: Camera needs attention")
+    );
   });
 
   it("shows a friendly mic status when capture cannot start", async () => {
@@ -204,7 +250,10 @@ describe("RecordingService", () => {
 
     expect(snapshot.status).toBe("error");
     expect(snapshot.friendlyError).toBe("Mic needs attention");
-    expect(window.studio.appendRecordingError).toHaveBeenCalledWith("C:/recording/episode-a", "Mic needs attention");
+    expect(window.studio.appendRecordingError).toHaveBeenCalledWith(
+      "C:/recording/episode-a",
+      expect.stringContaining("Mic needs attention Startup detail: Error: Mic needs attention")
+    );
   });
 
   it("shuts down the active recording plugin on app cleanup", async () => {

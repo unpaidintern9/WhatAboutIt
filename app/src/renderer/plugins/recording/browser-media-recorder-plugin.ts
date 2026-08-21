@@ -270,12 +270,24 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const needsAudio = !activeAudioTrack;
     if (needsVideo || needsAudio) {
       if (needsVideo) {
-        const fallbackVideo = await navigator.mediaDevices.getUserMedia({ video: deviceConstraint(videoDeviceId), audio: false });
+        const fallbackVideo = await openMediaStreamWithTimeout(
+          () => navigator.mediaDevices.getUserMedia({ video: deviceConstraint(videoDeviceId), audio: false }),
+          "camera"
+        );
         tracks.push(...fallbackVideo.getVideoTracks());
       }
       if (needsAudio) {
-        const fallbackAudio = await openRecordingAudioStream(audioDeviceId);
-        tracks.push(...fallbackAudio.getAudioTracks());
+        try {
+          const fallbackAudio = await openRecordingAudioStream(audioDeviceId);
+          tracks.push(...fallbackAudio.getAudioTracks());
+        } catch {
+          this.trackResults.push({
+            slot: this.programMicSlot,
+            kind: "audio",
+            status: "preview-only",
+            message: "Program video is recording, but this microphone could not be opened"
+          });
+        }
       }
     }
 
@@ -291,7 +303,10 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const programTrack = slot === "camera1" ? cloneLiveTrack(this.stream?.getVideoTracks()[0]) : undefined;
     if (programTrack) return this.withSyncAudio(programTrack);
 
-    const stream = await navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false });
+    const stream = await openMediaStreamWithTimeout(
+      () => navigator.mediaDevices.getUserMedia({ video: { deviceId: { exact: deviceId } }, audio: false }),
+      `${slot} camera`
+    );
     const videoTrack = stream.getVideoTracks()[0];
     return videoTrack ? this.withSyncAudio(videoTrack) : stream;
   }
@@ -401,10 +416,39 @@ function deviceConstraint(deviceId?: string) {
 }
 
 function openRecordingAudioStream(deviceId?: string) {
-  return openAudioStreamWithFallback(
-    (audio) => navigator.mediaDevices.getUserMedia({ audio, video: false }),
-    deviceId
+  return openMediaStreamWithTimeout(
+    () => openAudioStreamWithFallback(
+      (audio) => navigator.mediaDevices.getUserMedia({ audio, video: false }),
+      deviceId
+    ),
+    "microphone"
   );
+}
+
+function openMediaStreamWithTimeout(request: () => Promise<MediaStream>, sourceLabel: string, timeoutMs = 8000) {
+  return new Promise<MediaStream>((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`${sourceLabel} did not respond within ${Math.round(timeoutMs / 1000)} seconds`));
+    }, timeoutMs);
+
+    void request().then((stream) => {
+      if (settled) {
+        stopStudioMediaStream(stream);
+        return;
+      }
+      settled = true;
+      window.clearTimeout(timer);
+      resolve(stream);
+    }).catch((error) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 function createTrackRecorder(

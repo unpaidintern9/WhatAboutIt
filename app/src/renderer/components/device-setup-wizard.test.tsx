@@ -234,6 +234,38 @@ describe("DeviceSetupWizard", () => {
     expect(permissionMarkup).not.toContain("MediaStream");
   });
 
+  it("opens Windows camera privacy settings when every camera is blocked", () => {
+    const onOpenCameraPrivacySettings = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    act(() => {
+      root.render(
+        <DeviceSetupWizard
+          {...baseProps}
+          onOpenCameraPrivacySettings={onOpenCameraPrivacySettings}
+          detection={{
+            cameras: [],
+            microphones: [],
+            speakers: [],
+            permissionNeeded: true,
+            cameraAccessStatus: "denied"
+          }}
+        />
+      );
+    });
+
+    const settingsButton = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Windows camera settings"));
+    expect(settingsButton).toBeTruthy();
+
+    act(() => {
+      settingsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(onOpenCameraPrivacySettings).toHaveBeenCalledTimes(1);
+  });
+
   it("calls Go to Record from the primary setup action", () => {
     const onGoRecord = vi.fn();
     const host = document.createElement("div");

@@ -583,7 +583,7 @@ export function RecordingStudio({
               <RusticButton onClick={onSaveTemplate}><Save size={16} /> Save This Setup</RusticButton>
               {recordingTemplate && <RusticButton onClick={onApplyTemplate}><Play size={16} /> Load {recordingTemplate.name}</RusticButton>}
             </div>
-            {uncheckedInputs.length > 0 && <p className="preflight-warning" role="alert">{uncheckedInputs.map((slot) => defaults.microphoneNames?.[slot.key] || slot.label).join(" and ")} {uncheckedInputs.length === 1 ? "has" : "have"} not shown a usable signal yet. You can still start; live disk checks will stop safely if a source writes no media.</p>}
+            {uncheckedInputs.length > 0 && <p className="preflight-warning" role="alert">{uncheckedInputs.map((slot) => defaults.microphoneNames?.[slot.key] || slot.label).join(" and ")} {uncheckedInputs.length === 1 ? "has" : "have"} not shown a usable signal yet. Recording can still start; unavailable optional inputs will be flagged without stopping the Program video.</p>}
             <div className="preflight-actions">
               <RusticButton onClick={() => setPreflightOpen(false)}>Fix Inputs</RusticButton>
               <Button variant="primary" icon={<Circle size={18} />} onClick={beginCountdown} disabled={!studioReady}>Start Full Recording{recordingPreferences.countdownSeconds ? ` (${recordingPreferences.countdownSeconds}s countdown)` : ""}</Button>
