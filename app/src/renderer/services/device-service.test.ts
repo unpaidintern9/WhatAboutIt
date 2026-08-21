@@ -110,6 +110,29 @@ describe("device service", () => {
     service.releaseStream("camera", "camera-a", secondConsumer);
   });
 
+  it("releases the physical camera after the last preview consumer closes", async () => {
+    vi.useFakeTimers();
+    const camera = createStream();
+    const plugin: DevicePlugin = {
+      detectDevices: vi.fn(),
+      requestStudioPermissions: vi.fn(),
+      sampleMicrophoneLevel: vi.fn(),
+      playTestSound: vi.fn(),
+      openCameraPreview: vi.fn().mockResolvedValue(camera.stream),
+      openMicrophoneStream: vi.fn()
+    };
+    const service = new DeviceService(plugin);
+    const consumer = await service.openCameraPreview("camera-a");
+
+    service.releaseStream("camera", "camera-a", consumer);
+    expect(camera.track.stop).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1000);
+
+    expect(camera.track.stop).toHaveBeenCalledTimes(1);
+    expect(service.getActiveCameraStream("camera-a")).toBeUndefined();
+    vi.useRealTimers();
+  });
+
   it("releases managed camera and mic streams on cleanup", async () => {
     const camera = createStream();
     const mic = createStream();

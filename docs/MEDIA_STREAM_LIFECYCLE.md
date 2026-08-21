@@ -5,7 +5,9 @@ Phase 9F adds explicit cleanup for camera, microphone, monitoring, and recording
 ## Cleanup Rules
 
 - Studio Setup and Record preview streams are managed by `DeviceService`.
-- Opening a second stream for the same camera or mic stops the older stream first.
+- Multiple preview and meter consumers clone one managed physical camera or microphone source instead of asking Windows to open the same device again.
+- Camera and microphone preview consumers release their clones through the device service. After the last consumer closes, the physical source receives a one-second handoff grace period and is then stopped, preventing the app from holding a Windows camera indefinitely.
+- Setup refresh explicitly releases stale app-owned sources before requesting permissions and enumerating devices again.
 - Leaving Studio Setup or Record calls `DeviceService.releaseAll()`.
 - Renderer shutdown and `beforeunload` call both `DeviceService.releaseAll()` and `RecordingService.shutdown()`.
 - Camera preview components still stop their local tracks on unmount.

@@ -41,6 +41,40 @@ describe("browserDevicePlugin", () => {
     expect(stop).toHaveBeenCalled();
   });
 
+  it("grants camera access through the laptop camera when the default Sony endpoint is busy", async () => {
+    const sonyStop = vi.fn();
+    const laptopStop = vi.fn();
+    const micStop = vi.fn();
+    const getUserMedia = vi.fn(async (constraints: MediaStreamConstraints) => {
+      const video = constraints.video as MediaTrackConstraints | boolean | undefined;
+      const exactDevice = typeof video === "object" ? (video.deviceId as { exact?: string } | undefined)?.exact : undefined;
+      if (exactDevice === "sony-camera") throw new DOMException("Camera busy", "NotReadableError");
+      if (exactDevice === "laptop-camera") return { getTracks: () => [{ stop: laptopStop }] } as unknown as MediaStream;
+      if (constraints.audio) return { getTracks: () => [{ stop: micStop }] } as unknown as MediaStream;
+      return { getTracks: () => [{ stop: sonyStop }] } as unknown as MediaStream;
+    });
+    setMediaDevices({
+      getUserMedia,
+      enumerateDevices: vi.fn(async () => [
+        { deviceId: "sony-camera", kind: "videoinput", label: "Sony Camera (Imaging Edge)" },
+        { deviceId: "laptop-camera", kind: "videoinput", label: "Integrated Camera" },
+        { deviceId: "laptop-mic", kind: "audioinput", label: "Microphone Array" }
+      ] as MediaDeviceInfo[])
+    });
+
+    const result = await browserDevicePlugin.requestStudioPermissions();
+
+    expect(result.permissionNeeded).toBe(false);
+    expect(result.cameras.map((camera) => camera.id)).toEqual(["sony-camera", "laptop-camera"]);
+    expect(getUserMedia).toHaveBeenCalledWith({
+      video: { deviceId: { exact: "laptop-camera" } },
+      audio: false
+    });
+    expect(laptopStop).toHaveBeenCalledTimes(1);
+    expect(micStop).toHaveBeenCalledTimes(1);
+    expect(sonyStop).not.toHaveBeenCalled();
+  });
+
   it("preserves detected Sony camera names", async () => {
     setMediaDevices({
       enumerateDevices: vi.fn(async () => [
@@ -64,6 +98,26 @@ describe("browserDevicePlugin", () => {
         deviceId: { exact: "sony-camera" },
         width: { ideal: 1920 },
         height: { ideal: 1080 },
+        frameRate: { ideal: 30, max: 30 }
+      },
+      audio: false
+    });
+  });
+
+  it("falls back to a driver-safe camera request when full-HD constraints are rejected", async () => {
+    const stream = { getTracks: () => [] } as unknown as MediaStream;
+    const getUserMedia = vi.fn()
+      .mockRejectedValueOnce(new DOMException("Unsupported mode", "OverconstrainedError"))
+      .mockResolvedValueOnce(stream);
+    setMediaDevices({ getUserMedia });
+
+    await expect(browserDevicePlugin.openCameraPreview("sony-camera")).resolves.toBe(stream);
+    expect(getUserMedia).toHaveBeenCalledTimes(2);
+    expect(getUserMedia).toHaveBeenLastCalledWith({
+      video: {
+        deviceId: { exact: "sony-camera" },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
         frameRate: { ideal: 30, max: 30 }
       },
       audio: false
@@ -137,6 +191,21 @@ describe("browserDevicePlugin", () => {
 
     expect(result.permissionNeeded).toBe(true);
     expect(result.cameras).toEqual([expect.objectContaining({ id: "hidden-camera", label: "Camera 1" })]);
+  });
+
+  it("does not treat a hidden speaker label as missing camera or microphone permission", async () => {
+    setMediaDevices({
+      enumerateDevices: vi.fn(async () => [
+        { deviceId: "laptop-camera", kind: "videoinput", label: "Integrated Camera" },
+        { deviceId: "laptop-mic", kind: "audioinput", label: "Microphone Array" },
+        { deviceId: "default", kind: "audiooutput", label: "" }
+      ] as MediaDeviceInfo[])
+    });
+
+    const result = await browserDevicePlugin.detectDevices();
+
+    expect(result.permissionNeeded).toBe(false);
+    expect(result.errorMessage).toBeUndefined();
   });
 
   it("merges camera provider output into device detection", async () => {

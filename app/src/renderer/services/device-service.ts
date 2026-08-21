@@ -34,6 +34,8 @@ export function findDeviceLabel(devices: StudioDevice[], deviceId?: string) {
 export class DeviceService {
   private readonly cameraSources = new Map<string, MediaStream>();
   private readonly cameraOpenPromises = new Map<string, Promise<MediaStream>>();
+  private readonly streamConsumers = new Map<MediaStream, { kind: "camera" | "microphone"; key: string }>();
+  private readonly idleSourceTimers = new Map<string, number>();
   private readonly microphoneSources = new Map<string, MediaStream>();
   private readonly microphoneOpenPromises = new Map<string, Promise<MediaStream>>();
   private cameraGeneration = 0;
@@ -59,6 +61,7 @@ export class DeviceService {
 
   async openCameraPreview(deviceId?: string) {
     const key = deviceId ?? "none";
+    this.cancelIdleSourceStop("camera", key);
     let source = this.getLiveCameraSource(key);
     if (!source) {
       let opening = this.cameraOpenPromises.get(key);
@@ -83,11 +86,14 @@ export class DeviceService {
       }
       source = await opening;
     }
-    return source.clone();
+    const consumer = source.clone();
+    this.streamConsumers.set(consumer, { kind: "camera", key });
+    return consumer;
   }
 
   async openMicrophoneStream(deviceId?: string) {
     const key = deviceId ?? "none";
+    this.cancelIdleSourceStop("microphone", key);
     let source = this.getLiveMicrophoneSource(key);
     if (!source) {
       let opening = this.microphoneOpenPromises.get(key);
@@ -107,7 +113,9 @@ export class DeviceService {
       }
       source = await opening;
     }
-    return source.clone();
+    const consumer = source.clone();
+    this.streamConsumers.set(consumer, { kind: "microphone", key });
+    return consumer;
   }
 
   getActiveCameraStream(deviceId?: string) {
@@ -121,14 +129,23 @@ export class DeviceService {
   releaseStream(kind: "camera" | "microphone", deviceId?: string, stream?: MediaStream) {
     if (stream) {
       stopStudioMediaStream(stream);
+      const consumer = this.streamConsumers.get(stream);
+      this.streamConsumers.delete(stream);
+      if (consumer) this.scheduleIdleSourceStop(consumer.kind, consumer.key);
       return;
     }
-    if (kind === "camera") this.stopCameraSource(deviceId ?? "none");
+    const key = deviceId ?? "none";
+    if (kind === "camera") this.stopCameraSource(key);
+    else this.stopMicrophoneSource(key);
   }
 
   releaseAll() {
     this.cameraGeneration += 1;
     this.microphoneGeneration += 1;
+    for (const timer of this.idleSourceTimers.values()) window.clearTimeout(timer);
+    this.idleSourceTimers.clear();
+    for (const stream of this.streamConsumers.keys()) stopStudioMediaStream(stream);
+    this.streamConsumers.clear();
     for (const stream of this.cameraSources.values()) stopStudioMediaStream(stream);
     this.cameraSources.clear();
     this.cameraOpenPromises.clear();
@@ -154,9 +171,37 @@ export class DeviceService {
   }
 
   private stopCameraSource(key: string) {
+    this.cancelIdleSourceStop("camera", key);
     const stream = this.cameraSources.get(key);
     if (!stream) return;
     stopStudioMediaStream(stream);
     this.cameraSources.delete(key);
+  }
+
+  private stopMicrophoneSource(key: string) {
+    this.cancelIdleSourceStop("microphone", key);
+    const stream = this.microphoneSources.get(key);
+    if (!stream) return;
+    stopStudioMediaStream(stream);
+    this.microphoneSources.delete(key);
+  }
+
+  private scheduleIdleSourceStop(kind: "camera" | "microphone", key: string) {
+    const timerKey = `${kind}:${key}`;
+    if ([...this.streamConsumers.values()].some((consumer) => consumer.kind === kind && consumer.key === key)) return;
+    this.cancelIdleSourceStop(kind, key);
+    this.idleSourceTimers.set(timerKey, window.setTimeout(() => {
+      this.idleSourceTimers.delete(timerKey);
+      if ([...this.streamConsumers.values()].some((consumer) => consumer.kind === kind && consumer.key === key)) return;
+      if (kind === "camera") this.stopCameraSource(key);
+      else this.stopMicrophoneSource(key);
+    }, 1000));
+  }
+
+  private cancelIdleSourceStop(kind: "camera" | "microphone", key: string) {
+    const timerKey = `${kind}:${key}`;
+    const timer = this.idleSourceTimers.get(timerKey);
+    if (timer) window.clearTimeout(timer);
+    this.idleSourceTimers.delete(timerKey);
   }
 }

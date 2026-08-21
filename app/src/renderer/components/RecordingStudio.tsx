@@ -1351,7 +1351,7 @@ function getLivePreviewIssue(error: unknown): "busy" | "permission" | "needs-att
   const message = String(error);
   if (message.includes("NotAllowedError") || message.includes("Permission")) return "permission";
   if (message.includes("NotReadableError") || message.includes("TrackStartError")) return "busy";
-  return "busy";
+  return "needs-attention";
 }
 
 function getLivePreviewCopy(state: "starting" | "live" | "needs-attention" | "busy" | "permission", deviceId?: string) {
