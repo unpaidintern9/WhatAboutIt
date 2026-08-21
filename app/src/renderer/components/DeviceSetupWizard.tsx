@@ -20,6 +20,8 @@ interface DeviceSetupWizardProps {
   onPlayTestSound: () => void;
   onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
+  onReleaseCameraPreview?: (deviceId?: string, stream?: MediaStream) => void;
+  onReleaseMicrophoneStream?: (deviceId?: string, stream?: MediaStream) => void;
   onGoRecord: () => void;
 }
 
@@ -63,6 +65,8 @@ export function DeviceSetupWizard({
   onPlayTestSound,
   onOpenCameraPreview,
   onOpenMicrophoneStream,
+  onReleaseCameraPreview,
+  onReleaseMicrophoneStream,
   onGoRecord
 }: DeviceSetupWizardProps) {
   const readyState = getDeviceReadiness(detection, defaults);
@@ -127,6 +131,10 @@ export function DeviceSetupWizard({
         </div>
       </div>
 
+      {detection.errorMessage ? (
+        <FriendlyState title="Camera and microphone check" message={detection.errorMessage} />
+      ) : null}
+
       <nav className="wizard-steps" aria-label="Device setup steps">
         {steps.map((step, index) => {
           const StepIcon = step.icon;
@@ -177,6 +185,7 @@ export function DeviceSetupWizard({
                   onChoose={(deviceId) => onDefaultsChange(saveCameraSlot(defaults, slot.key, deviceId))}
                   onRefresh={onRefresh}
                   onOpenCameraPreview={onOpenCameraPreview}
+                  onReleaseCameraPreview={onReleaseCameraPreview}
                 />
               ))}
             </div>
@@ -247,6 +256,7 @@ export function DeviceSetupWizard({
                     deviceId={defaults.microphones[slot.key]}
                     inputChannel={defaults.microphoneChannels?.[slot.key] ?? "mix"}
                     onOpenMicrophoneStream={onOpenMicrophoneStream}
+                    onReleaseMicrophoneStream={onReleaseMicrophoneStream}
                     fallbackLevel={slot.key === "morganMic" ? microphoneLevel : 0}
                   />
                 </DeviceSlot>
@@ -333,7 +343,8 @@ function CameraSetupCard({
   disabledDeviceIds,
   onChoose,
   onRefresh,
-  onOpenCameraPreview
+  onOpenCameraPreview,
+  onReleaseCameraPreview
 }: {
   label: string;
   selectedDeviceId?: string;
@@ -342,6 +353,7 @@ function CameraSetupCard({
   onChoose: (deviceId: string) => void;
   onRefresh: () => void;
   onOpenCameraPreview: (deviceId?: string) => Promise<MediaStream>;
+  onReleaseCameraPreview?: (deviceId?: string, stream?: MediaStream) => void;
 }) {
   const selectedDevice = devices.find((device) => device.id === selectedDeviceId);
   const firstDevice = devices.find((device) => !disabledDeviceIds.includes(device.id));
@@ -368,7 +380,8 @@ function CameraSetupCard({
       try {
         const stream = await onOpenCameraPreview(selectedDeviceId);
         if (canceled) {
-          stream.getTracks().forEach((track) => track.stop());
+          if (onReleaseCameraPreview) onReleaseCameraPreview(selectedDeviceId, stream);
+          else stream.getTracks().forEach((track) => track.stop());
           return;
         }
         streamRef.current = stream;
@@ -396,10 +409,13 @@ function CameraSetupCard({
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
       releaseCamera();
     };
-  }, [onOpenCameraPreview, previewAttempt, selectedDeviceId]);
+  }, [onOpenCameraPreview, onReleaseCameraPreview, previewAttempt, selectedDeviceId]);
 
   function releaseCamera() {
-    streamRef.current?.getTracks().forEach((track) => track.stop());
+    if (streamRef.current) {
+      if (onReleaseCameraPreview) onReleaseCameraPreview(selectedDeviceId, streamRef.current);
+      else streamRef.current.getTracks().forEach((track) => track.stop());
+    }
     streamRef.current = undefined;
     if (videoRef.current) videoRef.current.srcObject = null;
   }
@@ -479,12 +495,14 @@ function SetupMicFeedback({
   deviceId,
   inputChannel,
   fallbackLevel,
-  onOpenMicrophoneStream
+  onOpenMicrophoneStream,
+  onReleaseMicrophoneStream
 }: {
   deviceId?: string;
   inputChannel: MicrophoneInputChannel;
   fallbackLevel: number;
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
+  onReleaseMicrophoneStream?: (deviceId?: string, stream?: MediaStream) => void;
 }) {
   const [level, setLevel] = useState(fallbackLevel);
   const [peak, setPeak] = useState(0);
@@ -504,6 +522,12 @@ function SetupMicFeedback({
     async function startMeter() {
       try {
         stream = await onOpenMicrophoneStream(deviceId);
+        if (canceled) {
+          if (onReleaseMicrophoneStream) onReleaseMicrophoneStream(deviceId, stream);
+          else stopStudioMediaStream(stream);
+          stream = undefined;
+          return;
+        }
         const diagnostics = getAudioStreamDiagnostics(stream);
         audioContext = createStudioAudioContext();
         const analyser = audioContext.createAnalyser();
@@ -536,10 +560,11 @@ function SetupMicFeedback({
     return () => {
       canceled = true;
       if (frame) window.cancelAnimationFrame(frame);
-      stopStudioMediaStream(stream);
+      if (stream && onReleaseMicrophoneStream) onReleaseMicrophoneStream(deviceId, stream);
+      else stopStudioMediaStream(stream);
       void audioContext?.close();
     };
-  }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream]);
+  }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream, onReleaseMicrophoneStream]);
 
   const copy = peak >= 98 ? "CLIPPING" : level > 7 ? "ACTIVE" : level > 0 ? "CONNECTED / QUIET" : "NO SIGNAL";
 

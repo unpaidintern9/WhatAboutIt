@@ -73,7 +73,11 @@ function disambiguateCameraLabels(devices: StudioDevice[]) {
 }
 
 async function discoverProviderCameras() {
-  const settled = await Promise.allSettled(cameraProviders.map(async (provider) => ({ providerId: provider.id, cameras: await provider.discover() })));
+  // Browser cameras are already enumerated above. Calling enumerateDevices twice
+  // during the same refresh can return two different snapshots while Windows is
+  // still bringing a USB endpoint online, which makes cameras flicker in and out.
+  const supplementalProviders = cameraProviders.filter((provider) => provider.id !== "local-browser-cameras");
+  const settled = await Promise.allSettled(supplementalProviders.map(async (provider) => ({ providerId: provider.id, cameras: await provider.discover() })));
   const providerResults = settled.map((result) =>
     result.status === "fulfilled" ? result.value : { providerId: "unknown", cameras: [] as StudioDevice[], error: String(result.reason) }
   );
@@ -104,7 +108,10 @@ async function enumerateStudioDevices(): Promise<DeviceDetectionResult> {
     const cameras = disambiguateCameraLabels(mergeDevices([...enumeratedCameras, ...providerCameras]));
     const microphones = devices.filter((device) => device.kind === "audioinput").map((device, index) => toStudioDevice(device, "microphone", index));
     const speakers = devices.filter((device) => device.kind === "audiooutput").map((device, index) => toStudioDevice(device, "speaker", index));
-    const permissionNeeded = devices.some((device) => !device.label);
+    // Audio output labels may stay hidden on Windows even after camera and mic
+    // access is granted. Only capture inputs should hold Studio Setup in the
+    // permission-needed state.
+    const permissionNeeded = devices.some((device) => (device.kind === "videoinput" || device.kind === "audioinput") && !device.label);
 
     logDeviceDebug("enumerateDevices", {
       permissionNeeded,
@@ -114,7 +121,15 @@ async function enumerateStudioDevices(): Promise<DeviceDetectionResult> {
       speakers: speakers.map((speaker) => ({ id: speaker.id ? "present" : "missing", label: speaker.label, kind: speaker.kind }))
     });
 
-    return { cameras, microphones, speakers, permissionNeeded };
+    return {
+      cameras,
+      microphones,
+      speakers,
+      permissionNeeded,
+      errorMessage: permissionNeeded
+        ? "Windows is hiding one or more camera or microphone names. Allow camera and microphone access, then check again."
+        : undefined
+    };
   } catch (error) {
     logDeviceDebug("enumerateDevices failed", String(error));
     return {
@@ -138,37 +153,67 @@ export const browserDevicePlugin: DevicePlugin = {
     if (!navigator.mediaDevices?.getUserMedia) return enumerateStudioDevices();
 
     const streams: MediaStream[] = [];
-    let grantedAny = false;
+    const failures: unknown[] = [];
+    const before = await enumerateStudioDevices();
 
-    try {
-      streams.push(await navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
-      grantedAny = true;
-      logDeviceDebug("camera permission request", "granted");
-    } catch (error) {
-      logDeviceDebug("camera permission request failed", String(error));
-      // Keep going. A busy camera should not hide microphones or already enumerated devices.
+    // A busy Sony endpoint can be Windows' default camera. Try every enumerated
+    // camera independently so that a busy Sony body cannot hide the laptop camera
+    // or prevent Chromium from granting camera access at all.
+    let cameraGranted = false;
+    const cameraIds = [...new Set(before.cameras.map((camera) => camera.id).filter(Boolean))];
+    for (const deviceId of cameraIds) {
+      try {
+        streams.push(await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: deviceId } },
+          audio: false
+        }));
+        cameraGranted = true;
+        logDeviceDebug("camera permission request", { status: "granted", deviceId: "present" });
+        break;
+      } catch (error) {
+        failures.push(error);
+        logDeviceDebug("camera permission request failed", String(error));
+      }
+    }
+    if (!cameraGranted) {
+      try {
+        streams.push(await navigator.mediaDevices.getUserMedia({ video: true, audio: false }));
+        cameraGranted = true;
+        logDeviceDebug("default camera permission request", "granted");
+      } catch (error) {
+        failures.push(error);
+        logDeviceDebug("default camera permission request failed", String(error));
+      }
     }
 
+    let microphoneGranted = false;
     try {
       streams.push(await navigator.mediaDevices.getUserMedia({ audio: true, video: false }));
-      grantedAny = true;
+      microphoneGranted = true;
       logDeviceDebug("microphone permission request", "granted");
     } catch (error) {
+      failures.push(error);
       logDeviceDebug("microphone permission request failed", String(error));
-      // Keep going. A missing or muted mic should not hide cameras from setup.
     }
 
     await Promise.all(streams.map((stream) => stopStream(stream)));
+    const detected = await enumerateStudioDevices();
+    if (cameraGranted && microphoneGranted && !detected.permissionNeeded) return detected;
 
-    if (!grantedAny) {
-      return {
-        ...(await enumerateStudioDevices()),
-        permissionNeeded: true,
-        errorMessage: "Permission needed"
-      };
-    }
-
-    return enumerateStudioDevices();
+    const permissionBlocked = failures.some((error) => /NotAllowedError|PermissionDeniedError|permission denied/i.test(String(error)));
+    const unavailable = [
+      !cameraGranted ? "camera" : undefined,
+      !microphoneGranted ? "microphone" : undefined
+    ].filter((kind): kind is string => Boolean(kind)).join(" and ");
+    return {
+      ...detected,
+      permissionNeeded: detected.permissionNeeded || permissionBlocked,
+      errorMessage: permissionBlocked
+        ? `Windows blocked ${unavailable || "camera or microphone"} access. Open Windows Settings > Privacy & security, allow access for desktop apps, then check again.`
+        : unavailable
+          ? `The ${unavailable} could not be opened. Close Camera, Teams, Zoom, Imaging Edge, and browser tabs using it, then check again.`
+          : detected.errorMessage
+    };
   },
 
   async sampleMicrophoneLevel(deviceId?: string) {
@@ -220,15 +265,31 @@ export const browserDevicePlugin: DevicePlugin = {
 
   async openCameraPreview(deviceId?: string) {
     if (!navigator.mediaDevices?.getUserMedia || !deviceId) throw new Error("Camera needs attention");
-    return navigator.mediaDevices.getUserMedia({
-      video: {
+    const attempts: MediaTrackConstraints[] = [
+      {
         deviceId: { exact: deviceId },
         width: { ideal: 1920 },
         height: { ideal: 1080 },
         frameRate: { ideal: 30, max: 30 }
       },
-      audio: false
-    });
+      {
+        deviceId: { exact: deviceId },
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+        frameRate: { ideal: 30, max: 30 }
+      },
+      { deviceId: { exact: deviceId } }
+    ];
+    let lastError: unknown;
+    for (const video of attempts) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ video, audio: false });
+      } catch (error) {
+        lastError = error;
+        if (!/OverconstrainedError|ConstraintNotSatisfiedError|AbortError/i.test(String(error))) break;
+      }
+    }
+    throw lastError;
   },
 
   async openMicrophoneStream(deviceId?: string) {

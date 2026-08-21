@@ -16,6 +16,11 @@ Status: implemented and validated in built-app Phase 9C smoke.
 ## Phase 9B Fixes
 
 - Camera and microphone permission requests are attempted independently so one busy device does not hide the other device list.
+- Camera permission now tries each Windows camera endpoint independently. A busy Sony/default endpoint no longer prevents the integrated laptop camera from appearing or granting access.
+- Entering Studio Setup performs a fresh permission-aware scan, and Check again resets stale app-owned streams before rediscovery.
+- Camera preview opens fall back from 1080p/30 to driver-safe modes when a USB driver rejects the preferred mode.
+- Preview consumers share one physical source during Setup-to-Record handoff, then the physical source is released after the final consumer closes.
+- Hidden speaker labels no longer incorrectly keep camera and microphone readiness in Permission needed.
 - The Studio Ready banner now requires the selected camera and microphone to be present in current detection, not only saved in settings.
 
 ## Phase 9C Fixes

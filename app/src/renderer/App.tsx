@@ -357,6 +357,7 @@ export default function App() {
   const [hardwareTestResults, setHardwareTestResults] = useState<HardwareTestResults>(() => createHardwareTestResults());
   const [hardwareTestMessage, setHardwareTestMessage] = useState("Real hardware only. Nothing passes until the studio can actually see it.");
   const [deviceChangeState, setDeviceChangeState] = useState<"ready" | "disconnected" | "reconnecting" | "needs-attention">("ready");
+  const [deviceRefreshKey, setDeviceRefreshKey] = useState(0);
   const [diagnosticsBundle, setDiagnosticsBundle] = useState<DiagnosticsBundleResult | undefined>();
   const [storageStatus, setStorageStatus] = useState<StorageStatus | undefined>();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -504,6 +505,11 @@ export default function App() {
       deviceService.releaseAll();
     }
   }, [deviceService, view]);
+
+  useEffect(() => {
+    if (reviewMode || view !== "device-setup") return;
+    void requestStudioPermissions(true);
+  }, [reviewMode, view]);
 
   useEffect(() => {
     if (!navigator.mediaDevices?.addEventListener) return undefined;
@@ -1114,7 +1120,11 @@ export default function App() {
     return detectedDevices;
   }
 
-  async function requestStudioPermissions() {
+  async function requestStudioPermissions(resetConnections = true) {
+    if (resetConnections && recordingService.getSnapshot().status !== "recording" && recordingService.getSnapshot().status !== "paused") {
+      deviceService.releaseAll();
+      setDeviceRefreshKey((current) => current + 1);
+    }
     setDeviceDetection(await deviceService.requestStudioPermissions());
   }
 
@@ -1536,6 +1546,7 @@ export default function App() {
         {view === "device-setup" && (
           <div className="view-stack">
             <DeviceSetupWizard
+              key={deviceRefreshKey}
               detection={deviceDetection}
               defaults={settings.deviceDefaults}
               microphoneLevel={microphoneLevel}
@@ -1548,6 +1559,8 @@ export default function App() {
               onPlayTestSound={() => void playTestSound()}
               onOpenCameraPreview={openCameraPreview}
               onOpenMicrophoneStream={openMicrophoneStream}
+              onReleaseCameraPreview={releaseCameraPreview}
+              onReleaseMicrophoneStream={releaseMicrophoneStream}
               onGoRecord={() => setView("recording")}
             />
           </div>
