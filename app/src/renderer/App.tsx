@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpen, Brush, Camera, CheckCircle2, Clapperboard, Circle, Compass, Download, FolderOpen, Headphones, HardDrive, Mic2, Plus, RefreshCw, Scissors, Settings, ShieldCheck, Sparkles, ListVideo, Wand2, X } from "lucide-react";
-import type { DeviceDefaults, EpisodeMetadata, RecordingPreferences, StudioSettings } from "../shared/types";
+import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
 import { defaultRecordingPreferences } from "../shared/types";
 import type { RecordingSession } from "../shared/recording";
 import type { PodcastToolsState, SoundSlot } from "../shared/podcast-tools";
@@ -17,7 +17,7 @@ import { defaultStudioWorkspaceState, studioPanelLabels, withStudioWorkspaceDefa
 import type { AppUpdateStatus } from "../shared/app-update";
 import { createInitialAppUpdateStatus } from "../shared/app-update";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
-import { defaultDeviceDefaults, getDeviceAssignmentConflicts, withDeviceDefaults } from "../shared/device-config";
+import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
 import { createHardwareTestResults, didDeviceDisconnectDuringRecording, getHardwareDeviceReadiness, getExportTestStatus, getFriendlyHardwareFailureMessage, getNextHardwareTestStep, getRecordingTestStatus, type DiagnosticsBundleResult, type HardwareDeviceSummary } from "../shared/hardware-test";
 import type { StorageStatus } from "../shared/diagnostics";
@@ -68,7 +68,7 @@ function withExportSettings(settings: StudioSettings): StudioSettings {
 function withRecordingSettings(settings: StudioSettings): StudioSettings {
   return {
     ...settings,
-    recordingPreferences: { ...defaultRecordingPreferences, ...settings.recordingPreferences }
+    recordingPreferences: { ...defaultRecordingPreferences, ...settings.recordingPreferences, countdownSeconds: 0 }
   };
 }
 
@@ -1148,77 +1148,6 @@ export default function App() {
     await studio.saveSettings(nextSettings);
   }
 
-  async function saveRecordingPreferences(recordingPreferences: RecordingPreferences) {
-    const nextSettings = { ...settings, recordingPreferences };
-    setSettings(nextSettings);
-    await studio.saveSettings(nextSettings);
-  }
-
-  async function chooseRecordingBackupFolder() {
-    const backupFolderPath = await studio.chooseRecordingBackupFolder?.();
-    if (!backupFolderPath) return;
-    await saveRecordingPreferences({
-      ...defaultRecordingPreferences,
-      ...settings.recordingPreferences,
-      backupFolderPath
-    });
-  }
-
-  async function chooseRecordingPrimaryFolder() {
-    const primaryFolderPath = await studio.chooseRecordingPrimaryFolder?.();
-    if (!primaryFolderPath) return;
-    await saveRecordingPreferences({
-      ...defaultRecordingPreferences,
-      ...settings.recordingPreferences,
-      primaryFolderPath
-    });
-    await Promise.all([
-      refreshEpisodes(),
-      studio.getStorageStatus().then(setStorageStatus)
-    ]);
-  }
-
-  async function useDefaultRecordingPrimaryFolder() {
-    await saveRecordingPreferences({
-      ...defaultRecordingPreferences,
-      ...settings.recordingPreferences,
-      primaryFolderPath: undefined
-    });
-    await Promise.all([
-      refreshEpisodes(),
-      studio.getStorageStatus().then(setStorageStatus)
-    ]);
-  }
-
-  async function saveRecordingTemplate() {
-    const nextSettings: StudioSettings = {
-      ...settings,
-      recordingTemplate: {
-        name: "Morgan's podcast setup",
-        savedAt: new Date().toISOString(),
-        deviceDefaults: settings.deviceDefaults,
-        preferences: { ...defaultRecordingPreferences, ...settings.recordingPreferences }
-      }
-    };
-    setSettings(nextSettings);
-    await studio.saveSettings(nextSettings);
-  }
-
-  async function applyRecordingTemplate() {
-    if (!settings.recordingTemplate) return;
-    const nextSettings = withRecordingSettings(withExportSettings(withDeviceDefaults({
-      ...settings,
-      deviceDefaults: settings.recordingTemplate.deviceDefaults,
-      recordingPreferences: {
-        ...settings.recordingTemplate.preferences,
-        primaryFolderPath: settings.recordingPreferences?.primaryFolderPath,
-        backupFolderPath: settings.recordingPreferences?.backupFolderPath
-      }
-    })));
-    setSettings(nextSettings);
-    await studio.saveSettings(nextSettings);
-  }
-
   async function testMicrophone() {
     const level = await deviceService.sampleMicrophoneLevel(settings.deviceDefaults.microphones.morganMic);
     setMicrophoneLevel(level);
@@ -1431,10 +1360,9 @@ export default function App() {
   }
 
   const selectedCameraReady = deviceDetection.cameras.some((camera) => camera.id === settings.deviceDefaults.cameras.camera1);
-  const selectedMicReady = deviceDetection.microphones.some((microphone) => microphone.id === settings.deviceDefaults.microphones.morganMic);
-  const studioReady = selectedCameraReady && selectedMicReady && getDeviceAssignmentConflicts(settings.deviceDefaults).length === 0;
+  const studioReady = selectedCameraReady;
   const reviewReady = Boolean(reviewMedia?.hasPlayableProgram || recordingSnapshot.status === "stopped");
-  const recordingPreferences = { ...defaultRecordingPreferences, ...settings.recordingPreferences };
+  const recordingPreferences = { ...defaultRecordingPreferences, ...settings.recordingPreferences, countdownSeconds: 0 as const };
   const recordingStorage = assessRecordingStorage({
     status: storageStatus,
     cameraCount: Object.values(settings.deviceDefaults.cameras).filter(Boolean).length,
@@ -1588,9 +1516,7 @@ export default function App() {
             unfinishedSessions={unfinishedSessions}
             podcastTools={podcastTools}
             storageWarning={recordingStorage.ready ? undefined : recordingStorage.message}
-            storageMessage={recordingStorage.message}
             recordingPreferences={recordingPreferences}
-            recordingTemplate={settings.recordingTemplate}
             onStart={() => startRecording(false)}
             onQuickTest={() => startQuickTestRecording()}
             onPause={() => void pauseRecording()}
@@ -1620,12 +1546,6 @@ export default function App() {
               await refreshEpisodes();
             }}
             onOpenSessionFolder={(session) => void studio.openRecordingFolder?.(session.folderPath)}
-            onRecordingPreferencesChange={(preferences) => void saveRecordingPreferences(preferences)}
-            onChoosePrimaryFolder={() => void chooseRecordingPrimaryFolder()}
-            onUseDefaultPrimaryFolder={() => void useDefaultRecordingPrimaryFolder()}
-            onChooseBackupFolder={() => void chooseRecordingBackupFolder()}
-            onSaveTemplate={() => void saveRecordingTemplate()}
-            onApplyTemplate={() => void applyRecordingTemplate()}
             onNext={() => {
               setView("timeline-review");
             }}

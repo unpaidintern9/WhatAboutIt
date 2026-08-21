@@ -189,7 +189,8 @@ async function getSettings(): Promise<StudioSettings> {
     },
     recordingPreferences: {
       ...defaultRecordingPreferences,
-      ...settings.recordingPreferences
+      ...settings.recordingPreferences,
+      countdownSeconds: 0
     }
   };
 }
@@ -205,7 +206,8 @@ async function saveSettings(settings: StudioSettings) {
     },
     recordingPreferences: {
       ...defaultRecordingPreferences,
-      ...settings.recordingPreferences
+      ...settings.recordingPreferences,
+      countdownSeconds: 0
     }
   };
   const previousEpisodesRoot = getEpisodesRoot();

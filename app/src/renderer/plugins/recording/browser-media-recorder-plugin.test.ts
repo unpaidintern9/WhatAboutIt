@@ -213,10 +213,36 @@ describe("BrowserMediaRecorderPlugin", () => {
       expectedAudioTracks: 1
     });
     expect(plugin.getHealth().warnings).toEqual(expect.arrayContaining([
-      expect.stringContaining("Program video is recording")
+      expect.stringContaining("Program video started immediately")
     ]));
     const result = await plugin.stop();
     expect(result.bytes?.length).toBeGreaterThan(0);
+  });
+
+  it("does not wait for a sleeping optional microphone before reporting Program recording active", async () => {
+    let resolveMicrophone: ((stream: MediaStream) => void) | undefined;
+    const lateMicrophone = streamWith(new FakeTrack("audio", "late-mic"));
+    const getUserMedia = vi.fn(() => new Promise<MediaStream>((resolve) => {
+      resolveMicrophone = resolve;
+    }));
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    const plugin = new BrowserMediaRecorderPlugin({
+      getCameraStream: () => streamWith(new FakeTrack("video", "camera-1")),
+      getMicrophoneStream: () => undefined
+    });
+
+    await plugin.start({
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+    });
+
+    expect(plugin.getHealth().programActive).toBe(true);
+    expect(getUserMedia).toHaveBeenCalled();
+    await plugin.stop();
+    resolveMicrophone?.(lateMicrophone);
+    await vi.waitFor(() => expect(lateMicrophone.getTracks()[0]?.readyState).toBe("ended"));
   });
 
   it("streams program and source chunks to disk instead of retaining the episode in renderer memory", async () => {
@@ -261,21 +287,27 @@ describe("BrowserMediaRecorderPlugin", () => {
     expect(result.bytes).toBeUndefined();
   });
 
-  it("blocks recording when the same physical source route is assigned twice", async () => {
-    const getUserMedia = vi.fn();
+  it("does not block the Program recording when optional source routes are duplicated", async () => {
+    const getUserMedia = vi.fn(async () => {
+      throw new DOMException("Optional source unavailable", "NotReadableError");
+    });
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,
       value: { getUserMedia }
     });
-    const plugin = new BrowserMediaRecorderPlugin();
+    const plugin = new BrowserMediaRecorderPlugin({
+      getCameraStream: () => streamWith(new FakeTrack("video", "sony-a"))
+    });
 
-    await expect(plugin.start({
+    await plugin.start({
       deviceDefaults: {
         cameras: { camera1: "sony-a", camera2: "sony-a" },
         microphones: { morganMic: "audiobox", guestMic: "audiobox" },
         microphoneChannels: { morganMic: "input-1", guestMic: "input-1" }
       }
-    })).rejects.toThrow("Source routing needs attention");
-    expect(getUserMedia).not.toHaveBeenCalled();
+    });
+    expect(plugin.getHealth().programActive).toBe(true);
+    const result = await plugin.stop();
+    expect(result.bytes?.length).toBeGreaterThan(0);
   });
 });

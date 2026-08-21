@@ -162,7 +162,6 @@ describe("RecordingStudio", () => {
     const onStop = vi.fn();
     const { host: idleHost } = renderStudio({ onStart });
     click(idleHost, "Record Full Episode");
-    click(idleHost, "Start Full Recording");
     expect(onStart).toHaveBeenCalledTimes(1);
 
     const { host: recordingHost } = renderStudio({ snapshot: { status: "recording", elapsedMs: 1000, localSaveMessage: "Everything is saving locally", trackStatuses: [] }, onPause, onStop });
@@ -184,8 +183,7 @@ describe("RecordingStudio", () => {
     const { host: idleHost } = renderStudio({ onStart });
 
     click(idleHost, "Record Full Episode");
-    click(idleHost, "Start Full Recording");
-    expect(idleHost.textContent).toContain("Starting every ready camera and microphone together");
+    expect(idleHost.textContent).toContain("Starting the Program recording now");
     expect(idleHost.textContent).toContain("Starting");
     await act(async () => finishStart?.());
 
@@ -213,8 +211,7 @@ describe("RecordingStudio", () => {
 
     expect(recordButton.disabled).toBe(false);
     expect(host.textContent).toContain("Recording Needs Attention");
-    click(host, "Record Full Episode");
-    await act(async () => click(host, "Start Full Recording"));
+    await act(async () => click(host, "Record Full Episode"));
 
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain("The camera did not start.");
@@ -487,7 +484,7 @@ describe("RecordingStudio", () => {
     });
 
     expect(host.textContent).toContain("Pick a camera first");
-    expect(host.textContent).toContain("Pick Morgan Mic");
+    expect(host.textContent).toContain("Video-only is ready; mics are optional");
     expect(host.textContent).toContain("Check the items above");
   });
 
@@ -606,39 +603,41 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Review Episode");
   });
 
-  it("shows one explicit preflight before recording", () => {
+  it("starts recording in one click without a preflight, countdown, or drive picker", () => {
     const onStart = vi.fn();
-    const { host } = renderStudio({ onStart, storageMessage: "92 GB free · 34 GB reserved" });
-
-    click(host, "Record");
-    expect(host.textContent).toContain("Ready to record?");
-    expect(host.textContent).toContain("1 cameras ready");
-    expect(host.textContent).toContain("1 microphones ready");
-    expect(host.textContent).toContain("92 GB free");
-    expect(host.textContent).toContain("Primary recording library");
-    expect(host.textContent).toContain("Choose Primary Drive");
-    expect(host.textContent).toContain("Second-drive backup");
-    expect(onStart).not.toHaveBeenCalled();
-
-    click(host, "Start Full Recording");
-    expect(onStart).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows the selected primary recording drive and can return to default storage", () => {
-    const onChoosePrimaryFolder = vi.fn();
-    const onUseDefaultPrimaryFolder = vi.fn();
     const { host } = renderStudio({
-      recordingPreferences: { ...defaultRecordingPreferences, countdownSeconds: 0, primaryFolderPath: "D:/What About It Recordings" },
-      onChoosePrimaryFolder,
-      onUseDefaultPrimaryFolder
+      onStart,
+      defaults: { cameras: { camera1: "camera-a" }, microphones: {} },
+      detection: {
+        cameras: [
+          { id: "camera-a", label: "Main Camera", kind: "camera", camera: { connectionType: "usb", signal: "good", maxResolution: "1080p", maxFps: 30 } }
+        ],
+        microphones: [],
+        speakers: [],
+        permissionNeeded: false
+      },
+      recordingPreferences: { ...defaultRecordingPreferences, countdownSeconds: 3 }
     });
 
-    click(host, "Record");
-    expect(host.textContent).toContain("D:/What About It Recordings");
-    click(host, "Choose Primary Drive");
-    click(host, "Use Default");
-    expect(onChoosePrimaryFolder).toHaveBeenCalledTimes(1);
-    expect(onUseDefaultPrimaryFolder).toHaveBeenCalledTimes(1);
+    click(host, "Record Full Episode");
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(host.textContent).not.toContain("Ready to record?");
+    expect(host.textContent).not.toContain("Countdown");
+    expect(host.textContent).not.toContain("Choose Primary Drive");
+    expect(host.textContent).not.toContain("Choose Backup Drive");
+  });
+
+  it("keeps storage automatic even when an older setup saved a custom path", () => {
+    const onStart = vi.fn();
+    const { host } = renderStudio({
+      recordingPreferences: { ...defaultRecordingPreferences, countdownSeconds: 0, primaryFolderPath: "D:/What About It Recordings" },
+      onStart
+    });
+
+    click(host, "Record Full Episode");
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(host.textContent).not.toContain("D:/What About It Recordings");
+    expect(host.textContent).not.toContain("Choose Primary Drive");
   });
 
   it("protects a long episode from an accidental stop", () => {
