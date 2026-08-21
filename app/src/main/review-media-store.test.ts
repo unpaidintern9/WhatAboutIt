@@ -83,7 +83,10 @@ describe("review media store", () => {
     expect(inventory.audio.find((asset) => asset.id === "guest-mic")?.status).toBe("ready");
     expect(inventory.audio.find((asset) => asset.id === "extra-mic")?.status).toBe("ready");
     expect(inventory.program.playbackUrl).toMatch(/^wai-media:\/\/episode\//);
+    expect(inventory.program.waveformUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.pairedAudioId).toBe("morgan-mic");
+    expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.waveformUrl).toMatch(/^wai-media:\/\/episode\//);
+    expect(inventory.audio.find((asset) => asset.id === "morgan-mic")?.waveformUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(inventory.cameras.find((asset) => asset.id === "camera-2")?.pairedAudioId).toBe("guest-mic");
     expect(inventory.program.reviewProxyPath).toContain(path.join("Session", "Review", "program-review.webm"));
     expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.includesPairedAudio).toBe(true);

@@ -126,12 +126,12 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
         pairedAudioLabel: microphoneLabels[microphoneSlot]
       };
     });
-  const audio = await Promise.all(assets.filter((asset) => asset.kind === "audio").map((asset) => ensureAudioWaveform(episodeFolder, asset)));
-  const program = await ensureReviewProxy(episodeFolder, rawProgram);
+  const audio = await Promise.all(assets.filter((asset) => asset.kind === "audio").map((asset) => ensureMediaWaveform(episodeFolder, asset)));
+  const program = await ensureMediaWaveform(episodeFolder, await ensureReviewProxy(episodeFolder, rawProgram));
   const cameras: ReviewMediaAsset[] = [];
   for (const camera of rawCameras) {
     const pairedAudio = camera.pairedAudioId ? audio.find((asset) => asset.id === camera.pairedAudioId) : undefined;
-    cameras.push(await ensureReviewProxy(episodeFolder, camera, pairedAudio));
+    cameras.push(await ensureMediaWaveform(episodeFolder, await ensureReviewProxy(episodeFolder, camera, pairedAudio)));
   }
   const hasPlayableProgram = program.status === "ready";
 
@@ -147,7 +147,7 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
   };
 }
 
-async function ensureAudioWaveform(episodeFolder: string, asset: ReviewMediaAsset): Promise<ReviewMediaAsset> {
+async function ensureMediaWaveform(episodeFolder: string, asset: ReviewMediaAsset): Promise<ReviewMediaAsset> {
   if (asset.status !== "ready" || !asset.filePath) return asset;
   const waveformPath = path.join(episodeFolder, "Session", "Review", `${asset.id}-waveform.png`);
   try {

@@ -161,8 +161,8 @@ describe("RecordingStudio", () => {
     const onResume = vi.fn();
     const onStop = vi.fn();
     const { host: idleHost } = renderStudio({ onStart });
-    click(idleHost, "Record");
-    click(idleHost, "Start Recording");
+    click(idleHost, "Record Full Episode");
+    click(idleHost, "Start Full Recording");
     expect(onStart).toHaveBeenCalledTimes(1);
 
     const { host: recordingHost } = renderStudio({ snapshot: { status: "recording", elapsedMs: 1000, localSaveMessage: "Everything is saving locally", trackStatuses: [] }, onPause, onStop });
@@ -183,8 +183,8 @@ describe("RecordingStudio", () => {
     const onStop = vi.fn(() => new Promise<void>((resolve) => { finishStop = resolve; }));
     const { host: idleHost } = renderStudio({ onStart });
 
-    click(idleHost, "Record");
-    click(idleHost, "Start Recording");
+    click(idleHost, "Record Full Episode");
+    click(idleHost, "Start Full Recording");
     expect(idleHost.textContent).toContain("Starting every ready camera and microphone together");
     expect(idleHost.textContent).toContain("Starting");
     await act(async () => finishStart?.());
@@ -197,6 +197,27 @@ describe("RecordingStudio", () => {
     expect(recordingHost.textContent).toContain("Verifying the program, each camera, each microphone, and the optional backup copy");
     expect(recordingHost.textContent).toContain("Saving");
     await act(async () => finishStop?.());
+  });
+
+  it("allows a full recording retry after a failed attempt and shows the returned failure", async () => {
+    const failedSnapshot = {
+      status: "error" as const,
+      elapsedMs: 0,
+      localSaveMessage: "Ready to save directly to this computer",
+      trackStatuses: [],
+      friendlyError: "The camera did not start."
+    };
+    const onStart = vi.fn(async () => failedSnapshot);
+    const { host } = renderStudio({ snapshot: failedSnapshot, onStart });
+    const recordButton = Array.from(host.querySelectorAll("button")).find((candidate) => candidate.textContent?.includes("Record Full Episode")) as HTMLButtonElement;
+
+    expect(recordButton.disabled).toBe(false);
+    expect(host.textContent).toContain("Recording Needs Attention");
+    click(host, "Record Full Episode");
+    await act(async () => click(host, "Start Full Recording"));
+
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain("The camera did not start.");
   });
 
   it("saves layout selection, markers, and notes through podcast tools state", () => {
@@ -599,7 +620,7 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Second-drive backup");
     expect(onStart).not.toHaveBeenCalled();
 
-    click(host, "Start Recording");
+    click(host, "Start Full Recording");
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 

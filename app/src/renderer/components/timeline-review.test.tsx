@@ -19,6 +19,7 @@ const media: ReviewMediaInventory = {
     relativePath: "Program/program.webm",
     filePath: "C:/episodes/episode-a/Program/program.webm",
     playbackUrl: "file:///C:/episodes/episode-a/Program/program.webm",
+    waveformUrl: "file:///C:/episodes/episode-a/Session/Review/program-waveform.png",
     status: "ready",
     durationMs: 30000,
     codecSummary: "vp9 1280x720",
@@ -32,6 +33,7 @@ const media: ReviewMediaInventory = {
       kind: "camera",
       relativePath: "Cameras/camera-1.webm",
       playbackUrl: "file:///C:/episodes/episode-a/Cameras/camera-1.webm",
+      waveformUrl: "file:///C:/episodes/episode-a/Session/Review/camera-1-waveform.png",
       pairedAudioId: "morgan-mic",
       pairedAudioLabel: "Morgan Mic",
       status: "ready",
@@ -55,6 +57,7 @@ const media: ReviewMediaInventory = {
       kind: "audio",
       relativePath: "Audio/morgan-mic.m4a",
       playbackUrl: "file:///C:/episodes/episode-a/Audio/morgan-mic.m4a",
+      waveformUrl: "file:///C:/episodes/episode-a/Session/Review/morgan-mic-waveform.png",
       status: "ready",
       durationMs: 30000,
       codecSummary: "aac 48000 Hz",
@@ -109,7 +112,10 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Import SRT, VTT, or TXT");
     expect(markup).toContain("never uploaded");
     expect(markup).toContain("Restore");
-    expect(markup).toContain("Save &amp; Export");
+    expect(markup).toContain("Create combined video");
+    expect(markup).toContain("Build one finished episode");
+    expect(markup).toContain("Auto-build first cut");
+    expect(markup.match(/timeline-waveform-image/g)).toHaveLength(3);
     expect(markup).toContain("Previous marker");
     expect(markup).toContain("Next marker");
     expect(markup).toContain("Go back 5 seconds (J)");
@@ -233,6 +239,7 @@ describe("TimelineReview", () => {
     });
 
     const lane = host.querySelector('[aria-label="Program timeline"]') as HTMLDivElement;
+    const clip = lane.querySelector(".timeline-clip") as HTMLButtonElement;
     lane.setPointerCapture = vi.fn();
     lane.releasePointerCapture = vi.fn();
     lane.hasPointerCapture = vi.fn(() => true);
@@ -245,9 +252,9 @@ describe("TimelineReview", () => {
     }
 
     act(() => {
-      lane.dispatchEvent(pointer("pointerdown", 100));
-      lane.dispatchEvent(pointer("pointermove", 400));
-      lane.dispatchEvent(pointer("pointerup", 400));
+      clip.dispatchEvent(pointer("pointerdown", 100));
+      clip.dispatchEvent(pointer("pointermove", 400));
+      clip.dispatchEvent(pointer("pointerup", 400));
     });
 
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
@@ -271,11 +278,12 @@ describe("TimelineReview", () => {
     });
     const splitButton = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.trim() === "Split") as HTMLButtonElement;
     const lane = host.querySelector('[aria-label="Program timeline"]') as HTMLDivElement;
+    const clip = lane.querySelector(".timeline-clip") as HTMLButtonElement;
     lane.getBoundingClientRect = () => ({ x: 0, y: 0, left: 0, top: 0, right: 1000, bottom: 54, width: 1000, height: 54, toJSON: () => ({}) });
     act(() => splitButton.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     const event = new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 500 });
     Object.defineProperty(event, "pointerId", { value: 2 });
-    act(() => lane.dispatchEvent(event));
+    act(() => clip.dispatchEvent(event));
 
     expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
       editLog: [expect.objectContaining({ type: "split", timestampMs: 15000, targetTrackId: "program" })]

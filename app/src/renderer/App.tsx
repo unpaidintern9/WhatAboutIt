@@ -749,14 +749,14 @@ export default function App() {
     } catch {
       return false;
     }
-    if (timelineDraft.editMode !== "manual") return true;
+    if (timelineDraft.editMode !== "manual") return savedDraft;
     const nextSettings: StudioSettings = {
       ...settings,
       autoEditLearning: learnAutoEditProfile(savedDraft, settings.autoEditLearning, autoEditMode)
     };
     setSettings(nextSettings);
     await studio.saveSettings(nextSettings);
-    return true;
+    return savedDraft;
   }
 
   async function checkForAppUpdate() {
@@ -819,7 +819,7 @@ export default function App() {
     queueTimelineDraftChange(nextDraft);
   }
 
-  async function startExport(practice = false) {
+  async function startExport(practice = false, typeOverride?: ExportType, draftOverride?: TimelineDraft) {
     let episodeId = recordingSnapshot.session?.episodeId ?? timelineDraft.episodeId ?? activeEpisode?.id;
     if (!episodeId) {
       const latestEpisodes = await studio.listEpisodes();
@@ -832,7 +832,8 @@ export default function App() {
     }
     if (!episodeId) return;
     let destinationFolderPath = exportDestinationFolder;
-    if (selectedExportType === "editor-handoff" && !practice && !destinationFolderPath) {
+    const exportType = typeOverride ?? selectedExportType;
+    if (exportType === "editor-handoff" && !practice && !destinationFolderPath) {
       destinationFolderPath = await studio.chooseExportDestinationFolder?.();
       if (!destinationFolderPath) return;
       setExportDestinationFolder(destinationFolderPath);
@@ -840,12 +841,12 @@ export default function App() {
     setView("export");
     const job = await exportService.start({
       episodeId,
-      type: selectedExportType,
+      type: exportType,
       qualityPreset: selectedQualityPreset,
       deviceDefaults: settings.deviceDefaults,
       draft:
-        timelineDraft.episodeId === episodeId
-          ? timelineDraft
+        (draftOverride ?? timelineDraft).episodeId === episodeId
+          ? (draftOverride ?? timelineDraft)
           : createTimelineDraft({
               episodeId,
               recordingSessionId: recordingSnapshot.session?.id,
@@ -1338,6 +1339,7 @@ export default function App() {
       setEpisodes(latestEpisodes);
       setActiveEpisode(latestEpisodes.find((episode) => episode.id === nextSnapshot.session?.episodeId) ?? activeEpisode);
     }
+    return nextSnapshot;
   }
 
   async function pauseRecording() {
@@ -1590,6 +1592,13 @@ export default function App() {
             onExport={async () => {
               if (!(await saveApprovedTimelineDraft())) return;
               setView("export");
+            }}
+            onCreateCombinedVideo={async () => {
+              const savedDraft = await saveApprovedTimelineDraft();
+              if (!savedDraft) return;
+              setSelectedExportType("full-episode-video");
+              setView("export");
+              await startExport(reviewMode, "full-episode-video", savedDraft);
             }}
             onAutoEdit={() => void runAutoEditFlow(reviewMode)}
             onImportMedia={importEpisodeMedia}
