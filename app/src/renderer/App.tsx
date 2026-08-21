@@ -590,11 +590,7 @@ export default function App() {
   }
 
   async function createEpisode() {
-    try {
-      await flushPendingTimelineSave();
-    } catch {
-      return;
-    }
+    await flushPendingTimelineSave();
     const episode = await studio.createEpisode({
       title,
       guestName,
@@ -1377,6 +1373,7 @@ export default function App() {
   }
 
   const selectedCameraReady = deviceDetection.cameras.some((camera) => camera.id === settings.deviceDefaults.cameras.camera1);
+  const selectedMicrophoneReady = deviceDetection.microphones.some((microphone) => microphone.id === settings.deviceDefaults.microphones.morganMic);
   const studioReady = selectedCameraReady;
   const reviewReady = Boolean(reviewMedia?.hasPlayableProgram || recordingSnapshot.status === "stopped");
   const recordingPreferences = { ...defaultRecordingPreferences, ...settings.recordingPreferences, countdownSeconds: 0 as const };
@@ -1494,13 +1491,17 @@ export default function App() {
         {showTour && (
           <FirstRunSetup
             onClose={(preference) => void closeTour(preference)}
+            onStartSetup={() => {
+              void closeTour("never");
+              setView("device-setup");
+            }}
             onHardwareTest={() => {
-              setShowTour(false);
+              void closeTour("never");
               setView("hardware-test");
             }}
           />
         )}
-        {view === "home" && <HomeView episodes={episodes} onNewEpisode={() => setView("new-episode")} onStudioSetup={() => setView("device-setup")} onOpenEpisode={(episode) => void openEpisode(episode)} />}
+        {view === "home" && <HomeView episodes={episodes} cameraReady={selectedCameraReady} microphoneReady={selectedMicrophoneReady} onNewEpisode={() => setView("new-episode")} onStudioSetup={() => setView("device-setup")} onOpenEpisode={(episode) => void openEpisode(episode)} />}
         {view === "new-episode" && <NewEpisodeView title={title} guestName={guestName} description={description} setTitle={setTitle} setGuestName={setGuestName} setDescription={setDescription} createEpisode={createEpisode} onBack={() => setView("home")} onNext={() => setView("device-setup")} />}
         {view === "device-setup" && (
           <div className="view-stack">
@@ -1767,8 +1768,8 @@ function JourneyProgress({
   );
 }
 
-function FirstRunSetup({ onClose, onHardwareTest }: { onClose: (preference: "skip" | "remind-later" | "never") => void; onHardwareTest: () => void }) {
-  const topics = ["Check cameras and microphones before the first episode.", "Run a 30-second recording test with real gear.", "Export a local MP4 test copy.", "Save diagnostics locally if anything needs attention.", "Everything stays on this computer."];
+function FirstRunSetup({ onClose, onStartSetup, onHardwareTest }: { onClose: (preference: "skip" | "remind-later" | "never") => void; onStartSetup: () => void; onHardwareTest: () => void }) {
+  const topics = ["Pick Camera 1.", "Pick Morgan Mic.", "Press Record when the previews look right."];
 
   return (
     <section className="tour-card" role="dialog" aria-label="First run setup">
@@ -1778,7 +1779,7 @@ function FirstRunSetup({ onClose, onHardwareTest }: { onClose: (preference: "ski
       <div>
         <p className="signature">Welcome to beta</p>
         <h2>Let's check the studio first.</h2>
-        <p className="soft-copy">Start with Hardware Test Mode so the app can confirm your camera, microphone, export, and diagnostics are ready.</p>
+        <p className="soft-copy">Start with Studio Setup. The app keeps the required choices short and leaves extra gear optional.</p>
       </div>
       <div className="tour-topic-grid">
         {topics.map((topic) => (
@@ -1788,24 +1789,21 @@ function FirstRunSetup({ onClose, onHardwareTest }: { onClose: (preference: "ski
         ))}
       </div>
       <div className="tour-actions">
-        <Button variant="primary" icon={<ShieldCheck size={20} />} onClick={onHardwareTest}>
-          Run Hardware Test
+        <Button variant="primary" icon={<Camera size={20} />} onClick={onStartSetup}>
+          Start Studio Setup
+        </Button>
+        <Button variant="secondary" icon={<ShieldCheck size={20} />} onClick={onHardwareTest}>
+          Run Full Hardware Test
         </Button>
         <Button variant="secondary" icon={<ArrowRight size={20} />} onClick={() => onClose("skip")}>
-          Start with Home
-        </Button>
-        <Button variant="secondary" onClick={() => onClose("remind-later")}>
-          Remind Me Later
-        </Button>
-        <Button variant="secondary" onClick={() => onClose("never")}>
-          Never Show Again
+          Not Now
         </Button>
       </div>
     </section>
   );
 }
 
-function HomeView({ episodes, onNewEpisode, onStudioSetup, onOpenEpisode }: { episodes: EpisodeMetadata[]; onNewEpisode: () => void; onStudioSetup: () => void; onOpenEpisode: (episode: EpisodeMetadata) => void }) {
+function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStudioSetup, onOpenEpisode }: { episodes: EpisodeMetadata[]; cameraReady: boolean; microphoneReady: boolean; onNewEpisode: () => void; onStudioSetup: () => void; onOpenEpisode: (episode: EpisodeMetadata) => void }) {
   return (
     <div className="view-stack">
       <section className="hero-panel">
@@ -1858,19 +1856,19 @@ function HomeView({ episodes, onNewEpisode, onStudioSetup, onOpenEpisode }: { ep
             <Wand2 size={22} />
           </div>
           <div className="locked-tools">
-            <span>
-              <Camera size={18} /> Studio Setup is ready
+            <span className={cameraReady ? "ready" : "needs-attention"}>
+              <Camera size={18} /> {cameraReady ? "Camera 1 is ready" : "Camera 1 needs a quick check"}
+            </span>
+            <span className={microphoneReady ? "ready" : "needs-attention"}>
+              <Mic2 size={18} /> {microphoneReady ? "Morgan Mic is ready" : "Morgan Mic needs a quick check"}
             </span>
             <span>
-              <Mic2 size={18} /> Mic check is ready
-            </span>
-            <span>
-              <Circle size={18} /> Recording foundation is ready
+              <Circle size={18} /> One-click recording is ready
             </span>
           </div>
           <p>Next best move: check the studio, record, review, Auto Edit, then export a local finished copy.</p>
           <Button variant="secondary" icon={<ArrowRight size={20} />} onClick={onStudioSetup}>
-            Go to Studio Setup
+            {cameraReady && microphoneReady ? "Review Studio Setup" : "Check Studio Setup"}
           </Button>
         </div>
       </section>
@@ -1879,6 +1877,23 @@ function HomeView({ episodes, onNewEpisode, onStudioSetup, onOpenEpisode }: { ep
 }
 
 function NewEpisodeView(props: { title: string; guestName: string; description: string; setTitle: (value: string) => void; setGuestName: (value: string) => void; setDescription: (value: string) => void; createEpisode: () => Promise<void>; onBack: () => void; onNext: () => void }) {
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string>();
+
+  async function submitEpisode() {
+    if (creating || !props.title.trim()) return;
+    setCreating(true);
+    setCreateError(undefined);
+    try {
+      await props.createEpisode();
+      props.onNext();
+    } catch (error) {
+      setCreateError(error instanceof Error ? error.message : "The episode could not be created. Try again.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
   return (
     <section className="form-panel">
       <p className="signature">Let's get this one on the books</p>
@@ -1899,10 +1914,11 @@ function NewEpisodeView(props: { title: string; guestName: string; description: 
         <Button variant="secondary" icon={<ArrowLeft size={20} />} onClick={props.onBack}>
           Back Home
         </Button>
-        <Button variant="primary" icon={<Plus size={22} />} disabled={!props.title.trim()} onClick={() => void props.createEpisode().then(props.onNext)}>
-          Create Episode and Check Studio
+        <Button variant="primary" icon={<Plus size={22} />} disabled={!props.title.trim() || creating} onClick={() => void submitEpisode()}>
+          {creating ? "Creating Episode…" : "Create Episode and Check Studio"}
         </Button>
       </div>
+      {createError ? <p className="form-error" role="alert">{createError}</p> : null}
     </section>
   );
 }
@@ -2012,8 +2028,14 @@ function HardwareTestModeView({
   const recordingStatus = getRecordingTestStatus(recordingSnapshot.status);
   const exportStatus = getExportTestStatus(exportJob?.status);
   const isRecording = recordingSnapshot.status === "recording" || recordingSnapshot.status === "paused";
-  const needsAttention = Object.values(results).some((result) => result.status === "needs-attention" || result.status === "disconnected");
-  const summary = needsAttention ? "Needs Attention" : "Everything Ready";
+  const visibleCameraResults = [results.camera1, ...[results.camera2, results.camera3].filter((result) => result.status !== "not-run")];
+  const evaluatedStatuses = [...visibleCameraResults.map((result) => result.status), results.morganMic.status, recordingStatus, exportStatus];
+  const needsAttention = evaluatedStatuses.some((status) => status === "needs-attention" || status === "disconnected");
+  const allRequiredReady = results.camera1.status === "ready"
+    && results.morganMic.status === "ready"
+    && recordingSnapshot.status === "stopped"
+    && exportJob?.status === "complete";
+  const summary = needsAttention ? "Needs Attention" : allRequiredReady ? "Everything Ready" : "Checks in progress";
   const storageCopy = storageStatus?.availableBytes ? `${Math.floor(storageStatus.availableBytes / 1024 / 1024 / 1024)} GB available` : (storageStatus?.message ?? "Storage check waiting");
 
   return (
@@ -2054,7 +2076,7 @@ function HardwareTestModeView({
       </div>
 
       <div className="studio-dashboard-grid" aria-label="Live studio readiness">
-        {[results.camera1, results.camera2, results.camera3].map((result) => (
+        {visibleCameraResults.map((result) => (
           <article className={`hardware-result-card ${result.status}`} key={result.label}>
             <Camera size={24} />
             <h3>{result.label}</h3>
@@ -2088,7 +2110,7 @@ function HardwareTestModeView({
         {step === "cameras" && (
           <>
             <h3>Step 1: Check cameras</h3>
-            <p>We'll look for real cameras and keep the main screen simple: Camera 1, Camera 2, Camera 3.</p>
+            <p>We'll confirm Camera 1 and any extra camera you deliberately assigned. Unused camera slots stay out of the way.</p>
             <Button variant="primary" icon={<Camera size={22} />} onClick={onCheckCameras}>
               Check cameras
             </Button>
@@ -2125,7 +2147,7 @@ function HardwareTestModeView({
           <>
             <h3>Step 4: Export the test</h3>
             <p>Save a finished test copy locally and keep the original recording untouched.</p>
-            <Button variant="primary" icon={<Download size={22} />} onClick={onExport}>
+            <Button variant="primary" icon={<Download size={22} />} disabled={recordingSnapshot.status !== "stopped" || exportJob?.status === "running" || exportJob?.status === "queued"} onClick={onExport}>
               Export test
             </Button>
             <p className={`hardware-inline-status ${exportStatus}`}>{exportJob?.message ?? mediaToolsStatus?.message ?? "Export is waiting for the test recording."}</p>
@@ -2151,15 +2173,6 @@ function HardwareTestModeView({
         )}
       </div>
 
-      <div className="hardware-results-grid" aria-label="Hardware test results">
-        {Object.values(results).map((result) => (
-          <article className={`hardware-result-card ${result.status}`} key={result.label}>
-            {result.status === "ready" ? <CheckCircle2 size={24} /> : result.status === "needs-attention" ? <X size={24} /> : <Circle size={18} />}
-            <h3>{result.label}</h3>
-            <p>{result.message}</p>
-          </article>
-        ))}
-      </div>
     </section>
   );
 }
@@ -2235,11 +2248,11 @@ function SettingsView({
         </div>
         <div>
           <dt>Default export type</dt>
-          <dd>{settings.exportSettings.defaultExportType}</dd>
+          <dd>{formatExportTypeSetting(settings.exportSettings.defaultExportType)}</dd>
         </div>
         <div>
           <dt>Export quality</dt>
-          <dd>{settings.exportSettings.qualityPreset}</dd>
+          <dd>{formatExportQualitySetting(settings.exportSettings.qualityPreset)}</dd>
         </div>
         <div>
           <dt>Monitors</dt>
@@ -2357,6 +2370,21 @@ function SettingsView({
       </details>
     </section>
   );
+}
+
+function formatExportTypeSetting(type: ExportType) {
+  const labels: Record<ExportType, string> = {
+    "full-episode-video": "Full Episode Video",
+    "audio-only": "Audio Only",
+    "archive-master": "Archive Master",
+    "social-clip-placeholder": "Social Clip",
+    "editor-handoff": "Editor Handoff"
+  };
+  return labels[type];
+}
+
+function formatExportQualitySetting(quality: ExportQualityPreset) {
+  return quality === "standard" ? "Standard" : quality === "high" ? "High" : "Archive";
 }
 
 function LearnStudioView() {

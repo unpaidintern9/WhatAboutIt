@@ -129,8 +129,8 @@ describe("RecordingStudio", () => {
     expect(markers?.textContent).toContain("Funny");
     expect(controls?.textContent).toContain("Record");
     expect(controls?.textContent).not.toContain("Stop");
-    expect(host.textContent).toContain("Studio Ready");
-    expect(host.textContent).toContain("Ready to record");
+    expect(host.textContent).toContain("Cameras Ready");
+    expect(host.textContent).toContain("Recording Healthy");
     expect(tools?.querySelector("summary")?.textContent).toContain("Show notes, markers, teleprompter, and soundboard");
   });
 
@@ -220,8 +220,9 @@ describe("RecordingStudio", () => {
   it("saves layout selection, markers, and notes through podcast tools state", () => {
     const { host, onPodcastToolsChange } = renderStudio();
 
-    click(host, "Triple");
-    expect(onPodcastToolsChange).toHaveBeenLastCalledWith(expect.objectContaining({ cameraLayout: "triple" }));
+    click(host, "View Layouts");
+    click(host, "Intro");
+    expect(onPodcastToolsChange).toHaveBeenLastCalledWith(expect.objectContaining({ cameraLayout: "intro" }));
 
     click(host, "Funny");
     expect(onPodcastToolsChange).toHaveBeenLastCalledWith(expect.objectContaining({ markers: [expect.objectContaining({ label: "Funny" })] }));
@@ -280,7 +281,13 @@ describe("RecordingStudio", () => {
 
   it("routes camera audio to Morgan, Guest, or Extra mic slots", () => {
     const onDefaultsChange = vi.fn();
-    const { host } = renderStudio({ onDefaultsChange });
+    const { host } = renderStudio({
+      onDefaultsChange,
+      defaults: {
+        ...defaults,
+        microphones: { morganMic: "mic-a", guestMic: "mic-b" }
+      }
+    });
     const route = host.querySelector('select[aria-label="Camera 1 audio input"]') as HTMLSelectElement;
 
     expect(route).toBeTruthy();
@@ -462,6 +469,7 @@ describe("RecordingStudio", () => {
     const onExport = vi.fn();
     const { host } = renderStudio({ onAutoEdit, onExport });
 
+    click(host, "View Layouts");
     click(host, "Intro");
     expect(host.textContent).toContain("Add a sound");
 
@@ -500,6 +508,23 @@ describe("RecordingStudio", () => {
     expect(host.querySelector(".mixer-panel")?.textContent).not.toContain("Music");
   });
 
+  it("keeps unused guest inputs and impossible camera layouts out of the idle Studio", () => {
+    const { host } = renderStudio();
+
+    expect(host.querySelectorAll(".live-meter-card")).toHaveLength(1);
+    expect(host.querySelector(".mixer-panel")?.textContent).not.toContain("Guest Mic");
+    expect(host.querySelector(".layout-row")).toBeNull();
+
+    click(host, "View Layouts");
+    const layoutCopy = host.querySelector(".layout-row")?.textContent ?? "";
+    expect(layoutCopy).toContain("Host");
+    expect(layoutCopy).toContain("Sponsor Card");
+    expect(layoutCopy).not.toContain("Guest");
+    expect(layoutCopy).not.toContain("Split");
+    expect(layoutCopy).not.toContain("Triple");
+    expect(layoutCopy.match(/Sponsor Card/g)).toHaveLength(1);
+  });
+
   it("renders helpful unavailable states", () => {
     const { host } = renderStudio({
       defaults: { cameras: {}, microphones: {}, audioOutputId: "speaker-a" },
@@ -511,9 +536,8 @@ describe("RecordingStudio", () => {
       }
     });
 
-    expect(host.textContent).toContain("Pick a camera first");
-    expect(host.textContent).toContain("Video-only is ready; mics are optional");
-    expect(host.textContent).toContain("Check the items above");
+    expect(host.textContent).toContain("Cameras Need Attention");
+    expect(host.textContent).toContain("Microphones Need Attention");
   });
 
   it("shows truthful sidecar save states for recorded tracks", () => {

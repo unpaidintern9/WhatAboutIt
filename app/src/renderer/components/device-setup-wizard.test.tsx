@@ -64,7 +64,7 @@ describe("DeviceSetupWizard", () => {
     expect(markup).not.toContain("backend provider");
   });
 
-  it("keeps the third microphone optional instead of filling setup with an unused input", () => {
+  it("keeps guest and extra microphones optional instead of filling setup with unused inputs", () => {
     const markup = renderToStaticMarkup(
       <DeviceSetupWizard
         {...baseProps}
@@ -79,9 +79,45 @@ describe("DeviceSetupWizard", () => {
     );
 
     expect(markup).toContain("Morgan Mic");
-    expect(markup).toContain("Guest Mic");
-    expect(markup).toContain("Add an optional third mic");
+    expect(markup).toContain("Add Guest Mic (optional)");
+    expect(markup).not.toContain("Assign Guest Mic");
     expect(markup).not.toContain("Assign Extra Mic");
+  });
+
+  it("reveals saved optional gear when settings hydrate after the wizard mounts", () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const detection = {
+      cameras: [
+        { id: "camera-a", label: "Main Camera", kind: "camera" as const },
+        { id: "camera-b", label: "Guest Camera", kind: "camera" as const }
+      ],
+      microphones: [
+        { id: "mic-a", label: "Morgan Mic", kind: "microphone" as const },
+        { id: "mic-b", label: "Guest Mic", kind: "microphone" as const }
+      ],
+      speakers: [],
+      permissionNeeded: false
+    };
+
+    act(() => {
+      root.render(<DeviceSetupWizard {...baseProps} currentStep={1} detection={detection} />);
+    });
+    expect(host.textContent).not.toContain("Assign Guest Mic");
+
+    act(() => {
+      root.render(
+        <DeviceSetupWizard
+          {...baseProps}
+          currentStep={1}
+          detection={detection}
+          defaults={{ cameras: { camera1: "camera-a", camera2: "camera-b" }, microphones: { morganMic: "mic-a", guestMic: "mic-b" } }}
+        />
+      );
+    });
+
+    expect(host.textContent).toContain("Assign Guest Mic");
   });
 
   it("keeps available cameras visible when a saved camera is missing", () => {

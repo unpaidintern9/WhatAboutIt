@@ -110,7 +110,9 @@ export function getHardwareDeviceReadiness(defaults: DeviceDefaults, devices: Ha
   const microphoneDevices = devices.filter((device) => device.kind === "microphone");
   const cameraSlots = [defaults.cameras.camera1, defaults.cameras.camera2, defaults.cameras.camera3] as const;
   const cameraReady = cameraSlots.map((deviceId, index) => {
-    if (!deviceId) return Boolean(cameraDevices[index]);
+    // Camera 2 and Camera 3 are optional. An unassigned optional slot must not
+    // turn the hardware test red just because only one camera is connected.
+    if (!deviceId) return index === 0 ? Boolean(cameraDevices[0]) : undefined;
     return hasDevice(cameraDevices, deviceId);
   }) as [boolean | undefined, boolean | undefined, boolean | undefined];
   const morganMicReady = defaults.microphones.morganMic

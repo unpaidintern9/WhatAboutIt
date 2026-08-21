@@ -59,9 +59,22 @@ describe("hardware test flow", () => {
       ]
     );
 
-    expect(readiness.cameraReady).toEqual([true, false, false]);
+    expect(readiness.cameraReady).toEqual([true, false, undefined]);
     expect(readiness.summary).toBe("Needs Attention");
     expect(readiness.message).toContain("saved device is missing");
+  });
+
+  it("does not fail optional camera slots that were never configured", () => {
+    const readiness = getHardwareDeviceReadiness(
+      { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+      [
+        { id: "camera-a", label: "Camera", kind: "camera" },
+        { id: "mic-a", label: "Mic", kind: "microphone" }
+      ]
+    );
+
+    expect(readiness.cameraReady).toEqual([true, undefined, undefined]);
+    expect(readiness.summary).toBe("Everything Ready");
   });
 
   it("updates readiness when a hot-plugged camera appears", () => {

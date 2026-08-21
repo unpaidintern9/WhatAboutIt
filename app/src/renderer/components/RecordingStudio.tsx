@@ -178,7 +178,7 @@ export function RecordingStudio({
   const [markerNotice, setMarkerNotice] = useState<string | undefined>();
   const [notesSavedAt, setNotesSavedAt] = useState<string>("Saved");
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [layoutNotice, setLayoutNotice] = useState(false);
+  const [layoutsOpen, setLayoutsOpen] = useState(false);
   const [recordingAction, setRecordingAction] = useState<RecordingAction>("idle");
   const [, setMicSignals] = useState<Partial<Record<MicKey, MicSignalState>>>({});
   const [audioDiagnostics, setAudioDiagnostics] = useState<Partial<Record<MicKey, LiveInputDiagnostics>>>({});
@@ -217,7 +217,12 @@ export function RecordingStudio({
   const studioReady = cameraReadyCount > 0 && storageReady && (!recordingInProgress || recordingHealthy);
   const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
   const visibleCameraSlots = cameraSlots.filter((slot) => slot.key === "camera1" || Boolean(defaults.cameras[slot.key]));
-  const visibleMicSlots = routableMicSlots.filter((slot) => slot.key !== "extraMic" || Boolean(defaults.microphones.extraMic));
+  const visibleMicSlots = routableMicSlots.filter((slot) => slot.key === "morganMic" || Boolean(defaults.microphones[slot.key]));
+  const visibleCameraLayouts = cameraLayouts.filter((layout) => {
+    if (["host", "sponsor-card", "intro", "outro"].includes(layout.id)) return true;
+    if (layout.id === "triple") return visibleCameraSlots.length >= 3;
+    return visibleCameraSlots.length >= 2;
+  });
 
   function patchTools(nextState: PodcastToolsState) {
     onPodcastToolsChange({ ...nextState, updatedAt: new Date().toISOString() });
@@ -514,16 +519,14 @@ export function RecordingStudio({
                 <strong>{formatRecordingTime(snapshot.elapsedMs)}</strong>
               </div>
               <RusticButton
-                className={layoutNotice ? "selected" : ""}
+                className={layoutsOpen ? "selected" : ""}
+                aria-expanded={layoutsOpen}
                 onClick={() => {
-                  setLayoutNotice((current) => !current);
-                  setStudioNotice({ tone: "ready", message: "Layout presets are ready under the camera wall. Full layout editing comes next." });
+                  setLayoutsOpen((current) => !current);
+                  setStudioNotice({ tone: "ready", message: layoutsOpen ? "Camera layouts hidden." : "Choose a layout under the camera wall." });
                 }}
               >
-                <LayoutGrid size={16} /> View Layouts
-              </RusticButton>
-              <RusticButton onClick={() => setStudioNotice({ tone: "ready", message: "Studio settings live in Setup and Settings." })}>
-                <Settings size={16} />
+                <LayoutGrid size={16} /> {layoutsOpen ? "Hide Layouts" : "View Layouts"}
               </RusticButton>
             </div>
           }
@@ -549,7 +552,7 @@ export function RecordingStudio({
                     isRecording={isRecording}
                     cameraSlot={slot.key}
                     micRoute={defaults.cameraMicrophones?.[slot.key] ?? fallbackCameraMicRoutes[slot.key]}
-                    micRoutes={routableMicSlots}
+                    micRoutes={visibleMicSlots}
                     assignedRoutes={defaults.cameraMicrophones}
                     trackStatus={trackStatusBySlot[slot.key]}
                     onMicRouteChange={(micSlot) => setCameraMicRoute(slot.key, micSlot)}
@@ -565,8 +568,8 @@ export function RecordingStudio({
                 ))}
               </section>
 
-              <section className="layout-row secondary-tools" aria-label="Camera layouts">
-                {cameraLayouts.map((layout) => (
+              {layoutsOpen ? <section className="layout-row secondary-tools" aria-label="Camera layouts">
+                {visibleCameraLayouts.map((layout) => (
                   <RusticButton
                     className={podcastTools.cameraLayout === layout.id ? "selected" : ""}
                     key={layout.id}
@@ -575,8 +578,7 @@ export function RecordingStudio({
                     {layout.label}
                   </RusticButton>
                 ))}
-                <RusticButton onClick={() => selectLayout("sponsor-card")}>Topic Card</RusticButton>
-              </section>
+              </section> : null}
             </section>
 
             <section className="giant-control-row" aria-label="Recording controls">
@@ -698,6 +700,7 @@ export function RecordingStudio({
                     microphones={detection.microphones}
                     defaults={defaults}
                     diagnostics={audioDiagnostics}
+                    slots={visibleMicSlots}
                   />
                 </VintagePanel>
               </section>
@@ -733,18 +736,6 @@ export function RecordingStudio({
           recordingHealthy={recordingHealthy}
           deviceAssignmentsHealthy={deviceAssignmentsHealthy}
         />
-
-        <section className={`studio-ready-summary ${studioReady ? "ready" : "needs-attention"}`} aria-label="Studio Ready summary">
-          <strong>{studioReady ? "Studio Ready" : "Almost Ready"}</strong>
-          <span>{cameraReadyCount > 0 ? "Cameras ready" : "Pick a camera first"}</span>
-          <span>{micReadyCount > 0 ? "Mics ready" : "Video-only is ready; mics are optional"}</span>
-          <span>{storageReady ? "Storage good" : "Storage needs attention"}</span>
-          <span>{deviceAssignmentsHealthy ? "Sources separate" : "Optional source routes need attention"}</span>
-          {recordingInProgress && snapshot.health && (
-            <span>{snapshot.health.activeCameraTracks} cameras / {snapshot.health.activeAudioTracks} mics active</span>
-          )}
-          <span>{studioReady ? "Ready to record" : "Check the items above"}</span>
-        </section>
 
         <details className="secondary-studio-tools" open={toolsOpen} onToggle={(event) => setToolsOpen(event.currentTarget.open)}>
           <summary>{toolsOpen ? "Hide studio tools" : "Show notes, markers, teleprompter, and soundboard"}</summary>
@@ -1603,12 +1594,14 @@ function AudioDiagnostics({
   permissionNeeded,
   microphones,
   defaults,
-  diagnostics
+  diagnostics,
+  slots
 }: {
   permissionNeeded: boolean;
   microphones: StudioDevice[];
   defaults: DeviceDefaults;
   diagnostics: Partial<Record<MicKey, LiveInputDiagnostics>>;
+  slots: Array<{ key: MicKey; label: string }>;
 }) {
   return (
     <details className="audio-diagnostics">
@@ -1616,7 +1609,7 @@ function AudioDiagnostics({
       <div className="audio-diagnostics-grid">
         <span><strong>Microphone permission</strong>{permissionNeeded ? "Permission needed" : "Granted"}</span>
         <span><strong>Detected audio inputs</strong>{microphones.length || "None"}</span>
-        {routableMicSlots.map((slot) => {
+        {slots.map((slot) => {
           const device = findDevice(microphones, defaults.microphones[slot.key]);
           const details = diagnostics[slot.key];
           return (
