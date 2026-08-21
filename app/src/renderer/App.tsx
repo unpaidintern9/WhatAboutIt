@@ -22,6 +22,7 @@ import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-t
 import { createHardwareTestResults, didDeviceDisconnectDuringRecording, getHardwareDeviceReadiness, getExportTestStatus, getFriendlyHardwareFailureMessage, getNextHardwareTestStep, getRecordingTestStatus, type DiagnosticsBundleResult, type HardwareDeviceSummary } from "../shared/hardware-test";
 import type { StorageStatus } from "../shared/diagnostics";
 import { assessRecordingStorage } from "../shared/diagnostics";
+import { cameraAccessMessage, type MediaAccessStatus } from "../shared/media-permissions";
 import { AutoEditReview, Button, CameraPreview, DeviceSetupWizard, ExportEpisode, RecordingStudio, TimelineReview } from "./components";
 import { AudioMeter } from "./components";
 import { StudioPopOutPanel } from "./components/StudioToolPanels";
@@ -1116,8 +1117,9 @@ export default function App() {
       return demoDetection;
     }
     const detectedDevices = await deviceService.detectDevices();
-    setDeviceDetection(detectedDevices);
-    return detectedDevices;
+    const resolvedDevices = await withCameraAccessStatus(detectedDevices);
+    setDeviceDetection(resolvedDevices);
+    return resolvedDevices;
   }
 
   async function requestStudioPermissions(resetConnections = true) {
@@ -1125,7 +1127,19 @@ export default function App() {
       deviceService.releaseAll();
       setDeviceRefreshKey((current) => current + 1);
     }
-    setDeviceDetection(await deviceService.requestStudioPermissions());
+    const detectedDevices = await deviceService.requestStudioPermissions();
+    setDeviceDetection(await withCameraAccessStatus(detectedDevices));
+  }
+
+  async function withCameraAccessStatus(detectedDevices: DeviceDetectionResult) {
+    const cameraAccessStatus: MediaAccessStatus = await studio.getCameraAccessStatus?.().catch(() => "unknown") ?? "unknown";
+    const systemMessage = cameraAccessMessage(cameraAccessStatus, detectedDevices.cameras.length);
+    return {
+      ...detectedDevices,
+      cameraAccessStatus,
+      permissionNeeded: detectedDevices.permissionNeeded || cameraAccessStatus === "denied" || cameraAccessStatus === "restricted",
+      errorMessage: systemMessage ?? detectedDevices.errorMessage
+    } satisfies DeviceDetectionResult;
   }
 
   async function saveDeviceDefaults(deviceDefaults: DeviceDefaults) {
@@ -1554,6 +1568,7 @@ export default function App() {
               onStepChange={setWizardStep}
               onRefresh={() => void requestStudioPermissions()}
               onRequestPermission={() => void requestStudioPermissions()}
+              onOpenCameraPrivacySettings={() => void studio.openCameraPrivacySettings?.()}
               onDefaultsChange={(defaults) => void saveDeviceDefaults(defaults)}
               onTestMicrophone={() => void testMicrophone()}
               onPlayTestSound={() => void playTestSound()}

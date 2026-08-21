@@ -188,6 +188,37 @@ describe("BrowserMediaRecorderPlugin", () => {
     expect(getMicrophoneStream).toHaveBeenCalledWith("guest-input");
   });
 
+  it("starts a recoverable Program video when an optional microphone cannot open", async () => {
+    const getUserMedia = vi.fn(async (constraints: MediaStreamConstraints) => {
+      if (constraints.audio) throw new DOMException("Microphone unavailable", "NotReadableError");
+      return streamWith(new FakeTrack("video", "fallback-camera"));
+    });
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    const plugin = new BrowserMediaRecorderPlugin({
+      getCameraStream: () => streamWith(new FakeTrack("video", "camera-1")),
+      getMicrophoneStream: () => undefined
+    });
+
+    await plugin.start({
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+    });
+
+    expect(plugin.getHealth()).toMatchObject({
+      programActive: true,
+      activeCameraTracks: 1,
+      activeAudioTracks: 0,
+      expectedAudioTracks: 1
+    });
+    expect(plugin.getHealth().warnings).toEqual(expect.arrayContaining([
+      expect.stringContaining("Program video is recording")
+    ]));
+    const result = await plugin.stop();
+    expect(result.bytes?.length).toBeGreaterThan(0);
+  });
+
   it("streams program and source chunks to disk instead of retaining the episode in renderer memory", async () => {
     Object.defineProperty(navigator, "mediaDevices", {
       configurable: true,

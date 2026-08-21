@@ -15,6 +15,7 @@ interface DeviceSetupWizardProps {
   onStepChange: (step: number) => void;
   onRefresh: () => void;
   onRequestPermission: () => void;
+  onOpenCameraPrivacySettings?: () => void;
   onDefaultsChange: (defaults: DeviceDefaults) => void;
   onTestMicrophone: () => void;
   onPlayTestSound: () => void;
@@ -60,6 +61,7 @@ export function DeviceSetupWizard({
   onStepChange,
   onRefresh,
   onRequestPermission,
+  onOpenCameraPrivacySettings,
   onDefaultsChange,
   onTestMicrophone,
   onPlayTestSound,
@@ -125,6 +127,9 @@ export function DeviceSetupWizard({
         </div>
         <div className="wizard-actions">
           <Button variant="secondary" onClick={onRefresh}>Check again</Button>
+          {(detection.cameras.length === 0 || detection.cameraAccessStatus === "denied" || detection.cameraAccessStatus === "restricted") && onOpenCameraPrivacySettings ? (
+            <Button variant="secondary" icon={<Settings size={18} />} onClick={onOpenCameraPrivacySettings}>Windows camera settings</Button>
+          ) : null}
           {detection.permissionNeeded && (
             <Button variant="primary" onClick={onRequestPermission}>Let the studio look and listen</Button>
           )}

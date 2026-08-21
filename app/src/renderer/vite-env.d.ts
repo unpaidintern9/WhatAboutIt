@@ -12,6 +12,7 @@ import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../shared/episo
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
 import type { AppUpdateStatus } from "../shared/app-update";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
+import type { MediaAccessStatus } from "../shared/media-permissions";
 
 declare global {
   interface Window {
@@ -61,6 +62,8 @@ declare global {
       openExportFolder: (episodeId: string, outputFolder?: string) => Promise<string>;
       createDiagnosticsBundle: (input: DiagnosticsBundleRequest) => Promise<DiagnosticsBundleResult>;
       getStorageStatus: () => Promise<StorageStatus>;
+      getCameraAccessStatus?: () => Promise<MediaAccessStatus>;
+      openCameraPrivacySettings?: () => Promise<boolean>;
       getWorkspaceState?: () => Promise<StudioWorkspaceState>;
       saveWorkspaceState?: (state: StudioWorkspaceState) => Promise<StudioWorkspaceState>;
       getDisplays?: () => Promise<StudioDisplayInfo[]>;

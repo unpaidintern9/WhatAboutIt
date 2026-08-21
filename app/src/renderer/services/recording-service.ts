@@ -92,7 +92,7 @@ export class RecordingService {
         : message.includes("Mic needs attention")
         ? friendlyRecordingError("mic")
         : friendlyRecordingError("device");
-      if (this.session) await window.studio.appendRecordingError(this.session.folderPath, this.friendlyError);
+      if (this.session) await window.studio.appendRecordingError(this.session.folderPath, `${this.friendlyError} Startup detail: ${message}`);
       await this.persistState();
       window.studio?.setRecordingCloseProtection?.(false);
     }
@@ -220,16 +220,13 @@ export class RecordingService {
     if (this.status !== "recording" || !this.session) return;
     const health = this.plugin.getHealth?.();
     if (!health) return;
-    const missingTargets = health.sources.filter((source) => !source.firstChunkReceived).map((source) => source.target);
-    const expectedSourceCount = 1 + health.expectedCameraTracks + health.expectedAudioTracks;
-    const missingRecorderCount = Math.max(0, expectedSourceCount - health.sources.length);
-    if (missingTargets.length === 0 && missingRecorderCount === 0) return;
+    // The Program file is the recoverable episode master and remains mandatory.
+    // Extra isolated camera/mic tracks may warn, but an unused or unavailable
+    // optional source must not kill an otherwise healthy Program recording.
+    const program = health.sources.find((source) => source.target === "program");
+    if (program?.firstChunkReceived) return;
 
-    const details = [
-      missingTargets.length > 0 ? `${missingTargets.join(", ")} did not write media` : undefined,
-      missingRecorderCount > 0 ? `${missingRecorderCount} selected source ${missingRecorderCount === 1 ? "recorder was" : "recorders were"} unavailable` : undefined
-    ].filter((detail): detail is string => Boolean(detail)).join("; ");
-    const message = `Recording stopped safely because ${details}. Check the source and run Quick Test again.`;
+    const message = "Recording stopped safely because the program did not write media. Check Camera 1 and run Quick Test again.";
     await this.stop();
     this.friendlyError = message;
     if (this.integrity) {

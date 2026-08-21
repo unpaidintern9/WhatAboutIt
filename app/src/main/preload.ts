@@ -11,6 +11,7 @@ import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../shared/episo
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
 import type { AppUpdateStatus } from "../shared/app-update";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
+import type { MediaAccessStatus } from "../shared/media-permissions";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
@@ -77,6 +78,8 @@ contextBridge.exposeInMainWorld("studio", {
   openExportFolder: (episodeId: string, outputFolder?: string): Promise<string> => ipcRenderer.invoke("export:open-folder", { episodeId, outputFolder }),
   createDiagnosticsBundle: (input: DiagnosticsBundleRequest): Promise<DiagnosticsBundleResult> => ipcRenderer.invoke("diagnostics:create", input),
   getStorageStatus: (): Promise<StorageStatus> => ipcRenderer.invoke("storage:status"),
+  getCameraAccessStatus: (): Promise<MediaAccessStatus> => ipcRenderer.invoke("media-permissions:get-camera-status"),
+  openCameraPrivacySettings: (): Promise<boolean> => ipcRenderer.invoke("media-permissions:open-camera-settings"),
   getWorkspaceState: (): Promise<StudioWorkspaceState> => ipcRenderer.invoke("workspace:get-state"),
   saveWorkspaceState: (state: StudioWorkspaceState): Promise<StudioWorkspaceState> => ipcRenderer.invoke("workspace:save-state", state),
   getDisplays: (): Promise<StudioDisplayInfo[]> => ipcRenderer.invoke("workspace:get-displays"),
