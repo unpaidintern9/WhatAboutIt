@@ -53,6 +53,23 @@ describe("browserDevicePlugin", () => {
     expect(result.cameras).toEqual([expect.objectContaining({ id: "sony-camera", label: "Sony Camera (Imaging Edge)" })]);
   });
 
+  it("opens USB cameras with stable full-HD, 30 fps preferences", async () => {
+    const stream = { getTracks: () => [] } as unknown as MediaStream;
+    const getUserMedia = vi.fn().mockResolvedValue(stream);
+    setMediaDevices({ getUserMedia });
+
+    await expect(browserDevicePlugin.openCameraPreview("sony-camera")).resolves.toBe(stream);
+    expect(getUserMedia).toHaveBeenCalledWith({
+      video: {
+        deviceId: { exact: "sony-camera" },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        frameRate: { ideal: 30, max: 30 }
+      },
+      audio: false
+    });
+  });
+
   it("keeps three same-named Imaging Edge endpoints distinct and selectable", async () => {
     setMediaDevices({
       enumerateDevices: vi.fn(async () => [
