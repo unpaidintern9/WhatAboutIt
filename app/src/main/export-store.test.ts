@@ -588,6 +588,39 @@ describe("export store", () => {
     expect(await validatePlayableMedia(path.join(episodeFolder, "Exports", "Audio Masters", "guest-mic-edited.wav"), undefined, { audio: true, decode: true })).toBe(true);
   }, 30000);
 
+  it("mixes every enabled isolated microphone even when the episode has no manual edits", async () => {
+    const { createExport } = await import("./export-store");
+    const { runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");
+    const episodeId = "episode-clean-mic-mix";
+    const episodeFolder = path.join(mockPaths.episodesRoot, episodeId);
+    const sourcePath = path.join(episodeFolder, "Program", "program.webm");
+    const morganPath = path.join(episodeFolder, "Audio", "morgan-mic.m4a");
+    const guestPath = path.join(episodeFolder, "Audio", "guest-mic.m4a");
+    await Promise.all([
+      fs.mkdir(path.dirname(sourcePath), { recursive: true }),
+      fs.mkdir(path.dirname(morganPath), { recursive: true })
+    ]);
+    await runFfmpeg([
+      "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24",
+      "-f", "lavfi", "-i", "sine=frequency=330:sample_rate=48000",
+      "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", sourcePath
+    ]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "1", "-c:a", "aac", morganPath]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000", "-t", "1", "-c:a", "aac", guestPath]);
+
+    const draft = createTimelineDraft({
+      episodeId,
+      durationMs: 1000,
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a", guestMic: "mic-b" } }
+    });
+    const job = await createExport({ episodeId, type: "full-episode-video", qualityPreset: "standard", draft });
+    const outputPath = path.join(episodeFolder, "Exports", job.outputFileName ?? "");
+
+    expect(job.status).toBe("complete");
+    expect(job.message).toContain("manual draft");
+    expect(await validatePlayableMedia(outputPath, undefined, { video: true, audio: true, decode: true })).toBe(true);
+  }, 30000);
+
   it("returns a friendly media tools setup state when FFmpeg is unavailable", async () => {
     process.env.WHAT_ABOUT_IT_DISABLE_BUNDLED_MEDIA_TOOLS = "1";
     vi.resetModules();

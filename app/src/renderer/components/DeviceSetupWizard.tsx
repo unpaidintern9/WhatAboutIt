@@ -71,15 +71,15 @@ export function DeviceSetupWizard({
   onReleaseMicrophoneStream,
   onGoRecord
 }: DeviceSetupWizardProps) {
+  const initiallyVisibleCameraCount = defaults.cameras.camera3 ? 3 : defaults.cameras.camera2 ? 2 : 1;
+  const [visibleCameraCount, setVisibleCameraCount] = useState(initiallyVisibleCameraCount);
+  const [showExtraMicrophone, setShowExtraMicrophone] = useState(Boolean(defaults.microphones.extraMic));
   const readyState = getDeviceReadiness(detection, defaults);
   const assignmentConflicts = getDeviceAssignmentConflicts(defaults);
   const cameraCapacity = getCameraCapacity(detection.cameras);
   const setupItems = [
     { label: "Pick Camera 1", ready: Boolean(defaults.cameras.camera1) },
-    { label: "Pick Camera 2", ready: Boolean(defaults.cameras.camera2) },
-    { label: "Pick Camera 3", ready: Boolean(defaults.cameras.camera3) },
     { label: "Pick Morgan Mic", ready: Boolean(defaults.microphones.morganMic) },
-    { label: "Test Mic", ready: microphoneLevel > 0 },
     { label: "Go Record", ready: readyState === "ready" }
   ];
   const readyItemCount = setupItems.filter((item) => item.ready).length;
@@ -177,7 +177,7 @@ export function DeviceSetupWizard({
             <FriendlyState title={getEmptyStateMessage("camera")} message="Plug in a camera, close other camera apps, then choose Find Cameras." />
           ) : (
             <div className="camera-card-grid">
-              {cameraSlots.map((slot) => (
+              {cameraSlots.slice(0, visibleCameraCount).map((slot) => (
                 <CameraSetupCard
                   key={slot.key}
                   label={slot.label}
@@ -195,10 +195,15 @@ export function DeviceSetupWizard({
               ))}
             </div>
           )}
-          <div className={`camera-capacity-strip ${cameraCapacity.available >= 3 ? "ready" : "needs-attention"}`}>
-            {cameraCapacity.available >= 3 ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
+          {visibleCameraCount < cameraSlots.length ? (
+            <Button variant="secondary" icon={<Camera size={18} />} onClick={() => setVisibleCameraCount((count) => Math.min(cameraSlots.length, count + 1))}>
+              Add another camera (optional)
+            </Button>
+          ) : null}
+          <div className={`camera-capacity-strip ${cameraCapacity.available >= 1 ? "ready" : "needs-attention"}`}>
+            {cameraCapacity.available >= 1 ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
             <div>
-              <strong>{cameraCapacity.available} of 3 simultaneous camera feeds detected</strong>
+              <strong>{cameraCapacity.available} camera feed{cameraCapacity.available === 1 ? "" : "s"} detected</strong>
               <span>{cameraCapacity.message}</span>
             </div>
           </div>
@@ -234,7 +239,7 @@ export function DeviceSetupWizard({
             <FriendlyState title={getEmptyStateMessage("microphone")} message="Plug in a mic, make sure it is on, then check again." />
           ) : (
             <div className="device-slot-grid">
-              {microphoneSlots.map((slot) => (
+              {microphoneSlots.filter((slot) => slot.key !== "extraMic" || showExtraMicrophone).map((slot) => (
                 <DeviceSlot key={slot.key} label={slot.label}>
                   <label className="device-select input-name-control">
                     Name
@@ -266,6 +271,13 @@ export function DeviceSetupWizard({
                   />
                 </DeviceSlot>
               ))}
+              {!showExtraMicrophone ? (
+                <button className="optional-device-slot" type="button" onClick={() => setShowExtraMicrophone(true)}>
+                  <Mic2 size={20} />
+                  <strong>Add an optional third mic</strong>
+                  <span>Only if this episode needs one.</span>
+                </button>
+              ) : null}
               <div className="device-test-card">
                 <Button variant="primary" icon={<Mic2 size={20} />} onClick={onTestMicrophone}>Say something!</Button>
                 <AudioMeter label="Mic check" level={microphoneLevel} />
@@ -714,12 +726,14 @@ function getCameraCapacity(devices: StudioDevice[]) {
   if (imagingEdgeFeeds === 1) {
     return {
       available,
-      message: "Windows exposes only 1 Imaging Edge feed. One feed cannot create three tracks. Camera 2 and 3 need their own Windows video endpoints through USB Streaming or separate HDMI capture devices."
+      message: "Your Imaging Edge feed is ready. Add another camera only when you want another angle; it must appear as its own Windows camera."
     };
   }
   return {
     available,
-    message: "Connect another camera by USB Streaming or HDMI capture, then choose Refresh Cameras."
+    message: available > 0
+      ? "This is enough to record. Add another camera only when you want another angle."
+      : "Connect Camera 1 by USB Streaming or HDMI capture, then choose Refresh Cameras."
   };
 }
 
