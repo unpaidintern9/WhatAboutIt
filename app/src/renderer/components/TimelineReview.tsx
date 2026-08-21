@@ -555,20 +555,26 @@ export function TimelineReview({
         </button>
       </div>
 
-      <TimelineMediaSetup media={media} importProgress={importProgress} onImportMedia={onImportMedia} onCancelImport={onCancelImport} onAutoSync={onAutoSync} onRelinkMedia={onRelinkMedia} onVerifyOriginals={onVerifyOriginals} onGetEpisodeStorage={onGetEpisodeStorage} onCleanupEpisodeStorage={onCleanupEpisodeStorage} />
+      <details className="edit-optional-panel" open={!media?.hasPlayableProgram}>
+        <summary>Recording sources {media?.hasPlayableProgram ? "ready" : "need attention"}</summary>
+        <TimelineMediaSetup media={media} importProgress={importProgress} onImportMedia={onImportMedia} onCancelImport={onCancelImport} onAutoSync={onAutoSync} onRelinkMedia={onRelinkMedia} onVerifyOriginals={onVerifyOriginals} onGetEpisodeStorage={onGetEpisodeStorage} onCleanupEpisodeStorage={onCleanupEpisodeStorage} />
+      </details>
 
-      <TimelineCaptionPanel
-        draft={draft}
-        playheadMs={playheadMs}
-        rangeStartMs={rangeStartMs}
-        rangeEndMs={rangeEndMs}
-        hasSelectedRange={hasSelectedRange}
-        onDraftChange={onDraftChange}
-        transcriptionStatus={transcriptionStatus}
-        transcriptionProgress={transcriptionProgress}
-        onTranscribeLocally={onTranscribeLocally}
-        onCancelTranscription={onCancelTranscription}
-      />
+      <details className="edit-optional-panel">
+        <summary>Captions and transcript (optional)</summary>
+        <TimelineCaptionPanel
+          draft={draft}
+          playheadMs={playheadMs}
+          rangeStartMs={rangeStartMs}
+          rangeEndMs={rangeEndMs}
+          hasSelectedRange={hasSelectedRange}
+          onDraftChange={onDraftChange}
+          transcriptionStatus={transcriptionStatus}
+          transcriptionProgress={transcriptionProgress}
+          onTranscribeLocally={onTranscribeLocally}
+          onCancelTranscription={onCancelTranscription}
+        />
+      </details>
 
       <section className="edit-studio-workspace">
         <div className="edit-source-monitor">

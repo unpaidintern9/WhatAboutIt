@@ -644,8 +644,25 @@ h3 {
   border-radius: var(--component-card-radius);
 }
 
+.locked-tools span.ready {
+  border: 2px solid var(--color-success);
+}
+
+.locked-tools span.needs-attention {
+  border: 2px solid var(--color-warning);
+}
+
 .form-panel {
   max-width: 760px;
+}
+
+.form-error {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-warning), transparent 65%);
+  border: 2px solid var(--color-warning);
+  border-radius: var(--component-border-radius);
 }
 
 label {
@@ -7971,6 +7988,31 @@ input[type="range"] {
 .optional-device-slot:focus-visible {
   color: var(--color-primary);
   border-color: var(--color-primary);
+}
+
+.edit-optional-panel {
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-cards), transparent 10%);
+  border: 2px solid var(--color-border);
+  border-radius: var(--component-card-radius);
+}
+
+.edit-optional-panel > summary {
+  min-height: 48px;
+  padding: 12px 16px;
+  color: var(--color-text);
+  font-family: var(--font-heading);
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.edit-optional-panel[open] > summary {
+  color: var(--color-inverseText);
+  background: var(--color-primary);
+}
+
+.edit-optional-panel > :not(summary) {
+  margin: 12px;
 }
 
 @media (max-width: 920px) {

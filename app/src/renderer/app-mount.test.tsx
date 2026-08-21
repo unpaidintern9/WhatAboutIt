@@ -53,7 +53,7 @@ describe("app mount", () => {
       root.render(<App />);
     });
 
-    const startWithHome = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Start with Home"));
+    const startWithHome = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Not Now"));
     expect(startWithHome).toBeTruthy();
 
     await act(async () => {
