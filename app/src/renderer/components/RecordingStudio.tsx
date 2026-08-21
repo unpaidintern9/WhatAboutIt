@@ -28,7 +28,7 @@ import {
   VolumeX,
   Volume2
 } from "lucide-react";
-import type { CameraSlotKey, DeviceDefaults, MicrophoneInputChannel, MicrophoneSlotKey, RecordingPreferences, RecordingTemplate } from "../../shared/types";
+import type { CameraSlotKey, DeviceDefaults, MicrophoneInputChannel, MicrophoneSlotKey, RecordingPreferences } from "../../shared/types";
 import { defaultRecordingPreferences } from "../../shared/types";
 import { getDeviceAssignmentConflicts, getMicrophoneInputDisplay, microphoneInputChannelOptions, saveMicrophoneDeviceRoute } from "../../shared/device-config";
 import type { RecordingSession, RecordingTrackSaveResult, RecordingTrackSlot } from "../../shared/recording";
@@ -55,9 +55,7 @@ interface RecordingStudioProps {
   unfinishedSessions: RecordingSession[];
   podcastTools: PodcastToolsState;
   storageWarning?: string;
-  storageMessage?: string;
   recordingPreferences?: RecordingPreferences;
-  recordingTemplate?: RecordingTemplate;
   onStart: () => Promise<RecordingServiceSnapshot | void> | RecordingServiceSnapshot | void;
   onQuickTest?: () => Promise<void> | void;
   onPause: () => Promise<void> | void;
@@ -68,12 +66,6 @@ interface RecordingStudioProps {
   onDismissRecovery: () => void;
   onRecoverSession?: (session: RecordingSession) => Promise<void> | void;
   onOpenSessionFolder?: (session: RecordingSession) => void;
-  onRecordingPreferencesChange?: (preferences: RecordingPreferences) => void;
-  onChoosePrimaryFolder?: () => void;
-  onUseDefaultPrimaryFolder?: () => void;
-  onChooseBackupFolder?: () => void;
-  onSaveTemplate?: () => void;
-  onApplyTemplate?: () => void;
   onNext: () => void;
   onDefaultsChange: (defaults: DeviceDefaults) => void;
   onPodcastToolsChange: (state: PodcastToolsState) => void;
@@ -154,9 +146,7 @@ export function RecordingStudio({
   unfinishedSessions,
   podcastTools,
   storageWarning,
-  storageMessage,
   recordingPreferences: recordingPreferencesProp,
-  recordingTemplate,
   onStart,
   onQuickTest,
   onPause,
@@ -167,12 +157,6 @@ export function RecordingStudio({
   onDismissRecovery,
   onRecoverSession,
   onOpenSessionFolder,
-  onRecordingPreferencesChange,
-  onChoosePrimaryFolder,
-  onUseDefaultPrimaryFolder,
-  onChooseBackupFolder,
-  onSaveTemplate,
-  onApplyTemplate,
   onNext,
   onDefaultsChange,
   onPodcastToolsChange,
@@ -196,11 +180,9 @@ export function RecordingStudio({
   const [toolsOpen, setToolsOpen] = useState(false);
   const [layoutNotice, setLayoutNotice] = useState(false);
   const [recordingAction, setRecordingAction] = useState<RecordingAction>("idle");
-  const [micSignals, setMicSignals] = useState<Partial<Record<MicKey, MicSignalState>>>({});
+  const [, setMicSignals] = useState<Partial<Record<MicKey, MicSignalState>>>({});
   const [audioDiagnostics, setAudioDiagnostics] = useState<Partial<Record<MicKey, LiveInputDiagnostics>>>({});
-  const [preflightOpen, setPreflightOpen] = useState(false);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
-  const [countdown, setCountdown] = useState<number | undefined>();
   const [recoverySessionId, setRecoverySessionId] = useState<string | undefined>();
   const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
     Object.fromEntries(micSlots.map((slot) => [slot.key, { ...defaultMixerChannel }]))
@@ -208,7 +190,6 @@ export function RecordingStudio({
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const markerTimerRef = useRef<number | undefined>(undefined);
   const notesTimerRef = useRef<number | undefined>(undefined);
-  const countdownTimerRef = useRef<number | undefined>(undefined);
   const autoMarkerAtRef = useRef<Partial<Record<MicKey, number>>>({});
   const warnAboutEcho = useCallback(() => {
     setStudioNotice({ tone: "needs-attention", message: "Use headphones to avoid echo." });
@@ -218,7 +199,6 @@ export function RecordingStudio({
     return () => {
       if (markerTimerRef.current) window.clearTimeout(markerTimerRef.current);
       if (notesTimerRef.current) window.clearTimeout(notesTimerRef.current);
-      if (countdownTimerRef.current) window.clearTimeout(countdownTimerRef.current);
     };
   }, []);
 
@@ -233,18 +213,10 @@ export function RecordingStudio({
   const recordingInProgress = isRecording || isPaused;
   const recordingPreferences = { ...defaultRecordingPreferences, ...recordingPreferencesProp };
   const liveMode = recordingInProgress && recordingPreferences.liveModeEnabled;
-  const recordingHealthy = snapshot.status !== "error" && (!recordingInProgress || Boolean(snapshot.health?.programActive
-      && snapshot.health.warnings.length === 0
-      && snapshot.health.activeCameraTracks >= snapshot.health.expectedCameraTracks
-      && snapshot.health.activeAudioTracks >= snapshot.health.expectedAudioTracks));
+  const recordingHealthy = snapshot.status !== "error" && (!recordingInProgress || Boolean(snapshot.health?.programActive));
   const deviceAssignmentsHealthy = getDeviceAssignmentConflicts(defaults).length === 0;
-  const studioReady = cameraReadyCount > 0 && micReadyCount > 0 && storageReady && deviceAssignmentsHealthy && (!recordingInProgress || recordingHealthy);
+  const studioReady = cameraReadyCount > 0 && storageReady && (!recordingInProgress || recordingHealthy);
   const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
-  const selectedMicSlots = routableMicSlots.filter((slot) => Boolean(defaults.microphones[slot.key]));
-  const uncheckedInputs = selectedMicSlots.filter((slot) => {
-    const signal = micSignals[slot.key];
-    return signal === "quiet" || signal === "no-signal" || signal === "disconnected";
-  });
 
   function patchTools(nextState: PodcastToolsState) {
     onPodcastToolsChange({ ...nextState, updatedAt: new Date().toISOString() });
@@ -428,7 +400,7 @@ export function RecordingStudio({
   async function startStudioRecording() {
     if (!studioReady || recordingAction !== "idle") return;
     setRecordingAction("starting");
-    setStudioNotice({ tone: "recording", message: "Starting every ready camera and microphone together..." });
+    setStudioNotice({ tone: "recording", message: "Starting the Program recording now..." });
     try {
       const nextSnapshot = await onStart();
       if (nextSnapshot && nextSnapshot.status !== "recording") {
@@ -460,30 +432,8 @@ export function RecordingStudio({
       oscillator.stop(context.currentTime + 0.12);
       oscillator.addEventListener("ended", () => void context.close(), { once: true });
     } catch {
-      // The visual countdown still provides a synchronization cue.
+      // A sync cue is optional and must never delay or interrupt recording.
     }
-  }
-
-  function beginCountdown() {
-    setPreflightOpen(false);
-    const seconds = recordingPreferences.countdownSeconds;
-    if (seconds === 0) {
-      void startStudioRecording();
-      return;
-    }
-    setCountdown(seconds);
-    const tick = (remaining: number) => {
-      if (remaining <= 1) {
-        setCountdown(undefined);
-        void startStudioRecording();
-        return;
-      }
-      countdownTimerRef.current = window.setTimeout(() => {
-        setCountdown(remaining - 1);
-        tick(remaining - 1);
-      }, 1000);
-    };
-    tick(seconds);
   }
 
   async function stopStudioRecording() {
@@ -512,7 +462,7 @@ export function RecordingStudio({
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
         if (recordingInProgress) requestStop();
-        else if (studioReady) setPreflightOpen(true);
+        else if (studioReady) void startStudioRecording();
         return;
       }
       if (!recordingInProgress) return;
@@ -533,64 +483,6 @@ export function RecordingStudio({
 
   return (
     <section className={`live-studio ${liveMode ? "live-mode" : ""}`} aria-label="Live recording studio">
-      {countdown !== undefined && (
-        <div className="recording-countdown" role="status" aria-live="assertive">
-          <strong>{countdown}</strong>
-          <span>Everyone ready</span>
-        </div>
-      )}
-      {preflightOpen && (
-        <Modal title="Ready to record?" onClose={() => setPreflightOpen(false)}>
-          <div className="recording-preflight">
-            <div className="preflight-status-grid">
-              <span className={cameraReadyCount > 0 ? "ready" : "needs-attention"}><Camera size={18} /> {cameraReadyCount} cameras ready</span>
-              <span className={micReadyCount > 0 ? "ready" : "needs-attention"}><Mic2 size={18} /> {micReadyCount} microphones ready</span>
-              <span className={storageReady ? "ready" : "needs-attention"}><Save size={18} /> {storageMessage ?? "Storage ready"}</span>
-              <span className={deviceAssignmentsHealthy ? "ready" : "needs-attention"}><Cable size={18} /> {deviceAssignmentsHealthy ? "Every source is separate" : "Duplicate routes need attention"}</span>
-            </div>
-            <label>
-              Planned episode length
-              <select
-                value={recordingPreferences.plannedDurationMinutes}
-                onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, plannedDurationMinutes: Number(event.target.value) })}
-              >
-                <option value="30">30 minutes</option>
-                <option value="60">1 hour</option>
-                <option value="90">90 minutes</option>
-                <option value="120">2 hours</option>
-                <option value="180">3 hours</option>
-              </select>
-            </label>
-            <div className="preflight-options">
-              <label><input type="checkbox" checked={recordingPreferences.syncCueEnabled} onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, syncCueEnabled: event.target.checked })} /> Start sync cue</label>
-              <label><input type="checkbox" checked={recordingPreferences.liveModeEnabled} onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, liveModeEnabled: event.target.checked })} /> Simplified Live Mode</label>
-              <label>Countdown <select value={recordingPreferences.countdownSeconds} onChange={(event) => onRecordingPreferencesChange?.({ ...recordingPreferences, countdownSeconds: Number(event.target.value) as 0 | 3 | 5 })}><option value="0">Off</option><option value="3">3 seconds</option><option value="5">5 seconds</option></select></label>
-            </div>
-            <div className="preflight-backup">
-              <strong>Primary recording library</strong>
-              <span>{recordingPreferences.primaryFolderPath ?? "Default app storage — choose a fast local SSD when available"}</span>
-              <div className="preflight-template-actions">
-                <RusticButton onClick={onChoosePrimaryFolder}><Save size={16} /> Choose Primary Drive</RusticButton>
-                {recordingPreferences.primaryFolderPath && <RusticButton onClick={onUseDefaultPrimaryFolder}>Use Default</RusticButton>}
-              </div>
-            </div>
-            <div className="preflight-backup">
-              <strong>Second-drive backup</strong>
-              <span>{recordingPreferences.backupFolderPath ?? "Optional — choose another drive for a finished-media copy"}</span>
-              <RusticButton onClick={onChooseBackupFolder}><Save size={16} /> Choose Backup Drive</RusticButton>
-            </div>
-            <div className="preflight-template-actions">
-              <RusticButton onClick={onSaveTemplate}><Save size={16} /> Save This Setup</RusticButton>
-              {recordingTemplate && <RusticButton onClick={onApplyTemplate}><Play size={16} /> Load {recordingTemplate.name}</RusticButton>}
-            </div>
-            {uncheckedInputs.length > 0 && <p className="preflight-warning" role="alert">{uncheckedInputs.map((slot) => defaults.microphoneNames?.[slot.key] || slot.label).join(" and ")} {uncheckedInputs.length === 1 ? "has" : "have"} not shown a usable signal yet. Recording can still start; unavailable optional inputs will be flagged without stopping the Program video.</p>}
-            <div className="preflight-actions">
-              <RusticButton onClick={() => setPreflightOpen(false)}>Fix Inputs</RusticButton>
-              <Button variant="primary" icon={<Circle size={18} />} onClick={beginCountdown} disabled={!studioReady}>Start Full Recording{recordingPreferences.countdownSeconds ? ` (${recordingPreferences.countdownSeconds}s countdown)` : ""}</Button>
-            </div>
-          </div>
-        </Modal>
-      )}
       {stopConfirmOpen && (
         <Modal title="Stop this episode?" onClose={() => setStopConfirmOpen(false)}>
           <div className="recording-stop-confirm">
@@ -699,7 +591,7 @@ export function RecordingStudio({
             </section>
 
             <section className="giant-control-row" aria-label="Recording controls">
-              <StudioControlButton tone="record" disabled={!studioReady || isRecording || isPaused || recordingAction !== "idle"} onClick={() => setPreflightOpen(true)}>
+              <StudioControlButton tone="record" disabled={!studioReady || isRecording || isPaused || recordingAction !== "idle"} onClick={() => void startStudioRecording()}>
                 {recordingAction === "starting" ? <LoaderCircle className="control-spinner" size={28} /> : <Circle size={28} />} {recordingAction === "starting" ? "Starting" : "Record Full Episode"}
               </StudioControlButton>
               {isPaused ? (
@@ -847,9 +739,9 @@ export function RecordingStudio({
         <section className={`studio-ready-summary ${studioReady ? "ready" : "needs-attention"}`} aria-label="Studio Ready summary">
           <strong>{studioReady ? "Studio Ready" : "Almost Ready"}</strong>
           <span>{cameraReadyCount > 0 ? "Cameras ready" : "Pick a camera first"}</span>
-          <span>{micReadyCount > 0 ? "Mics ready" : "Pick Morgan Mic"}</span>
+          <span>{micReadyCount > 0 ? "Mics ready" : "Video-only is ready; mics are optional"}</span>
           <span>{storageReady ? "Storage good" : "Storage needs attention"}</span>
-          <span>{deviceAssignmentsHealthy ? "Sources separate" : "Fix duplicate sources"}</span>
+          <span>{deviceAssignmentsHealthy ? "Sources separate" : "Optional source routes need attention"}</span>
           {recordingInProgress && snapshot.health && (
             <span>{snapshot.health.activeCameraTracks} cameras / {snapshot.health.activeAudioTracks} mics active</span>
           )}

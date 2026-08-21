@@ -1,7 +1,6 @@
 import type { RecordingEngineHealth, RecordingEnginePlugin, RecordingStartRequest } from "./types";
 import type { RecordingMediaTarget, RecordingSession, RecordingTrackKind, RecordingTrackSaveInput, RecordingTrackSlot } from "../../../shared/recording";
 import type { MicrophoneInputChannel } from "../../../shared/types";
-import { getDeviceAssignmentConflicts } from "../../../shared/device-config";
 import { createRoutedMonoStream, getAudioStreamDiagnostics, openAudioStreamWithFallback, stopStudioMediaStream } from "../audio/studio-audio";
 
 interface ActiveTrackRecorder {
@@ -40,11 +39,13 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   private programBytesWritten = 0;
   private programLastChunkAt?: string;
   private programWriteError?: string;
+  private captureGeneration = 0;
 
   constructor(private readonly streams: BrowserMediaRecorderStreamResolver = {}) {}
 
   async start(request: RecordingStartRequest) {
     await this.shutdown();
+    const generation = ++this.captureGeneration;
 
     if (request.practice) {
       this.chunks = [];
@@ -61,10 +62,6 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     if (this.diskSession) await window.studio.beginRecordingMedia?.(this.diskSession.folderPath);
 
     if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera needs attention");
-    if (getDeviceAssignmentConflicts(request.deviceDefaults).length > 0) {
-      throw new Error("Source routing needs attention");
-    }
-
     const videoDeviceId = request.deviceDefaults.cameras.camera1;
     const programMicSlot = request.deviceDefaults.cameraMicrophones?.camera1 ?? "morganMic";
     this.programMicSlot = programMicSlot;
@@ -87,7 +84,10 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.programStartedAtMs = Date.now();
     this.recorder.start(1000);
 
-    await this.startTrackRecorders(request);
+    // Program recording is the only mandatory startup path. Isolated cameras
+    // and microphones attach in the background so a sleeping USB endpoint can
+    // never hold the Record button for several seconds.
+    void this.startTrackRecorders(request, generation);
   }
 
   getHealth(): RecordingEngineHealth {
@@ -152,6 +152,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   }
 
   async stop() {
+    this.captureGeneration += 1;
     if (!this.recorder) {
       this.stopStream();
       return {
@@ -197,6 +198,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   }
 
   async shutdown() {
+    this.captureGeneration += 1;
     if (this.recorder && this.recorder.state !== "inactive") {
       try {
         this.recorder.stop();
@@ -208,7 +210,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.resetRecorder();
   }
 
-  private async startTrackRecorders(request: RecordingStartRequest) {
+  private async startTrackRecorders(request: RecordingStartRequest, generation: number) {
     const cameraEntries: Array<{ slot: RecordingTrackSlot; deviceId?: string }> = [
       { slot: "camera1", deviceId: request.deviceDefaults.cameras.camera1 },
       { slot: "camera2", deviceId: request.deviceDefaults.cameras.camera2 },
@@ -221,18 +223,23 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     ];
 
     await Promise.all([
-      ...cameraEntries.map((entry) => this.startCameraTrackRecorder(entry.slot, entry.deviceId)),
-      ...micEntries.map((entry) => this.startMicTrackRecorder(entry.slot, entry.deviceId, entry.channel))
+      ...cameraEntries.map((entry) => this.startCameraTrackRecorder(entry.slot, entry.deviceId, generation)),
+      ...micEntries.map((entry) => this.startMicTrackRecorder(entry.slot, entry.deviceId, entry.channel, generation))
     ]);
   }
 
-  private async startCameraTrackRecorder(slot: RecordingTrackSlot, deviceId?: string) {
+  private async startCameraTrackRecorder(slot: RecordingTrackSlot, deviceId: string | undefined, generation: number) {
     if (!deviceId) return;
 
     try {
       const stream = await this.openCameraTrackStream(slot, deviceId);
+      if (generation !== this.captureGeneration || !this.recorder || this.recorder.state === "inactive") {
+        stopStudioMediaStream(stream);
+        return;
+      }
       this.trackRecorders.push(createTrackRecorder(slot, "camera", stream, pickMimeType(), (track, blob) => this.queueTrackChunk(track, blob)));
     } catch {
+      if (generation !== this.captureGeneration) return;
       this.trackResults.push({
         slot,
         kind: "camera",
@@ -242,13 +249,19 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
   }
 
-  private async startMicTrackRecorder(slot: RecordingTrackSlot, deviceId: string | undefined, channel: MicrophoneInputChannel) {
+  private async startMicTrackRecorder(slot: RecordingTrackSlot, deviceId: string | undefined, channel: MicrophoneInputChannel, generation: number) {
     if (!deviceId) return;
 
     try {
       const stream = await this.openMicTrackStream(slot, deviceId, channel);
+      if (generation !== this.captureGeneration || !this.recorder || this.recorder.state === "inactive") {
+        stopStudioMediaStream(stream);
+        return;
+      }
+      this.trackResults = this.trackResults.filter((result) => !(result.slot === slot && result.message?.includes("attaching as a separate track")));
       this.trackRecorders.push(createTrackRecorder(slot, "audio", stream, pickAudioMimeType(), (track, blob) => this.queueTrackChunk(track, blob)));
     } catch {
+      if (generation !== this.captureGeneration) return;
       this.trackResults.push({
         slot,
         kind: "audio",
@@ -267,28 +280,20 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     if (activeAudioTrack) tracks.push(activeAudioTrack);
 
     const needsVideo = !activeVideoTrack;
-    const needsAudio = !activeAudioTrack;
-    if (needsVideo || needsAudio) {
-      if (needsVideo) {
-        const fallbackVideo = await openMediaStreamWithTimeout(
-          () => navigator.mediaDevices.getUserMedia({ video: deviceConstraint(videoDeviceId), audio: false }),
-          "camera"
-        );
-        tracks.push(...fallbackVideo.getVideoTracks());
-      }
-      if (needsAudio) {
-        try {
-          const fallbackAudio = await openRecordingAudioStream(audioDeviceId);
-          tracks.push(...fallbackAudio.getAudioTracks());
-        } catch {
-          this.trackResults.push({
-            slot: this.programMicSlot,
-            kind: "audio",
-            status: "preview-only",
-            message: "Program video is recording, but this microphone could not be opened"
-          });
-        }
-      }
+    if (needsVideo) {
+      const fallbackVideo = await openMediaStreamWithTimeout(
+        () => navigator.mediaDevices.getUserMedia({ video: deviceConstraint(videoDeviceId), audio: false }),
+        "camera"
+      );
+      tracks.push(...fallbackVideo.getVideoTracks());
+    }
+    if (!activeAudioTrack && audioDeviceId) {
+      this.trackResults.push({
+        slot: this.programMicSlot,
+        kind: "audio",
+        status: "preview-only",
+        message: "Program video started immediately; this microphone is attaching as a separate track"
+      });
     }
 
     const programSource = new MediaStream(tracks);

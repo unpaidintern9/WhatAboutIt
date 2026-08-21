@@ -52,7 +52,7 @@ export interface RecordingTemplate {
 }
 
 export const defaultRecordingPreferences: RecordingPreferences = {
-  countdownSeconds: 3,
+  countdownSeconds: 0,
   syncCueEnabled: true,
   confirmStopAfterSeconds: 30,
   plannedDurationMinutes: 120,
