@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { app } from "electron";
-import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
+import { app, shell } from "electron";
+import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, LiveLogInfo, StorageStatus } from "../shared/diagnostics";
 import { getAppPathSummary, getDiagnosticsRoot, getEpisodesRoot, getLogsRoot } from "./config-service";
-import { logger } from "./logger";
+import { getCurrentLogFilePath, logger } from "./logger";
 
 function safeName(input: string) {
   return input.replace(/[^a-z0-9-]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase() || "diagnostics";
@@ -32,6 +32,19 @@ export async function getStorageStatus(): Promise<StorageStatus> {
   } catch {
     return { message: "Storage check unavailable" };
   }
+}
+
+export async function getLiveLogInfo(): Promise<LiveLogInfo> {
+  const folderPath = getLogsRoot();
+  await fs.mkdir(folderPath, { recursive: true });
+  return { folderPath, filePath: getCurrentLogFilePath() };
+}
+
+export async function openLiveLogs(): Promise<LiveLogInfo> {
+  const info = await getLiveLogInfo();
+  const error = await shell.openPath(info.folderPath);
+  if (error) throw new Error(error);
+  return info;
 }
 
 export async function createDiagnosticsBundle(input: DiagnosticsBundleRequest): Promise<DiagnosticsBundleResult> {

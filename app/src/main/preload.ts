@@ -5,7 +5,7 @@ import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
 import type { AutoEditLearningProfile, AutoEditMode, AutoEditResult } from "../shared/auto-edit";
-import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, StorageStatus } from "../shared/diagnostics";
+import type { DiagnosticsBundleRequest, DiagnosticsBundleResult, LiveLogInfo, RuntimeLogEntry, StorageStatus } from "../shared/diagnostics";
 import type { ReviewMediaImportProgress, ReviewMediaImportResult, ReviewMediaImportSlot, ReviewMediaIntegrityResult, ReviewMediaInventory, ReviewMediaSyncResult, ReviewMediaTreatmentPreview } from "../shared/review-media";
 import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../shared/episode-maintenance";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWindowState, StudioWorkspaceState } from "../shared/studio-workspace";
@@ -77,6 +77,9 @@ contextBridge.exposeInMainWorld("studio", {
   cancelExport: (episodeId: string, job: ExportJob): Promise<ExportJob> => ipcRenderer.invoke("export:cancel", { episodeId, job }),
   openExportFolder: (episodeId: string, outputFolder?: string): Promise<string> => ipcRenderer.invoke("export:open-folder", { episodeId, outputFolder }),
   createDiagnosticsBundle: (input: DiagnosticsBundleRequest): Promise<DiagnosticsBundleResult> => ipcRenderer.invoke("diagnostics:create", input),
+  getLiveLogInfo: (): Promise<LiveLogInfo> => ipcRenderer.invoke("diagnostics:get-live-log-info"),
+  openLiveLogs: (): Promise<LiveLogInfo> => ipcRenderer.invoke("diagnostics:open-live-logs"),
+  writeRuntimeLog: (entry: RuntimeLogEntry): Promise<void> => ipcRenderer.invoke("diagnostics:write-runtime-log", entry),
   getStorageStatus: (): Promise<StorageStatus> => ipcRenderer.invoke("storage:status"),
   getCameraAccessStatus: (): Promise<MediaAccessStatus> => ipcRenderer.invoke("media-permissions:get-camera-status"),
   openCameraPrivacySettings: (): Promise<boolean> => ipcRenderer.invoke("media-permissions:open-camera-settings"),

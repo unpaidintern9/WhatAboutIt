@@ -62,41 +62,76 @@ export const defaultDeviceDefaults: DeviceDefaults = {
 };
 
 export function withDeviceDefaults(settings: StudioSettings): StudioSettings {
+  const mergedDefaults: DeviceDefaults = {
+    cameras: {
+      ...defaultDeviceDefaults.cameras,
+      ...settings.deviceDefaults?.cameras
+    },
+    cameraMicrophones: {
+      ...defaultDeviceDefaults.cameraMicrophones,
+      ...settings.deviceDefaults?.cameraMicrophones
+    },
+    cameraSettings: settings.deviceDefaults?.cameraSettings
+      ? {
+          ...settings.deviceDefaults.cameraSettings
+        }
+      : undefined,
+    microphones: {
+      ...defaultDeviceDefaults.microphones,
+      ...settings.deviceDefaults?.microphones
+    },
+    microphoneChannels: {
+      ...defaultDeviceDefaults.microphoneChannels,
+      ...settings.deviceDefaults?.microphoneChannels
+    },
+    microphoneNames: {
+      ...defaultDeviceDefaults.microphoneNames,
+      ...settings.deviceDefaults?.microphoneNames
+    },
+    microphoneDeviceLabels: {
+      ...defaultDeviceDefaults.microphoneDeviceLabels,
+      ...settings.deviceDefaults?.microphoneDeviceLabels
+    },
+    audioOutputId: settings.deviceDefaults?.audioOutputId
+  };
   return {
     ...settings,
-    deviceDefaults: {
-      cameras: {
-        ...defaultDeviceDefaults.cameras,
-        ...settings.deviceDefaults?.cameras
-      },
-      cameraMicrophones: {
-        ...defaultDeviceDefaults.cameraMicrophones,
-        ...settings.deviceDefaults?.cameraMicrophones
-      },
-      cameraSettings: settings.deviceDefaults?.cameraSettings
-        ? {
-            ...settings.deviceDefaults.cameraSettings
-          }
-        : undefined,
-      microphones: {
-        ...defaultDeviceDefaults.microphones,
-        ...settings.deviceDefaults?.microphones
-      },
-      microphoneChannels: {
-        ...defaultDeviceDefaults.microphoneChannels,
-        ...settings.deviceDefaults?.microphoneChannels
-      },
-      microphoneNames: {
-        ...defaultDeviceDefaults.microphoneNames,
-        ...settings.deviceDefaults?.microphoneNames
-      },
-      microphoneDeviceLabels: {
-        ...defaultDeviceDefaults.microphoneDeviceLabels,
-        ...settings.deviceDefaults?.microphoneDeviceLabels
-      },
-      audioOutputId: settings.deviceDefaults?.audioOutputId
-    }
+    deviceDefaults: normalizeSharedMicrophoneRoutes(mergedDefaults)
   };
+}
+
+/**
+ * Older settings allowed two named microphone tracks to point at the same
+ * browser-visible interface mix. That produces two files containing the same
+ * combined audio. Preserve single-device laptop microphones, but when multiple
+ * roles share one physical interface allocate a unique physical input to each.
+ */
+export function normalizeSharedMicrophoneRoutes(defaults: DeviceDefaults): DeviceDefaults {
+  const microphoneChannels = {
+    ...defaultDeviceDefaults.microphoneChannels,
+    ...defaults.microphoneChannels
+  };
+  const slotsByDevice = new Map<string, MicrophoneSlotKey[]>();
+
+  for (const [slot, deviceId] of Object.entries(defaults.microphones) as Array<[MicrophoneSlotKey, string | undefined]>) {
+    if (!deviceId) continue;
+    slotsByDevice.set(deviceId, [...(slotsByDevice.get(deviceId) ?? []), slot]);
+  }
+
+  for (const slots of slotsByDevice.values()) {
+    if (slots.length < 2) continue;
+    const used = new Set<MicrophoneInputChannel>();
+    for (const slot of slots) {
+      const savedChannel = microphoneChannels[slot] ?? "mix";
+      const channel = savedChannel !== "mix" && !used.has(savedChannel)
+        ? savedChannel
+        : numberedMicrophoneInputs.find((candidate) => !used.has(candidate)) ?? "mix";
+      microphoneChannels[slot] = channel;
+      used.add(channel);
+    }
+  }
+
+  return { ...defaults, microphoneChannels };
 }
 
 export function saveCameraSlot(defaults: DeviceDefaults, slot: keyof DeviceDefaults["cameras"], deviceId: string) {

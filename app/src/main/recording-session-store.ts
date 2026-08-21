@@ -266,6 +266,7 @@ async function copyFinalizedRecordingToBackup(session: RecordingSession, program
 
 export async function finalizeRecordingMedia(folderPath: string): Promise<RecordingFinalizeResult> {
   const safeFolder = assertRecordingFolder(folderPath);
+  await logger.info("RecordingService", "Finalization started.", { folderPath: safeFolder });
   await captureManifestQueues.get(safeFolder)?.catch(() => undefined);
   const manifest = await readJsonFile<CaptureManifest>(captureManifestPath(safeFolder));
   const session = await readJsonFile<RecordingSession>(path.join(safeFolder, "Session", "recording-session.json"));
@@ -277,6 +278,12 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
     finalizeProgramSource(safeFolder, programSource),
     Promise.all(trackSources.map((source) => finalizeTrackSource(safeFolder, source)))
   ]);
+  await logger.info("RecordingService", "Program and isolated sources finalized.", {
+    programPlayable,
+    expectedSources: trackSources.length,
+    savedSources: tracks.filter((track) => track.status === "saved").length,
+    tracks: tracks.map((track) => ({ slot: track.slot, kind: track.kind, status: track.status, message: track.message }))
+  });
   const savedTracks = tracks.filter((track) => track.status === "saved");
   let backupPath: string | undefined;
   const warnings = tracks.filter((track) => track.status !== "saved").map((track) => `${track.slot}: ${track.message}`);

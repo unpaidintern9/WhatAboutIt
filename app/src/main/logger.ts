@@ -11,7 +11,7 @@ export interface LogEntry {
   details?: Record<string, unknown>;
 }
 
-function todayLogFile() {
+export function getCurrentLogFilePath() {
   const date = new Date().toISOString().slice(0, 10);
   return path.join(getLogsRoot(), `${date}.log`);
 }
@@ -25,7 +25,7 @@ export async function writeLog(entry: LogEntry) {
     ...entry
   });
 
-  await fs.appendFile(todayLogFile(), `${line}\n`, "utf8");
+  await fs.appendFile(getCurrentLogFilePath(), `${line}\n`, "utf8");
 }
 
 export const logger = {
@@ -34,4 +34,3 @@ export const logger = {
   error: (source: string, message: string, details?: Record<string, unknown>) => writeLog({ level: "error", source, message, details }),
   debug: (source: string, message: string, details?: Record<string, unknown>) => writeLog({ level: "debug", source, message, details })
 };
-

@@ -9,11 +9,13 @@ const mockPaths = vi.hoisted(() => ({
   diagnosticsRoot: "",
   pathSummary: {}
 }));
+const openPath = vi.hoisted(() => vi.fn(async () => ""));
 
 vi.mock("electron", () => ({
   app: {
     getVersion: () => "0.1.0"
-  }
+  },
+  shell: { openPath }
 }));
 
 vi.mock("./config-service", () => ({
@@ -24,6 +26,7 @@ vi.mock("./config-service", () => ({
 }));
 
 vi.mock("./logger", () => ({
+  getCurrentLogFilePath: () => path.join(mockPaths.logsRoot, "today.log"),
   logger: {
     info: vi.fn(),
     warning: vi.fn(),
@@ -84,5 +87,16 @@ describe("diagnostics bundle", () => {
     expect(bundle.files.some((file) => file.endsWith(".webm"))).toBe(false);
     const appInfo = await fs.readFile(path.join(bundle.folderPath, "app-info.json"), "utf8");
     expect(appInfo).not.toContain("OneDrive\\\\Documents\\\\WhatAboutItStudio");
+  });
+
+  it("exposes and opens the persistent live log folder", async () => {
+    const { getLiveLogInfo, openLiveLogs } = await import("./diagnostics-store");
+
+    await expect(getLiveLogInfo()).resolves.toEqual({
+      folderPath: mockPaths.logsRoot,
+      filePath: path.join(mockPaths.logsRoot, "today.log")
+    });
+    await expect(openLiveLogs()).resolves.toMatchObject({ folderPath: mockPaths.logsRoot });
+    expect(openPath).toHaveBeenCalledWith(mockPaths.logsRoot);
   });
 });

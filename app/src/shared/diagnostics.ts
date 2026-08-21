@@ -2,6 +2,18 @@ import type { DiagnosticsBundleRequest, DiagnosticsBundleResult } from "./hardwa
 
 export type { DiagnosticsBundleRequest, DiagnosticsBundleResult };
 
+export interface LiveLogInfo {
+  folderPath: string;
+  filePath: string;
+}
+
+export interface RuntimeLogEntry {
+  level: "info" | "warning" | "error" | "debug";
+  source: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
+
 export interface StorageStatus {
   availableBytes?: number;
   message: "Storage check ready" | "Storage check unavailable";

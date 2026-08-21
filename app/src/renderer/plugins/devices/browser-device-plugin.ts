@@ -120,6 +120,17 @@ async function enumerateStudioDevices(): Promise<DeviceDetectionResult> {
       microphones: microphones.map((microphone) => ({ id: microphone.id ? "present" : "missing", label: microphone.label, kind: microphone.kind })),
       speakers: speakers.map((speaker) => ({ id: speaker.id ? "present" : "missing", label: speaker.label, kind: speaker.kind }))
     });
+    void window.studio?.writeRuntimeLog?.({
+      level: "info",
+      source: "DeviceDiscovery",
+      message: "Refreshed Windows media devices.",
+      details: {
+        permissionNeeded,
+        cameras: cameras.map((camera) => ({ id: camera.id, label: camera.label })),
+        microphones: microphones.map((microphone) => ({ id: microphone.id, label: microphone.label })),
+        speakers: speakers.map((speaker) => ({ id: speaker.id, label: speaker.label }))
+      }
+    }).catch(() => undefined);
 
     return {
       cameras,

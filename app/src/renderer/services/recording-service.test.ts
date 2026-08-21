@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { RecordingTrackSaveInput } from "../../shared/recording";
-import type { RecordingEnginePlugin } from "../plugins/recording/types";
+import type { RecordingEnginePlugin, RecordingEngineResult } from "../plugins/recording/types";
 import { RecordingService } from "./recording-service";
 
 function installStudioMock() {
@@ -63,6 +63,48 @@ describe("RecordingService", () => {
     expect((await service.resume()).status).toBe("recording");
     expect((await service.stop()).status).toBe("stopped");
     expect(window.studio.saveProgramRecording).toHaveBeenCalled();
+  });
+
+  it("coalesces repeated Stop actions into one recorder finalization", async () => {
+    installStudioMock();
+    let finishStop: ((result: RecordingEngineResult) => void) | undefined;
+    const plugin = createPlugin();
+    plugin.stop = vi.fn(() => new Promise<RecordingEngineResult>((resolve) => {
+      finishStop = resolve;
+    }));
+    const service = new RecordingService(plugin);
+    await service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } });
+
+    const firstStop = service.stop();
+    const secondStop = service.stop();
+    expect(plugin.stop).toHaveBeenCalledTimes(1);
+
+    finishStop?.({ bytes: new Uint8Array([1]), mimeType: "video/webm" });
+    const [firstSnapshot, secondSnapshot] = await Promise.all([firstStop, secondStop]);
+    expect(firstSnapshot.status).toBe("stopped");
+    expect(secondSnapshot.status).toBe("stopped");
+    expect(window.studio.saveProgramRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("marks a stopped capture recoverable when the recorder throws during Stop", async () => {
+    installStudioMock();
+    const plugin = createPlugin();
+    plugin.stop = vi.fn(async () => {
+      throw new Error("Chromium recorder failed during stop");
+    });
+    const service = new RecordingService(plugin);
+    await service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } });
+
+    const snapshot = await service.stop();
+
+    expect(snapshot).toMatchObject({
+      status: "error",
+      friendlyError: "The recording stopped, but some files still need recovery."
+    });
+    expect(window.studio.appendRecordingError).toHaveBeenCalledWith(
+      "C:/recording/episode-a",
+      expect.stringContaining("Chromium recorder failed during stop")
+    );
   });
 
   it("reports the active program and source recorder health", async () => {
