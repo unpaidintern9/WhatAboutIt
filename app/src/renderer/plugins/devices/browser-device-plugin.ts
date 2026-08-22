@@ -3,6 +3,36 @@ import { cameraProviders } from "../cameras/camera-provider-registry";
 import { createCenteredMonoStream, createStudioAudioContext, openAudioStreamWithFallback, stopStudioMediaStream } from "../audio/studio-audio";
 
 let lastLoggedDeviceSnapshot = "";
+const DEVICE_ENUMERATION_TIMEOUT_MS = 8000;
+const CAMERA_PREVIEW_TIMEOUT_MS = 10000;
+
+function withMediaOperationTimeout<T>(operation: Promise<T>, timeoutMs: number, timeoutError: Error, onLateResolve?: (value: T) => void) {
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const timer = window.setTimeout(() => {
+      settled = true;
+      reject(timeoutError);
+    }, timeoutMs);
+
+    operation.then(
+      (value) => {
+        if (settled) {
+          onLateResolve?.(value);
+          return;
+        }
+        settled = true;
+        window.clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
 
 function deviceDebugEnabled() {
   try {
@@ -104,7 +134,11 @@ async function enumerateStudioDevices(): Promise<DeviceDetectionResult> {
   }
 
   try {
-    const devices = await navigator.mediaDevices.enumerateDevices();
+    const devices = await withMediaOperationTimeout(
+      navigator.mediaDevices.enumerateDevices(),
+      DEVICE_ENUMERATION_TIMEOUT_MS,
+      new DOMException("Windows camera service did not respond within 8 seconds", "TimeoutError")
+    );
     const enumeratedCameras = devices.filter((device) => device.kind === "videoinput").map((device, index) => toStudioDevice(device, "camera", index));
     const providerCameras = await discoverProviderCameras();
     const cameras = disambiguateCameraLabels(mergeDevices([...enumeratedCameras, ...providerCameras]));
@@ -150,12 +184,25 @@ async function enumerateStudioDevices(): Promise<DeviceDetectionResult> {
     };
   } catch (error) {
     logDeviceDebug("enumerateDevices failed", String(error));
+    const message = String(error);
+    const timedOut = message.includes("TimeoutError") || message.includes("did not respond within 8 seconds");
+    const permissionBlocked = /NotAllowedError|PermissionDeniedError|permission denied/i.test(message);
+    void window.studio?.writeRuntimeLog?.({
+      level: "warning",
+      source: "DeviceDiscovery",
+      message: timedOut ? "Windows media device discovery timed out." : "Windows media device discovery failed.",
+      details: { error: message }
+    }).catch(() => undefined);
     return {
       cameras: [],
       microphones: [],
       speakers: [],
-      permissionNeeded: true,
-      errorMessage: "Permission needed"
+      permissionNeeded: permissionBlocked,
+      errorMessage: timedOut
+        ? "Windows camera service stopped responding. Close camera apps or reconnect the USB cameras, then refresh cameras."
+        : permissionBlocked
+          ? "Windows blocked camera or microphone access. Open Privacy & security settings, allow desktop apps, then try again."
+          : "Windows could not list cameras or microphones. Reconnect the devices, then try again."
     };
   }
 }
@@ -306,7 +353,12 @@ export const browserDevicePlugin: DevicePlugin = {
     let lastError: unknown;
     for (const video of attempts) {
       try {
-        return await navigator.mediaDevices.getUserMedia({ video, audio: false });
+        return await withMediaOperationTimeout(
+          navigator.mediaDevices.getUserMedia({ video, audio: false }),
+          CAMERA_PREVIEW_TIMEOUT_MS,
+          new DOMException("Windows camera service did not open this camera within 10 seconds", "NotReadableError"),
+          stopStudioMediaStream
+        );
       } catch (error) {
         lastError = error;
         if (!/OverconstrainedError|ConstraintNotSatisfiedError|AbortError/i.test(String(error))) break;
