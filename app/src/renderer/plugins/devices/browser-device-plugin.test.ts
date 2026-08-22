@@ -15,7 +15,42 @@ describe("browserDevicePlugin", () => {
 
   afterEach(() => {
     cameraProviders.splice(originalProviderCount);
+    vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it("returns a recoverable state when Windows device enumeration hangs", async () => {
+    vi.useFakeTimers();
+    setMediaDevices({
+      enumerateDevices: vi.fn(() => new Promise<MediaDeviceInfo[]>(() => undefined))
+    });
+
+    const detection = browserDevicePlugin.detectDevices();
+    await vi.advanceTimersByTimeAsync(8000);
+    const result = await detection;
+
+    expect(result.permissionNeeded).toBe(false);
+    expect(result.cameras).toEqual([]);
+    expect(result.errorMessage).toContain("Windows camera service stopped responding");
+  });
+
+  it("times out a stuck preview and stops the stream if the driver resolves late", async () => {
+    vi.useFakeTimers();
+    const stop = vi.fn();
+    let resolvePreview: ((stream: MediaStream) => void) | undefined;
+    const getUserMedia = vi.fn(() => new Promise<MediaStream>((resolve) => {
+      resolvePreview = resolve;
+    }));
+    setMediaDevices({ getUserMedia });
+
+    const preview = browserDevicePlugin.openCameraPreview("sony-camera");
+    const rejection = expect(preview).rejects.toMatchObject({ name: "NotReadableError" });
+    await vi.advanceTimersByTimeAsync(10000);
+    await rejection;
+
+    resolvePreview?.({ getTracks: () => [{ stop }] } as unknown as MediaStream);
+    await Promise.resolve();
+    expect(stop).toHaveBeenCalledTimes(1);
   });
 
   it("does not reopen cameras after Windows has already exposed labeled inputs", async () => {
