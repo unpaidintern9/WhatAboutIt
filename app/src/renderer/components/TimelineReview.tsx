@@ -103,6 +103,14 @@ const audioPresetCopy: Record<TimelineAudioPreset, { label: string; help: string
 
 type TimelineTool = "select" | "split";
 
+const timelineZoomLevels = [100, 150, 225, 350, 500, 750, 1000, 1500, 2250, 3500, 5000, 7500, 10000] as const;
+const timelineTrackHeaderWidth = 146;
+
+function getTimelineTimestampX(viewport: HTMLDivElement, ratio: number) {
+  const contentWidth = Math.max(0, viewport.scrollWidth - timelineTrackHeaderWidth);
+  return timelineTrackHeaderWidth + contentWidth * Math.max(0, Math.min(1, ratio));
+}
+
 export function TimelineReview({
   draft,
   media,
@@ -150,6 +158,7 @@ export function TimelineReview({
   const pairedAudioRef = useRef<HTMLAudioElement>(null);
   const programAudioRefs = useRef(new Map<string, HTMLAudioElement>());
   const multicamVideoRefs = useRef(new Map<string, HTMLVideoElement>());
+  const timelineViewportRef = useRef<HTMLDivElement>(null);
   const resumePlaybackRef = useRef(false);
   const decidedCameraTrackId = selectedVideoId === "program" ? getActiveCameraTrackId(draft, playheadMs) : undefined;
   const activeCameraTrackId = decidedCameraTrackId && isTimelineTrackAvailableAt(draft, decidedCameraTrackId, playheadMs) ? decidedCameraTrackId : undefined;
@@ -183,6 +192,26 @@ export function TimelineReview({
     () => new Map([media?.program, ...(media?.cameras ?? []), ...(media?.audio ?? [])].filter((asset): asset is ReviewMediaAsset => Boolean(asset)).map((asset) => [asset.id, asset])),
     [media]
   );
+  const readyCameraTracks = useMemo(
+    () =>
+      draft.tracks.filter((track) => {
+        if (track.kind !== "camera" || !track.sourceAssetId) return false;
+        const asset = mediaAssetsById.get(track.sourceAssetId);
+        return asset?.status === "ready" && Boolean(asset.playbackUrl);
+      }),
+    [draft.tracks, mediaAssetsById]
+  );
+  const defaultCameraTrackId = readyCameraTracks[0]?.id;
+  const effectiveCameraTrackId = activeCameraTrackId ?? defaultCameraTrackId;
+  const timelineZoomIndex = Math.max(
+    0,
+    timelineZoomLevels.findIndex((level) => level === timelineZoom)
+  );
+  const visibleTimelineDurationMs = draft.durationMs > 0 ? Math.max(1, Math.round((draft.durationMs * 100) / timelineZoom)) : 0;
+  const timelineTicks = useMemo(() => {
+    const divisions = Math.max(4, Math.min(400, Math.ceil((4 * timelineZoom) / 100)));
+    return Array.from({ length: divisions + 1 }, (_, index) => ({ position: index / divisions, major: index % 4 === 0 || index === divisions }));
+  }, [timelineZoom]);
   const selectedTrack = draft.tracks.find((track) => track.id === draft.selectedTrackId) ?? draft.tracks[0];
   const selectedTrackAsset = mediaAssetsById.get(selectedTrack?.sourceAssetId ?? "");
   const firstMicrophoneTrack = draft.tracks.find((track) => track.kind === "microphone");
@@ -275,6 +304,39 @@ export function TimelineReview({
     if (videoRef.current) videoRef.current.currentTime = videoSeconds;
     if (pairedAudioRef.current) pairedAudioRef.current.currentTime = Math.max(0, safeTimestamp / 1000);
     syncProgramAudio(safeTimestamp);
+  }
+
+  function setTimelineZoomAtPlayhead(nextZoom: number) {
+    const safeZoom = Math.max(timelineZoomLevels[0], Math.min(timelineZoomLevels[timelineZoomLevels.length - 1], nextZoom));
+    const viewport = timelineViewportRef.current;
+    const playheadRatio = draft.durationMs > 0 ? playheadMs / draft.durationMs : 0;
+    setTimelineZoom(safeZoom);
+    window.requestAnimationFrame(() => {
+      const nextViewport = timelineViewportRef.current ?? viewport;
+      if (!nextViewport) return;
+      const nextPlayheadX = getTimelineTimestampX(nextViewport, playheadRatio);
+      nextViewport.scrollLeft = Math.max(0, nextPlayheadX - nextViewport.clientWidth / 2);
+    });
+  }
+
+  function zoomTimelineBy(step: -1 | 1) {
+    const nextIndex = Math.max(0, Math.min(timelineZoomLevels.length - 1, timelineZoomIndex + step));
+    setTimelineZoomAtPlayhead(timelineZoomLevels[nextIndex]);
+  }
+
+  function zoomToSelection() {
+    if (!hasSelectedRange || draft.durationMs <= 0) return;
+    const selectedDurationMs = Math.max(1, rangeEndMs - rangeStartMs);
+    const requestedZoom = Math.min(10000, Math.max(100, Math.ceil((draft.durationMs / selectedDurationMs) * 82)));
+    const nextZoom = timelineZoomLevels.find((level) => level >= requestedZoom) ?? timelineZoomLevels[timelineZoomLevels.length - 1];
+    setPlayheadMs(rangeStartMs + selectedDurationMs / 2);
+    const viewport = timelineViewportRef.current;
+    setTimelineZoom(nextZoom);
+    window.requestAnimationFrame(() => {
+      if (!viewport || draft.durationMs <= 0) return;
+      const selectionCenter = (rangeStartMs + selectedDurationMs / 2) / draft.durationMs;
+      viewport.scrollLeft = Math.max(0, getTimelineTimestampX(viewport, selectionCenter) - viewport.clientWidth / 2);
+    });
   }
 
   function choosePoint(timestampMs: number, markerId?: string, trackId = draft.selectedTrackId) {
@@ -584,7 +646,7 @@ export function TimelineReview({
         return;
       }
       if (/^[123]$/.test(event.key)) {
-        const camera = draft.tracks.filter((track) => track.kind === "camera")[Number(event.key) - 1];
+        const camera = readyCameraTracks[Number(event.key) - 1];
         if (camera) {
           event.preventDefault();
           cutToCamera(camera, `${camera.label} selected with keyboard shortcut ${event.key}`);
@@ -680,18 +742,39 @@ export function TimelineReview({
               </button>
             ))}
           </div>
+          <div className="program-camera-switcher" role="toolbar" aria-label="Program camera switcher">
+            <div className="program-camera-switcher-label">
+              <Video size={16} />
+              <span>
+                <small>Program</small>
+                <strong>{draft.tracks.find((track) => track.id === effectiveCameraTrackId)?.label ?? "Recorded Program"}</strong>
+              </span>
+            </div>
+            <div className="program-camera-buttons">
+              {readyCameraTracks.map((cameraTrack, index) => (
+                <button type="button" className={cameraTrack.id === effectiveCameraTrackId ? "active" : ""} aria-pressed={cameraTrack.id === effectiveCameraTrackId} aria-label={`Use ${cameraTrack.label} in Program from ${formatRecordingTime(playheadMs)}`} title={`Use ${cameraTrack.label} in Program from ${formatRecordingTime(playheadMs)} (${index + 1})`} onClick={() => cutToCamera(cameraTrack, `${cameraTrack.label} selected from the Program switcher`)} key={cameraTrack.id}>
+                  <kbd>{index + 1}</kbd>
+                  <span>{cameraTrack.label}</span>
+                </button>
+              ))}
+            </div>
+            <button type="button" className={`program-multicam-toggle ${showMulticam ? "active" : ""}`} aria-pressed={showMulticam} onClick={() => setShowMulticam((current) => !current)} title={showMulticam ? "Show edited Program" : "Show all camera angles"}>
+              <Grid2X2 size={16} /> Multicam
+            </button>
+          </div>
           {showMulticam ? (
             <div className="multicam-grid" aria-label="Multicamera angles">
-              {media?.cameras.map((camera, index) => {
+              {media?.cameras.map((camera) => {
                 const cameraTrack = draft.tracks.find((track) => track.kind === "camera" && track.sourceAssetId === camera.id);
                 const isActive = cameraTrack?.id === activeCameraTrackId;
+                const readyCameraIndex = cameraTrack ? readyCameraTracks.findIndex((track) => track.id === cameraTrack.id) : -1;
                 return (
                   <button
                     type="button"
                     className={isActive ? "active" : ""}
                     disabled={camera.status !== "ready" || !camera.playbackUrl || !cameraTrack}
                     onClick={() => cameraTrack && cutToCamera(cameraTrack, `${cameraTrack.label} selected from Multicam view`)}
-                    title={camera.status === "ready" ? `Cut to ${camera.label} (shortcut ${index + 1})` : camera.message}
+                    title={camera.status === "ready" && readyCameraIndex >= 0 ? `Cut to ${camera.label} (shortcut ${readyCameraIndex + 1})` : camera.message}
                     key={camera.id}
                   >
                     {camera.status === "ready" && camera.playbackUrl ? (
@@ -713,7 +796,7 @@ export function TimelineReview({
                       <span className="multicam-missing">Not recorded</span>
                     )}
                     <strong>
-                      <kbd>{index + 1}</kbd> {camera.label}
+                      {readyCameraIndex >= 0 ? <kbd>{readyCameraIndex + 1}</kbd> : null} {camera.label}
                     </strong>
                   </button>
                 );
@@ -927,23 +1010,37 @@ export function TimelineReview({
           <button type="button" className={snapEnabled ? "selected" : ""} onClick={() => setSnapEnabled((current) => !current)} title={snapEnabled ? "Turn snapping off" : "Snap to markers and cuts"}>
             <Magnet size={17} />
           </button>
-          <button type="button" disabled={timelineZoom <= 100} onClick={() => setTimelineZoom((current) => Math.max(100, current - 25))} title="Zoom timeline out">
+          <button type="button" onClick={() => setTimelineZoomAtPlayhead(100)} disabled={timelineZoom === 100} title="Fit the full episode in the timeline">
+            Fit
+          </button>
+          <button type="button" disabled={timelineZoomIndex === 0} onClick={() => zoomTimelineBy(-1)} title="Zoom timeline out">
             <Minus size={17} />
           </button>
-          <input aria-label="Timeline zoom" type="range" min="100" max="300" step="25" value={timelineZoom} onChange={(event) => setTimelineZoom(Number(event.target.value))} />
+          <input aria-label="Timeline zoom" aria-valuetext={`${timelineZoom}% zoom, ${formatRecordingTime(visibleTimelineDurationMs)} visible`} type="range" min="0" max={timelineZoomLevels.length - 1} step="1" value={timelineZoomIndex} onChange={(event) => setTimelineZoomAtPlayhead(timelineZoomLevels[Number(event.target.value)])} />
           <strong>{timelineZoom}%</strong>
-          <button type="button" disabled={timelineZoom >= 300} onClick={() => setTimelineZoom((current) => Math.min(300, current + 25))} title="Zoom timeline in">
+          <button type="button" disabled={timelineZoomIndex === timelineZoomLevels.length - 1} onClick={() => zoomTimelineBy(1)} title="Zoom timeline in">
             <Plus size={17} />
+          </button>
+          <button type="button" disabled={!hasSelectedRange} onClick={zoomToSelection} title="Zoom to the selected range" aria-label="Zoom to selected range">
+            <Maximize2 size={17} />
           </button>
         </div>
       </section>
 
-      <div className="pro-timeline-viewport">
+      <div
+        ref={timelineViewportRef}
+        className="pro-timeline-viewport"
+        onWheel={(event) => {
+          if (!event.ctrlKey && !event.metaKey) return;
+          event.preventDefault();
+          zoomTimelineBy(event.deltaY > 0 ? -1 : 1);
+        }}
+      >
         <section className={`pro-timeline tool-${timelineTool}`} style={{ width: `${timelineZoom}%` } as CSSProperties} aria-label="Synchronized episode timeline">
           <div className="timeline-time-ruler" aria-hidden="true">
-            {[0, 0.25, 0.5, 0.75, 1].map((position) => (
-              <span style={{ left: `${position * 100}%` }} key={position}>
-                {formatRecordingTime(draft.durationMs * position)}
+            {timelineTicks.map(({ position, major }) => (
+              <span className={major ? "major" : "minor"} style={{ left: `${position * 100}%` }} key={position}>
+                {major ? formatRecordingTime(draft.durationMs * position) : null}
               </span>
             ))}
           </div>
@@ -965,6 +1062,7 @@ export function TimelineReview({
               filmstripUrl={track.kind !== "microphone" ? mediaAssetsById.get(track.sourceAssetId ?? "")?.filmstripUrl : undefined}
               filmstripIsPoster={track.kind !== "microphone" && mediaAssetsById.get(track.sourceAssetId ?? "")?.filmstripUrl === mediaAssetsById.get(track.sourceAssetId ?? "")?.posterUrl}
               audioSignal={track.kind === "microphone" ? mediaAssetsById.get(track.sourceAssetId ?? "")?.audioSignal : undefined}
+              defaultCameraTrackId={defaultCameraTrackId}
             />
           ))}
           <div className="timeline-marker-lane">
@@ -1047,7 +1145,8 @@ function TrackLane({
   waveformUrl,
   filmstripUrl,
   filmstripIsPoster,
-  audioSignal
+  audioSignal,
+  defaultCameraTrackId
 }: {
   track: TimelineTrack;
   draft: TimelineDraft;
@@ -1064,6 +1163,7 @@ function TrackLane({
   filmstripUrl?: string;
   filmstripIsPoster?: boolean;
   audioSignal?: ReviewMediaAsset["audioSignal"];
+  defaultCameraTrackId?: string;
 }) {
   const segments = getTimelineSegments(draft, track.id);
   const durationMs = Math.max(1, draft.durationMs);
@@ -1192,7 +1292,7 @@ function TrackLane({
         {waveformUrl ? <img className="timeline-waveform-image" src={waveformUrl} alt="" aria-hidden="true" /> : null}
         {track.kind === "microphone" && audioSignal === "silent" ? <span className="timeline-audio-warning">No audio signal captured</span> : null}
         {segments.map((segment) => {
-          const activeCameraId = track.kind === "program" ? getActiveCameraTrackId(draft, segment.startMs) : undefined;
+          const activeCameraId = track.kind === "program" ? (getActiveCameraTrackId(draft, segment.startMs) ?? defaultCameraTrackId) : undefined;
           const segmentLabel = activeCameraId ? (draft.tracks.find((candidate) => candidate.id === activeCameraId)?.label ?? track.label) : track.label;
           const isSelectedClip = selected && draft.selection?.trackId === track.id && draft.selection.timestampMs === segment.startMs && draft.selection.endTimestampMs === segment.endMs;
           return (

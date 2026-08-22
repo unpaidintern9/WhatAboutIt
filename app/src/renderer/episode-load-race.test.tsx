@@ -44,6 +44,57 @@ function reviewMedia(episodeId: string) {
 }
 
 describe("episode workspace loading", () => {
+  it("reloads Review when the already-active episode card is opened", async () => {
+    window.history.replaceState(null, "", "/?view=home&tour=off");
+    const activeEpisode = episode("episode-a");
+    const loadReviewMedia = vi.fn(async (episodeId: string) => reviewMedia(episodeId));
+    window.studio = {
+      listEpisodes: vi.fn(async () => [activeEpisode]),
+      createEpisode: vi.fn(),
+      getSettings: vi.fn(async () => ({ activeThemeId: "what-about-it", defaultEpisodeFolderName: "episodes", practiceModeEnabled: false, exportSettings: defaultExportSettings, deviceDefaults: { cameras: {}, microphones: {} }, onboarding: { guidedTour: "never" as const } })),
+      saveSettings: vi.fn(async (settings) => settings),
+      createRecordingSession: vi.fn(),
+      writeRecordingState: vi.fn(),
+      saveProgramRecording: vi.fn(),
+      saveRecordedTracks: vi.fn(async () => []),
+      appendRecordingError: vi.fn(),
+      listUnfinishedRecordingSessions: vi.fn(async () => []),
+      loadPodcastTools: vi.fn(async (episodeId) => createDefaultPodcastToolsState(episodeId)),
+      savePodcastTools: vi.fn(async (_episodeId, state) => state),
+      loadTimelineDraft: vi.fn(async (episodeId) => createTimelineDraft({ episodeId, deviceDefaults: { cameras: {}, microphones: {} }, durationMs: 30000 })),
+      saveTimelineDraft: vi.fn(async (_episodeId, draft) => draft),
+      loadReviewMedia,
+      runAutoEdit: vi.fn(),
+      createExport: vi.fn(),
+      getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })),
+      cancelExport: vi.fn(),
+      openExportFolder: vi.fn(),
+      createDiagnosticsBundle: vi.fn(async () => ({ folderPath: "diagnostics", files: [] })),
+      getStorageStatus: vi.fn(async () => ({ message: "Storage check ready" as const, availableBytes: 1024 }))
+    };
+
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<App />);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const activeEpisodeCard = host.querySelector('button[title="Open Episode episode-a"]');
+    await act(async () => {
+      activeEpisodeCard?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(loadReviewMedia).toHaveBeenCalledTimes(2);
+    expect(host.querySelector('[aria-label="Synchronized episode timeline"]')).toBeTruthy();
+    expect(host.textContent).not.toContain("Preparing your Review workspace");
+
+    act(() => root.unmount());
+    host.remove();
+  });
+
   it("ignores a slow response from the previously active episode", async () => {
     window.history.replaceState(null, "", "/?view=home&tour=off");
     const episodes = [episode("episode-a"), episode("episode-b")];

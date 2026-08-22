@@ -241,6 +241,41 @@ describe("RecordingService", () => {
     ]);
   });
 
+  it("keeps a verified Program playable when an optional recorder track is unavailable", async () => {
+    installStudioMock();
+    window.studio.finalizeRecordingMedia = vi.fn(async () => ({
+      programPath: "C:/recording/episode-a/Program/program.webm",
+      tracks: [],
+      integrity: {
+        checkedAt: "2026-08-22T12:00:00.000Z",
+        playable: true,
+        programPlayable: true,
+        savedSourceCount: 0,
+        expectedSourceCount: 0,
+        warnings: []
+      }
+    }));
+    const plugin: RecordingEnginePlugin = {
+      ...createPlugin(),
+      stop: vi.fn(async () => ({
+        persisted: true,
+        tracks: [{ slot: "guestMic", kind: "audio", status: "needs-attention", message: "No audible signal" }] satisfies RecordingTrackSaveInput[]
+      }))
+    };
+    const service = new RecordingService(plugin);
+
+    await service.start({ cameras: { camera1: "camera-a" }, microphones: { guestMic: "mic-b" } });
+    const snapshot = await service.stop();
+
+    expect(snapshot.integrity).toMatchObject({
+      playable: true,
+      programPlayable: true,
+      savedSourceCount: 0,
+      expectedSourceCount: 1,
+      warnings: ["guestMic: No audible signal"]
+    });
+  });
+
   it("simulates practice mode without media bytes", async () => {
     installStudioMock();
     const plugin: RecordingEnginePlugin = {

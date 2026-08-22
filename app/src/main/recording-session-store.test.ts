@@ -261,6 +261,50 @@ describe("recording session store", () => {
     await expect(fs.stat(path.join(result.integrity.backupPath as string, "Audio", "morgan-mic.m4a"))).resolves.toBeTruthy();
   }, 30000);
 
+  it("keeps a playable Program available when an optional isolated microphone is silent", async () => {
+    const { appendRecordingChunk, beginRecordingMedia, createRecordingSession, finalizeRecordingMedia } = await import("./recording-session-store");
+    const { runFfmpeg } = await import("./ffmpeg-tools");
+    const programSource = path.join(mockPaths.episodesRoot, "program-with-silent-isolated-mic.webm");
+    const silentMicSource = path.join(mockPaths.episodesRoot, "silent-isolated-mic.webm");
+    await runFfmpeg([
+      "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=20",
+      "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", programSource
+    ]);
+    await runFfmpeg([
+      "-y", "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+      "-t", "1", "-c:a", "libopus", silentMicSource
+    ]);
+    const session = await createRecordingSession({
+      episodeId: "episode-silent-isolated-mic",
+      episodeTitle: "Silent Isolated Mic",
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { guestMic: "mic-b" } }
+    });
+    await beginRecordingMedia(session.folderPath);
+
+    async function appendFile(target: "program" | "guestMic", kind: "program" | "audio", mimeType: string, source: string) {
+      const bytes = await fs.readFile(source);
+      let sequence = 0;
+      for (let offset = 0; offset < bytes.length; offset += 4096) {
+        await appendRecordingChunk(session.folderPath, { target, kind, mimeType, sequence, bytes: bytes.subarray(offset, offset + 4096) });
+        sequence += 1;
+      }
+    }
+
+    await Promise.all([
+      appendFile("program", "program", "video/webm", programSource),
+      appendFile("guestMic", "audio", "audio/webm", silentMicSource)
+    ]);
+    const result = await finalizeRecordingMedia(session.folderPath);
+
+    expect(result.integrity.programPlayable).toBe(true);
+    expect(result.integrity.playable).toBe(true);
+    expect(result.integrity.savedSourceCount).toBe(0);
+    expect(result.integrity.expectedSourceCount).toBe(1);
+    expect(result.integrity.warnings).toContain("guestMic: Saved, but no audible signal was detected");
+    expect(result.tracks[0]).toMatchObject({ slot: "guestMic", status: "needs-attention", filePath: expect.any(String) });
+  }, 30000);
+
   it("keeps preview-only track states truthful", async () => {
     const { createRecordingSession, saveRecordedTracks } = await import("./recording-session-store");
     const session = await createRecordingSession({

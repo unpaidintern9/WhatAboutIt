@@ -313,7 +313,9 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
   }
   const integrity = {
     checkedAt: new Date().toISOString(),
-    playable: programPlayable && savedTracks.length === trackSources.length,
+    // Program is the recoverable episode master. Isolated camera and microphone
+    // failures stay visible as warnings without making a valid episode unusable.
+    playable: programPlayable,
     programPlayable,
     savedSourceCount: savedTracks.length,
     expectedSourceCount: trackSources.length,

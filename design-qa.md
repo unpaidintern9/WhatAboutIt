@@ -87,6 +87,28 @@ No actionable P0/P1/P2 findings remain for this implementation scope.
 - Fixed P2: The page no longer forces a second `980px` content minimum inside a `980px` outer native window, removing the minimum-size horizontal scrollbar.
 - Density normalization: the source captures and implementation captures use different native window chrome and pixel sizes, so comparison used matched major regions and device states. Live camera content intentionally reflects the attached Sony and integrated cameras.
 
+### Precision Editor and Three-Camera Program Follow-Up
+
+- Source visual truth: `assets/references/ui/live-studio-target-reference.png` and `assets/references/ui/studio-ui-reference.png`.
+- Fixed: Review now keeps a persistent Program camera switcher above the monitor. Camera 1, Camera 2, and Camera 3 create export-backed camera decisions at the current playhead; Multicam keeps all available angles visible while cutting.
+- Fixed: Program defaults visibly to the first ready camera when no manual decision exists, instead of presenting an unlabeled or empty Program lane.
+- Fixed: Timeline zoom now ranges from Fit/100% through 10,000%, keeps the playhead centered, supports Ctrl/Cmd + wheel, exposes zoom-to-selection, increases time-ruler precision, and preserves filmstrip and waveform visibility while horizontally scrolling.
+- Fixed: Opening the already-active recent episode now retriggers Review media loading instead of remaining indefinitely on `Preparing your Review workspace`.
+- Studio comparison: `artifacts/visual-qa/record-reference-comparison.png` places the supplied reference and the implementation in one comparison image. The implementation preserves real camera/device states while matching the reference hierarchy of three 16:9 previews, production notes, mixer, soundboard, markers, teleprompter, and bottom recording controls.
+- Review evidence: `artifacts/visual-qa/review-1920x1080-three-camera.png`, `review-1536x864.png`, `review-1366x768.png`, `review-980x720.png`, and `review-1536x864-zoom-500.png` cover the requested desktop and minimum sizes.
+- Record evidence: `artifacts/visual-qa/record-1920x1080.png`, `record-1536x864.png`, and `record-1366x768.png`; browser screenshots intentionally use unavailable preview placeholders because camera permission was not granted to the browser fixture.
+- App-wide evidence: `artifacts/visual-qa/audit-app-contact-sheet.png` covers Home, Studio Setup, Export, Settings, and Learn without page-level horizontal overflow.
+- Native hardware evidence: the latest packaged log detects all three `ZV-1F (054c:0e39)` cameras, opens Morgan and Guest routes at `48000 Hz / 16-bit`, writes Program plus three protected camera streams, and finalizes playable Program media. The existing 11-minute audit and 1920 x 1080 export remain valid because this pass does not alter capture, USB discovery, audio routing, or finalization code.
+- Remaining visual difference: the supplied reference uses posed production photography and five narrow VU strips; the production UI intentionally shows live device feeds and the full per-microphone controls requested for Morgan and Guest.
+
+### Final Recording Integrity and Multicam Regression Audit
+
+- Fixed P1: A playable Program master is no longer marked unusable because an optional isolated camera or microphone is silent or unavailable. Source failures remain visible in the verified-source count and integrity warnings.
+- Fixed P1: Renderer-side recorder warnings no longer overwrite a successful main-process Program validation when an optional source never reaches finalization.
+- Fixed P2: Camera keyboard shortcuts now map to ready camera feeds in the same order as the visible Program switcher. With Camera 2 missing, shortcut `2` correctly selects the next ready feed instead of targeting an unavailable track.
+- Regression coverage: added disk-first finalization with a silent isolated mic, persisted-recorder optional-source handling, and missing-middle-camera keyboard switching.
+- Verification: `npm run verify` passed lint, both TypeScript projects, 48 test files / 315 tests, JSON, themes, plugins, docs, architecture, and accessibility validation. `npm run build` produced the production Electron renderer and main-process bundles.
+
 ## Follow-Up Polish
 
 - P3: Replace the letter-avatar Morgan treatment with a properly licensed/cropped Morgan cutout asset if packaging can include it.

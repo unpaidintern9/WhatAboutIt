@@ -53,7 +53,8 @@ const media: ReviewMediaInventory = {
       relativePath: "Cameras/camera-2.webm",
       status: "missing",
       message: "Not recorded in this episode"
-    }
+    },
+    { id: "camera-3", label: "Camera 3", kind: "camera", relativePath: "Cameras/camera-3.webm", playbackUrl: "file:///C:/episodes/episode-a/Cameras/camera-3.webm", waveformUrl: "file:///C:/episodes/episode-a/Session/Review/camera-3-waveform.png", filmstripUrl: "file:///C:/episodes/episode-a/Session/Review/camera-3-filmstrip.jpg", pairedAudioId: "extra-mic", pairedAudioLabel: "Extra Mic", status: "ready", durationMs: 30000, codecSummary: "vp9 1280x720", message: "Ready to review" }
   ],
   audio: [
     {
@@ -211,6 +212,90 @@ describe("TimelineReview", () => {
 
     expect(markup).toContain("timeline-filmstrip-poster");
     expect(markup).toContain("program-poster.jpg");
+  });
+
+  it("keeps precision timeline zoom and multicamera Program switching visible", () => {
+    const draft = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a", camera2: "camera-b", camera3: "camera-c" }, microphones: { morganMic: "mic-a" } }, durationMs: 30 * 60 * 1000 });
+    const multicamMedia = { ...media, cameras: media.cameras.map((camera) => (camera.id === "camera-2" ? { ...camera, status: "ready" as const, playbackUrl: "file:///C:/episodes/episode-a/Cameras/camera-2.webm" } : camera)) };
+    const markup = renderToStaticMarkup(<TimelineReview draft={draft} media={multicamMedia} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+
+    expect(markup).toContain('aria-label="Program camera switcher"');
+    expect(markup).toContain('aria-label="Use Camera 1 in Program from 00:00:00"');
+    expect(markup).toContain('aria-label="Use Camera 2 in Program from 00:00:00"');
+    expect(markup).toContain('aria-label="Use Camera 3 in Program from 00:00:00"');
+    expect(markup).toContain('aria-label="Zoom to selected range"');
+    expect(markup).toContain('max="12"');
+    expect(markup).toContain('aria-valuetext="100% zoom, 00:30:00 visible"');
+  });
+
+  it("adds an export-backed Camera 2 cut from the visible Program switcher", () => {
+    const draft = { ...createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a", camera2: "camera-b" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 }), selection: { timestampMs: 12000, trackId: "program", source: "timeline" as const } };
+    const multicamMedia = { ...media, cameras: media.cameras.map((camera) => (camera.id === "camera-2" ? { ...camera, status: "ready" as const, playbackUrl: "file:///C:/episodes/episode-a/Cameras/camera-2.webm" } : camera)) };
+    const onDraftChange = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(<TimelineReview draft={draft} media={multicamMedia} onDraftChange={onDraftChange} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+    });
+
+    const cameraTwo = host.querySelector('button[aria-label="Use Camera 2 in Program from 00:00:12"]') as HTMLButtonElement;
+    act(() => cameraTwo.click());
+
+    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ cameraDecisions: [expect.objectContaining({ cameraTrackId: "camera-camera2", startMs: 12000, source: "manual" })] }));
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("maps camera keyboard shortcuts to ready feeds when an earlier slot is missing", () => {
+    const draft = {
+      ...createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a", camera3: "camera-c" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 }),
+      selection: { timestampMs: 7000, trackId: "program", source: "timeline" as const }
+    };
+    const onDraftChange = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(<TimelineReview draft={draft} media={media} onDraftChange={onDraftChange} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+    });
+
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "2", bubbles: true })));
+
+    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
+      cameraDecisions: [expect.objectContaining({ cameraTrackId: "camera-camera3", startMs: 7000, source: "manual" })]
+    }));
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("zooms the timeline through production-scale precision levels and centers the editable content", async () => {
+    const draft = {
+      ...createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }, durationMs: 30 * 60 * 1000 }),
+      selection: { timestampMs: 15 * 60 * 1000, trackId: "program", source: "timeline" as const }
+    };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(<TimelineReview draft={draft} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+    });
+
+    const zoomInput = host.querySelector('input[aria-label="Timeline zoom"]') as HTMLInputElement;
+    const zoomIn = host.querySelector('button[title="Zoom timeline in"]') as HTMLButtonElement;
+    const viewport = host.querySelector(".pro-timeline-viewport") as HTMLDivElement;
+    Object.defineProperties(viewport, {
+      scrollWidth: { configurable: true, value: 1000 },
+      clientWidth: { configurable: true, value: 400 }
+    });
+    act(() => zoomIn.click());
+    await act(async () => new Promise((resolve) => window.requestAnimationFrame(() => resolve(undefined))));
+
+    expect(zoomInput.getAttribute("aria-valuetext")).toBe("150% zoom, 00:20:00 visible");
+    expect(zoomInput.max).toBe("12");
+    expect(viewport.scrollLeft).toBe(373);
+    act(() => root.unmount());
+    host.remove();
   });
 
   it("shows source-level podcast audio finishing controls", () => {
