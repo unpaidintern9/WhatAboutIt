@@ -75,9 +75,12 @@ const media: ReviewMediaInventory = {
 describe("TimelineReview", () => {
   it("allows local review posters, filmstrips, and waveforms through the renderer CSP", () => {
     const rendererHtml = fs.readFileSync(path.join(process.cwd(), "src", "renderer", "index.html"), "utf8");
+    const styles = fs.readFileSync(path.join(process.cwd(), "src", "renderer", "styles.css"), "utf8");
 
     expect(rendererHtml).toContain("img-src 'self' data: http://127.0.0.1:*");
     expect(rendererHtml).toContain("media-src 'self' http://127.0.0.1:*");
+    expect(styles).toContain("width: min(100cqw, 177.7778cqh)");
+    expect(styles).toContain("height: min(100cqh, 56.25cqw)");
   });
 
   it("renders marker list, original-safe messaging, and unlocked draft controls", () => {
@@ -91,6 +94,8 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Originals safe");
     expect(markup).toContain("Program video");
     expect(markup).toContain('aria-label="Edited Program playback"');
+    expect(markup).toContain('data-aspect-ratio="16:9"');
+    expect(markup).toContain('class="review-player-frame"');
     expect(markup).toContain('poster="file:///C:/episodes/episode-a/Session/Review/program-poster.jpg"');
     expect(markup).toContain("Camera 1");
     expect(markup).toContain("Morgan Mic");
@@ -108,6 +113,8 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Select, scrub, or drag a range");
     expect(markup).toContain("Set range start at the playhead");
     expect(markup).toContain("Set range end at the playhead");
+    expect(markup).toContain("Set the selection start at the playhead");
+    expect(markup).toContain("Set the selection end at the playhead");
     expect(markup).toContain("Delete range");
     expect(markup).toContain("Timeline zoom");
     expect(markup).toContain("drag onto Program to switch cameras");
@@ -134,10 +141,32 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Manual</button>");
     expect(markup).toContain("Draft saved");
     expect(markup).toContain("Selected track");
+    expect(markup).toContain('<select aria-label="Selected track"');
     expect(markup).toContain("Program cuts remove time from every source");
     expect(markup).toContain("Finished episode loudness");
     expect(markup).toContain("Podcast");
     expect(markup).toContain("-16 LUFS");
+  });
+
+  it("switches the inspector source from its track picker", () => {
+    const draft = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a", camera3: "camera-c" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 });
+    const onDraftChange = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(<TimelineReview draft={draft} media={media} onDraftChange={onDraftChange} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+    });
+
+    const picker = host.querySelector('select[aria-label="Selected track"]') as HTMLSelectElement;
+    act(() => {
+      picker.value = "camera-camera3";
+      picker.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({ selectedTrackId: "camera-camera3" }));
+    act(() => root.unmount());
+    host.remove();
   });
 
   it("renders edit history", () => {

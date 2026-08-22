@@ -115,4 +115,29 @@ No actionable P0/P1/P2 findings remain for this implementation scope.
 - P3: Add the full future layout editor behind `View Layouts`; currently it exposes and explains the preset controls already on the screen.
 - P3: Further tune the mixer into true vertical VU strips once the audio mixer gets a dedicated canvas or component.
 
+### Review Layout, Aspect Ratio, and Control Audit
+
+- Source visual truth: `C:\Users\mmcga\AppData\Local\Temp\codex-clipboard-8da1b216-9911-47cf-a4b8-c11d7f5e3315.png` (`1916 x 1079` native Windows capture, real three-camera episode).
+- Baseline implementation evidence: `artifacts/review-audit-2026-08-22/01-review-baseline-1536x816.png` (`1536 x 816`, installed v0.2.32, real episode).
+- Final browser-rendered evidence: `artifacts/review-audit-2026-08-22/08-review-after-1920x1080.png`, `04-review-after-1366x768.png`, `06-review-after-minimum-980x720.png`, and `09-review-final-controls-1920x1080.png`.
+- Density normalization: comparison used the matching CSS viewport dimensions reported by the browser and native screenshot pixel dimensions. The attached native capture includes Electron chrome and Windows scaling; the implementation captures are browser content at device scale 1, so findings were based on matched editor regions rather than window chrome.
+- State: final Program view, Multicam camera switching, Morgan Mic inspector, 150% timeline zoom, and waveform lanes. Browser fixture media URLs are intentionally unavailable; the native baseline provides the real-media crop and waveform evidence.
+- Full-view comparison: the source and final `1920 x 1080` implementation were opened together. The final layout preserves the source hierarchy while removing stretched video, duplicate range controls, nested slider cards, and breakpoint crowding.
+- Focused-region comparison: no separate crop was needed because the `1920 x 1080` captures keep the monitor, toolbar, inspector controls, and timeline labels readable at full size.
+- Fonts and typography: Passed. Existing theme families and weights are preserved; toolbar labels remain single-line at laptop widths and switch to icon controls only where the minimum window requires it.
+- Spacing and layout rhythm: Passed. The monitor, 46px edit toolbar, inspector, and uniform timeline lanes align without overlap or page scrolling at all required viewports.
+- Colors and visual tokens: Passed. Review continues to use the established burgundy, brass, cream, and near-black tokens with consistent active, disabled, warning, and selected states.
+- Image quality and asset fidelity: Passed. The main preview is now an exact bounded `16:9` frame using `object-fit` inside a clipped stage; measured frames were `867 x 488`, `641 x 360`, `529 x 298`, and `481 x 271`. Filmstrips and waveforms retain their time mapping and are not substituted with generated assets.
+- Copy and content: Passed. Program camera identity, selected track, audio routing, inclusion, range, zoom, and treatment controls are explicit and remain tied to real draft behavior.
+- Primary interactions tested: Camera 2 Program cut, Multicam toggle, inspector track picker, Audio Mix, In range activation, Fit, and timeline zoom to 150%.
+- Console errors checked: clean final browser tab reported zero warnings and zero errors. The fixture's expected media-error overlay is a visible unavailable-file state, not a framework failure.
+
+#### Comparison History
+
+- Pass 1 P1: the camera preview was forced into a roughly `4.6:1` box because width and height overrode `aspect-ratio`. Fixed with a container-bounded `16:9` frame and clipped treatment transforms.
+- Pass 1 P2: In/Out were hidden at common laptop widths and reappeared as duplicate cream fields on wide screens. Fixed by keeping compact In/Out controls in the primary toolbar and removing the duplicate readout.
+- Pass 1 P2: inspector spacing doubled because grid gaps and child margins stacked, while every range rendered as a separate card. Fixed with one spacing rhythm, a selected-track picker, grouped camera color controls, and divider-based ranges.
+- Pass 2 P2: the minimum `980 x 720` toolbar crowded labels despite remaining scrollable. Fixed by using distinct Lucide icon controls for secondary actions only at the minimum-width breakpoint.
+- Pass 3: no actionable P0/P1/P2 findings remain. Body scroll dimensions equal viewport dimensions at all four tested sizes, and the final interaction state has no console warnings or errors.
+
 final result: passed

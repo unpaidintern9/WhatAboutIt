@@ -9253,8 +9253,8 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 /* Review uses one continuous editing surface: monitor, transport, timeline, inspector. */
 .studio-shell--review .edit-studio {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) clamp(245px, 22vw, 330px);
-  grid-template-rows: 0 minmax(275px, 1.08fr) 42px minmax(255px, 0.92fr);
+  grid-template-columns: minmax(0, 1fr) clamp(275px, 22vw, 350px);
+  grid-template-rows: 0 minmax(340px, 1.18fr) 46px minmax(280px, 0.82fr);
   gap: 1px;
   min-height: 0;
   padding: 0;
@@ -9274,21 +9274,42 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 }
 
 .studio-shell--review .review-player-stage {
+  container-type: size;
+  display: grid;
+  place-items: center;
   width: 100%;
   height: 100%;
   min-height: 0;
-  border: 0;
-  border-radius: 0;
+  overflow: hidden;
+  background: #080708;
+  border: 1px solid #3f3033;
+  border-radius: 4px;
 }
 
-.studio-shell--review .edit-source-monitor .review-player-stage video {
+.studio-shell--review .review-player-frame {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: min(100cqw, 177.7778cqh);
+  height: min(100cqh, 56.25cqw);
+  max-width: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  background: #000;
+  border: 1px solid #4b373b;
+  border-radius: 4px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.34);
+}
+
+.studio-shell--review .edit-source-monitor .review-player-frame video {
   display: block;
   width: 100%;
-  max-width: 100%;
   height: 100%;
-  max-height: 100%;
   aspect-ratio: 16 / 9;
   object-fit: contain;
+  background: #000;
+  border: 0;
+  border-radius: 0;
 }
 
 .studio-shell--review .review-playback-error {
@@ -9311,15 +9332,15 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 .studio-shell--review .edit-track-inspector {
   grid-column: 2;
   grid-row: 2 / 5;
-  padding: 12px 14px;
+  padding: 10px 12px 18px;
   border-left: 1px solid #4b373b;
 }
 
 .studio-shell--review .edit-direct-toolbar {
   grid-column: 1;
   grid-row: 3;
-  min-height: 42px;
-  padding: 5px 9px;
+  min-height: 46px;
+  padding: 5px 8px;
   overflow: hidden;
   border-top: 1px solid #3c2c30;
   border-bottom: 1px solid #3c2c30;
@@ -9837,8 +9858,8 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 /* Precision editor: keep switching, transport, and timeline scale visible together. */
 .studio-shell--review .edit-source-monitor {
   grid-template-rows: 38px minmax(0, 1fr) 38px;
-  gap: 6px;
-  padding: 7px 9px 5px;
+  gap: 4px;
+  padding: 6px 8px 4px;
 }
 
 .studio-shell--review .program-camera-switcher {
@@ -9846,9 +9867,9 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   display: grid;
   grid-template-columns: minmax(150px, auto) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  padding: 3px 5px;
+  padding: 3px 4px;
   color: #e7d7c7;
   background: #181315;
   border: 1px solid #3f3033;
@@ -9892,7 +9913,7 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 }
 
 .program-camera-buttons {
-  gap: 5px;
+  gap: 4px;
   overflow-x: auto;
   scrollbar-width: thin;
 }
@@ -9904,8 +9925,8 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   justify-content: center;
   gap: 6px;
   min-width: 0;
-  min-height: 28px;
-  padding: 3px 8px;
+  min-height: 30px;
+  padding: 3px 9px;
   color: #d8c9bc;
   background: #251c1e;
   border: 1px solid #4d393d;
@@ -9975,6 +9996,7 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 .studio-shell--review .edit-direct-toolbar {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 8px;
   min-height: 46px;
   padding: 5px 8px;
@@ -9985,6 +10007,14 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: thin;
+}
+
+.studio-shell--review .timeline-tool-group button,
+.studio-shell--review .timeline-view-controls button {
+  min-height: 32px;
+  border-radius: 4px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .studio-shell--review .timeline-selection-readout {
@@ -10054,15 +10084,15 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 }
 
 .studio-shell--review .edit-track-lane {
-  min-height: 50px;
+  min-height: 48px;
 }
 
 .studio-shell--review .edit-track-lane.program {
-  min-height: 58px;
+  min-height: 52px;
 }
 
 .studio-shell--review .edit-track-lane.microphone {
-  min-height: 54px;
+  min-height: 48px;
 }
 
 .studio-shell--review .edit-track-lane.program .timeline-clip {
@@ -10096,6 +10126,8 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 }
 
 .studio-shell--review .edit-track-inspector {
+  display: block;
+  gap: 0;
   padding: 10px 12px 18px;
   scrollbar-color: #8e2d32 #21191b;
 }
@@ -10113,14 +10145,85 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   border-radius: 5px;
 }
 
+.studio-shell--review .inspector-heading {
+  min-height: 42px;
+}
+
+.studio-shell--review .inspector-heading > span {
+  gap: 2px;
+}
+
+.studio-shell--review .inspector-heading select {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  color: #fff4e5;
+  background: transparent;
+  border: 0;
+  font-family: var(--font-heading);
+  font-size: 0.9rem;
+  font-weight: 900;
+  text-overflow: ellipsis;
+}
+
+.studio-shell--review .inspector-heading select:focus-visible {
+  outline: 2px solid #e2ad3d;
+  outline-offset: 2px;
+}
+
+.studio-shell--review .editor-tool-group {
+  padding: 8px 10px 4px;
+  background: #241c1e;
+}
+
+.studio-shell--review .editor-tool-group summary {
+  min-height: 26px;
+  margin: 0;
+  line-height: 1.2;
+}
+
+.studio-shell--review .editor-tool-group[open] summary {
+  margin-bottom: 2px;
+}
+
+.studio-shell--review .inspector-range,
+.studio-shell--review .editor-tool-group .inspector-range {
+  gap: 5px;
+  margin: 0;
+  padding: 8px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #49373a;
+  border-radius: 0;
+}
+
+.studio-shell--review .editor-tool-group .inspector-range:last-child {
+  border-bottom: 0;
+}
+
+.studio-shell--review .inspector-segmented,
+.studio-shell--review .inspector-button-pair,
+.studio-shell--review .inspector-number-pair {
+  gap: 6px;
+}
+
+.studio-shell--review .inspector-toggle,
+.studio-shell--review .inspector-primary,
+.studio-shell--review .inspector-button-pair button,
+.studio-shell--review .inspector-segmented button,
+.studio-shell--review .inspector-utility-actions button {
+  min-height: 34px;
+  border-radius: 4px;
+}
+
 @media (min-width: 1600px) {
   .studio-shell--review .edit-direct-toolbar {
-    grid-template-columns: minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .studio-shell--review .timeline-selection-readout {
-    display: flex;
-    margin-left: 0;
+    display: none;
   }
 }
 
@@ -10137,16 +10240,27 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   .studio-shell--review .timeline-view-controls strong {
     min-width: 42px;
   }
+
+  .studio-shell--review .timeline-tool-group button[data-compact-tool] {
+    width: 32px;
+    min-width: 32px;
+    padding-inline: 3px;
+  }
+
+  .studio-shell--review .timeline-tool-group button[data-compact-tool] > span {
+    display: none;
+  }
 }
 
 @media (max-height: 820px) {
   .studio-shell--review .edit-studio {
-    grid-template-rows: 0 minmax(255px, 1fr) 46px minmax(265px, 0.96fr);
+    grid-template-rows: 0 minmax(300px, 1.12fr) 44px minmax(240px, 0.88fr);
   }
 
   .studio-shell--review .edit-source-monitor {
     grid-template-rows: 34px minmax(0, 1fr) 34px;
-    padding: 5px 7px 3px;
+    gap: 3px;
+    padding: 4px 6px 3px;
   }
 
   .studio-shell--review .program-camera-switcher {
@@ -10156,11 +10270,11 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 
   .studio-shell--review .edit-track-lane,
   .studio-shell--review .edit-track-lane.microphone {
-    min-height: 46px;
+    min-height: 42px;
   }
 
   .studio-shell--review .edit-track-lane.program {
-    min-height: 52px;
+    min-height: 46px;
   }
 }
 
