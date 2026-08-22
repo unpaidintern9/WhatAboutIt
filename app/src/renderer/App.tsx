@@ -639,6 +639,12 @@ export default function App() {
         })
       );
 
+      const recordingStatus = recordingService.getSnapshot().status;
+      if (recordingStatus !== "recording" && recordingStatus !== "paused" && (view === "device-setup" || view === "recording")) {
+        deviceService.releaseAll();
+        setDeviceRefreshKey((current) => current + 1);
+      }
+
       if (disconnected) {
         setHardwareTestMessage("A device disconnected, so we stopped safely. Check the cable, then try again.");
         if (view === "hardware-test") {
@@ -655,7 +661,7 @@ export default function App() {
       if (deviceChangeTimerRef.current) window.clearTimeout(deviceChangeTimerRef.current);
       navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
     };
-  }, [exportJob?.status, recordingService, settings.deviceDefaults, view]);
+  }, [deviceService, exportJob?.status, recordingService, settings.deviceDefaults, view]);
 
   async function refreshEpisodes() {
     const nextEpisodes = await studio.listEpisodes();
@@ -1652,6 +1658,7 @@ export default function App() {
         )}
         {view === "recording" && (
           <RecordingStudio
+            key={deviceRefreshKey}
             episodeTitle={activeEpisode?.title}
             defaults={settings.deviceDefaults}
             detection={deviceDetection}

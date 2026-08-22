@@ -75,6 +75,18 @@ No actionable P0/P1/P2 findings remain for this implementation scope.
 - Fixed: AAC true-peak reconstruction could exceed the selected protection ceiling. The codec-safe mastering pass measured `-16.2 LUFS` integrated and `-2.2 dBFS` true peak for a `-1.5 dB` target.
 - Evidence: `artifacts/audio-regression-2026-08-22/recording-10min-finalized.png`, `recording-10min-review-final-packaged.png`, `recording-console-final-packaged.png`, and `recording-10min-export-complete.png`.
 
+### Audio Controls, USB Refresh, and Native Minimum Follow-Up
+
+- Source evidence: `C:\Users\mmcga\AppData\Local\Temp\codex-clipboard-b0adb130-587d-4dc7-a5c1-acf8c499113f.png` and `codex-clipboard-ce5f378b-9faa-4ed9-9bf6-646405136059.png`.
+- Implementation evidence: `C:\Users\mmcga\AppData\Local\Temp\whataboutit-audit-2026-08-22\07-record-1280x860-final.png`, `06-record-min-980x720-fixed.png`, and `04-review-waveform-fixed.jpg`.
+- Fixed P1: Quiet or temporarily unreadable live-meter state no longer disables Record; only a selected microphone that is actually disconnected blocks capture.
+- Fixed P1: Morgan and Guest now keep Input, Physical Jack, Voice Polish, headphone level, peak, Mute, Solo, and Hear visible together at `1280 x 860` and `980 x 720`.
+- Fixed P1: Audio Diagnostics opens as a bounded closable dialog and no longer replaces the mixer with a raw nested scroll surface.
+- Fixed P1: Review playback shows the finalized Morgan waveform and an explicit Guest no-signal lane; real media playback reported one microphone track playing.
+- Fixed P2: Idle USB device changes release stale streams and remount camera/microphone previews. Active recording keeps its existing disconnect protection and safe-stop path.
+- Fixed P2: The page no longer forces a second `980px` content minimum inside a `980px` outer native window, removing the minimum-size horizontal scrollbar.
+- Density normalization: the source captures and implementation captures use different native window chrome and pixel sizes, so comparison used matched major regions and device states. Live camera content intentionally reflects the attached Sony and integrated cameras.
+
 ## Follow-Up Polish
 
 - P3: Replace the letter-avatar Morgan treatment with a properly licensed/cropped Morgan cutout asset if packaging can include it.

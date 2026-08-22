@@ -26,7 +26,8 @@ import {
   Type,
   User,
   VolumeX,
-  Volume2
+  Volume2,
+  X
 } from "lucide-react";
 import type { CameraSlotKey, DeviceDefaults, MicrophoneInputChannel, MicrophoneSlotKey, RecordingPreferences } from "../../shared/types";
 import { defaultRecordingPreferences } from "../../shared/types";
@@ -218,7 +219,7 @@ export function RecordingStudio({
   const programMicSlot = defaults.cameraMicrophones?.camera1 ?? "morganMic";
   const programMicSignal = micSignals[programMicSlot];
   const programMicSelected = Boolean(findDevice(detection.microphones, defaults.microphones[programMicSlot]));
-  const programMicBlocked = programMicSignal === "no-signal" || programMicSignal === "disconnected";
+  const programMicDisconnected = programMicSignal === "disconnected";
   const liveMicReadyCount = ["morganMic", "guestMic", "extraMic"].filter((key) => {
     if (!findDevice(detection.microphones, defaults.microphones[key as MicKey])) return false;
     const signal = micSignals[key as MicKey];
@@ -226,6 +227,7 @@ export function RecordingStudio({
   }).length;
   const studioReady = cameraReadyCount > 0 && storageReady && deviceAssignmentsHealthy && programMicSelected && (!recordingInProgress || recordingHealthy);
   const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
+  const unhealthyRecordingSources = snapshot.health?.sources.filter((source) => !source.active) ?? [];
   const visibleCameraSlots = cameraSlots.filter((slot) => slot.key === "camera1" || Boolean(defaults.cameras[slot.key]));
   const visibleMicSlots = routableMicSlots.filter((slot) => slot.key === "morganMic" || Boolean(defaults.microphones[slot.key]));
   const visibleCameraLayouts = cameraLayouts.filter((layout) => {
@@ -423,8 +425,8 @@ export function RecordingStudio({
 
   async function startStudioRecording() {
     if (!studioReady || recordingAction !== "idle") return;
-    if (programMicBlocked) {
-      setStudioNotice({ tone: "needs-attention", message: `${getMicSlotLabel(programMicSlot)} has no live signal. Choose the correct input and speak into it before recording.` });
+    if (programMicDisconnected) {
+      setStudioNotice({ tone: "needs-attention", message: `${getMicSlotLabel(programMicSlot)} is disconnected. Choose an available input before recording.` });
       return;
     }
     setRecordingAction("starting");
@@ -614,11 +616,11 @@ export function RecordingStudio({
               </section> : null}
             </section>
 
-            {recordingInProgress && snapshot.health && (
+            {recordingInProgress && unhealthyRecordingSources.length > 0 && (
               <section className="live-source-health" aria-label="Live source recording health">
-                {snapshot.health.sources.map((source) => (
-                  <span className={source.active ? "ready" : "needs-attention"} key={source.target}>
-                    {source.active ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+                {unhealthyRecordingSources.map((source) => (
+                  <span className="needs-attention" key={source.target}>
+                    <AlertTriangle size={16} />
                     <strong>{source.target === "program" ? "Program" : source.target}</strong>
                     <small>{source.bytesWritten > 0 ? `${(source.bytesWritten / 1024 / 1024).toFixed(1)} MB on disk` : source.message}</small>
                   </span>
@@ -1326,6 +1328,9 @@ function LiveMicMeter({
   const onDiagnosticsChangeRef = useRef(onDiagnosticsChange);
   const monitorGraphRef = useRef<ActiveVoiceMonitor | undefined>(undefined);
   const monitorRequestRef = useRef(0);
+  const monitoringRef = useRef(monitoring);
+  const lastPublishedSignalRef = useRef<MicSignalState | undefined>(undefined);
+  const lastDiagnosticsPublishAtRef = useRef(0);
   const [level, setLevel] = useState(fallbackLevel ?? 0);
   const [peakLevel, setPeakLevel] = useState(0);
   const [heard, setHeard] = useState(false);
@@ -1338,11 +1343,21 @@ function LiveMicMeter({
   outputDeviceIdRef.current = outputDeviceId;
   onSignalChangeRef.current = onSignalChange;
   onDiagnosticsChangeRef.current = onDiagnosticsChange;
+  monitoringRef.current = monitoring;
 
   function publishSignal(signal: MicSignalState, diagnostics?: AudioStreamDiagnostics, rms = level, peak = peakLevel, trackState?: MediaStreamTrackState) {
-    setSignalState(signal);
-    onSignalChangeRef.current?.(signal);
-    if (diagnostics) onDiagnosticsChangeRef.current?.({ ...diagnostics, signal, rms, peak, trackState });
+    const signalChanged = lastPublishedSignalRef.current !== signal;
+    if (signalChanged) {
+      lastPublishedSignalRef.current = signal;
+      setSignalState(signal);
+      onSignalChangeRef.current?.(signal);
+    }
+
+    const now = Date.now();
+    if (diagnostics && (signalChanged || now - lastDiagnosticsPublishAtRef.current >= 500)) {
+      lastDiagnosticsPublishAtRef.current = now;
+      onDiagnosticsChangeRef.current?.({ ...diagnostics, signal, rms, peak, trackState });
+    }
   }
 
   const stopMonitorPlayback = useCallback(() => {
@@ -1440,14 +1455,14 @@ function LiveMicMeter({
         centeredMeterSource = connectInputChannelSource(audioContext, source, inputChannel, diagnostics.channelCount);
         centeredMeterSource.output.connect(analyser);
         await audioContext.resume();
+        if (monitoringRef.current && !controlsRef.current.muted) void startMonitorPlayback(stream);
 
         const tick = () => {
           if (canceled) return;
           analyser.getByteTimeDomainData(samples);
           const measured = calculateAudioLevel(samples);
-          const currentControls = controlsRef.current;
-          const nextLevel = currentControls.muted ? 0 : Math.min(100, Math.round(measured.rms * (currentControls.gain / 75)));
-          const nextPeak = currentControls.muted ? 0 : measured.peak;
+          const nextLevel = measured.rms;
+          const nextPeak = measured.peak;
           if (nextLevel > 7) lastSignalAt = Date.now();
           const nextSignal: MicSignalState = track?.readyState === "ended"
             ? "disconnected"
@@ -1487,7 +1502,7 @@ function LiveMicMeter({
       centeredMeterSource?.disconnect();
       void audioContext?.close();
     };
-  }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream, onReleaseMicrophoneStream, stopMonitorPlayback]);
+  }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream, onReleaseMicrophoneStream, startMonitorPlayback, stopMonitorPlayback]);
 
   useEffect(() => {
     if (!monitoring || controls.muted) {
@@ -1502,23 +1517,20 @@ function LiveMicMeter({
     monitorGraphRef.current?.chain.update(controls.voicePreset, controls.gain);
   }, [controls.gain, controls.voicePreset]);
 
-  const visibleLevel = controls.muted ? 0 : level;
-  const copy = controls.muted
-    ? "Muted"
-    : routeIssue
+  const copy = routeIssue
     ? "Needs attention"
     : fallbackLabel
     ?? (signalState === "clipping" ? "CLIPPING" : signalState === "active" ? "ACTIVE" : signalState === "quiet" ? "CONNECTED / QUIET" : signalState === "no-signal" ? "NO SIGNAL" : signalState === "disconnected" ? "DISCONNECTED" : "CHECKING");
 
   return (
-    <article className={`live-meter-card ${heard && !controls.muted ? "heard" : "quiet"}`}>
+    <article className={`live-meter-card ${heard ? "heard" : "quiet"}`}>
       <div className="channel-topline">
         <strong>{label}{roleLabel ? <small>{roleLabel}</small> : null}</strong>
-        <span>{copy}</span>
+        <span>{copy}{controls.muted ? " / HEADPHONES MUTED" : ""}</span>
       </div>
       {routeIssue ? <small className="input-route-warning">{routeIssue}</small> : null}
       {trackStatus && <TrackSavePill status={trackStatus} />}
-      <DistressedMeter level={visibleLevel} label={label} />
+      <DistressedMeter level={level} label={label} />
       <div className="channel-console">
         {onNameChange && (
           <label className="channel-name-control" title="This name is saved with the episode and its separate audio track.">
@@ -1566,7 +1578,7 @@ function LiveMicMeter({
             ))}
           </select>
         </label>
-        <label className="channel-volume-control" title="Controls the live monitor level and meter sensitivity for this channel.">
+        <label className="channel-volume-control" title="Controls this channel's headphone monitoring level. Recording level and the live input meter are unchanged.">
           <span className="control-caption">Headphone level <strong>{controls.gain}%</strong></span>
           <input
             aria-label={`${label} headphone monitoring level`}
@@ -1625,34 +1637,51 @@ function AudioDiagnostics({
   diagnostics: Partial<Record<MicKey, LiveInputDiagnostics>>;
   slots: Array<{ key: MicKey; label: string }>;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
-    <details className="audio-diagnostics">
-      <summary>Audio Diagnostics</summary>
-      <div className="audio-diagnostics-grid">
-        <span><strong>Microphone permission</strong>{permissionNeeded ? "Permission needed" : "Granted"}</span>
-        <span><strong>Detected audio inputs</strong>{microphones.length || "None"}</span>
-        {slots.map((slot) => {
-          const device = findDevice(microphones, defaults.microphones[slot.key]);
-          const details = diagnostics[slot.key];
-          return (
-            <section key={slot.key}>
-              <h4>{defaults.microphoneNames?.[slot.key] || slot.label} - {getMicRoleLabel(slot.key)}</h4>
-              <dl>
-                <dt>Selected interface</dt><dd>{device?.label ?? "Not selected"}</dd>
-                <dt>Windows label</dt><dd>{device?.rawLabel ?? device?.label ?? "Unavailable"}</dd>
-                <dt>Device ID</dt><dd>{details?.deviceId ?? device?.id ?? "Unavailable"}</dd>
-                <dt>Group ID</dt><dd>{details?.groupId ?? device?.groupId ?? "Unavailable"}</dd>
-                <dt>Interface channel</dt><dd>{defaults.microphoneChannels?.[slot.key] ?? "mix"}</dd>
-                <dt>Channels reported</dt><dd>{details?.channelCount ?? "Open the input to inspect"}</dd>
-                <dt>Format</dt><dd>{details?.sampleRate ? `${details.sampleRate} Hz` : "Unknown"}{details?.sampleSize ? ` / ${details.sampleSize}-bit` : ""}</dd>
-                <dt>Browser processing</dt><dd>Echo {formatDiagnosticFlag(details?.echoCancellation)}, Noise {formatDiagnosticFlag(details?.noiseSuppression)}, Auto gain {formatDiagnosticFlag(details?.autoGainControl)}</dd>
-                <dt>Signal</dt><dd>{formatSignalState(details?.signal)} / RMS {details?.rms ?? 0}% / Peak {details?.peak ?? 0}%</dd>
-              </dl>
-            </section>
-          );
-        })}
-      </div>
-    </details>
+    <div className="audio-diagnostics">
+      <button className="audio-diagnostics-trigger" type="button" aria-expanded={open} onClick={() => setOpen(true)}>
+        <SlidersHorizontal size={14} /> Audio Diagnostics
+      </button>
+      {open ? (
+        <section className="audio-diagnostics-dialog" role="dialog" aria-modal="false" aria-label="Audio diagnostics">
+          <header>
+            <div>
+              <strong>Audio Diagnostics</strong>
+              <small>Live device and signal details</small>
+            </div>
+            <Tooltip label="Close audio diagnostics">
+              <button type="button" aria-label="Close audio diagnostics" onClick={() => setOpen(false)}><X size={17} /></button>
+            </Tooltip>
+          </header>
+          <div className="audio-diagnostics-grid">
+            <span><strong>Microphone permission</strong>{permissionNeeded ? "Permission needed" : "Granted"}</span>
+            <span><strong>Detected audio inputs</strong>{microphones.length || "None"}</span>
+            {slots.map((slot) => {
+              const device = findDevice(microphones, defaults.microphones[slot.key]);
+              const details = diagnostics[slot.key];
+              return (
+                <section key={slot.key}>
+                  <h4>{defaults.microphoneNames?.[slot.key] || slot.label} - {getMicRoleLabel(slot.key)}</h4>
+                  <dl>
+                    <dt>Selected interface</dt><dd>{device?.label ?? "Not selected"}</dd>
+                    <dt>Windows label</dt><dd>{device?.rawLabel ?? device?.label ?? "Unavailable"}</dd>
+                    <dt>Device ID</dt><dd>{details?.deviceId ?? device?.id ?? "Unavailable"}</dd>
+                    <dt>Group ID</dt><dd>{details?.groupId ?? device?.groupId ?? "Unavailable"}</dd>
+                    <dt>Interface channel</dt><dd>{defaults.microphoneChannels?.[slot.key] ?? "mix"}</dd>
+                    <dt>Channels reported</dt><dd>{details?.channelCount ?? "Open the input to inspect"}</dd>
+                    <dt>Format</dt><dd>{details?.sampleRate ? `${details.sampleRate} Hz` : "Unknown"}{details?.sampleSize ? ` / ${details.sampleSize}-bit` : ""}</dd>
+                    <dt>Browser processing</dt><dd>Echo {formatDiagnosticFlag(details?.echoCancellation)}, Noise {formatDiagnosticFlag(details?.noiseSuppression)}, Auto gain {formatDiagnosticFlag(details?.autoGainControl)}</dd>
+                    <dt>Signal</dt><dd>{formatSignalState(details?.signal)} / RMS {details?.rms ?? 0}% / Peak {details?.peak ?? 0}%</dd>
+                  </dl>
+                </section>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+    </div>
   );
 }
 

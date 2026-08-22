@@ -183,6 +183,40 @@ describe("RecordingStudio", () => {
     expect(onResume).toHaveBeenCalledTimes(1);
   });
 
+  it("allows recording when a selected microphone is quiet or its live meter cannot open", async () => {
+    const OriginalAudioContext = window.AudioContext;
+    Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: class TestAudioContext {} });
+    const onStart = vi.fn();
+    const { host, root } = renderStudio({ onStart });
+
+    await act(async () => {
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+    });
+
+    expect(host.textContent).toContain("has no live signal");
+    click(host, "Record");
+    expect(onStart).toHaveBeenCalledTimes(1);
+
+    act(() => root.unmount());
+    Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: OriginalAudioContext });
+  });
+
+  it("keeps audio diagnostics in a closable overlay instead of replacing the mixer", () => {
+    const { host } = renderStudio();
+
+    click(host, "Audio Diagnostics");
+    const dialog = host.querySelector('[role="dialog"][aria-label="Audio diagnostics"]');
+    expect(dialog).toBeTruthy();
+    expect(host.querySelector(".meter-list")).toBeTruthy();
+    expect(dialog?.textContent).toContain("Microphone permission");
+
+    const close = host.querySelector('button[aria-label="Close audio diagnostics"]');
+    act(() => {
+      close?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(host.querySelector('[role="dialog"][aria-label="Audio diagnostics"]')).toBeNull();
+  });
+
   it("keeps the five reference transport actions visible in every recording state", () => {
     const findControl = (host: HTMLElement, label: string) => Array.from(host.querySelectorAll(".giant-control-row button"))
       .find((button) => button.textContent?.includes(label)) as HTMLButtonElement;
@@ -208,6 +242,37 @@ describe("RecordingStudio", () => {
     });
     expect(findControl(pausedHost, "Resume recording").disabled).toBe(false);
     expect(findControl(pausedHost, "Stop recording").disabled).toBe(false);
+  });
+
+  it("shows only actionable recording health failures in the live workspace", () => {
+    const healthySnapshot = {
+      status: "recording" as const,
+      elapsedMs: 1000,
+      localSaveMessage: "Everything is saving locally",
+      trackStatuses: [],
+      health: {
+        programActive: true,
+        activeCameraTracks: 1,
+        activeAudioTracks: 1,
+        expectedCameraTracks: 1,
+        expectedAudioTracks: 1,
+        warnings: [],
+        sources: [{ target: "program" as const, kind: "program" as const, active: true, firstChunkReceived: true, bytesWritten: 1024, message: "Writing" }]
+      }
+    };
+    const { host: healthyHost } = renderStudio({ snapshot: healthySnapshot });
+    expect(healthyHost.querySelector(".live-source-health")).toBeNull();
+
+    const { host: failingHost } = renderStudio({
+      snapshot: {
+        ...healthySnapshot,
+        health: {
+          ...healthySnapshot.health,
+          sources: [{ target: "camera1" as const, kind: "camera" as const, active: false, firstChunkReceived: false, bytesWritten: 0, message: "Waiting for camera data" }]
+        }
+      }
+    });
+    expect(failingHost.querySelector(".live-source-health")?.textContent).toContain("Waiting for camera data");
   });
 
   it("shows honest starting and saving states while recorder work is pending", async () => {
@@ -292,7 +357,7 @@ describe("RecordingStudio", () => {
     });
 
     click(host, "Mute");
-    expect(host.textContent).toContain("Muted");
+    expect(host.textContent).toContain("HEADPHONES MUTED");
 
     const gain = host.querySelector('input[aria-label="Morgan Mic headphone monitoring level"]') as HTMLInputElement;
     expect(gain).toBeTruthy();
@@ -437,19 +502,23 @@ describe("RecordingStudio", () => {
       getTracks: () => [{ stop: vi.fn(), readyState: "live" }],
       getAudioTracks: () => [{ stop: vi.fn(), readyState: "live" }]
     } as unknown as MediaStream;
-    const onOpenMicrophoneStream = vi.fn(async () => stream);
+    let resolveStream!: (stream: MediaStream) => void;
+    const pendingStream = new Promise<MediaStream>((resolve) => {
+      resolveStream = resolve;
+    });
+    const onOpenMicrophoneStream = vi.fn(() => pendingStream);
     const { host, root } = renderStudio({ onOpenMicrophoneStream });
 
     await act(async () => {
       await Promise.resolve();
     });
     expect(onOpenMicrophoneStream).toHaveBeenCalledTimes(1);
-    expect(TestAudioContext.instances).toBe(1);
+    expect(TestAudioContext.instances).toBe(0);
 
     click(host, "Hear Off");
     await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
+      resolveStream(stream);
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
     expect(TestAudioContext.instances).toBe(2);
 
@@ -809,9 +878,19 @@ describe("RecordingStudio", () => {
 
     expect(styles).toContain("@media (max-width: 1700px)");
     expect(styles).toContain("grid-template-columns: repeat(2, minmax(300px, 1fr))");
-    expect(styles).toContain(".studio-shell--recording .compact-soundboard-panel {\n    display: none;");
+    expect(styles).toContain(".studio-shell--recording .compact-soundboard-panel,\n  .studio-shell--recording .compact-markers-panel {\n    display: none;");
     expect(styles).toContain("@media (max-width: 1350px)");
     expect(styles).toContain(".studio-shell--recording .compact-markers-panel {\n    display: none;");
     expect(styles).toContain(".studio-shell--recording .reference-console-row .audio-diagnostics {\n    position: absolute;");
+    expect(styles).toContain("@media (max-width: 1700px) and (max-height: 840px)");
+    expect(styles).toContain("overflow-y: auto;\n    overscroll-behavior: contain;");
+  });
+
+  it("lets the native minimum window own the width without forcing page overflow", () => {
+    const repoRoot = path.resolve(__dirname, "../../../..");
+    const styles = fs.readFileSync(path.join(repoRoot, "app/src/renderer/styles.css"), "utf8").replace(/\r\n/g, "\n");
+
+    expect(styles).toContain("body {\n  margin: 0;\n  min-width: 0;");
+    expect(styles).not.toContain("min-width: var(--space-minShellWidth)");
   });
 });
