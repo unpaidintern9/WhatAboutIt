@@ -796,7 +796,7 @@ describe("RecordingStudio", () => {
 
   it("reserves the flexible recording row for the microphone console", () => {
     const repoRoot = path.resolve(__dirname, "../../../..");
-    const styles = fs.readFileSync(path.join(repoRoot, "app/src/renderer/styles.css"), "utf8");
+    const styles = fs.readFileSync(path.join(repoRoot, "app/src/renderer/styles.css"), "utf8").replace(/\r\n/g, "\n");
 
     expect(styles).toContain("grid-template-rows: auto auto auto minmax(0, 1fr)");
     expect(styles).toContain(".studio-shell--recording .live-source-health {\n  grid-row: 2;");
@@ -805,7 +805,7 @@ describe("RecordingStudio", () => {
 
   it("gives the live mixer readable laptop-width controls", () => {
     const repoRoot = path.resolve(__dirname, "../../../..");
-    const styles = fs.readFileSync(path.join(repoRoot, "app/src/renderer/styles.css"), "utf8");
+    const styles = fs.readFileSync(path.join(repoRoot, "app/src/renderer/styles.css"), "utf8").replace(/\r\n/g, "\n");
 
     expect(styles).toContain("@media (max-width: 1700px)");
     expect(styles).toContain("grid-template-columns: repeat(2, minmax(300px, 1fr))");
