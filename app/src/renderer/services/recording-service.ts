@@ -173,7 +173,6 @@ export class RecordingService {
         if (unavailableTracks.length > 0) {
           this.integrity = {
             ...finalized.integrity,
-            playable: false,
             expectedSourceCount: finalized.integrity.expectedSourceCount + unavailableTracks.length,
             warnings: [...finalized.integrity.warnings, ...unavailableTracks.map((track) => `${track.slot}: ${track.message}`)]
           };

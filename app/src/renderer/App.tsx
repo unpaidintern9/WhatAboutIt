@@ -303,6 +303,20 @@ function getStudioBridge(): StudioBridge {
           status: "ready",
           durationMs: 112000,
           message: "Ready"
+        },
+        {
+          id: "camera-3",
+          label: "Camera 3",
+          kind: "camera",
+          relativePath: "Cameras/camera-3.webm",
+          playbackUrl: "data:video/webm;base64,",
+          posterUrl: reviewPosterFixture,
+          filmstripUrl: reviewFilmstripFixture,
+          pairedAudioId: "extra-mic",
+          pairedAudioLabel: "Extra Mic",
+          status: "ready",
+          durationMs: 112000,
+          message: "Ready"
         }
       ],
       audio: [
@@ -322,6 +336,17 @@ function getStudioBridge(): StudioBridge {
           label: "Guest Mic",
           kind: "audio",
           relativePath: "Audio/guest-mic.m4a",
+          playbackUrl: "data:audio/mp4;base64,",
+          waveformUrl: reviewWaveformFixture,
+          status: "ready",
+          durationMs: 112000,
+          message: "Ready"
+        },
+        {
+          id: "extra-mic",
+          label: "Extra Mic",
+          kind: "audio",
+          relativePath: "Audio/extra-mic.m4a",
           playbackUrl: "data:audio/mp4;base64,",
           waveformUrl: reviewWaveformFixture,
           status: "ready",
@@ -692,7 +717,8 @@ export default function App() {
     }
     setReviewMedia(undefined);
     setReviewMediaLoading(true);
-    setActiveEpisode(episode);
+    // Recreate the object so opening the already-active card retriggers Review loading.
+    setActiveEpisode({ ...episode });
     setView("timeline-review");
   }
 
