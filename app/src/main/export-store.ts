@@ -658,15 +658,16 @@ async function renderMeasuredLoudness(input: {
 }) {
   const targetI = Math.max(-24, Math.min(-12, input.request.draft.loudnessTargetLufs ?? -16));
   const targetTp = Math.max(-3, Math.min(-0.5, input.request.draft.truePeakDb ?? -1.5));
+  const processingTp = getCodecSafeTruePeakTarget(targetTp, input.request.type);
   const analysis = await runFfmpeg([
     "-hide_banner", "-i", input.sourcePath, "-map", "0:a:0", "-af",
-    `loudnorm=I=${targetI}:LRA=11:TP=${targetTp}:print_format=json`, "-f", "null", "-"
+    `loudnorm=I=${targetI}:LRA=11:TP=${processingTp}:print_format=json`, "-f", "null", "-"
   ]);
   const matches = analysis.stderr.match(/\{[\s\S]*?"target_offset"[\s\S]*?\}/g);
   if (!matches?.length) throw new Error("Measured loudness analysis did not return usable results.");
   const measured = JSON.parse(matches.at(-1) ?? "{}") as LoudnessMeasurement;
   const filter = [
-    `loudnorm=I=${targetI}:LRA=11:TP=${targetTp}`,
+    `loudnorm=I=${targetI}:LRA=11:TP=${processingTp}`,
     `measured_I=${measured.input_i}`,
     `measured_LRA=${measured.input_lra}`,
     `measured_TP=${measured.input_tp}`,
@@ -683,6 +684,13 @@ async function renderMeasuredLoudness(input: {
     ["-y", "-i", input.sourcePath, ...mapArgs, "-filter:a", filter, ...audioArgs, ...(input.outputPath.endsWith(".mp4") ? ["-movflags", "+faststart"] : []), input.outputPath],
     { durationMs: input.durationMs, signal: input.signal, onProgress: input.onProgress }
   );
+}
+
+export function getCodecSafeTruePeakTarget(targetTp: number, type: ExportRequest["type"]) {
+  const clamped = Math.max(-3, Math.min(-0.5, targetTp));
+  // AAC reconstruction can overshoot the PCM limiter by more than 1 dB. Give
+  // lossy exports enough headroom for the delivered file to honor the UI target.
+  return type === "archive-master" ? clamped : Math.max(-4.5, clamped - 1.5);
 }
 
 function createCaptionSidecar(request: ExportRequest) {

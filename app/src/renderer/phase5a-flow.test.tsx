@@ -83,15 +83,19 @@ describe("Phase 5C flow", () => {
         episodeId,
         episodeFolder: `C:/episodes/${episodeId}`,
         loadedAt: "2026-06-28T12:00:00.000Z",
-        hasPlayableProgram: false,
-        message: "No program video found yet",
+        hasPlayableProgram: true,
+        message: "Review your recording",
         program: {
           id: "program",
           label: "Program video",
           kind: "program" as const,
           relativePath: "Program/program.webm",
-          status: "missing" as const,
-          message: "No program video found yet"
+          playbackUrl: "wai-media://episode/program",
+          posterUrl: "wai-media://episode/program-poster",
+          filmstripUrl: "wai-media://episode/program-filmstrip",
+          status: "ready" as const,
+          durationMs: 30000,
+          message: "Ready to review"
         },
         cameras: [],
         audio: []

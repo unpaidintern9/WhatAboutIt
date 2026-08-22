@@ -55,6 +55,26 @@ No actionable P0/P1/P2 findings remain for this implementation scope.
 - Evidence: At `1920 x 900`, `document.body.scrollHeight` equals `window.innerHeight` (`900px`), the control row bottom is `892px`, and the board bottom is `897px`.
 - Evidence: At `1366 x 768`, `document.body.scrollHeight` equals `window.innerHeight` (`768px`), and the control row bottom is `760px`.
 
+### Empty Review Recovery Follow-Up
+
+- Source defect: The zero-duration Review state rendered the full timeline and inspector even though no media could be edited. This produced an oversized blank monitor, compressed the import workflow into a narrow rail, and caused source cards and copy to overlap.
+- Fixed: Empty episodes now render a compact preview state and one full-width Media Setup workspace. Timeline tools, lanes, playback controls, and the selected-track inspector render only after a playable Program exists.
+- Fixed: Camera 1, Camera 2, Camera 3, and Main audio use stable equal-width cards with bounded text, consistent button sizing, and responsive collapse rules.
+- Evidence: `artifacts/audio-regression-2026-08-22/review-empty-before-after.png` compares the reported defect with the corrected `1536 x 864` implementation.
+- Evidence: `review-empty-1920x1080.png`, `review-empty-1536x864.png`, `review-empty-1366x768.png`, and `review-empty-980x720.png` verify the requested desktop sizes and the application minimum. No overlap, clipping, or page-level scroll remains.
+- Regression coverage: The focused component test asserts a single Media Setup, purposeful empty copy, and the absence of the timeline, editing toolbar, and selected-track inspector while Program media is unavailable.
+
+### Real Hardware End-to-End Audit
+
+- Recorded `11:02.60` through the packaged Windows app with three USB camera streams and the verified `Microphone (ZV-1F)` input. Program and all four isolated sources finalized and passed the app integrity checks.
+- Verified the Morgan stem and Program independently: AAC/Opus at `48 kHz`, audible signal at `-31.1 dB` average with peaks near `-2.6 dB`, and no USB disconnect or protected-chunk error in the session log.
+- Fixed: Normal microphone capture no longer depends on a suspended Web Audio graph. Explicit interface Left/Right routing still uses the channel graph, and live/setup meters resume their contexts before measuring.
+- Fixed: Switching episodes can no longer flash the previous episode's media. A cold 11-minute Review load now shows an honest preparing state and reaches the correct timeline in about `7.7 seconds` instead of several minutes.
+- Fixed: Long recordings use repeated 16:9 poster thumbnails rather than an end-to-end filmstrip scan or stretched lane image. Final packaged inspection found four poster lanes, one Morgan waveform lane, and zero stretched filmstrip images.
+- Exported the full audit episode through measured High quality. The verified file is `1920 x 1080` H.264 with AAC stereo at `48 kHz`, duration `11:02.53`, and size `245.49 MB`.
+- Fixed: AAC true-peak reconstruction could exceed the selected protection ceiling. The codec-safe mastering pass measured `-16.2 LUFS` integrated and `-2.2 dBFS` true peak for a `-1.5 dB` target.
+- Evidence: `artifacts/audio-regression-2026-08-22/recording-10min-finalized.png`, `recording-10min-review-final-packaged.png`, `recording-console-final-packaged.png`, and `recording-10min-export-complete.png`.
+
 ## Follow-Up Polish
 
 - P3: Replace the letter-avatar Morgan treatment with a properly licensed/cropped Morgan cutout asset if packaging can include it.

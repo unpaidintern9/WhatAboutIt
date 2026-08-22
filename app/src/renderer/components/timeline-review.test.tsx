@@ -180,7 +180,37 @@ describe("TimelineReview", () => {
     const markup = renderToStaticMarkup(<TimelineReview draft={draft} media={missingMedia} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
 
     expect(markup).toContain("No program video found yet");
+    expect(markup).toContain("edit-studio--empty");
+    expect(markup).toContain("edit-empty-media-setup");
+    expect(markup).toContain("Record an episode or add source files below.");
+    expect(markup.match(/Episode media setup/g)).toHaveLength(1);
+    expect(markup).not.toContain("Timeline editing tools");
+    expect(markup).not.toContain("Synchronized episode timeline");
+    expect(markup).not.toContain("Selected track controls");
     expect(markup).not.toContain("Video placeholder");
+  });
+
+  it("shows preparation instead of claiming a finalized recording is missing", () => {
+    const draft = createTimelineDraft({ deviceDefaults: { cameras: {}, microphones: {} } });
+    const markup = renderToStaticMarkup(<TimelineReview draft={draft} loading onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+
+    expect(markup).toContain("edit-studio--loading");
+    expect(markup).toContain("Preparing your Review workspace");
+    expect(markup).toContain("Your recording is safe");
+    expect(markup).not.toContain("Not recorded in this episode");
+    expect(markup).not.toContain("edit-empty-media-setup");
+  });
+
+  it("repeats poster thumbnails instead of stretching them across long timeline lanes", () => {
+    const draft = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } } });
+    const posterFallbackMedia = {
+      ...media,
+      program: { ...media.program, filmstripUrl: media.program.posterUrl }
+    };
+    const markup = renderToStaticMarkup(<TimelineReview draft={draft} media={posterFallbackMedia} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+
+    expect(markup).toContain("timeline-filmstrip-poster");
+    expect(markup).toContain("program-poster.jpg");
   });
 
   it("shows source-level podcast audio finishing controls", () => {
@@ -199,6 +229,23 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Voice cleanup, tone, fades, and output protection are rendered in the final export");
     expect(markup).toContain("Apply to all mics");
     expect(markup).toContain("Reset track");
+  });
+
+  it("exposes Audio Mix directly and labels silent microphone lanes truthfully", () => {
+    const draft = createTimelineDraft({
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+    });
+    const silentMedia = {
+      ...media,
+      program: { ...media.program, audioSignal: "silent" as const },
+      audio: media.audio.map((asset) => ({ ...asset, waveformUrl: undefined, audioSignal: "silent" as const }))
+    };
+    const markup = renderToStaticMarkup(<TimelineReview draft={{ ...draft, selectedTrackId: "mic-morganMic" }} media={silentMedia} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+
+    expect(markup).toContain("Audio Mix");
+    expect(markup).toContain("No audio signal captured");
+    expect(markup).toContain("No audible signal was captured on this microphone track");
+    expect(markup).not.toContain("microphone-stems");
   });
 
   it("shows source-level camera framing and finishing controls", () => {

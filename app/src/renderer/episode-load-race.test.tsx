@@ -24,15 +24,19 @@ function reviewMedia(episodeId: string) {
     episodeId,
     episodeFolder: episodeId,
     loadedAt: "2026-06-27T10:00:00.000Z",
-    hasPlayableProgram: false,
-    message: "No program video found yet",
+    hasPlayableProgram: true,
+    message: "Review your recording",
     program: {
       id: "program",
       label: "Program video",
       kind: "program" as const,
       relativePath: "Program/program.webm",
-      status: "missing" as const,
-      message: "No program video found yet"
+      playbackUrl: `wai-media://episode/${episodeId}/program`,
+      posterUrl: `wai-media://episode/${episodeId}/poster`,
+      filmstripUrl: `wai-media://episode/${episodeId}/filmstrip`,
+      status: "ready" as const,
+      durationMs: 30000,
+      message: "Ready to review"
     },
     cameras: [],
     audio: []

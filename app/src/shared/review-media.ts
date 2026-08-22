@@ -19,6 +19,7 @@ export interface ReviewMediaAsset {
   sizeBytes?: number;
   codecSummary?: string;
   hasAudio?: boolean;
+  audioSignal?: "audible" | "silent" | "unknown";
   pairedAudioId?: string;
   pairedAudioLabel?: string;
   includesPairedAudio?: boolean;

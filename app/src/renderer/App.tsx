@@ -403,6 +403,7 @@ export default function App() {
   const [exportJob, setExportJob] = useState<ExportJob | undefined>();
   const [mediaToolsStatus, setMediaToolsStatus] = useState<MediaToolsStatus | undefined>();
   const [reviewMedia, setReviewMedia] = useState<ReviewMediaInventory | undefined>();
+  const [reviewMediaLoading, setReviewMediaLoading] = useState(false);
   const [mediaImportProgress, setMediaImportProgress] = useState<ReviewMediaImportProgress | undefined>();
   const [localTranscriptionStatus, setLocalTranscriptionStatus] = useState<LocalTranscriptionStatus | undefined>();
   const [localTranscriptionProgress, setLocalTranscriptionProgress] = useState<LocalTranscriptionProgress | undefined>();
@@ -683,6 +684,8 @@ export default function App() {
     } catch {
       return;
     }
+    setReviewMedia(undefined);
+    setReviewMediaLoading(true);
     setActiveEpisode(episode);
     setView("timeline-review");
   }
@@ -692,9 +695,11 @@ export default function App() {
     if (!activeEpisode) {
       setPodcastTools(createDefaultPodcastToolsState());
       setReviewMedia(undefined);
+      setReviewMediaLoading(false);
       return;
     }
 
+    setReviewMediaLoading(true);
     void loadReviewWorkspace(activeEpisode.id, sequence);
   }, [activeEpisode, studio]);
 
@@ -718,13 +723,22 @@ export default function App() {
       if (sequence !== episodeLoadSequenceRef.current || activeEpisodeRef.current?.id !== episodeId) return;
       setTimelineSaveState("failed");
       setWorkspaceMessage(error instanceof Error ? error.message : "The episode draft could not be loaded.");
+    } finally {
+      if (sequence === episodeLoadSequenceRef.current && activeEpisodeRef.current?.id === episodeId) setReviewMediaLoading(false);
     }
   }
 
   async function loadReviewMediaForEpisode(episodeId: string) {
-    const inventory = await studio.loadReviewMedia(episodeId);
-    setReviewMedia(inventory);
-    setTimelineDraft((current) => (current.episodeId === episodeId ? syncTimelineTracksWithMedia(current, inventory) : current));
+    const sequence = ++episodeLoadSequenceRef.current;
+    setReviewMediaLoading(true);
+    try {
+      const inventory = await studio.loadReviewMedia(episodeId);
+      if (sequence !== episodeLoadSequenceRef.current || activeEpisodeRef.current?.id !== episodeId) return;
+      setReviewMedia(inventory);
+      setTimelineDraft((current) => (current.episodeId === episodeId ? syncTimelineTracksWithMedia(current, inventory) : current));
+    } finally {
+      if (sequence === episodeLoadSequenceRef.current && activeEpisodeRef.current?.id === episodeId) setReviewMediaLoading(false);
+    }
   }
 
   async function importEpisodeMedia(slot: ReviewMediaImportSlot) {
@@ -1638,6 +1652,7 @@ export default function App() {
         )}
         {view === "recording" && (
           <RecordingStudio
+            episodeTitle={activeEpisode?.title}
             defaults={settings.deviceDefaults}
             detection={deviceDetection}
             snapshot={recordingSnapshot}
@@ -1694,6 +1709,7 @@ export default function App() {
           <TimelineReview
             draft={timelineDraft}
             media={reviewMedia}
+            loading={reviewMediaLoading}
             saveState={timelineSaveState}
             onDraftChange={queueTimelineDraftChange}
             onSaveDraft={() => void saveApprovedTimelineDraft()}

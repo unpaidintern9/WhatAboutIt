@@ -31,6 +31,10 @@ interface DeviceMapFile {
   cameraMicrophones?: Partial<Record<CameraSlotKey, MicrophoneSlotKey>>;
 }
 
+interface SyncMetadataFile {
+  trackStates?: Partial<Record<MicrophoneSlotKey, { status?: string; message?: string }>>;
+}
+
 interface ImportedMediaManifest {
   version: 1 | 2;
   assets: Partial<Record<ReviewMediaImportSlot, { relativePath: string; importedAt: string; sizeBytes?: number; sha256?: string }>>;
@@ -109,12 +113,23 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
   const episodeFolder = path.join(getEpisodesRoot(), episodeId);
   const originalPaths = await loadImportedOriginalPaths(episodeId);
   const fallbackDurationMs = await loadRecordingDuration(episodeFolder);
-  const assets = await Promise.all(expectedAssets.map(async (asset) => ({
+  const [assets, cameraMicrophones, microphoneSignals] = await Promise.all([
+    Promise.all(expectedAssets.map(async (asset) => ({
     ...(await inspectAsset(episodeFolder, asset, fallbackDurationMs)),
     originalFilePath: originalPaths[asset.id as ReviewMediaImportSlot]
-  })));
-  const rawProgram = assets.find((asset) => asset.kind === "program") ?? missingAsset(episodeFolder, expectedAssets[0]);
-  const cameraMicrophones = await loadCameraMicrophones(episodeFolder);
+    }))),
+    loadCameraMicrophones(episodeFolder),
+    loadMicrophoneSignals(episodeFolder)
+  ]);
+  const programMicrophoneSlot = cameraMicrophones.camera1 ?? fallbackCameraMicrophones.camera1;
+  const rawProgramAsset = assets.find((asset) => asset.kind === "program") ?? missingAsset(episodeFolder, expectedAssets[0]);
+  const rawProgram = { ...rawProgramAsset, audioSignal: microphoneSignals[programMicrophoneSlot] ?? "unknown" as const };
+  const audioAssets = assets
+    .filter((asset) => asset.kind === "audio")
+    .map((asset) => {
+      const microphoneSlot = (Object.entries(microphoneAssetIds).find(([, id]) => id === asset.id)?.[0] ?? "morganMic") as MicrophoneSlotKey;
+      return { ...asset, audioSignal: microphoneSignals[microphoneSlot] ?? "unknown" as const };
+    });
   const rawCameras = assets
     .filter((asset) => asset.kind === "camera")
     .map((asset, index) => {
@@ -126,7 +141,7 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
         pairedAudioLabel: microphoneLabels[microphoneSlot]
       };
     });
-  const audio = await Promise.all(assets.filter((asset) => asset.kind === "audio").map((asset) => ensureMediaWaveform(episodeFolder, asset)));
+  const audio = await Promise.all(audioAssets.map((asset) => ensureMediaWaveform(episodeFolder, asset)));
   const program = await ensureVideoFilmstrip(episodeFolder, await ensureMediaWaveform(episodeFolder, await ensureReviewProxy(episodeFolder, rawProgram)));
   const cameras: ReviewMediaAsset[] = [];
   for (const camera of rawCameras) {
@@ -171,7 +186,8 @@ async function ensureVideoFilmstrip(episodeFolder: string, asset: ReviewMediaAss
         posterPath
       ]);
     }
-    if (await proxyNeedsRefresh(filmstripPath, [asset.filePath])) {
+    const generateFullFilmstrip = durationSeconds <= 180;
+    if (generateFullFilmstrip && await proxyNeedsRefresh(filmstripPath, [asset.filePath])) {
       await runFfmpeg([
         "-y",
         "-i",
@@ -188,7 +204,9 @@ async function ensureVideoFilmstrip(episodeFolder: string, asset: ReviewMediaAss
     return {
       ...asset,
       posterUrl: mediaFilePlaybackUrl(posterPath),
-      filmstripUrl: mediaFilePlaybackUrl(filmstripPath)
+      // Long sparse filmstrips force FFmpeg to scan the entire episode before
+      // Review can open. Repeating the poster keeps long recordings immediate.
+      filmstripUrl: mediaFilePlaybackUrl(generateFullFilmstrip ? filmstripPath : posterPath)
     };
   } catch (error) {
     await logger.warning("ReviewMedia", "Video filmstrip could not be prepared.", { filePath: asset.filePath, error: String(error) });
@@ -198,6 +216,9 @@ async function ensureVideoFilmstrip(episodeFolder: string, asset: ReviewMediaAss
 
 async function ensureMediaWaveform(episodeFolder: string, asset: ReviewMediaAsset): Promise<ReviewMediaAsset> {
   if (asset.status !== "ready" || !asset.filePath || asset.hasAudio === false) return asset;
+  if (asset.audioSignal === "silent") {
+    return { ...asset, waveformUrl: undefined, message: "No audible signal was captured from this input" };
+  }
   const waveformPath = path.join(episodeFolder, "Session", "Review", `${asset.id}-waveform.png`);
   try {
     await fs.mkdir(path.dirname(waveformPath), { recursive: true });
@@ -700,9 +721,19 @@ async function firstExistingPath(paths: string[]) {
 async function ensureReviewProxy(episodeFolder: string, asset: ReviewMediaAsset, pairedAudio?: ReviewMediaAsset): Promise<ReviewMediaAsset> {
   if (asset.status !== "ready" || !asset.filePath) return asset;
   const sourceFile = asset.filePath;
+  if (path.extname(sourceFile).toLowerCase() === ".webm") {
+    const usablePairedAudio = pairedAudio?.status === "ready" && pairedAudio.filePath && pairedAudio.audioSignal !== "silent" ? pairedAudio : undefined;
+    return {
+      ...asset,
+      includesPairedAudio: false,
+      hasAudio: asset.kind === "program",
+      audioSignal: asset.kind === "program" ? asset.audioSignal : (usablePairedAudio?.audioSignal ?? pairedAudio?.audioSignal ?? asset.audioSignal),
+      message: usablePairedAudio ? `Ready with ${asset.pairedAudioLabel}` : asset.message
+    };
+  }
   const proxyFolder = path.join(episodeFolder, "Session", "Review");
   const proxyPath = path.join(proxyFolder, `${asset.id}-review.webm`);
-  const usablePairedAudio = pairedAudio?.status === "ready" && pairedAudio.filePath ? pairedAudio : undefined;
+  const usablePairedAudio = pairedAudio?.status === "ready" && pairedAudio.filePath && pairedAudio.audioSignal !== "silent" ? pairedAudio : undefined;
   const pairedAudioFile = usablePairedAudio?.filePath;
   const proxySources = [sourceFile];
   if (pairedAudioFile) proxySources.push(pairedAudioFile);
@@ -730,6 +761,7 @@ async function ensureReviewProxy(episodeFolder: string, asset: ReviewMediaAsset,
       reviewProxyPath: proxyPath,
       includesPairedAudio: Boolean(usablePairedAudio),
       hasAudio: requirements.audio,
+      audioSignal: usablePairedAudio?.audioSignal ?? pairedAudio?.audioSignal ?? asset.audioSignal,
       durationMs: Number.isFinite(duration) && duration > 0 ? Math.round(duration * 1000) : asset.durationMs,
       message: usablePairedAudio ? `Ready with ${asset.pairedAudioLabel}` : asset.message
     };
@@ -753,6 +785,20 @@ async function loadCameraMicrophones(episodeFolder: string) {
   try {
     const deviceMap = JSON.parse(await fs.readFile(path.join(episodeFolder, "Session", "device-map.json"), "utf8")) as DeviceMapFile;
     return deviceMap.cameraMicrophones ?? {};
+  } catch {
+    return {};
+  }
+}
+
+async function loadMicrophoneSignals(episodeFolder: string): Promise<Partial<Record<MicrophoneSlotKey, "audible" | "silent" | "unknown">>> {
+  try {
+    const metadata = JSON.parse(await fs.readFile(path.join(episodeFolder, "Session", "sync-metadata.json"), "utf8")) as SyncMetadataFile;
+    return Object.fromEntries(
+      (Object.entries(metadata.trackStates ?? {}) as Array<[MicrophoneSlotKey, { status?: string; message?: string }]>).map(([slot, state]) => {
+        const silent = /no audible signal/i.test(state.message ?? "");
+        return [slot, silent ? "silent" : state.status === "saved" ? "audible" : "unknown"];
+      })
+    );
   } catch {
     return {};
   }

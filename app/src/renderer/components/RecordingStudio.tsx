@@ -49,6 +49,7 @@ import { Button, Tooltip } from ".";
 import { StudioToolPanels } from "./StudioToolPanels";
 
 interface RecordingStudioProps {
+  episodeTitle?: string;
   defaults: DeviceDefaults;
   detection: DeviceDetectionResult;
   snapshot: RecordingServiceSnapshot;
@@ -140,6 +141,7 @@ const voicePresets: Record<VoicePreset, { label: string; description: string }> 
 };
 
 export function RecordingStudio({
+  episodeTitle,
   defaults,
   detection,
   snapshot,
@@ -180,7 +182,7 @@ export function RecordingStudio({
   const [toolsOpen, setToolsOpen] = useState(false);
   const [layoutsOpen, setLayoutsOpen] = useState(false);
   const [recordingAction, setRecordingAction] = useState<RecordingAction>("idle");
-  const [, setMicSignals] = useState<Partial<Record<MicKey, MicSignalState>>>({});
+  const [micSignals, setMicSignals] = useState<Partial<Record<MicKey, MicSignalState>>>({});
   const [audioDiagnostics, setAudioDiagnostics] = useState<Partial<Record<MicKey, LiveInputDiagnostics>>>({});
   const [recoverySessionId, setRecoverySessionId] = useState<string | undefined>();
   const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
@@ -207,14 +209,22 @@ export function RecordingStudio({
   const hasMedia = Boolean(isComplete && snapshot.session);
   const savingLocation = snapshot.session?.folderPath ?? "Session folder appears after Record starts";
   const cameraReadyCount = cameraSlots.filter((slot) => findDevice(detection.cameras, defaults.cameras[slot.key])).length;
-  const micReadyCount = ["morganMic", "guestMic", "extraMic"].filter((key) => findDevice(detection.microphones, defaults.microphones[key as MicKey])).length;
   const storageReady = !storageWarning;
   const recordingInProgress = isRecording || isPaused;
   const recordingPreferences = { ...defaultRecordingPreferences, ...recordingPreferencesProp };
   const liveMode = recordingInProgress && recordingPreferences.liveModeEnabled;
   const recordingHealthy = snapshot.status !== "error" && (!recordingInProgress || Boolean(snapshot.health?.programActive));
   const deviceAssignmentsHealthy = getDeviceAssignmentConflicts(defaults).length === 0;
-  const studioReady = cameraReadyCount > 0 && storageReady && (!recordingInProgress || recordingHealthy);
+  const programMicSlot = defaults.cameraMicrophones?.camera1 ?? "morganMic";
+  const programMicSignal = micSignals[programMicSlot];
+  const programMicSelected = Boolean(findDevice(detection.microphones, defaults.microphones[programMicSlot]));
+  const programMicBlocked = programMicSignal === "no-signal" || programMicSignal === "disconnected";
+  const liveMicReadyCount = ["morganMic", "guestMic", "extraMic"].filter((key) => {
+    if (!findDevice(detection.microphones, defaults.microphones[key as MicKey])) return false;
+    const signal = micSignals[key as MicKey];
+    return signal !== "no-signal" && signal !== "disconnected";
+  }).length;
+  const studioReady = cameraReadyCount > 0 && storageReady && deviceAssignmentsHealthy && programMicSelected && (!recordingInProgress || recordingHealthy);
   const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
   const visibleCameraSlots = cameraSlots.filter((slot) => slot.key === "camera1" || Boolean(defaults.cameras[slot.key]));
   const visibleMicSlots = routableMicSlots.filter((slot) => slot.key === "morganMic" || Boolean(defaults.microphones[slot.key]));
@@ -274,6 +284,14 @@ export function RecordingStudio({
     autoMarkerAtRef.current[slot] = now;
     mark(signal === "clipping" ? "Clipping" : "Source Dropout");
   }
+
+  useEffect(() => {
+    if (recordingInProgress || !defaults.microphones[programMicSlot] || programMicSignal !== "no-signal") return;
+    setStudioNotice({
+      tone: "needs-attention",
+      message: `${getMicSlotLabel(programMicSlot)} has no live signal. Choose the correct input and speak into it before recording.`
+    });
+  }, [defaults.microphones, programMicSignal, programMicSlot, recordingInProgress]);
 
   async function playTestSound() {
     await onPlayTestSound();
@@ -405,6 +423,10 @@ export function RecordingStudio({
 
   async function startStudioRecording() {
     if (!studioReady || recordingAction !== "idle") return;
+    if (programMicBlocked) {
+      setStudioNotice({ tone: "needs-attention", message: `${getMicSlotLabel(programMicSlot)} has no live signal. Choose the correct input and speak into it before recording.` });
+      return;
+    }
     setRecordingAction("starting");
     setStudioNotice({ tone: "recording", message: "Starting the Program recording now..." });
     try {
@@ -510,7 +532,7 @@ export function RecordingStudio({
 
       <main className="live-studio-board reference-studio-board">
         <TornEdgeHeader
-          title={snapshot.session?.episodeTitle ?? "Episode 047 - Real Talk. No Filter."}
+          title={snapshot.session?.episodeTitle ?? episodeTitle ?? "Untitled episode"}
           eyebrow={isRecording ? "Recording Live" : isPaused ? "Paused" : isComplete ? "Recording Complete" : "Control Room"}
           aside={
             <div className="reference-header-actions">
@@ -730,7 +752,7 @@ export function RecordingStudio({
 
         <ReadinessStrip
           cameraReadyCount={cameraReadyCount}
-          micReadyCount={micReadyCount}
+          micReadyCount={liveMicReadyCount}
           storageReady={storageReady}
           recordingHealthy={recordingHealthy}
           deviceAssignmentsHealthy={deviceAssignmentsHealthy}
@@ -1417,6 +1439,7 @@ function LiveMicMeter({
         const samples = new Uint8Array(analyser.frequencyBinCount);
         centeredMeterSource = connectInputChannelSource(audioContext, source, inputChannel, diagnostics.channelCount);
         centeredMeterSource.output.connect(analyser);
+        await audioContext.resume();
 
         const tick = () => {
           if (canceled) return;

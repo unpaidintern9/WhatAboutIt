@@ -7255,6 +7255,30 @@ input[type="range"] {
   mix-blend-mode: screen;
 }
 
+.studio-shell--review .timeline-filmstrip-poster {
+  position: absolute;
+  z-index: 0;
+  inset: 2px;
+  background-repeat: repeat-x;
+  background-position: left center;
+  background-size: auto 100%;
+  opacity: 0.92;
+  pointer-events: none;
+}
+
+.timeline-audio-warning {
+  position: absolute;
+  z-index: 4;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #f2bd4f;
+  background: repeating-linear-gradient(135deg, rgba(130, 31, 30, 0.18) 0 8px, rgba(18, 14, 15, 0.18) 8px 16px);
+  font-size: 0.68rem;
+  font-weight: 800;
+  pointer-events: none;
+}
+
 .studio-shell--review .edit-track-clips > button,
 .studio-shell--review .edit-track-clips.has-waveform > button,
 .studio-shell--review .edit-track-lane.camera .edit-track-clips > button,
@@ -7690,6 +7714,19 @@ input[type="range"] {
   color: var(--color-success);
   font-size: 0.7rem;
   white-space: nowrap;
+}
+
+.inspector-audio-warning {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  color: #ffe3aa;
+  background: rgba(150, 32, 28, 0.28);
+  border: 1px solid rgba(242, 189, 79, 0.55);
+  font-size: 0.72rem;
+  line-height: 1.25;
 }
 
 .inspector-toggle,
@@ -8979,7 +9016,23 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 }
 
 .studio-shell--recording .reference-main-column {
-  grid-template-rows: auto minmax(285px, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}
+
+.studio-shell--recording .camera-command-panel {
+  grid-row: 1;
+}
+
+.studio-shell--recording .live-source-health {
+  grid-row: 2;
+}
+
+.studio-shell--recording .live-hotkey-hint {
+  grid-row: 3;
+}
+
+.studio-shell--recording .reference-console-row {
+  grid-row: 4;
 }
 
 .studio-shell--recording .reference-studio-board .camera-strip {
@@ -9279,7 +9332,7 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 
 @media (max-height: 820px) {
   .studio-shell--recording .reference-main-column {
-    grid-template-rows: auto minmax(270px, 1fr);
+    grid-template-rows: auto auto auto minmax(270px, 1fr);
   }
 
   .studio-shell--recording .reference-console-row .meter-list {
@@ -9319,5 +9372,306 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 
   .studio-shell--review .edit-track-lane.program {
     min-height: 46px;
+  }
+}
+
+/* Keep the live mixer readable before optional studio tools consume width. */
+@media (max-width: 1700px) {
+  .studio-shell--recording .reference-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .studio-shell--recording .studio-side-stack {
+    display: none;
+  }
+
+  .studio-shell--recording .reference-console-row {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 220px);
+  }
+
+  .studio-shell--recording .compact-soundboard-panel {
+    display: none;
+  }
+
+  .studio-shell--recording .reference-console-row .meter-list {
+    grid-template-columns: repeat(2, minmax(300px, 1fr));
+    gap: 10px;
+    padding: 0 10px 10px;
+  }
+
+  .studio-shell--recording .reference-console-row .live-meter-card {
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-topline strong {
+    font-size: 0.82rem;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-topline span,
+  .studio-shell--recording .reference-console-row .channel-output,
+  .studio-shell--recording .reference-console-row .channel-console label,
+  .studio-shell--recording .reference-console-row .control-caption,
+  .studio-shell--recording .reference-console-row .channel-console select,
+  .studio-shell--recording .reference-console-row .channel-console input,
+  .studio-shell--recording .reference-console-row .channel-effect-copy,
+  .studio-shell--recording .reference-console-row .monitor-feedback {
+    font-size: 0.72rem;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-console select,
+  .studio-shell--recording .reference-console-row .channel-console input[type="text"],
+  .studio-shell--recording .reference-console-row .channel-name-control input {
+    min-height: 32px;
+    padding: 5px 8px;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-buttons button {
+    min-height: 34px;
+    padding: 5px 7px;
+    font-size: 0.68rem;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-buttons button svg {
+    width: 15px;
+    height: 15px;
+  }
+
+  .studio-shell--recording .reference-console-row .physical-input-assignment.compact {
+    min-height: 26px;
+    padding: 4px 6px;
+  }
+
+  .studio-shell--recording .reference-console-row .physical-input-assignment.compact strong,
+  .studio-shell--recording .reference-console-row .physical-input-assignment.compact b {
+    font-size: 0.68rem;
+  }
+
+  .studio-shell--recording .reference-console-row .mixer-panel {
+    position: relative;
+  }
+
+  .studio-shell--recording .reference-console-row .audio-diagnostics {
+    position: absolute;
+    top: 4px;
+    right: 38px;
+    z-index: 12;
+    margin: 0;
+  }
+
+  .studio-shell--recording .reference-console-row .audio-diagnostics > summary {
+    min-height: 26px;
+    padding: 4px 8px;
+    color: var(--color-accent);
+    background: rgba(20, 15, 14, 0.72);
+    border: 1px solid color-mix(in srgb, var(--color-accent), transparent 55%);
+    border-radius: 5px;
+    font-size: 0.68rem;
+  }
+
+  .studio-shell--recording .reference-console-row .audio-diagnostics[open] {
+    top: 36px;
+    right: 8px;
+    left: 8px;
+    max-height: calc(100% - 44px);
+    overflow: auto;
+    background: var(--color-secondary);
+    border: 2px solid var(--color-border);
+    border-radius: 6px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  }
+}
+
+@media (max-width: 1350px) {
+  .studio-shell--recording .reference-console-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .studio-shell--recording .compact-markers-panel {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .studio-shell--recording .reference-console-row .meter-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.studio-shell--recording .reference-console-row .meter-list:has(> .live-meter-card:only-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+/* Empty Review is a media-recovery workspace, not a zero-duration editor. */
+.studio-shell--review .edit-studio.edit-studio--empty {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 0 clamp(180px, 28vh, 270px) minmax(0, 1fr);
+  background: #110d0e;
+}
+
+.studio-shell--review .edit-studio.edit-studio--loading {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: 0 minmax(0, 1fr);
+  background: #110d0e;
+}
+
+.studio-shell--review .edit-studio--loading .edit-source-monitor {
+  grid-column: 1;
+  grid-row: 2;
+  grid-template-rows: minmax(0, 1fr);
+  padding: 12px clamp(14px, 2.5vw, 36px);
+  background: #110d0e;
+}
+
+.studio-shell--review .edit-studio--loading .missing-media-state {
+  align-content: center;
+  justify-items: center;
+  gap: 10px;
+  min-block-size: 0;
+  color: #d8c8bb;
+  background: #171214;
+  border-color: #614248;
+  border-radius: 5px;
+  text-align: center;
+}
+
+.studio-shell--review .missing-media-state--loading svg {
+  color: #e2ad3d;
+  animation: wai-review-spin 1s linear infinite;
+}
+
+.studio-shell--review .missing-media-state--loading strong {
+  color: #fff6e8;
+  font-family: var(--font-heading);
+  font-size: clamp(1rem, 1.4vw, 1.25rem);
+}
+
+.studio-shell--review .missing-media-state--loading span {
+  max-width: 54ch;
+  color: #a99a94;
+  font-size: 0.78rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+@keyframes wai-review-spin {
+  to { transform: rotate(360deg); }
+}
+
+.studio-shell--review .edit-studio--empty .edit-source-monitor {
+  grid-column: 1;
+  grid-row: 2;
+  grid-template-rows: minmax(0, 1fr);
+  padding: 12px clamp(14px, 2.5vw, 36px);
+  background: #110d0e;
+}
+
+.studio-shell--review .edit-studio--empty .missing-media-state {
+  align-content: center;
+  gap: 8px;
+  min-block-size: 0;
+  color: #d8c8bb;
+  background: #171214;
+  border-color: #614248;
+  border-radius: 5px;
+}
+
+.studio-shell--review .edit-studio--empty .missing-media-state strong {
+  color: #fff6e8;
+  font-family: var(--font-heading);
+  font-size: clamp(1rem, 1.4vw, 1.25rem);
+}
+
+.studio-shell--review .edit-studio--empty .missing-media-state span {
+  color: #a99a94;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.studio-shell--review .edit-empty-media-setup {
+  grid-column: 1;
+  grid-row: 3;
+  min-height: 0;
+  padding: clamp(14px, 2.2vw, 28px) clamp(14px, 3vw, 44px);
+  overflow: auto;
+  background: #171214;
+  border-top: 1px solid #3d2d31;
+}
+
+.studio-shell--review .edit-empty-media-setup .editor-media-setup {
+  gap: 16px;
+  width: min(1180px, 100%);
+  margin: 0 auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.studio-shell--review .edit-empty-media-setup .editor-media-setup-heading {
+  gap: 16px;
+}
+
+.studio-shell--review .edit-empty-media-setup .editor-media-setup-heading > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.studio-shell--review .edit-empty-media-setup .editor-media-setup-heading h3 {
+  color: #fff6e8;
+  font-size: clamp(1rem, 1.5vw, 1.3rem);
+  line-height: 1.15;
+}
+
+.studio-shell--review .edit-empty-media-setup .editor-media-slots {
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.studio-shell--review .edit-empty-media-setup .editor-media-slots > div {
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+  min-height: 142px;
+  padding: 14px;
+  background: #241b1d;
+  border-color: #6a4b43;
+}
+
+.studio-shell--review .edit-empty-media-setup .editor-media-slots > div > span,
+.studio-shell--review .edit-empty-media-setup .editor-media-slots small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.studio-shell--review .edit-empty-media-setup .editor-media-message {
+  max-width: 78ch;
+  color: #a99a94;
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+@media (max-width: 960px) {
+  .studio-shell--review .edit-empty-media-setup .editor-media-slots {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+}
+
+@media (max-width: 620px) {
+  .studio-shell--review .edit-studio.edit-studio--empty {
+    grid-template-rows: 0 170px minmax(0, 1fr);
+  }
+
+  .studio-shell--review .edit-empty-media-setup .editor-media-setup-heading,
+  .studio-shell--review .edit-empty-media-setup .editor-media-setup-actions {
+    align-items: stretch;
+  }
+
+  .studio-shell--review .edit-empty-media-setup .editor-media-setup-actions,
+  .studio-shell--review .edit-empty-media-setup .editor-media-slots {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
   }
 }
