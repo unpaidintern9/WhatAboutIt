@@ -18,19 +18,44 @@ describe("browserDevicePlugin", () => {
     vi.restoreAllMocks();
   });
 
-  it("keeps enumerating devices when one permission request fails", async () => {
-    const stop = vi.fn();
-    const getUserMedia = vi
-      .fn()
-      .mockRejectedValueOnce(new DOMException("Camera busy", "NotReadableError"))
-      .mockResolvedValueOnce({ getTracks: () => [{ stop }] });
-
+  it("does not reopen cameras after Windows has already exposed labeled inputs", async () => {
+    const getUserMedia = vi.fn();
     setMediaDevices({
       getUserMedia,
       enumerateDevices: vi.fn(async () => [
+        { deviceId: "sony-camera-a", kind: "videoinput", label: "ZV-1F" },
+        { deviceId: "sony-camera-b", kind: "videoinput", label: "ZV-1F" },
+        { deviceId: "studio-mic", kind: "audioinput", label: "Studio Mic" }
+      ] as MediaDeviceInfo[])
+    });
+
+    const result = await browserDevicePlugin.requestStudioPermissions();
+
+    expect(result.permissionNeeded).toBe(false);
+    expect(result.cameras).toHaveLength(2);
+    expect(getUserMedia).not.toHaveBeenCalled();
+  });
+
+  it("keeps enumerating devices when one permission request fails", async () => {
+    const cameraStop = vi.fn();
+    const micStop = vi.fn();
+    const getUserMedia = vi.fn(async (constraints?: MediaStreamConstraints) => ({
+      getTracks: () => [{ stop: constraints?.video ? cameraStop : micStop }]
+    }) as unknown as MediaStream);
+    const enumerateDevices = vi
+      .fn()
+      .mockResolvedValueOnce([
+        { deviceId: "sony-camera", kind: "videoinput", label: "" },
+        { deviceId: "realtek-mic", kind: "audioinput", label: "" }
+      ] as MediaDeviceInfo[])
+      .mockResolvedValue([
         { deviceId: "sony-camera", kind: "videoinput", label: "Sony Camera (Imaging Edge)" },
         { deviceId: "realtek-mic", kind: "audioinput", label: "Microphone (Realtek(R) Audio)" }
-      ] as MediaDeviceInfo[])
+      ] as MediaDeviceInfo[]);
+
+    setMediaDevices({
+      getUserMedia,
+      enumerateDevices
     });
 
     const result = await browserDevicePlugin.requestStudioPermissions();
@@ -38,7 +63,8 @@ describe("browserDevicePlugin", () => {
     expect(result.permissionNeeded).toBe(false);
     expect(result.cameras).toEqual([expect.objectContaining({ id: "sony-camera", label: "Sony Camera (Imaging Edge)" })]);
     expect(result.microphones).toEqual([expect.objectContaining({ id: "realtek-mic", label: "Microphone (Realtek(R) Audio)" })]);
-    expect(stop).toHaveBeenCalled();
+    expect(cameraStop).toHaveBeenCalled();
+    expect(micStop).toHaveBeenCalled();
   });
 
   it("grants camera access through the laptop camera when the default Sony endpoint is busy", async () => {
@@ -55,11 +81,18 @@ describe("browserDevicePlugin", () => {
     });
     setMediaDevices({
       getUserMedia,
-      enumerateDevices: vi.fn(async () => [
-        { deviceId: "sony-camera", kind: "videoinput", label: "Sony Camera (Imaging Edge)" },
-        { deviceId: "laptop-camera", kind: "videoinput", label: "Integrated Camera" },
-        { deviceId: "laptop-mic", kind: "audioinput", label: "Microphone Array" }
-      ] as MediaDeviceInfo[])
+      enumerateDevices: vi
+        .fn()
+        .mockResolvedValueOnce([
+          { deviceId: "sony-camera", kind: "videoinput", label: "" },
+          { deviceId: "laptop-camera", kind: "videoinput", label: "" },
+          { deviceId: "laptop-mic", kind: "audioinput", label: "" }
+        ] as MediaDeviceInfo[])
+        .mockResolvedValue([
+          { deviceId: "sony-camera", kind: "videoinput", label: "Sony Camera (Imaging Edge)" },
+          { deviceId: "laptop-camera", kind: "videoinput", label: "Integrated Camera" },
+          { deviceId: "laptop-mic", kind: "audioinput", label: "Microphone Array" }
+        ] as MediaDeviceInfo[])
     });
 
     const result = await browserDevicePlugin.requestStudioPermissions();
