@@ -130,8 +130,12 @@ describe("app mount", () => {
     expect(secondary?.querySelectorAll("button")).toHaveLength(3);
     expect(host.textContent).not.toContain("Advanced diagnostics");
 
+    const workspace = host.querySelector<HTMLElement>(".workspace");
+    expect(workspace).toBeTruthy();
+    if (workspace) workspace.scrollTop = 640;
     const settingsButton = Array.from(secondary?.querySelectorAll("button") ?? []).find((button) => button.textContent?.includes("Settings"));
     await act(async () => settingsButton?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(workspace?.scrollTop).toBe(0);
     expect(host.textContent).toContain("Advanced diagnostics");
     expect(host.textContent).toContain("C:/logs/2026-08-21.log");
 

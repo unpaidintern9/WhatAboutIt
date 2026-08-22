@@ -123,6 +123,62 @@ describe("review media store", () => {
     probeSpy.mockRestore();
   });
 
+  it("does not try to build a waveform for a video-only camera", async () => {
+    const { runFfmpeg } = await import("./ffmpeg-tools");
+    const { logger } = await import("./logger");
+    const { loadReviewMedia } = await import("./review-media-store");
+    const episodeId = "episode-video-only-camera";
+    const episodeFolder = path.join(mockPaths.episodesRoot, episodeId);
+    const programPath = path.join(episodeFolder, "Program", "program.webm");
+    const cameraPath = path.join(episodeFolder, "Cameras", "camera-1.webm");
+    await fs.mkdir(path.dirname(programPath), { recursive: true });
+    await fs.mkdir(path.dirname(cameraPath), { recursive: true });
+    await runFfmpeg([
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc=size=320x180:rate=24",
+      "-f",
+      "lavfi",
+      "-i",
+      "sine=frequency=440:sample_rate=48000",
+      "-t",
+      "0.5",
+      "-c:v",
+      "libvpx",
+      "-c:a",
+      "libopus",
+      "-shortest",
+      programPath
+    ]);
+    await runFfmpeg([
+      "-y",
+      "-f",
+      "lavfi",
+      "-i",
+      "testsrc=size=320x180:rate=24",
+      "-t",
+      "0.5",
+      "-an",
+      "-c:v",
+      "libvpx",
+      cameraPath
+    ]);
+
+    const inventory = await loadReviewMedia(episodeId);
+    const camera = inventory.cameras.find((asset) => asset.id === "camera-1");
+
+    expect(camera?.status).toBe("ready");
+    expect(camera?.hasAudio).toBe(false);
+    expect(camera?.waveformUrl).toBeUndefined();
+    expect(logger.warning).not.toHaveBeenCalledWith(
+      "ReviewMedia",
+      "Audio waveform could not be prepared.",
+      expect.objectContaining({ filePath: expect.stringContaining("camera-1.webm") })
+    );
+  }, 20000);
+
   it("imports an external camera file into Camera 1 and creates the Program fallback", async () => {
     const { runFfmpeg } = await import("./ffmpeg-tools");
     const { importReviewMediaFile, relinkImportedMediaFile, verifyImportedMediaIntegrity } = await import("./review-media-store");

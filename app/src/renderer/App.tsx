@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpen, Brush, Camera, CheckCircle2, Clapperboard, Circle, Compass, Download, FolderOpen, Headphones, HardDrive, Mic2, Plus, RefreshCw, Scissors, Settings, ShieldCheck, Sparkles, ListVideo, Wand2, X } from "lucide-react";
 import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
 import { defaultRecordingPreferences } from "../shared/types";
@@ -413,6 +413,7 @@ export default function App() {
   const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus>(() => createInitialAppUpdateStatus("0.2.0", false));
   const [timelineSaveState, setTimelineSaveState] = useState<TimelineSaveState>("saved");
   const timelineAutosaveTimerRef = useRef<number | undefined>(undefined);
+  const workspaceRef = useRef<HTMLElement | null>(null);
   const pendingTimelineSaveRef = useRef<{ episodeId: string; draft: TimelineDraft } | undefined>(undefined);
   const episodeLoadSequenceRef = useRef(0);
   const activeEpisodeRef = useRef(activeEpisode);
@@ -480,6 +481,12 @@ export default function App() {
   useEffect(() => {
     applyTheme(activeTheme);
   }, [activeTheme]);
+
+  useLayoutEffect(() => {
+    if (!workspaceRef.current) return;
+    workspaceRef.current.scrollTop = 0;
+    workspaceRef.current.scrollLeft = 0;
+  }, [view]);
 
   useEffect(() => {
     void studio.getSettings().then((nextSettings) => {
@@ -1580,7 +1587,7 @@ export default function App() {
         </div>
       </aside>
 
-      <section className="workspace">
+      <section className="workspace" ref={workspaceRef}>
         <JourneyProgress
           view={view}
           studioReady={studioReady}

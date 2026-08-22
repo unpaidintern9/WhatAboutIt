@@ -2,6 +2,7 @@ import type { DeviceDefaults } from "./types";
 import type { LiveMarker } from "./podcast-tools";
 import type { AutoEditChapter, AutoEditClipSuggestion, AutoEditMode } from "./auto-edit";
 import type { ReviewMediaInventory } from "./review-media";
+import { cameraSlotOrder } from "./camera-config";
 
 export type TimelineTrackKind = "program" | "camera" | "microphone" | "markers";
 export type LockedTimelineTool = "Trim" | "Split" | "Delete" | "Auto Edit" | "Export";
@@ -193,16 +194,19 @@ const defaultTrackControls = {
 
 export function createTimelineDraft(input: { episodeId?: string; recordingSessionId?: string; deviceDefaults: DeviceDefaults; markers?: LiveMarker[]; durationMs?: number; now?: string }): TimelineDraft {
   const now = input.now ?? new Date().toISOString();
-  const cameraTracks = Object.entries(input.deviceDefaults.cameras)
-    .filter(([, deviceId]) => Boolean(deviceId))
-    .map(([slot], index) => ({
-      id: `camera-${slot}`,
-      label: `Camera ${index + 1}`,
-      kind: "camera" as const,
-      placeholder: "Camera angle track",
-      sourceAssetId: `camera-${index + 1}`,
-      ...defaultTrackControls
-    }));
+  const cameraTracks = cameraSlotOrder
+    .filter((slot) => Boolean(input.deviceDefaults.cameras[slot]))
+    .map((slot) => {
+      const cameraNumber = Number(slot.slice("camera".length));
+      return {
+        id: `camera-${slot}`,
+        label: `Camera ${cameraNumber}`,
+        kind: "camera" as const,
+        placeholder: "Camera angle track",
+        sourceAssetId: `camera-${cameraNumber}`,
+        ...defaultTrackControls
+      };
+    });
   const micTracks = Object.entries(input.deviceDefaults.microphones)
     .filter(([, deviceId]) => Boolean(deviceId))
     .map(([slot]) => ({

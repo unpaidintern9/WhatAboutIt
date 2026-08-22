@@ -79,9 +79,9 @@ export function DeviceSetupWizard({
   const assignmentConflicts = getDeviceAssignmentConflicts(defaults);
   const cameraCapacity = getCameraCapacity(detection.cameras);
   const setupItems = [
-    { label: "Pick Camera 1", ready: Boolean(defaults.cameras.camera1) },
-    { label: "Pick Morgan Mic", ready: Boolean(defaults.microphones.morganMic) },
-    { label: "Go Record", ready: readyState === "ready" }
+    { label: "Camera 1 selected", ready: Boolean(defaults.cameras.camera1) },
+    { label: "Morgan Mic selected", ready: Boolean(defaults.microphones.morganMic) },
+    { label: "Sources connected", ready: readyState === "ready" }
   ];
   const readyItemCount = setupItems.filter((item) => item.ready).length;
 
@@ -129,8 +129,8 @@ export function DeviceSetupWizard({
           {readyState === "ready" ? <CheckCircle2 size={26} /> : <AlertTriangle size={26} />}
           <div>
             <p className="signature">Let's check your studio</p>
-            <h2>{readyState === "ready" ? "Your studio is ready" : "Let's check your gear"}</h2>
-            <p className="soft-copy">Pick sources, check the mic, then go straight to Record.</p>
+            <h2>{readyState === "ready" ? "Your gear is connected" : "Let's check your gear"}</h2>
+            <p className="soft-copy">Pick sources, confirm each live preview and mic meter, then go to Record.</p>
           </div>
         </div>
         <div className="wizard-actions">
@@ -332,7 +332,7 @@ export function DeviceSetupWizard({
       )}
 
       <footer className="setup-next-action">
-        <span>{readyState === "ready" ? "Camera 1 and Morgan Mic are ready." : "Pick Camera 1 and Morgan Mic to continue."}</span>
+        <span>{readyState === "ready" ? "Camera 1 and Morgan Mic are selected. Confirm both are live before recording." : "Pick Camera 1 and Morgan Mic to continue."}</span>
         <Button variant="primary" icon={<ArrowRight size={20} />} onClick={onGoRecord}>Go to Record</Button>
       </footer>
     </section>
@@ -697,10 +697,12 @@ function getPreviewStatusCopy(status: "idle" | "starting" | "live" | "ready" | "
 function getCameraCardSubcopy(device: StudioDevice | undefined, previewStatus: "idle" | "starting" | "live" | "ready" | "needs-attention" | "busy" | "permission", label: string) {
   if (!device) return "Pick a camera first";
   if (previewStatus === "live") return `${label} is showing live`;
+  if (previewStatus === "starting") return `${label} is opening`;
   if (previewStatus === "busy") return "Camera is being used by another app. Close the other app, then refresh.";
   if (previewStatus === "permission") return "We need permission before this camera can go live.";
+  if (previewStatus === "needs-attention") return `${label} could not open. Refresh it or close other camera apps.`;
   if (previewStatus === "ready") return `${label} is released`;
-  return `${label} is ready`;
+  return `${label} is ready to test`;
 }
 
 function formatConnectionType(value?: StudioDevice["camera"] extends infer CameraMeta ? CameraMeta extends { connectionType: infer Type } ? Type : never : never) {

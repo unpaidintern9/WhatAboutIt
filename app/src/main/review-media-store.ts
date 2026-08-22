@@ -197,7 +197,7 @@ async function ensureVideoFilmstrip(episodeFolder: string, asset: ReviewMediaAss
 }
 
 async function ensureMediaWaveform(episodeFolder: string, asset: ReviewMediaAsset): Promise<ReviewMediaAsset> {
-  if (asset.status !== "ready" || !asset.filePath) return asset;
+  if (asset.status !== "ready" || !asset.filePath || asset.hasAudio === false) return asset;
   const waveformPath = path.join(episodeFolder, "Session", "Review", `${asset.id}-waveform.png`);
   try {
     await fs.mkdir(path.dirname(waveformPath), { recursive: true });
@@ -729,6 +729,7 @@ async function ensureReviewProxy(episodeFolder: string, asset: ReviewMediaAsset,
       playbackUrl: mediaFilePlaybackUrl(proxyPath),
       reviewProxyPath: proxyPath,
       includesPairedAudio: Boolean(usablePairedAudio),
+      hasAudio: requirements.audio,
       durationMs: Number.isFinite(duration) && duration > 0 ? Math.round(duration * 1000) : asset.durationMs,
       message: usablePairedAudio ? `Ready with ${asset.pairedAudioLabel}` : asset.message
     };
@@ -774,6 +775,7 @@ async function inspectAsset(episodeFolder: string, asset: Omit<ReviewMediaAsset,
       durationMs: probedDurationMs ?? fallbackDurationMs,
       sizeBytes: stat.size,
       codecSummary: summarizeCodecs(probe, asset.kind),
+      hasAudio: probe.streams?.some((stream) => stream.codec_type === "audio") ?? false,
       message: "Ready to review"
     };
   } catch (error) {
