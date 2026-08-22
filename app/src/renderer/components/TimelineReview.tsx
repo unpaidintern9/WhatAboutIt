@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
+  ArrowLeftToLine,
+  ArrowRightToLine,
   Check,
   Clock,
   Download,
@@ -22,7 +24,6 @@ import {
   Rewind,
   RotateCcw,
   Save,
-  Scissors,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -804,7 +805,8 @@ export function TimelineReview({
             </div>
           ) : null}
           {selectedVideo?.status === "ready" && selectedVideo.playbackUrl ? (
-            <div className="review-player-stage">
+            <div className="review-player-stage" data-aspect-ratio="16:9">
+              <div className="review-player-frame">
               <video
                 key={selectedVideo.playbackUrl}
                 ref={videoRef}
@@ -869,6 +871,7 @@ export function TimelineReview({
                 <strong>{programMode ? audioRouteMessage : pairedAudio?.audioSignal === "silent" ? `${selectedVideo.pairedAudioLabel ?? "Paired mic"} recorded no signal` : (selectedVideo.pairedAudioLabel ?? "No paired mic")}</strong>
                 <span>{programMode ? (allRecordedMicrophonesSilent ? "This recording contains silence, so there is no audible waveform to display." : useProgramStemMix ? "Separate microphone tracks are preferred; Program audio is the automatic fallback." : "Recorded Program audio is available.") : pairedAudio?.audioSignal === "silent" ? "Choose another audio source or import replacement audio for this take." : selectedVideo.message}</span>
               </div>
+              </div>
             </div>
           ) : (
             <div className="missing-media-state">
@@ -904,10 +907,12 @@ export function TimelineReview({
         {hasPlayableProgram ? <aside className="edit-track-inspector" aria-label="Selected track controls">
           <TrackInspector
             track={selectedTrack}
+            tracks={editableTracks}
             asset={selectedTrackAsset}
             draft={draft}
             playheadMs={playheadMs}
             onUpdate={updateTrack}
+            onSelectTrack={selectTrack}
             onUseCamera={() => cutToCamera(selectedTrack)}
             onTransitionChange={(cameraTransition, cameraTransitionMs) => onDraftChange(updateTimelineCameraTransition(draft, cameraTransition, cameraTransitionMs))}
             onApplyTreatment={() => onDraftChange(applyTimelineTrackTreatmentToKind(draft, selectedTrack.id))}
@@ -966,8 +971,14 @@ export function TimelineReview({
           <button type="button" className={timelineTool === "split" ? "selected" : ""} onClick={() => setTimelineTool("split")} title="Click a track to split it">
             <Split size={17} /> Split
           </button>
-          <button type="button" className="danger" disabled={!hasSelectedRange} onClick={() => applyEdit("delete-section")} title="Remove the selected range">
-            <Trash2 size={17} /> Delete range
+          <button type="button" onClick={markIn} title="Set the selection start at the playhead">
+            In
+          </button>
+          <button type="button" onClick={markOut} title="Set the selection end at the playhead">
+            Out
+          </button>
+          <button type="button" className="danger" data-compact-tool disabled={!hasSelectedRange} onClick={() => applyEdit("delete-section")} title="Remove the selected range">
+            <Trash2 size={17} /> <span>Delete range</span>
           </button>
           <button type="button" disabled={draft.history.length === 0 && draft.editLog.length === 0} onClick={() => onDraftChange(undoTimelineEdit(draft))} title="Undo">
             <Undo2 size={17} />
@@ -975,17 +986,17 @@ export function TimelineReview({
           <button type="button" disabled={draft.redoHistory.length === 0 && draft.undoneEditLog.length === 0} onClick={() => onDraftChange(redoTimelineEdit(draft))} title="Redo">
             <Redo2 size={17} />
           </button>
-          <button type="button" onClick={() => applyEdit("trim-before")} title="Trim everything before the playhead">
-            <Scissors size={16} /> Trim start
+          <button type="button" data-compact-tool onClick={() => applyEdit("trim-before")} title="Trim everything before the playhead">
+            <ArrowLeftToLine size={16} /> <span>Trim start</span>
           </button>
-          <button type="button" onClick={() => applyEdit("trim-after")} title="Trim everything after the playhead">
-            <Scissors size={16} /> Trim end
+          <button type="button" data-compact-tool onClick={() => applyEdit("trim-after")} title="Trim everything after the playhead">
+            <ArrowRightToLine size={16} /> <span>Trim end</span>
           </button>
-          <button type="button" onClick={() => onDraftChange(restoreOriginalTimeline(draft))} title="Restore the original timeline">
-            <RotateCcw size={16} /> Restore
+          <button type="button" data-compact-tool onClick={() => onDraftChange(restoreOriginalTimeline(draft))} title="Restore the original timeline">
+            <RotateCcw size={16} /> <span>Restore</span>
           </button>
-          <button type="button" disabled={!firstMicrophoneTrack} onClick={() => firstMicrophoneTrack && selectTrack(firstMicrophoneTrack.id)} title="Open microphone mix and voice filters">
-            <Waves size={17} /> Audio Mix
+          <button type="button" data-compact-tool disabled={!firstMicrophoneTrack} onClick={() => firstMicrophoneTrack && selectTrack(firstMicrophoneTrack.id)} title="Open microphone mix and voice filters">
+            <Waves size={17} /> <span>Audio Mix</span>
           </button>
         </div>
         <div className="timeline-selection-readout">
@@ -1010,7 +1021,7 @@ export function TimelineReview({
           <button type="button" className={snapEnabled ? "selected" : ""} onClick={() => setSnapEnabled((current) => !current)} title={snapEnabled ? "Turn snapping off" : "Snap to markers and cuts"}>
             <Magnet size={17} />
           </button>
-          <button type="button" onClick={() => setTimelineZoomAtPlayhead(100)} disabled={timelineZoom === 100} title="Fit the full episode in the timeline">
+          <button type="button" onClick={() => setTimelineZoomAtPlayhead(100)} title="Fit the full episode in the timeline">
             Fit
           </button>
           <button type="button" disabled={timelineZoomIndex === 0} onClick={() => zoomTimelineBy(-1)} title="Zoom timeline out">
@@ -1349,10 +1360,12 @@ function TrackLane({
 
 function TrackInspector({
   track,
+  tracks,
   asset,
   draft,
   playheadMs,
   onUpdate,
+  onSelectTrack,
   onUseCamera,
   onTransitionChange,
   onApplyTreatment,
@@ -1364,10 +1377,12 @@ function TrackInspector({
   onRenderPreview
 }: {
   track: TimelineTrack;
+  tracks: TimelineTrack[];
   asset?: ReviewMediaAsset;
   draft: TimelineDraft;
   playheadMs: number;
   onUpdate: (track: TimelineTrack, patch: Parameters<typeof updateTimelineTrackMix>[2]) => void;
+  onSelectTrack: (trackId: string) => void;
   onUseCamera: () => void;
   onTransitionChange: (transition: "cut" | "fade", durationMs: number) => void;
   onApplyTreatment: () => void;
@@ -1387,7 +1402,11 @@ function TrackInspector({
         <div>{isAudio ? <Waves size={19} /> : <SlidersHorizontal size={19} />}</div>
         <span>
           <small>Selected track</small>
-          <strong>{track.label}</strong>
+          <select aria-label="Selected track" value={track.id} onChange={(event) => onSelectTrack(event.target.value)}>
+            {tracks.map((candidate) => (
+              <option value={candidate.id} key={candidate.id}>{candidate.label}</option>
+            ))}
+          </select>
         </span>
       </div>
       <div className="inspector-status">
@@ -1491,9 +1510,12 @@ function TrackInspector({
             <InspectorRange label="Horizontal" value={track.positionX} min={-100} max={100} onChange={(positionX) => onUpdate(track, { positionX })} />
             <InspectorRange label="Vertical" value={track.positionY} min={-100} max={100} onChange={(positionY) => onUpdate(track, { positionY })} />
           </details>
-          <InspectorRange label="Brightness" value={track.brightness} min={-100} max={100} onChange={(brightness) => onUpdate(track, { brightness })} />
-          <InspectorRange label="Contrast" value={track.contrast} min={50} max={200} suffix="%" onChange={(contrast) => onUpdate(track, { contrast })} />
-          <InspectorRange label="Color" value={track.saturation} min={0} max={200} suffix="%" onChange={(saturation) => onUpdate(track, { saturation })} />
+          <details className="editor-tool-group" open>
+            <summary>Light and color</summary>
+            <InspectorRange label="Brightness" value={track.brightness} min={-100} max={100} onChange={(brightness) => onUpdate(track, { brightness })} />
+            <InspectorRange label="Contrast" value={track.contrast} min={50} max={200} suffix="%" onChange={(contrast) => onUpdate(track, { contrast })} />
+            <InspectorRange label="Color" value={track.saturation} min={0} max={200} suffix="%" onChange={(saturation) => onUpdate(track, { saturation })} />
+          </details>
           <details className="editor-tool-group">
             <summary>Camera finishing</summary>
             <small>These finishing controls are rendered in the final export.</small>
