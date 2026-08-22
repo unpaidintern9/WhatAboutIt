@@ -18,6 +18,7 @@ export interface ReviewMediaAsset {
   durationMs?: number;
   sizeBytes?: number;
   codecSummary?: string;
+  hasAudio?: boolean;
   pairedAudioId?: string;
   pairedAudioLabel?: string;
   includesPairedAudio?: boolean;

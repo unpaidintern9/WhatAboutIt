@@ -47,6 +47,21 @@ describe("timeline draft", () => {
     expect(draft.tracks.map((track) => track.kind)).toContain("markers");
   });
 
+  it("keeps camera labels and assets aligned when saved slots are out of order", () => {
+    const draft = createTimelineDraft({
+      deviceDefaults: {
+        cameras: { camera2: "camera-b", camera1: "camera-a", camera3: "camera-c" },
+        microphones: {}
+      }
+    });
+
+    expect(draft.tracks.filter((track) => track.kind === "camera")).toMatchObject([
+      { id: "camera-camera1", label: "Camera 1", sourceAssetId: "camera-1" },
+      { id: "camera-camera2", label: "Camera 2", sourceAssetId: "camera-2" },
+      { id: "camera-camera3", label: "Camera 3", sourceAssetId: "camera-3" }
+    ]);
+  });
+
   it("removes session-only undo snapshots before persistence", () => {
     const edited = applyTimelineEdit(createTimelineDraft({ deviceDefaults }), "delete-section");
     const compact = compactTimelineDraftForPersistence(edited);

@@ -49,8 +49,8 @@ describe("DeviceSetupWizard", () => {
 
     expect(markup).toContain("Camera 1");
     expect(markup).toContain("Studio Camera");
-    expect(markup).toContain("Pick Camera 1");
-    expect(markup).toContain("Pick Morgan Mic");
+    expect(markup).toContain("Camera 1 selected");
+    expect(markup).toContain("Morgan Mic selected");
     expect(markup).toContain("Go to Record");
     expect(markup).toContain("Use This Camera");
     expect(markup).toContain("Refresh Cameras");
@@ -239,10 +239,38 @@ describe("DeviceSetupWizard", () => {
     );
 
     expect(markup).toContain("Ready");
-    expect(markup).toContain("Camera 1 is ready");
+    expect(markup).toContain("Camera 1 is ready to test");
     expect(markup).toContain("Signal: Good");
     expect(markup).toContain("Test Camera");
     expect(markup).toContain("Camera 1 setup live preview");
+  });
+
+  it("does not call a camera ready when its preview cannot open", async () => {
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        <DeviceSetupWizard
+          {...baseProps}
+          defaults={{ cameras: { camera1: "camera-a" }, microphones: {} }}
+          detection={{
+            cameras: [{ id: "camera-a", label: "Studio Camera", kind: "camera" }],
+            microphones: [],
+            speakers: [],
+            permissionNeeded: false
+          }}
+          onOpenCameraPreview={vi.fn().mockRejectedValue(new Error("Camera needs attention"))}
+        />
+      );
+      await Promise.resolve();
+    });
+
+    expect(host.textContent).toContain("Camera 1 could not open");
+    expect(host.textContent).not.toContain("Camera 1 is ready");
+    root.unmount();
+    host.remove();
   });
 
   it("renders microphone, headphone, and ready steps", () => {
@@ -277,6 +305,7 @@ describe("DeviceSetupWizard", () => {
     expect(microphoneMarkup).toContain("Input 16");
     expect(headphoneMarkup).toContain("Play Test Sound");
     expect(readyMarkup).toContain("Everything looks good");
+    expect(readyMarkup).toContain("Confirm both are live before recording");
   });
 
   it("renders permission and busy camera preview language without technical terms", () => {
