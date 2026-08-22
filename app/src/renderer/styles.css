@@ -8736,16 +8736,6 @@ input[type="range"] {
   min-height: 0;
 }
 
-.studio-shell--recording .reference-console-row .channel-name-control,
-.studio-shell--recording .reference-console-row .channel-route-control,
-.studio-shell--recording .reference-console-row .channel-effect-control,
-.studio-shell--recording .reference-console-row .channel-effect-copy,
-.studio-shell--recording .reference-console-row .channel-output,
-.studio-shell--recording .reference-console-row .monitor-feedback,
-.studio-shell--recording .reference-console-row .physical-input-assignment {
-  display: none;
-}
-
 .studio-shell--recording .reference-console-row .input-route-warning {
   overflow: hidden;
   padding: 4px 6px;
@@ -8972,11 +8962,6 @@ input[type="range"] {
     height: 16px;
   }
 
-  .studio-shell--recording .reference-console-row .channel-effect-control,
-  .studio-shell--recording .reference-console-row .channel-volume-control {
-    display: none;
-  }
-
   .studio-shell--recording .studio-side-stack {
     grid-template-rows: minmax(58px, 0.55fr) minmax(58px, 0.55fr) minmax(105px, 1fr);
   }
@@ -8985,4 +8970,354 @@ input[type="range"] {
 main.studio-shell.studio-shell--review,
 main.studio-shell.studio-shell--review.sidebar-collapsed {
   grid-template-columns: minmax(0, 1fr);
+}
+
+/* Studio workflow recovery: keep every audio route available without losing transport. */
+.studio-shell--recording .reference-workbench {
+  grid-template-columns: minmax(0, 1fr) clamp(210px, 17vw, 260px);
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.studio-shell--recording .reference-main-column {
+  grid-template-rows: auto minmax(285px, 1fr);
+}
+
+.studio-shell--recording .reference-studio-board .camera-strip {
+  gap: 6px;
+}
+
+.studio-shell--recording .reference-studio-board .camera-live-card {
+  min-width: 0;
+}
+
+.studio-shell--recording .reference-console-row {
+  grid-template-columns: minmax(0, 1fr) minmax(155px, 0.24fr) minmax(175px, 0.28fr);
+}
+
+.studio-shell--recording .reference-console-row .mixer-panel {
+  overflow: hidden;
+}
+
+.studio-shell--recording .reference-console-row .meter-list {
+  grid-template-columns: repeat(3, minmax(220px, 1fr));
+  align-content: start;
+  grid-auto-rows: max-content;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.studio-shell--recording .reference-console-row .live-meter-card {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  height: max-content;
+  padding: 7px;
+  overflow: visible;
+}
+
+.studio-shell--recording .reference-console-row .channel-console {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 5px 7px;
+  overflow: visible;
+}
+
+.studio-shell--recording .reference-console-row .channel-name-control,
+.studio-shell--recording .reference-console-row .channel-input-control,
+.studio-shell--recording .reference-console-row .channel-route-control,
+.studio-shell--recording .reference-console-row .channel-effect-control,
+.studio-shell--recording .reference-console-row .channel-volume-control {
+  display: grid;
+  grid-column: auto;
+  gap: 2px;
+  min-width: 0;
+}
+
+.studio-shell--recording .reference-console-row .channel-volume-control {
+  padding: 3px 5px;
+}
+
+.studio-shell--recording .reference-console-row .channel-output {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  padding: 4px 6px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border), transparent 30%);
+  border-radius: 5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-shell--recording .reference-console-row .channel-effect-copy,
+.studio-shell--recording .reference-console-row .channel-buttons,
+.studio-shell--recording .reference-console-row .monitor-feedback {
+  display: flex;
+  grid-column: 1 / -1;
+}
+
+.studio-shell--recording .reference-console-row .channel-effect-copy,
+.studio-shell--recording .reference-console-row .monitor-feedback {
+  align-items: center;
+  min-height: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-shell--recording .reference-console-row .physical-input-assignment {
+  display: flex;
+}
+
+.studio-shell--recording .reference-console-row .physical-input-assignment.compact {
+  flex-direction: row;
+  align-items: center;
+  min-height: 20px;
+  margin-top: 2px;
+  padding: 2px 4px;
+}
+
+.studio-shell--recording .reference-console-row .physical-input-assignment.compact strong,
+.studio-shell--recording .reference-console-row .physical-input-assignment.compact b {
+  overflow: hidden;
+  font-size: 0.56rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-shell--recording .reference-console-row .channel-console label,
+.studio-shell--recording .reference-console-row .control-caption,
+.studio-shell--recording .reference-console-row .channel-console select,
+.studio-shell--recording .reference-console-row .channel-console input,
+.studio-shell--recording .reference-console-row .channel-output,
+.studio-shell--recording .reference-console-row .channel-effect-copy,
+.studio-shell--recording .reference-console-row .monitor-feedback {
+  font-size: 0.62rem;
+}
+
+.studio-shell--recording .reference-console-row .channel-console select,
+.studio-shell--recording .reference-console-row .channel-console input[type="text"],
+.studio-shell--recording .reference-console-row .channel-name-control input {
+  min-height: 26px;
+  padding: 3px 6px;
+}
+
+.studio-shell--recording .reference-console-row .channel-buttons button {
+  min-height: 28px;
+  font-size: 0.58rem;
+}
+
+.studio-shell--recording .live-hotkey-hint {
+  position: static;
+  min-height: 22px;
+  margin: -3px 0 0;
+  padding: 3px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-shell--recording .live-source-health {
+  position: static;
+  margin: 0;
+}
+
+.studio-shell--recording .reference-studio-board .giant-control-row {
+  position: relative !important;
+  z-index: 5;
+}
+
+.studio-shell--recording .reference-studio-board .studio-control-button {
+  min-height: 50px;
+}
+
+/* Review uses one continuous editing surface: monitor, transport, timeline, inspector. */
+.studio-shell--review .edit-studio {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(245px, 22vw, 330px);
+  grid-template-rows: 0 minmax(275px, 1.08fr) 42px minmax(255px, 0.92fr);
+  gap: 1px;
+  min-height: 0;
+  padding: 0;
+  overflow: hidden;
+  background: #322327;
+}
+
+.studio-shell--review .edit-studio-workspace {
+  display: contents;
+}
+
+.studio-shell--review .edit-source-monitor {
+  grid-column: 1;
+  grid-row: 2;
+  grid-template-rows: minmax(0, 1fr) 42px;
+  padding: 8px 10px 5px;
+}
+
+.studio-shell--review .review-player-stage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+}
+
+.studio-shell--review .edit-source-monitor .review-player-stage video {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+}
+
+.studio-shell--review .review-playback-error {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 6px;
+  padding: 24px;
+  color: #fff4e2;
+  background: rgba(18, 12, 13, 0.9);
+  text-align: center;
+}
+
+.studio-shell--review .review-playback-error span {
+  color: #d6c6bc;
+  font-size: 0.78rem;
+}
+
+.studio-shell--review .edit-track-inspector {
+  grid-column: 2;
+  grid-row: 2 / 5;
+  padding: 12px 14px;
+  border-left: 1px solid #4b373b;
+}
+
+.studio-shell--review .edit-direct-toolbar {
+  grid-column: 1;
+  grid-row: 3;
+  min-height: 42px;
+  padding: 5px 9px;
+  overflow: hidden;
+  border-top: 1px solid #3c2c30;
+  border-bottom: 1px solid #3c2c30;
+}
+
+.studio-shell--review .pro-timeline-viewport {
+  grid-column: 1;
+  grid-row: 4;
+  min-height: 0;
+  overscroll-behavior: contain;
+}
+
+.studio-shell--review .pro-timeline-viewport .pro-timeline {
+  align-content: start;
+  min-height: max-content;
+  padding: 4px 6px 12px;
+}
+
+.studio-shell--review .timeline-time-ruler {
+  position: sticky;
+  top: 0;
+  z-index: 8;
+  margin-left: 146px;
+  background: #0e0c0d;
+}
+
+.studio-shell--review .edit-track-lane {
+  min-height: 46px;
+}
+
+.studio-shell--review .edit-track-lane.program {
+  min-height: 54px;
+}
+
+.studio-shell--review .timeline-filmstrip-image,
+.studio-shell--review .timeline-waveform-image {
+  opacity: 0.92;
+}
+
+.studio-shell--review .timeline-playhead {
+  z-index: 7;
+  width: 2px;
+  background: #f2bd4f;
+  box-shadow: 0 0 0 1px rgba(22, 14, 15, 0.65);
+}
+
+.studio-shell--review .edit-history-panel,
+.studio-shell--review .camera-decision-panel {
+  display: none;
+}
+
+@media (max-width: 1180px) {
+  .studio-shell--recording .reference-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .studio-shell--recording .studio-side-stack,
+  .studio-shell--recording .compact-soundboard-panel,
+  .studio-shell--recording .compact-markers-panel {
+    display: none;
+  }
+
+  .studio-shell--recording .reference-console-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .studio-shell--review .edit-studio {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 27vw);
+  }
+
+  .studio-shell--review .edit-studio-actions button:not(.primary),
+  .studio-shell--review .review-audio-route span,
+  .studio-shell--review .timeline-selection-readout > div:last-of-type {
+    display: none;
+  }
+}
+
+@media (max-height: 820px) {
+  .studio-shell--recording .reference-main-column {
+    grid-template-rows: auto minmax(270px, 1fr);
+  }
+
+  .studio-shell--recording .reference-console-row .meter-list {
+    grid-template-columns: repeat(3, minmax(210px, 1fr));
+  }
+
+  .studio-shell--recording .reference-console-row .channel-console {
+    gap: 3px 6px;
+  }
+
+  .studio-shell--recording .reference-console-row .physical-input-assignment {
+    min-height: 18px;
+    padding: 1px 4px;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-effect-copy,
+  .studio-shell--recording .reference-console-row .monitor-feedback {
+    min-height: 13px;
+  }
+
+  .studio-shell--recording .reference-studio-board .studio-control-button {
+    min-height: 44px;
+  }
+
+  .studio-shell--review .edit-studio {
+    grid-template-rows: 0 minmax(235px, 1fr) 40px minmax(240px, 0.95fr);
+  }
+
+  .studio-shell--review .edit-source-monitor {
+    grid-template-rows: minmax(0, 1fr) 36px;
+    padding: 5px 7px 3px;
+  }
+
+  .studio-shell--review .edit-track-lane {
+    min-height: 40px;
+  }
+
+  .studio-shell--review .edit-track-lane.program {
+    min-height: 46px;
+  }
 }

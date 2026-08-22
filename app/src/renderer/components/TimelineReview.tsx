@@ -140,6 +140,7 @@ export function TimelineReview({
   const [isPlaying, setIsPlaying] = useState(false);
   const [stemMixActive, setStemMixActive] = useState(false);
   const [audioRouteMessage, setAudioRouteMessage] = useState("Program audio ready");
+  const [playbackError, setPlaybackError] = useState<string>();
   const [masterVolume, setMasterVolume] = useState(1);
   const [masterMuted, setMasterMuted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -200,6 +201,8 @@ export function TimelineReview({
     const firstReady = videoAssets.find((asset) => asset.status === "ready");
     if (firstReady) setSelectedVideoId(firstReady.id);
   }, [selectedVideo?.status, videoAssets]);
+
+  useEffect(() => setPlaybackError(undefined), [selectedVideo?.playbackUrl]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -694,13 +697,27 @@ export function TimelineReview({
               <video
                 key={selectedVideo.playbackUrl}
                 ref={videoRef}
-                preload="metadata"
+                preload="auto"
                 src={selectedVideo.playbackUrl}
                 poster={selectedVideo.posterUrl}
                 muted={masterMuted || stemMixActive}
                 style={liveVideoStyle}
                 aria-label={`${programMode ? "Edited Program" : selectedVideo.label} playback`}
-                onLoadedMetadata={loadSelectedVideoAtPlayhead}
+                onLoadedMetadata={() => {
+                  setPlaybackError(undefined);
+                  loadSelectedVideoAtPlayhead();
+                }}
+                onError={(event) => {
+                  const mediaError = event.currentTarget.error;
+                  const message = mediaError ? `This recording could not be loaded (media error ${mediaError.code}).` : "This recording could not be loaded.";
+                  setPlaybackError(message);
+                  void window.studio?.writeRuntimeLog?.({
+                    level: "error",
+                    source: "ReviewPlayback",
+                    message: "Review video failed to load.",
+                    details: { assetId: selectedVideo.id, playbackUrl: selectedVideo.playbackUrl, mediaErrorCode: mediaError?.code }
+                  });
+                }}
                 onPlay={() => {
                   setIsPlaying(true);
                   syncPreviewAudio(true);
@@ -716,6 +733,12 @@ export function TimelineReview({
                 onVolumeChange={() => syncPreviewAudio()}
                 onEnded={pauseSelectedVideo}
               />
+              {playbackError ? (
+                <div className="review-playback-error" role="alert">
+                  <strong>Playback needs attention</strong>
+                  <span>{playbackError}</span>
+                </div>
+              ) : null}
               {!programMode && !selectedVideo.includesPairedAudio && pairedAudio?.status === "ready" && pairedAudio.playbackUrl ? <audio key={pairedAudio.playbackUrl} ref={pairedAudioRef} preload="metadata" src={pairedAudio.playbackUrl} /> : null}
               {useProgramStemMix
                 ? programAudioSources.map(({ track, asset }) => (

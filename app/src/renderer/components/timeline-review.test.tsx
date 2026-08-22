@@ -1,4 +1,6 @@
 import { act } from "react";
+import fs from "node:fs";
+import path from "node:path";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -70,6 +72,13 @@ const media: ReviewMediaInventory = {
 };
 
 describe("TimelineReview", () => {
+  it("allows local review posters, filmstrips, and waveforms through the renderer CSP", () => {
+    const rendererHtml = fs.readFileSync(path.join(process.cwd(), "src", "renderer", "index.html"), "utf8");
+
+    expect(rendererHtml).toContain("img-src 'self' data: http://127.0.0.1:*");
+    expect(rendererHtml).toContain("media-src 'self' http://127.0.0.1:*");
+  });
+
   it("renders marker list, original-safe messaging, and unlocked draft controls", () => {
     const draft = createTimelineDraft({
       deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
