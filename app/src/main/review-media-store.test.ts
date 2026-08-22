@@ -87,12 +87,12 @@ describe("review media store", () => {
     expect(inventory.program.posterUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(inventory.program.filmstripUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.pairedAudioId).toBe("morgan-mic");
-    expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.waveformUrl).toMatch(/^wai-media:\/\/episode\//);
+    expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.waveformUrl).toBeUndefined();
     expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.filmstripUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(inventory.audio.find((asset) => asset.id === "morgan-mic")?.waveformUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(inventory.cameras.find((asset) => asset.id === "camera-2")?.pairedAudioId).toBe("guest-mic");
-    expect(inventory.program.reviewProxyPath).toContain(path.join("Session", "Review", "program-review.webm"));
-    expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.includesPairedAudio).toBe(true);
+    expect(inventory.program.reviewProxyPath).toBeUndefined();
+    expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.includesPairedAudio).toBe(false);
   }, 20000);
 
   it("uses recording state duration when a WebM file has no embedded duration", async () => {
@@ -122,6 +122,74 @@ describe("review media store", () => {
 
     probeSpy.mockRestore();
   });
+
+  it("does not scan a long recording end to end for timeline thumbnails", async () => {
+    const episodeId = "episode-long-recording";
+    const episodeFolder = path.join(mockPaths.episodesRoot, episodeId);
+    const programPath = path.join(episodeFolder, "Program", "program.webm");
+    const statePath = path.join(episodeFolder, "Session", "recording-state.json");
+    await fs.mkdir(path.dirname(programPath), { recursive: true });
+    await fs.mkdir(path.dirname(statePath), { recursive: true });
+    await fs.writeFile(programPath, "webm placeholder");
+    await fs.writeFile(statePath, JSON.stringify({ elapsedMs: 662000 }));
+
+    const ffmpegTools = await import("./ffmpeg-tools");
+    const probeSpy = vi.spyOn(ffmpegTools, "runFfprobe").mockResolvedValue({
+      stdout: JSON.stringify({
+        streams: [{ codec_type: "video", codec_name: "vp9", width: 1280, height: 720 }, { codec_type: "audio", codec_name: "opus" }],
+        format: { size: "12345" }
+      }),
+      stderr: ""
+    });
+    const ffmpegSpy = vi.spyOn(ffmpegTools, "runFfmpeg").mockResolvedValue({ stdout: "", stderr: "" });
+    const { loadReviewMedia } = await import("./review-media-store");
+
+    const inventory = await loadReviewMedia(episodeId);
+
+    expect(inventory.hasPlayableProgram).toBe(true);
+    expect(inventory.program.filmstripUrl).toBe(inventory.program.posterUrl);
+    expect(ffmpegSpy.mock.calls.some(([args]) => args.some((argument) => argument.includes("tile=12x1")))).toBe(false);
+    probeSpy.mockRestore();
+    ffmpegSpy.mockRestore();
+  });
+
+  it("does not present silent microphone files as usable stems or waveforms", async () => {
+    const { runFfmpeg } = await import("./ffmpeg-tools");
+    const { loadReviewMedia } = await import("./review-media-store");
+    const episodeId = "episode-silent-mic";
+    const episodeFolder = path.join(mockPaths.episodesRoot, episodeId);
+    const programPath = path.join(episodeFolder, "Program", "program.webm");
+    const cameraPath = path.join(episodeFolder, "Cameras", "camera-1.webm");
+    const audioPath = path.join(episodeFolder, "Audio", "morgan-mic.m4a");
+    const metadataPath = path.join(episodeFolder, "Session", "sync-metadata.json");
+    await fs.mkdir(path.dirname(programPath), { recursive: true });
+    await fs.mkdir(path.dirname(cameraPath), { recursive: true });
+    await fs.mkdir(path.dirname(audioPath), { recursive: true });
+    await fs.mkdir(path.dirname(metadataPath), { recursive: true });
+    await runFfmpeg([
+      "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-t", "0.5", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", programPath
+    ]);
+    await fs.copyFile(programPath, cameraPath);
+    await runFfmpeg(["-y", "-i", programPath, "-vn", "-c:a", "aac", audioPath]);
+    await fs.writeFile(metadataPath, JSON.stringify({
+      trackStates: {
+        morganMic: { status: "needs-attention", message: "Saved, but no audible signal was detected" }
+      }
+    }));
+
+    const inventory = await loadReviewMedia(episodeId);
+    const microphone = inventory.audio.find((asset) => asset.id === "morgan-mic");
+    const camera = inventory.cameras.find((asset) => asset.id === "camera-1");
+
+    expect(inventory.program.audioSignal).toBe("silent");
+    expect(inventory.program.waveformUrl).toBeUndefined();
+    expect(microphone?.audioSignal).toBe("silent");
+    expect(microphone?.waveformUrl).toBeUndefined();
+    expect(microphone?.message).toContain("No audible signal");
+    expect(camera?.includesPairedAudio).toBe(false);
+    expect(camera?.audioSignal).toBe("silent");
+  }, 20000);
 
   it("does not try to build a waveform for a video-only camera", async () => {
     const { runFfmpeg } = await import("./ffmpeg-tools");

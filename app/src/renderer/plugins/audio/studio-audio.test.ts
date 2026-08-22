@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertMicrophoneInputAvailable, calculateAudioLevel, getAudioStreamDiagnostics, getMicrophoneInputIndex, highQualityAudioConstraint, openAudioStreamWithFallback } from "./studio-audio";
+import { assertMicrophoneInputAvailable, calculateAudioLevel, createRoutedMonoStream, getAudioStreamDiagnostics, getMicrophoneInputIndex, highQualityAudioConstraint, openAudioStreamWithFallback } from "./studio-audio";
 
 describe("studio audio capture", () => {
   afterEach(() => vi.restoreAllMocks());
@@ -65,5 +65,19 @@ describe("studio audio capture", () => {
   it("calculates independent RMS and clipping peaks", () => {
     expect(calculateAudioLevel(new Uint8Array([128, 128, 128]))).toEqual({ rms: 0, peak: 0 });
     expect(calculateAudioLevel(new Uint8Array([0, 128, 255])).peak).toBe(100);
+  });
+
+  it("records the normal mixed microphone track without a Web Audio bridge", () => {
+    const audioTrack = {} as MediaStreamTrack;
+    const stream = {
+      getAudioTracks: () => [audioTrack],
+      getVideoTracks: () => []
+    } as unknown as MediaStream;
+    const originalAudioContext = window.AudioContext;
+    window.AudioContext = vi.fn() as unknown as typeof AudioContext;
+
+    expect(createRoutedMonoStream(stream, "mix", { preserveVideo: true })).toBe(stream);
+
+    window.AudioContext = originalAudioContext;
   });
 });

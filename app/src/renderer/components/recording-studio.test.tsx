@@ -19,6 +19,7 @@ const defaults: DeviceDefaults = {
 function renderStudio(overrides: Partial<ComponentProps<typeof RecordingStudio>> = {}) {
   const onPodcastToolsChange = vi.fn();
   const props: ComponentProps<typeof RecordingStudio> = {
+    episodeTitle: "10 Minute End-to-End Audit",
     defaults,
     detection: {
       cameras: [
@@ -82,6 +83,8 @@ describe("RecordingStudio", () => {
   it("renders the live control room with camera cards and mic meter states", () => {
     const { host } = renderStudio();
 
+    expect(host.textContent).toContain("10 Minute End-to-End Audit");
+    expect(host.textContent).not.toContain("Episode 047");
     expect(host.textContent).toContain("CAM 1");
     expect(host.textContent).toContain("MORGAN");
     expect(host.textContent).toContain("View Layouts");
@@ -692,12 +695,12 @@ describe("RecordingStudio", () => {
     const onStart = vi.fn();
     const { host } = renderStudio({
       onStart,
-      defaults: { cameras: { camera1: "camera-a" }, microphones: {} },
+      defaults: { cameras: { camera1: "camera-a" }, cameraMicrophones: { camera1: "morganMic" }, microphones: { morganMic: "mic-a" } },
       detection: {
         cameras: [
           { id: "camera-a", label: "Main Camera", kind: "camera", camera: { connectionType: "usb", signal: "good", maxResolution: "1080p", maxFps: 30 } }
         ],
-        microphones: [],
+        microphones: [{ id: "mic-a", label: "Morgan Mic", kind: "microphone" }],
         speakers: [],
         permissionNeeded: false
       },
@@ -710,6 +713,19 @@ describe("RecordingStudio", () => {
     expect(host.textContent).not.toContain("Countdown");
     expect(host.textContent).not.toContain("Choose Primary Drive");
     expect(host.textContent).not.toContain("Choose Backup Drive");
+  });
+
+  it("does not start a podcast take without a selected microphone", () => {
+    const onStart = vi.fn();
+    const { host } = renderStudio({
+      onStart,
+      defaults: { cameras: { camera1: "camera-a" }, microphones: {} },
+      detection: { cameras: [{ id: "camera-a", label: "Main Camera", kind: "camera" }], microphones: [], speakers: [], permissionNeeded: false }
+    });
+
+    const recordButton = Array.from(host.querySelectorAll("button")).find((candidate) => candidate.textContent?.includes("Start recording")) as HTMLButtonElement;
+    expect(recordButton.disabled).toBe(true);
+    expect(onStart).not.toHaveBeenCalled();
   });
 
   it("keeps storage automatic even when an older setup saved a custom path", () => {
@@ -776,5 +792,26 @@ describe("RecordingStudio", () => {
 
     expect(recordingPreviewRule).toContain("aspect-ratio: 16 / 9");
     expect(recordingVideoRule).toContain("object-fit: contain");
+  });
+
+  it("reserves the flexible recording row for the microphone console", () => {
+    const repoRoot = path.resolve(__dirname, "../../../..");
+    const styles = fs.readFileSync(path.join(repoRoot, "app/src/renderer/styles.css"), "utf8");
+
+    expect(styles).toContain("grid-template-rows: auto auto auto minmax(0, 1fr)");
+    expect(styles).toContain(".studio-shell--recording .live-source-health {\n  grid-row: 2;");
+    expect(styles).toContain(".studio-shell--recording .reference-console-row {\n  grid-row: 4;");
+  });
+
+  it("gives the live mixer readable laptop-width controls", () => {
+    const repoRoot = path.resolve(__dirname, "../../../..");
+    const styles = fs.readFileSync(path.join(repoRoot, "app/src/renderer/styles.css"), "utf8");
+
+    expect(styles).toContain("@media (max-width: 1700px)");
+    expect(styles).toContain("grid-template-columns: repeat(2, minmax(300px, 1fr))");
+    expect(styles).toContain(".studio-shell--recording .compact-soundboard-panel {\n    display: none;");
+    expect(styles).toContain("@media (max-width: 1350px)");
+    expect(styles).toContain(".studio-shell--recording .compact-markers-panel {\n    display: none;");
+    expect(styles).toContain(".studio-shell--recording .reference-console-row .audio-diagnostics {\n    position: absolute;");
   });
 });

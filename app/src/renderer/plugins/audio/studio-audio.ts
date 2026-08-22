@@ -141,6 +141,15 @@ export function createRoutedMonoStream(
   const audioTracks = inputStream.getAudioTracks();
   if (audioTracks.length === 0 || typeof window === "undefined" || !window.AudioContext) return inputStream;
 
+  // The normal mixed input is already recordable. Keeping that track raw avoids
+  // making capture depend on a Web Audio context being allowed to leave its
+  // suspended state. Numbered interface inputs still need the routing graph.
+  if (channel === "mix") {
+    return options.preserveVideo
+      ? inputStream
+      : new MediaStream(audioTracks);
+  }
+
   const audioContext = createStudioAudioContext();
   const source = audioContext.createMediaStreamSource(inputStream);
   const diagnostics = getAudioStreamDiagnostics(inputStream);
@@ -148,6 +157,7 @@ export function createRoutedMonoStream(
   const destination = audioContext.createMediaStreamDestination();
 
   centered.output.connect(destination);
+  void audioContext.resume();
 
   const outputStream = new MediaStream([
     ...(options.preserveVideo ? inputStream.getVideoTracks() : []),

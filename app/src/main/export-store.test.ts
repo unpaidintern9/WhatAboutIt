@@ -432,6 +432,14 @@ describe("export store", () => {
     expect(job.message).toContain("Choose where to save");
   });
 
+  it("reserves AAC reconstruction headroom for the selected true-peak limit", async () => {
+    const { getCodecSafeTruePeakTarget } = await import("./export-store");
+
+    expect(getCodecSafeTruePeakTarget(-1.5, "full-episode-video")).toBe(-3);
+    expect(getCodecSafeTruePeakTarget(-1, "audio-only")).toBe(-2.5);
+    expect(getCodecSafeTruePeakTarget(-2, "archive-master")).toBe(-2);
+  });
+
   it("returns a friendly missing recording state when real media is unavailable", async () => {
     const { createExport } = await import("./export-store");
     const job = await createExport({

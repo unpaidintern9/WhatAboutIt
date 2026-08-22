@@ -78,6 +78,9 @@ export function DeviceSetupWizard({
   const readyState = getDeviceReadiness(detection, defaults);
   const assignmentConflicts = getDeviceAssignmentConflicts(defaults);
   const cameraCapacity = getCameraCapacity(detection.cameras);
+  const interfaceDevice = detection.microphones.find((device) => device.audio?.interfaceLike);
+  const selectedAudioDevice = detection.microphones.find((device) => Object.values(defaults.microphones).includes(device.id));
+  const audioInputAvailable = detection.microphones.length > 0;
   const setupItems = [
     { label: "Camera 1 selected", ready: Boolean(defaults.cameras.camera1) },
     { label: "Morgan Mic selected", ready: Boolean(defaults.microphones.morganMic) },
@@ -235,13 +238,13 @@ export function DeviceSetupWizard({
       {currentStep === 1 && (
         <div className="wizard-panel">
           <WizardHeading title="Pick your microphones" message="Choose who each mic belongs to, then say something and watch the meter move." />
-          <div className={`audio-interface-strip ${detection.microphones.some((device) => device.audio?.interfaceLike) ? "ready" : "needs-attention"}`}>
-            {detection.microphones.some((device) => device.audio?.interfaceLike) ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
+          <div className={`audio-interface-strip ${audioInputAvailable ? "ready" : "needs-attention"}`}>
+            {audioInputAvailable ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
             <div>
-              <strong>Audio interface</strong>
-              <span>{detection.microphones.find((device) => device.audio?.interfaceLike)?.label ?? "No USB audio interface detected"}</span>
+              <strong>{interfaceDevice ? "Audio interface" : "Audio inputs"}</strong>
+              <span>{interfaceDevice?.label ?? selectedAudioDevice?.label ?? (audioInputAvailable ? "Windows microphone inputs detected" : "No microphone input detected")}</span>
             </div>
-            <b>{detection.microphones.some((device) => device.audio?.interfaceLike) ? "Connected" : "Check USB cable"}</b>
+            <b>{audioInputAvailable ? "Connected" : "Check cable and Windows sound settings"}</b>
           </div>
           {detection.microphones.length === 0 ? (
             <FriendlyState title={getEmptyStateMessage("microphone")} message="Plug in a mic, make sure it is on, then check again." />
@@ -560,6 +563,7 @@ function SetupMicFeedback({
         const samples = new Uint8Array(analyser.frequencyBinCount);
         const routed = connectInputChannelSource(audioContext, source, inputChannel, diagnostics.channelCount);
         routed.output.connect(analyser);
+        await audioContext.resume();
         setInputStatus(`${diagnostics.channelCount ?? "Unknown"} channel${diagnostics.channelCount === 1 ? "" : "s"} / ${diagnostics.sampleRate ?? "unknown"} Hz`);
 
         const tick = () => {
@@ -624,7 +628,7 @@ function InputChannelSelect({
         <strong>{display.short}</strong>
         <b>{value === "mix" ? "Use for a laptop or one-mic device" : `Feeds ${ownerName || "this track"}`}</b>
       </span>
-      <small>On the M-Track Duo, front jack 1 is Left and front jack 2 is Right.</small>
+      <small>Choose Left or Right only when a multichannel interface exposes separate Windows channels.</small>
     </label>
   );
 }

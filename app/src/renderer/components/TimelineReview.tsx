@@ -10,6 +10,7 @@ import {
   Grid2X2,
   GripVertical,
   History,
+  LoaderCircle,
   Magnet,
   Maximize2,
   Minus,
@@ -64,6 +65,7 @@ import { TimelineMediaSetup } from "./TimelineMediaSetup";
 interface TimelineReviewProps {
   draft: TimelineDraft;
   media?: ReviewMediaInventory;
+  loading?: boolean;
   saveState?: "saved" | "saving" | "failed";
   onDraftChange: (draft: TimelineDraft) => void;
   onSaveDraft: () => void;
@@ -104,6 +106,7 @@ type TimelineTool = "select" | "split";
 export function TimelineReview({
   draft,
   media,
+  loading = false,
   saveState = "saved",
   onDraftChange,
   onSaveDraft,
@@ -162,7 +165,7 @@ export function TimelineReview({
       .filter((track) => track.kind === "microphone" && track.includedInProgram)
       .map((track) => ({
         track,
-        asset: media?.audio.find((asset) => asset.id === track.sourceAssetId && asset.status === "ready")
+        asset: media?.audio.find((asset) => asset.id === track.sourceAssetId && asset.status === "ready" && asset.audioSignal !== "silent")
       }))
       .filter(
         (
@@ -181,10 +184,15 @@ export function TimelineReview({
     [media]
   );
   const selectedTrack = draft.tracks.find((track) => track.id === draft.selectedTrackId) ?? draft.tracks[0];
+  const selectedTrackAsset = mediaAssetsById.get(selectedTrack?.sourceAssetId ?? "");
+  const firstMicrophoneTrack = draft.tracks.find((track) => track.kind === "microphone");
+  const allRecordedMicrophonesSilent = Boolean(media?.audio.some((asset) => asset.status === "ready"))
+    && media!.audio.filter((asset) => asset.status === "ready").every((asset) => asset.audioSignal === "silent");
   const rangeStartMs = draft.selection?.timestampMs ?? playheadMs;
   const rangeEndMs = draft.selection?.endTimestampMs ?? Math.min(draft.durationMs, rangeStartMs + 15000);
   const readyCameraCount = media?.cameras.filter((asset) => asset.status === "ready").length ?? 0;
   const readyMicCount = media?.audio.filter((asset) => asset.status === "ready").length ?? 0;
+  const hasPlayableProgram = Boolean(media?.hasPlayableProgram);
   const hasSelectedRange = draft.selection?.endTimestampMs !== undefined && rangeEndMs > rangeStartMs;
   const saveStatusLabel = saveState === "saving" ? "Saving draft…" : saveState === "failed" ? "Save failed — retry" : draft.hasUnsavedChanges ? "Draft changed" : "Draft saved";
   const liveVideoStyle: CSSProperties | undefined =
@@ -203,6 +211,10 @@ export function TimelineReview({
   }, [selectedVideo?.status, videoAssets]);
 
   useEffect(() => setPlaybackError(undefined), [selectedVideo?.playbackUrl]);
+
+  useEffect(() => {
+    if (allRecordedMicrophonesSilent) setAudioRouteMessage("No audible microphone signal was captured in this take");
+  }, [allRecordedMicrophonesSilent]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -583,8 +595,24 @@ export function TimelineReview({
     return () => window.removeEventListener("keydown", handleEditorKey);
   });
 
+  if (loading) {
+    return (
+      <section className="timeline-review edit-studio edit-studio--loading">
+        <section className="edit-studio-workspace">
+          <div className="edit-source-monitor">
+            <div className="missing-media-state missing-media-state--loading" role="status" aria-live="polite">
+              <LoaderCircle size={28} aria-hidden="true" />
+              <strong>Preparing your Review workspace</strong>
+              <span>Your recording is safe. Building waveforms and timeline previews now.</span>
+            </div>
+          </div>
+        </section>
+      </section>
+    );
+  }
+
   return (
-    <section className="timeline-review edit-studio">
+    <section className={`timeline-review edit-studio ${hasPlayableProgram ? "" : "edit-studio--empty"}`}>
       <header className="edit-studio-bar">
         <div className="edit-studio-title">
           <strong>Episode editor</strong>
@@ -754,18 +782,18 @@ export function TimelineReview({
                     />
                   ))
                 : null}
-              <div className={`review-audio-route ${programMode || pairedAudio?.status === "ready" ? "ready" : "needs-attention"}`}>
-                <strong>{programMode ? audioRouteMessage : (selectedVideo.pairedAudioLabel ?? "No paired mic")}</strong>
-                <span>{programMode ? (useProgramStemMix ? "Separate microphone tracks are preferred; Program audio is the automatic fallback." : "Recorded Program audio is available.") : selectedVideo.message}</span>
+              <div className={`review-audio-route ${selectedVideo.audioSignal === "silent" || allRecordedMicrophonesSilent ? "needs-attention" : programMode || pairedAudio?.status === "ready" ? "ready" : "needs-attention"}`}>
+                <strong>{programMode ? audioRouteMessage : pairedAudio?.audioSignal === "silent" ? `${selectedVideo.pairedAudioLabel ?? "Paired mic"} recorded no signal` : (selectedVideo.pairedAudioLabel ?? "No paired mic")}</strong>
+                <span>{programMode ? (allRecordedMicrophonesSilent ? "This recording contains silence, so there is no audible waveform to display." : useProgramStemMix ? "Separate microphone tracks are preferred; Program audio is the automatic fallback." : "Recorded Program audio is available.") : pairedAudio?.audioSignal === "silent" ? "Choose another audio source or import replacement audio for this take." : selectedVideo.message}</span>
               </div>
             </div>
           ) : (
             <div className="missing-media-state">
               <strong>{selectedVideo?.message ?? "No recorded video found yet"}</strong>
-              <span>{selectedVideo?.relativePath ?? "Record an episode to review it here"}</span>
+              <span>{hasPlayableProgram ? selectedVideo?.relativePath : "Record an episode or add source files below."}</span>
             </div>
           )}
-          <div className="edit-transport" aria-label="Playback controls">
+          {hasPlayableProgram ? <div className="edit-transport" aria-label="Playback controls">
             <button type="button" disabled={selectedVideo?.status !== "ready"} onClick={() => seek(playheadMs - 5000)} title="Back 5 seconds (J)" aria-label="Back 5 seconds">
               <Rewind size={17} />
             </button>
@@ -787,12 +815,13 @@ export function TimelineReview({
                 {[0.5, 0.75, 1, 1.25, 1.5, 2].map((rate) => <option value={rate} key={rate}>{rate}×</option>)}
               </select>
             </label>
-          </div>
+          </div> : null}
         </div>
 
-        <aside className="edit-track-inspector" aria-label="Selected track controls">
+        {hasPlayableProgram ? <aside className="edit-track-inspector" aria-label="Selected track controls">
           <TrackInspector
             track={selectedTrack}
+            asset={selectedTrackAsset}
             draft={draft}
             playheadMs={playheadMs}
             onUpdate={updateTrack}
@@ -817,8 +846,8 @@ export function TimelineReview({
             } : undefined}
           />
           <div className="editor-inspector-drawers">
-            <details open={!media?.hasPlayableProgram}>
-              <summary>Sources {media?.hasPlayableProgram ? "ready" : "need attention"}</summary>
+            <details>
+              <summary>Sources ready</summary>
               <TimelineMediaSetup media={media} importProgress={importProgress} onImportMedia={onImportMedia} onCancelImport={onCancelImport} onAutoSync={onAutoSync} onRelinkMedia={onRelinkMedia} onVerifyOriginals={onVerifyOriginals} onGetEpisodeStorage={onGetEpisodeStorage} onCleanupEpisodeStorage={onCleanupEpisodeStorage} />
             </details>
             <details>
@@ -837,9 +866,15 @@ export function TimelineReview({
               />
             </details>
           </div>
-        </aside>
+        </aside> : null}
       </section>
 
+      {!hasPlayableProgram ? (
+        <section className="edit-empty-media-setup">
+          <TimelineMediaSetup media={media} importProgress={importProgress} onImportMedia={onImportMedia} onCancelImport={onCancelImport} onAutoSync={onAutoSync} onRelinkMedia={onRelinkMedia} onVerifyOriginals={onVerifyOriginals} onGetEpisodeStorage={onGetEpisodeStorage} onCleanupEpisodeStorage={onCleanupEpisodeStorage} />
+        </section>
+      ) : (
+        <>
       <section className="edit-direct-toolbar" aria-label="Timeline editing tools">
         <div className="timeline-tool-group" role="toolbar" aria-label="Edit tool">
           <button type="button" className={timelineTool === "select" ? "selected" : ""} onClick={() => setTimelineTool("select")} title="Select, scrub, or drag a range">
@@ -865,6 +900,9 @@ export function TimelineReview({
           </button>
           <button type="button" onClick={() => onDraftChange(restoreOriginalTimeline(draft))} title="Restore the original timeline">
             <RotateCcw size={16} /> Restore
+          </button>
+          <button type="button" disabled={!firstMicrophoneTrack} onClick={() => firstMicrophoneTrack && selectTrack(firstMicrophoneTrack.id)} title="Open microphone mix and voice filters">
+            <Waves size={17} /> Audio Mix
           </button>
         </div>
         <div className="timeline-selection-readout">
@@ -925,6 +963,8 @@ export function TimelineReview({
               onToggleSolo={() => updateTrack(track, { solo: !track.solo })}
               waveformUrl={track.kind === "microphone" ? mediaAssetsById.get(track.sourceAssetId ?? "")?.waveformUrl : undefined}
               filmstripUrl={track.kind !== "microphone" ? mediaAssetsById.get(track.sourceAssetId ?? "")?.filmstripUrl : undefined}
+              filmstripIsPoster={track.kind !== "microphone" && mediaAssetsById.get(track.sourceAssetId ?? "")?.filmstripUrl === mediaAssetsById.get(track.sourceAssetId ?? "")?.posterUrl}
+              audioSignal={track.kind === "microphone" ? mediaAssetsById.get(track.sourceAssetId ?? "")?.audioSignal : undefined}
             />
           ))}
           <div className="timeline-marker-lane">
@@ -947,6 +987,8 @@ export function TimelineReview({
           </div>
         </section>
       </div>
+        </>
+      )}
 
       {draft.cameraDecisions.length > 0 ? (
         <section className="camera-decision-panel">
@@ -1003,7 +1045,9 @@ function TrackLane({
   onToggleMute,
   onToggleSolo,
   waveformUrl,
-  filmstripUrl
+  filmstripUrl,
+  filmstripIsPoster,
+  audioSignal
 }: {
   track: TimelineTrack;
   draft: TimelineDraft;
@@ -1018,6 +1062,8 @@ function TrackLane({
   onToggleSolo: () => void;
   waveformUrl?: string;
   filmstripUrl?: string;
+  filmstripIsPoster?: boolean;
+  audioSignal?: ReviewMediaAsset["audioSignal"];
 }) {
   const segments = getTimelineSegments(draft, track.id);
   const durationMs = Math.max(1, draft.durationMs);
@@ -1140,8 +1186,11 @@ function TrackLane({
         onDragLeave={() => setDropReady(false)}
         onDrop={handleDrop}
       >
-        {filmstripUrl ? <img className="timeline-filmstrip-image" src={filmstripUrl} alt="" aria-hidden="true" /> : null}
+        {filmstripUrl ? filmstripIsPoster ? (
+          <div className="timeline-filmstrip-poster" style={{ backgroundImage: `url("${filmstripUrl}")` }} aria-hidden="true" />
+        ) : <img className="timeline-filmstrip-image" src={filmstripUrl} alt="" aria-hidden="true" /> : null}
         {waveformUrl ? <img className="timeline-waveform-image" src={waveformUrl} alt="" aria-hidden="true" /> : null}
+        {track.kind === "microphone" && audioSignal === "silent" ? <span className="timeline-audio-warning">No audio signal captured</span> : null}
         {segments.map((segment) => {
           const activeCameraId = track.kind === "program" ? getActiveCameraTrackId(draft, segment.startMs) : undefined;
           const segmentLabel = activeCameraId ? (draft.tracks.find((candidate) => candidate.id === activeCameraId)?.label ?? track.label) : track.label;
@@ -1200,6 +1249,7 @@ function TrackLane({
 
 function TrackInspector({
   track,
+  asset,
   draft,
   playheadMs,
   onUpdate,
@@ -1214,6 +1264,7 @@ function TrackInspector({
   onRenderPreview
 }: {
   track: TimelineTrack;
+  asset?: ReviewMediaAsset;
   draft: TimelineDraft;
   playheadMs: number;
   onUpdate: (track: TimelineTrack, patch: Parameters<typeof updateTimelineTrackMix>[2]) => void;
@@ -1243,6 +1294,12 @@ function TrackInspector({
         <span>{selectedAsset ?? "Combined episode"}</span>
         <strong>{track.includedInProgram && !track.muted ? "In episode" : "Not in episode"}</strong>
       </div>
+      {isAudio && asset?.audioSignal === "silent" ? (
+        <div className="inspector-audio-warning" role="alert">
+          <VolumeX size={17} />
+          <strong>No audible signal was captured on this microphone track.</strong>
+        </div>
+      ) : null}
       {(isAudio || isVideo) && (
         <div className="inspector-effect-preview">
           <button type="button" className="inspector-primary" disabled={!onRenderPreview || previewBusy} onClick={() => void onRenderPreview?.()}>
