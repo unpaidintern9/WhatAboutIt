@@ -8,7 +8,7 @@
 
 body {
   margin: 0;
-  min-width: var(--space-minShellWidth);
+  min-width: 0;
   min-height: var(--space-minShellHeight);
   color: var(--color-text);
   background: linear-gradient(rgba(26, 17, 16, calc(0.85 - var(--texture-intensity, 0.5) * 0.2)), rgba(26, 17, 16, 0.92)), var(--texture-active), var(--color-background);
@@ -6020,25 +6020,88 @@ input[type="range"] {
 }
 
 .audio-diagnostics {
-  margin: 0 12px 12px;
+  margin: 0;
   color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-background), #000 20%);
-  border: 1px solid color-mix(in srgb, var(--color-accent), transparent 48%);
-  border-radius: var(--component-border-radius);
 }
 
-.audio-diagnostics summary {
-  padding: 9px 11px;
+.audio-diagnostics-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 9px;
+  color: var(--color-accent);
+  background: rgba(20, 15, 14, 0.78);
+  border: 1px solid color-mix(in srgb, var(--color-accent), transparent 48%);
+  border-radius: var(--component-border-radius);
   cursor: pointer;
   font-family: var(--font-heading);
+  font-size: 0.7rem;
   font-weight: 900;
+}
+
+.audio-diagnostics-dialog {
+  position: absolute;
+  inset: 6px;
+  z-index: 14;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  color: #f7e4c1;
+  background: color-mix(in srgb, var(--color-background), #000 12%);
+  border: 2px solid var(--color-border);
+  border-radius: var(--component-border-radius);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+}
+
+.audio-diagnostics-dialog > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 46px;
+  padding: 7px 9px 7px 12px;
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-secondary), #000 12%);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-accent), transparent 60%);
+}
+
+.audio-diagnostics-dialog > header div {
+  display: grid;
+  gap: 1px;
+}
+
+.audio-diagnostics-dialog > header small {
+  color: #c9aa79;
+  font-size: 0.66rem;
+}
+
+.audio-diagnostics-dialog > header button {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  color: #f7e4c1;
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--color-accent), transparent 58%);
+  border-radius: var(--component-border-radius);
 }
 
 .audio-diagnostics-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
   gap: 8px;
-  padding: 0 10px 10px;
+  min-width: 0;
+  min-height: 0;
+  padding: 10px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .audio-diagnostics-grid > span,
@@ -6069,13 +6132,14 @@ input[type="range"] {
 }
 
 .audio-diagnostics-grid dt {
-  color: var(--color-mutedText);
+  color: #c9aa79;
   font-weight: 900;
 }
 
 .audio-diagnostics-grid dd {
   min-width: 0;
   margin: 0;
+  color: #f7e4c1;
   overflow-wrap: anywhere;
 }
 
@@ -9011,8 +9075,12 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 
 /* Studio workflow recovery: keep every audio route available without losing transport. */
 .studio-shell--recording .reference-workbench {
-  grid-template-columns: minmax(0, 1fr) clamp(210px, 17vw, 260px);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) auto;
+}
+
+.studio-shell--recording .studio-side-stack {
+  display: none;
 }
 
 .studio-shell--recording .reference-main-column {
@@ -9048,6 +9116,7 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 }
 
 .studio-shell--recording .reference-console-row .mixer-panel {
+  position: relative;
   overflow: hidden;
 }
 
@@ -9055,9 +9124,7 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   grid-template-columns: repeat(3, minmax(220px, 1fr));
   align-content: start;
   grid-auto-rows: max-content;
-  overflow-x: hidden;
-  overflow-y: auto;
-  scrollbar-width: thin;
+  overflow: visible;
 }
 
 .studio-shell--recording .reference-console-row .live-meter-card {
@@ -9386,22 +9453,27 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   }
 
   .studio-shell--recording .reference-console-row {
-    grid-template-columns: minmax(0, 1fr) minmax(190px, 220px);
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .studio-shell--recording .compact-soundboard-panel {
+  .studio-shell--recording .compact-soundboard-panel,
+  .studio-shell--recording .compact-markers-panel {
     display: none;
   }
 
   .studio-shell--recording .reference-console-row .meter-list {
     grid-template-columns: repeat(2, minmax(300px, 1fr));
-    gap: 10px;
-    padding: 0 10px 10px;
+    gap: 7px;
+    padding: 0 8px 8px;
   }
 
   .studio-shell--recording .reference-console-row .live-meter-card {
-    gap: 8px;
-    padding: 10px;
+    gap: 5px;
+    padding: 7px;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-console {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .studio-shell--recording .reference-console-row .channel-topline strong {
@@ -9422,13 +9494,13 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   .studio-shell--recording .reference-console-row .channel-console select,
   .studio-shell--recording .reference-console-row .channel-console input[type="text"],
   .studio-shell--recording .reference-console-row .channel-name-control input {
-    min-height: 32px;
-    padding: 5px 8px;
+    min-height: 28px;
+    padding: 3px 7px;
   }
 
   .studio-shell--recording .reference-console-row .channel-buttons button {
-    min-height: 34px;
-    padding: 5px 7px;
+    min-height: 30px;
+    padding: 3px 6px;
     font-size: 0.68rem;
   }
 
@@ -9438,8 +9510,8 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   }
 
   .studio-shell--recording .reference-console-row .physical-input-assignment.compact {
-    min-height: 26px;
-    padding: 4px 6px;
+    min-height: 22px;
+    padding: 2px 5px;
   }
 
   .studio-shell--recording .reference-console-row .physical-input-assignment.compact strong,
@@ -9447,38 +9519,47 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
     font-size: 0.68rem;
   }
 
-  .studio-shell--recording .reference-console-row .mixer-panel {
-    position: relative;
+  .studio-shell--recording .reference-console-row .physical-input-assignment,
+  .studio-shell--recording .reference-console-row .channel-name-control,
+  .studio-shell--recording .reference-console-row .channel-output,
+  .studio-shell--recording .reference-console-row .channel-effect-copy,
+  .studio-shell--recording .reference-console-row .monitor-feedback:not(.needs-attention) {
+    display: none;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-volume-control {
+    grid-column: 1 / 3;
+    grid-row: 2;
+  }
+
+  .studio-shell--recording .reference-console-row .peak {
+    display: block;
+    grid-column: 3;
+    grid-row: 2;
+    align-self: center;
+    overflow: hidden;
+    color: var(--color-accent);
+    font-size: 0.68rem;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .studio-shell--recording .reference-console-row .audio-diagnostics {
     position: absolute;
     top: 4px;
-    right: 38px;
+    right: 8px;
     z-index: 12;
     margin: 0;
   }
 
-  .studio-shell--recording .reference-console-row .audio-diagnostics > summary {
-    min-height: 26px;
-    padding: 4px 8px;
-    color: var(--color-accent);
-    background: rgba(20, 15, 14, 0.72);
-    border: 1px solid color-mix(in srgb, var(--color-accent), transparent 55%);
-    border-radius: 5px;
-    font-size: 0.68rem;
-  }
-
-  .studio-shell--recording .reference-console-row .audio-diagnostics[open] {
-    top: 36px;
-    right: 8px;
-    left: 8px;
-    max-height: calc(100% - 44px);
-    overflow: auto;
-    background: var(--color-secondary);
-    border: 2px solid var(--color-border);
-    border-radius: 6px;
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.45);
+  .studio-shell--recording .reference-console-row .audio-diagnostics-dialog {
+    position: fixed;
+    inset: auto;
+    top: max(92px, 9vh);
+    right: clamp(18px, 4vw, 64px);
+    bottom: max(72px, 8vh);
+    left: clamp(190px, 18vw, 290px);
   }
 }
 
@@ -9495,6 +9576,83 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 @media (max-width: 900px) {
   .studio-shell--recording .reference-console-row .meter-list {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 1700px) and (max-height: 840px) {
+  .studio-shell--recording .reference-console-row .vintage-panel-heading {
+    min-height: 20px;
+    padding-block: 2px;
+  }
+
+  .studio-shell--recording .reference-console-row .monitor-row {
+    align-items: center;
+    padding-inline: 5px;
+  }
+
+  .studio-shell--recording .reference-console-row .monitor-row label {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 4px;
+  }
+
+  .studio-shell--recording .reference-console-row .monitor-row select,
+  .studio-shell--recording .reference-console-row .monitor-row .rustic-button {
+    min-height: 21px;
+  }
+
+  .studio-shell--recording .reference-console-row .meter-list {
+    gap: 4px;
+    padding: 0 5px 3px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .studio-shell--recording .reference-console-row .live-meter-card {
+    gap: 2px;
+    padding: 5px;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-topline {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 4px;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-topline strong small {
+    display: none;
+  }
+
+  .studio-shell--recording .reference-console-row .distressed-meter {
+    height: 12px;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-console {
+    gap: 2px 5px;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-console label {
+    gap: 0;
+  }
+
+  .studio-shell--recording .reference-console-row .control-caption {
+    line-height: 1;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-console select {
+    min-height: 20px;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-volume-control {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px;
+  }
+
+  .studio-shell--recording .reference-console-row .channel-buttons button {
+    min-height: 25px;
   }
 }
 
