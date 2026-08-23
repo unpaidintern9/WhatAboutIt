@@ -141,3 +141,14 @@ No actionable P0/P1/P2 findings remain for this implementation scope.
 - Pass 3: no actionable P0/P1/P2 findings remain. Body scroll dimensions equal viewport dimensions at all four tested sizes, and the final interaction state has no console warnings or errors.
 
 final result: passed
+
+### Final Pre-Episode Readiness Audit
+
+- Source evidence: `C:\Users\mmcga\AppData\Local\Temp\codex-clipboard-c9e7c8d8-ed3e-4440-8fd7-3824146080b1.png` and the installed v0.2.33 Review workspace at Morgan's normal app window.
+- Fixed: the Review workspace no longer compresses transport, edit controls, and every source lane at the same laptop breakpoint. The monitor, toolbar, and timeline now share the available height while the timeline keeps its own scroll surface.
+- Fixed: Select/Split, range, history, trim, and audio actions are visually grouped with consistent 34-36px controls instead of reading as one crowded button strip.
+- Fixed: timeline lanes, waveforms, filmstrips, labels, and the ruler use a larger uniform rhythm. The track header now scales between `156px` and `176px`, and the minimum-height layout keeps usable lanes rather than collapsing them.
+- Responsive evidence: `artifacts/final-pre-episode-audit-2026-08-22/06-review-after-1582x1018.png`, `07-review-after-1920x1080.png`, `08-review-after-1536x864.png`, `09-review-after-1366x768.png`, and `10-review-after-980x720.png`. Every viewport matched body and viewport dimensions without page-level overflow; measured Review frames remained exact `16:9`.
+- Interaction evidence: `11-review-interactions-1582x1018.png` verifies a Camera 2 Program cut, the camera inspector, and 150% precision timeline zoom. Audio Mix opened the Morgan Mic inspector with cleanup, gate, de-ess, compression, tone, fades, and output protection controls; browser console warnings and errors were empty.
+- Recording smoke: the installed app completed a real 15-second disk-first setup test. Program, Camera 1, and Morgan Mic wrote protected chunks; Program finalized playable. Disconnected Camera 2, Camera 3, and Guest Mic remained explicit integrity warnings.
+- Hardware state during audit: Windows exposed one Sony ZV-1F camera, Sony Imaging Edge, the integrated camera, AudioBox USB 96 input/output, and Realtek devices. Morgan's AudioBox route opened at `48 kHz / 16-bit`; the room was quiet and the Guest input was unavailable during the test.

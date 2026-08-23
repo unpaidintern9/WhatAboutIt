@@ -9254,7 +9254,7 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 .studio-shell--review .edit-studio {
   display: grid;
   grid-template-columns: minmax(0, 1fr) clamp(275px, 22vw, 350px);
-  grid-template-rows: 0 minmax(340px, 1.18fr) 46px minmax(280px, 0.82fr);
+  grid-template-rows: 0 minmax(360px, 1.08fr) 56px minmax(330px, 0.92fr);
   gap: 1px;
   min-height: 0;
   padding: 0;
@@ -9339,8 +9339,8 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 .studio-shell--review .edit-direct-toolbar {
   grid-column: 1;
   grid-row: 3;
-  min-height: 46px;
-  padding: 5px 8px;
+  min-height: 56px;
+  padding: 8px 10px;
   overflow: hidden;
   border-top: 1px solid #3c2c30;
   border-bottom: 1px solid #3c2c30;
@@ -9356,23 +9356,23 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 .studio-shell--review .pro-timeline-viewport .pro-timeline {
   align-content: start;
   min-height: max-content;
-  padding: 4px 6px 12px;
+  padding: 8px 8px 16px;
 }
 
 .studio-shell--review .timeline-time-ruler {
   position: sticky;
   top: 0;
   z-index: 8;
-  margin-left: 146px;
+  margin-left: var(--timeline-track-header-width, 164px);
   background: #0e0c0d;
 }
 
 .studio-shell--review .edit-track-lane {
-  min-height: 46px;
+  min-height: 58px;
 }
 
 .studio-shell--review .edit-track-lane.program {
-  min-height: 54px;
+  min-height: 64px;
 }
 
 .studio-shell--review .timeline-filmstrip-image,
@@ -9446,20 +9446,7 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   }
 
   .studio-shell--review .edit-studio {
-    grid-template-rows: 0 minmax(235px, 1fr) 40px minmax(240px, 0.95fr);
-  }
-
-  .studio-shell--review .edit-source-monitor {
-    grid-template-rows: minmax(0, 1fr) 36px;
-    padding: 5px 7px 3px;
-  }
-
-  .studio-shell--review .edit-track-lane {
-    min-height: 40px;
-  }
-
-  .studio-shell--review .edit-track-lane.program {
-    min-height: 46px;
+    grid-template-rows: 0 minmax(290px, 1.06fr) 50px minmax(260px, 0.94fr);
   }
 }
 
@@ -9857,9 +9844,9 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 
 /* Precision editor: keep switching, transport, and timeline scale visible together. */
 .studio-shell--review .edit-source-monitor {
-  grid-template-rows: 38px minmax(0, 1fr) 38px;
-  gap: 4px;
-  padding: 6px 8px 4px;
+  grid-template-rows: 42px minmax(0, 1fr) 44px;
+  gap: 8px;
+  padding: 8px 10px 6px;
 }
 
 .studio-shell--review .program-camera-switcher {
@@ -9867,9 +9854,9 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   display: grid;
   grid-template-columns: minmax(150px, auto) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   min-width: 0;
-  padding: 3px 4px;
+  padding: 4px 6px;
   color: #e7d7c7;
   background: #181315;
   border: 1px solid #3f3033;
@@ -9997,21 +9984,36 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 8px;
-  min-height: 46px;
-  padding: 5px 8px;
+  gap: 10px;
+  min-height: 56px;
+  padding: 8px 10px;
   overflow: hidden;
 }
 
 .studio-shell--review .timeline-tool-group {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: thin;
 }
 
+.studio-shell--review .timeline-tool-cluster {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+}
+
+.studio-shell--review .timeline-tool-cluster + .timeline-tool-cluster {
+  padding-left: 7px;
+  border-left: 1px solid #49373a;
+}
+
 .studio-shell--review .timeline-tool-group button,
 .studio-shell--review .timeline-view-controls button {
-  min-height: 32px;
+  min-height: 36px;
   border-radius: 4px;
   line-height: 1;
   white-space: nowrap;
@@ -10024,8 +10026,8 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 .studio-shell--review .timeline-view-controls {
   display: flex;
   flex: 0 0 auto;
-  gap: 4px;
-  padding-left: 7px;
+  gap: 6px;
+  padding-left: 9px;
   border-left: 1px solid #49373a;
 }
 
@@ -10043,9 +10045,9 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 }
 
 .studio-shell--review .timeline-view-controls button {
-  min-width: 32px;
-  min-height: 32px;
-  padding: 3px 6px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 4px 7px;
 }
 
 .studio-shell--review .pro-timeline-viewport {
@@ -10054,13 +10056,15 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 }
 
 .studio-shell--review .pro-timeline-viewport .pro-timeline {
+  --timeline-track-header-width: clamp(156px, 12vw, 176px);
   min-height: max-content;
-  padding: 4px 6px 14px;
+  gap: 3px;
+  padding: 8px 8px 16px;
 }
 
 .studio-shell--review .timeline-time-ruler {
-  height: 22px;
-  margin-left: 146px;
+  height: 27px;
+  margin-left: var(--timeline-track-header-width);
 }
 
 .studio-shell--review .timeline-time-ruler span {
@@ -10074,7 +10078,7 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 
 .studio-shell--review .timeline-time-ruler span.minor {
   height: 7px;
-  margin-top: 15px;
+  margin-top: 20px;
   border-left-color: #382d2d;
 }
 
@@ -10084,15 +10088,33 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 }
 
 .studio-shell--review .edit-track-lane {
-  min-height: 48px;
+  grid-template-columns: var(--timeline-track-header-width) minmax(0, 1fr);
+  min-height: 58px;
 }
 
 .studio-shell--review .edit-track-lane.program {
-  min-height: 52px;
+  min-height: 64px;
 }
 
 .studio-shell--review .edit-track-lane.microphone {
-  min-height: 48px;
+  min-height: 58px;
+}
+
+.studio-shell--review .edit-track-header {
+  padding: 6px 9px;
+}
+
+.studio-shell--review .track-name strong {
+  font-size: 0.74rem;
+}
+
+.studio-shell--review .track-name small {
+  font-size: 0.56rem;
+}
+
+.studio-shell--review .timeline-marker-lane {
+  grid-template-columns: var(--timeline-track-header-width) minmax(0, 1fr);
+  min-height: 40px;
 }
 
 .studio-shell--review .edit-track-lane.program .timeline-clip {
@@ -10252,29 +10274,97 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   }
 }
 
-@media (max-height: 820px) {
+@media (min-width: 1121px) and (max-width: 1400px) {
+  .studio-shell--review .timeline-tool-group button[data-compact-tool]:not(.timeline-audio-tool) {
+    width: 34px;
+    min-width: 34px;
+    padding-inline: 4px;
+  }
+
+  .studio-shell--review .timeline-tool-group button[data-compact-tool]:not(.timeline-audio-tool) > span {
+    display: none;
+  }
+}
+
+@media (max-width: 1600px) {
+  .studio-shell--review .timeline-tool-group {
+    gap: 5px;
+  }
+
+  .studio-shell--review .timeline-tool-cluster + .timeline-tool-cluster {
+    padding-left: 5px;
+  }
+
+  .studio-shell--review .timeline-tool-group button,
+  .studio-shell--review .timeline-view-controls button {
+    min-height: 34px;
+    padding-inline: 7px;
+    font-size: 0.68rem;
+  }
+
+  .studio-shell--review .timeline-view-controls {
+    gap: 5px;
+    padding-left: 7px;
+  }
+
+  .studio-shell--review .timeline-view-controls input {
+    width: 78px;
+    min-width: 78px;
+  }
+
+  .studio-shell--review .timeline-view-controls strong {
+    min-width: 42px;
+  }
+
+  .studio-shell--review .timeline-view-controls button {
+    min-width: 34px;
+  }
+}
+
+@media (max-height: 900px) {
   .studio-shell--review .edit-studio {
-    grid-template-rows: 0 minmax(300px, 1.12fr) 44px minmax(240px, 0.88fr);
+    grid-template-rows: 0 minmax(290px, 1.06fr) 50px minmax(260px, 0.94fr);
   }
 
   .studio-shell--review .edit-source-monitor {
-    grid-template-rows: 34px minmax(0, 1fr) 34px;
-    gap: 3px;
-    padding: 4px 6px 3px;
+    grid-template-rows: 38px minmax(0, 1fr) 40px;
+    gap: 6px;
+    padding: 6px 8px 4px;
   }
 
   .studio-shell--review .program-camera-switcher {
-    min-height: 34px;
-    padding-block: 2px;
+    min-height: 38px;
+    padding-block: 3px;
   }
 
   .studio-shell--review .edit-track-lane,
   .studio-shell--review .edit-track-lane.microphone {
-    min-height: 42px;
+    min-height: 50px;
   }
 
   .studio-shell--review .edit-track-lane.program {
+    min-height: 56px;
+  }
+}
+
+@media (max-height: 760px) {
+  .studio-shell--review .edit-studio {
+    grid-template-rows: 0 minmax(250px, 1.04fr) 46px minmax(225px, 0.96fr);
+  }
+
+  .studio-shell--review .edit-source-monitor {
+    grid-template-rows: 34px minmax(0, 1fr) 36px;
+    gap: 4px;
+    padding: 4px 6px 3px;
+  }
+
+  .studio-shell--review .edit-track-lane,
+  .studio-shell--review .edit-track-lane.microphone {
     min-height: 46px;
+  }
+
+  .studio-shell--review .edit-track-lane.program {
+    min-height: 52px;
   }
 }
 
