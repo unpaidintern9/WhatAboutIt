@@ -146,7 +146,7 @@ describe("RecordingStudio", () => {
     const onPlayTestSound = vi.fn(async () => undefined);
     const { host } = renderStudio({ onPlayTestSound });
 
-    expect(host.textContent).toContain("Direct software monitor");
+    expect(host.textContent).toContain("Setup monitor");
     expect(host.textContent).toContain("Hardware direct monitoring is zero-delay");
     expect(host.textContent).toContain("Output");
     expect(host.textContent).toContain("Hear Morgan");
@@ -161,6 +161,24 @@ describe("RecordingStudio", () => {
     });
     expect(onPlayTestSound).toHaveBeenCalledTimes(1);
     expect(host.textContent).toContain("Test sound played");
+  });
+
+  it("turns delayed software monitoring off while recording", () => {
+    const { host, props, root } = renderStudio();
+    click(host, "Hear Off");
+    expect(host.textContent).toContain("Hear On");
+
+    act(() => {
+      root.render(<RecordingStudio
+        {...props}
+        snapshot={{ status: "recording", elapsedMs: 1000, localSaveMessage: "Everything is saving locally", trackStatuses: [] }}
+      />);
+    });
+
+    const hearButton = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Hear Off"));
+    expect(hearButton).toBeTruthy();
+    expect(hearButton?.disabled).toBe(true);
+    expect(host.textContent).toContain("Hardware Direct Monitor prevents headphone echo");
   });
 
   it("calls real recording controls for record, pause, resume, and stop", () => {
