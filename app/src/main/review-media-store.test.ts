@@ -41,9 +41,11 @@ describe("review media store", () => {
     const audioPath = path.join(mockPaths.episodesRoot, episodeId, "Audio", "morgan-mic.m4a");
     const guestAudioPath = path.join(mockPaths.episodesRoot, episodeId, "Audio", "guest-mic.m4a");
     const extraAudioPath = path.join(mockPaths.episodesRoot, episodeId, "Audio", "extra-mic.m4a");
+    const syncMetadataPath = path.join(mockPaths.episodesRoot, episodeId, "Session", "sync-metadata.json");
     await fs.mkdir(path.dirname(programPath), { recursive: true });
     await fs.mkdir(path.dirname(cameraPath), { recursive: true });
     await fs.mkdir(path.dirname(audioPath), { recursive: true });
+    await fs.mkdir(path.dirname(syncMetadataPath), { recursive: true });
 
     await runFfmpeg([
       "-y",
@@ -70,6 +72,9 @@ describe("review media store", () => {
     await runFfmpeg(["-y", "-i", programPath, "-vn", "-c:a", "aac", audioPath]);
     await fs.copyFile(audioPath, guestAudioPath);
     await fs.copyFile(audioPath, extraAudioPath);
+    await fs.writeFile(syncMetadataPath, JSON.stringify({
+      sourceStartOffsetsMs: { program: 0, camera1: 480, camera2: 0, camera3: 0, morganMic: 620, guestMic: 0, extraMic: 0 }
+    }));
 
     const inventory = await loadReviewMedia(episodeId);
 
@@ -82,6 +87,8 @@ describe("review media store", () => {
     expect(inventory.audio.find((asset) => asset.id === "morgan-mic")?.status).toBe("ready");
     expect(inventory.audio.find((asset) => asset.id === "guest-mic")?.status).toBe("ready");
     expect(inventory.audio.find((asset) => asset.id === "extra-mic")?.status).toBe("ready");
+    expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.captureOffsetMs).toBe(480);
+    expect(inventory.audio.find((asset) => asset.id === "morgan-mic")?.captureOffsetMs).toBe(620);
     expect(inventory.program.playbackUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(inventory.program.waveformUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(inventory.program.posterUrl).toMatch(/^wai-media:\/\/episode\//);

@@ -27,6 +27,7 @@ export interface TimelineTrack {
   fadeInMs: number;
   fadeOutMs: number;
   syncOffsetMs: number;
+  captureSyncOffsetMs?: number;
   audioPreset: TimelineAudioPreset;
   noiseReduction: number;
   noiseGateDb: number;
@@ -324,6 +325,15 @@ export function withTimelineDraftDefaults(draft: Partial<TimelineDraft> | null |
 }
 
 export function syncTimelineTracksWithMedia(draft: TimelineDraft, media: ReviewMediaInventory): TimelineDraft {
+  const mediaByAssetId = new Map(
+    [media.program, ...media.cameras, ...media.audio].map((asset) => [asset.id, asset])
+  );
+  const tracksWithCaptureSync = draft.tracks.map((track) => {
+    const captureOffsetMs = track.sourceAssetId ? mediaByAssetId.get(track.sourceAssetId)?.captureOffsetMs : undefined;
+    if (captureOffsetMs === undefined || track.captureSyncOffsetMs !== undefined || track.syncOffsetMs !== 0) return track;
+    const captureSyncOffsetMs = -Math.round(captureOffsetMs);
+    return { ...track, syncOffsetMs: captureSyncOffsetMs, captureSyncOffsetMs };
+  });
   const existingAssetIds = new Set(draft.tracks.map((track) => track.sourceAssetId).filter(Boolean));
   const sourceTracks: TimelineTrack[] = [];
   for (const asset of [...media.cameras, ...media.audio]) {
@@ -334,12 +344,17 @@ export function syncTimelineTracksWithMedia(draft: TimelineDraft, media: ReviewM
       kind: asset.kind === "camera" ? "camera" : "microphone",
       placeholder: asset.kind === "camera" ? "Camera angle track" : "Voice track",
       sourceAssetId: asset.id,
-      ...defaultTrackControls
+      ...defaultTrackControls,
+      ...(asset.captureOffsetMs === undefined
+        ? {}
+        : { syncOffsetMs: -Math.round(asset.captureOffsetMs), captureSyncOffsetMs: -Math.round(asset.captureOffsetMs) })
     });
   }
-  if (sourceTracks.length === 0) return draft;
-  const markerIndex = draft.tracks.findIndex((track) => track.kind === "markers");
-  const tracks = markerIndex >= 0 ? [...draft.tracks.slice(0, markerIndex), ...sourceTracks, ...draft.tracks.slice(markerIndex)] : [...draft.tracks, ...sourceTracks];
+  if (sourceTracks.length === 0 && tracksWithCaptureSync.every((track, index) => track === draft.tracks[index])) return draft;
+  const markerIndex = tracksWithCaptureSync.findIndex((track) => track.kind === "markers");
+  const tracks = markerIndex >= 0
+    ? [...tracksWithCaptureSync.slice(0, markerIndex), ...sourceTracks, ...tracksWithCaptureSync.slice(markerIndex)]
+    : [...tracksWithCaptureSync, ...sourceTracks];
   return { ...draft, tracks };
 }
 

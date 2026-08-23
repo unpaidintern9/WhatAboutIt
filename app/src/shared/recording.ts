@@ -41,6 +41,7 @@ export interface RecordingChunkInput {
   kind: "program" | RecordingTrackKind;
   mimeType: string;
   sequence: number;
+  sourceStartedAt?: string;
   bytes: Uint8Array;
 }
 
@@ -104,6 +105,7 @@ export interface DeviceMap {
 export interface SyncMetadata {
   sessionStartTime: string;
   deviceStartTimestamps: Record<string, string>;
+  sourceStartOffsetsMs?: Partial<Record<RecordingMediaTarget, number>>;
   savedMediaFiles?: {
     program?: string;
     camera1?: string;

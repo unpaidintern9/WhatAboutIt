@@ -16,6 +16,7 @@ export interface ReviewMediaAsset {
   reviewProxyPath?: string;
   status: ReviewMediaStatus;
   durationMs?: number;
+  captureOffsetMs?: number;
   sizeBytes?: number;
   codecSummary?: string;
   hasAudio?: boolean;

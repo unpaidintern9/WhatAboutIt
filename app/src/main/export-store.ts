@@ -230,6 +230,7 @@ async function renderExport(input: {
   request: ExportRequest;
   sourceFile: string;
   audioFile?: string;
+  audioSyncOffsetMs?: number;
   outputPath: string;
   durationMs: number;
   signal: AbortSignal;
@@ -237,15 +238,27 @@ async function renderExport(input: {
 }) {
   const inputArgs = ["-y", "-fflags", "+genpts", "-i", input.sourceFile];
   if (input.audioFile) inputArgs.push("-i", input.audioFile);
+  const needsSyncedAudio = Boolean(input.audioFile && input.audioSyncOffsetMs);
   const mapArgs = input.request.type === "audio-only"
     ? ["-map", "0:a:0"]
+    : needsSyncedAudio
+      ? ["-map", "0:v:0", "-map", "[syncedaudio]"]
     : input.audioFile
       ? ["-map", "0:v:0", "-map", "1:a:0"]
       : ["-map", "0:v:0", "-map", "0:a:0"];
   const containerArgs = input.outputPath.endsWith(".mp4") ? ["-movflags", "+faststart"] : [];
 
   await runFfmpegWithProgress(
-    [...inputArgs, ...mapArgs, ...qualityArgs(input.request.type, input.request.qualityPreset), ...containerArgs, input.outputPath],
+    [
+      ...inputArgs,
+      ...(needsSyncedAudio
+        ? ["-filter_complex", `[1:a:0]${createAudioSyncFilter(input.audioSyncOffsetMs ?? 0)}aresample=48000:async=1:first_pts=0[syncedaudio]`]
+        : []),
+      ...mapArgs,
+      ...qualityArgs(input.request.type, input.request.qualityPreset),
+      ...containerArgs,
+      input.outputPath
+    ],
     { durationMs: input.durationMs, signal: input.signal, onProgress: input.onProgress }
   );
 }
@@ -754,7 +767,7 @@ async function createCameraMasters(
 ) {
   const outputs: string[] = [];
   const originalSources = await loadImportedOriginalPaths(request.episodeId);
-  const available: Array<{ cameraSlot: CameraSlotKey; sourceFile: string; audioFile: string; relativeOutput: string }> = [];
+  const available: Array<{ cameraSlot: CameraSlotKey; sourceFile: string; audioFile: string; audioSyncOffsetMs: number; relativeOutput: string }> = [];
   let savedRoutes: Partial<Record<CameraSlotKey, MicrophoneSlotKey>>;
   try {
     const deviceMap = JSON.parse(await fs.readFile(path.join(episodeFolder(request.episodeId), "Session", "device-map.json"), "utf8")) as {
@@ -771,10 +784,14 @@ async function createCameraMasters(
     const microphoneSlot = savedRoutes[cameraSlot] ?? request.deviceDefaults?.cameraMicrophones?.[cameraSlot] ?? fallbackCameraMicrophones[cameraSlot];
     const audioFile = path.join(episodeFolder(request.episodeId), "Audio", microphoneFileNames[microphoneSlot]);
     if (!(await fileExists(sourceFile)) || !(await fileExists(audioFile))) continue;
+    const cameraTrack = request.draft.tracks.find((track) => track.sourceAssetId === `camera-${cameraNumber}`);
+    const microphoneAssetId = microphoneFileNames[microphoneSlot].replace(".m4a", "");
+    const microphoneTrack = request.draft.tracks.find((track) => track.sourceAssetId === microphoneAssetId);
     available.push({
       cameraSlot,
       sourceFile,
       audioFile,
+      audioSyncOffsetMs: (microphoneTrack?.syncOffsetMs ?? 0) - (cameraTrack?.syncOffsetMs ?? 0),
       relativeOutput: path.join("Camera Masters", `camera-${cameraNumber}-with-${microphoneFileNames[microphoneSlot].replace(".m4a", "")}.mp4`)
     });
   }
@@ -790,6 +807,7 @@ async function createCameraMasters(
       request: { ...request, type: "full-episode-video" },
       sourceFile: item.sourceFile,
       audioFile: item.audioFile,
+      audioSyncOffsetMs: item.audioSyncOffsetMs,
       outputPath,
       durationMs,
       signal,

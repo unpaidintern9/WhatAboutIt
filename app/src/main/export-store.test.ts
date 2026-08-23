@@ -350,14 +350,22 @@ describe("export store", () => {
         cameraMicrophones: { camera1: "morganMic" },
         microphones: { morganMic: "mic-a" }
       },
-      draft: createTimelineDraft({
+      draft: (() => {
+        const draft = createTimelineDraft({
         episodeId: "episode-multicam",
         durationMs: 1000,
         deviceDefaults: {
           cameras: { camera1: "camera-a" },
           microphones: { morganMic: "mic-a" }
         }
-      })
+        });
+        draft.tracks = draft.tracks.map((track) => {
+          if (track.id === "camera-camera1") return { ...track, syncOffsetMs: -300 };
+          if (track.id === "mic-morganMic") return { ...track, syncOffsetMs: -700 };
+          return track;
+        });
+        return draft;
+      })()
     }, (next) => progress.push(next.progress));
     const cameraMaster = path.join(episodeFolder, "Exports", "Camera Masters", "camera-1-with-morgan-mic.mp4");
 

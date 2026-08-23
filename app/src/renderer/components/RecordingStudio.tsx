@@ -1379,7 +1379,7 @@ function LiveMicMeter({
       const currentControls = controlsRef.current;
       stopMonitorPlayback();
       const requestId = monitorRequestRef.current;
-      const audioContext = createStudioAudioContext(outputDeviceIdRef.current);
+      const audioContext = createStudioAudioContext(outputDeviceIdRef.current, getAudioStreamDiagnostics(stream).sampleRate);
       pendingContext = audioContext;
       const sinkableContext = audioContext as AudioContext & { setSinkId?: (sinkId: string) => Promise<void> };
       const source = audioContext.createMediaStreamSource(stream);
@@ -1448,7 +1448,7 @@ function LiveMicMeter({
         if (track && typeof track.addEventListener === "function") {
           track.addEventListener("ended", () => publishSignal("disconnected", diagnostics, 0, 0, "ended"), { once: true });
         }
-        audioContext = createStudioAudioContext();
+        audioContext = createStudioAudioContext(undefined, diagnostics.sampleRate);
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
         const samples = new Uint8Array(analyser.frequencyBinCount);

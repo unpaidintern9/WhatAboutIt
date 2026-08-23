@@ -59,10 +59,13 @@ export async function openAudioStreamWithFallback(
   }
 }
 
-export function createStudioAudioContext(outputDeviceId?: string) {
+export function createStudioAudioContext(outputDeviceId?: string, inputSampleRate?: number) {
+  const sampleRate = Number.isFinite(inputSampleRate) && (inputSampleRate ?? 0) >= 8000 && (inputSampleRate ?? 0) <= 192000
+    ? inputSampleRate
+    : 48000;
   const options: AudioContextOptions & { sinkId?: string } = {
     latencyHint: "interactive",
-    sampleRate: 48000,
+    sampleRate,
     ...(outputDeviceId ? { sinkId: outputDeviceId } : {})
   };
   try {
@@ -150,9 +153,12 @@ export function createRoutedMonoStream(
       : new MediaStream(audioTracks);
   }
 
-  const audioContext = createStudioAudioContext();
-  const source = audioContext.createMediaStreamSource(inputStream);
   const diagnostics = getAudioStreamDiagnostics(inputStream);
+  // Match the capture device clock when Chromium reports it. This avoids an
+  // unnecessary 44.1 kHz -> 48 kHz live resampling stage on common USB
+  // interfaces such as the M-Track Duo/AudioBox family.
+  const audioContext = createStudioAudioContext(undefined, diagnostics.sampleRate);
+  const source = audioContext.createMediaStreamSource(inputStream);
   const centered = connectInputChannelSource(audioContext, source, channel, diagnostics.channelCount);
   const destination = audioContext.createMediaStreamDestination();
 

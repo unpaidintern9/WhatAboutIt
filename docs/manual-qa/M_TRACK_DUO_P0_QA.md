@@ -35,5 +35,6 @@ Focused result: 60 tests passed across audio capture, device discovery, routing,
 5. Record 10 seconds, stop, and open Review.
 6. Play Morgan and Susan sidecars separately and confirm the correct voice association.
 7. Use the M-Track Duo Direct Monitor control for the performer; browser monitoring is for confidence checking and cannot provide hardware-zero latency.
+8. Make one sharp clap in frame immediately after Record begins, speak for 20 seconds, and clap again. In Review, confirm the mouth/clap image and Morgan/Guest audio stay aligned at both the beginning and end.
 
 Do not mark the two-input spoken isolation complete until steps 3, 4, and 6 are heard by a person at the hardware.

@@ -98,6 +98,7 @@ interface CaptureManifestSource {
   partialPath: string;
   bytesWritten: number;
   lastSequence: number;
+  sourceStartedAt?: string;
   firstChunkAt?: string;
   lastChunkAt: string;
 }
@@ -211,6 +212,7 @@ export async function appendRecordingChunk(folderPath: string, chunk: RecordingC
         partialPath,
         bytesWritten: stats.size,
         lastSequence: chunk.sequence,
+        sourceStartedAt: previousSource?.sourceStartedAt ?? chunk.sourceStartedAt,
         firstChunkAt: previousSource?.firstChunkAt ?? lastChunkAt,
         lastChunkAt
       };
@@ -327,7 +329,16 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
   const savedMediaFiles = { ...syncMetadata.savedMediaFiles, ...(programPath && programPlayable ? { program: programPath } : {}) };
   const trackStates = { ...syncMetadata.trackStates };
   const deviceStartTimestamps = { ...syncMetadata.deviceStartTimestamps };
-  for (const source of sources) deviceStartTimestamps[`recording:${source.target}`] = source.firstChunkAt ?? source.lastChunkAt;
+  const programStartMs = parseTimestampMs(programSource?.sourceStartedAt ?? programSource?.firstChunkAt ?? manifest.startedAt);
+  const sourceStartOffsetsMs: SyncMetadata["sourceStartOffsetsMs"] = { ...syncMetadata.sourceStartOffsetsMs };
+  for (const source of sources) {
+    const sourceStartedAt = source.sourceStartedAt ?? source.firstChunkAt ?? source.lastChunkAt;
+    deviceStartTimestamps[`recording:${source.target}`] = sourceStartedAt;
+    const sourceStartMs = parseTimestampMs(sourceStartedAt);
+    if (programStartMs !== undefined && sourceStartMs !== undefined) {
+      sourceStartOffsetsMs[source.target] = Math.max(-30000, Math.min(30000, Math.round(sourceStartMs - programStartMs)));
+    }
+  }
   for (const result of tracks) {
     trackStates[result.slot] = result;
     if (result.status === "saved" && result.filePath) savedMediaFiles[result.slot] = result.filePath;
@@ -336,6 +347,7 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
     writeJson(syncMetadataPath, {
       ...syncMetadata,
       deviceStartTimestamps,
+      sourceStartOffsetsMs,
       savedMediaFiles,
       trackStates,
       validation: { programPlayable, validatedAt: integrity.checkedAt }
@@ -344,6 +356,12 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
   ]);
   await logger.info("RecordingService", "Finalized disk-first recording media.", { sessionId: session.id, programPlayable, savedSources: savedTracks.length, backupPath });
   return { programPath: programPlayable ? programPath : undefined, tracks, integrity };
+}
+
+function parseTimestampMs(value?: string) {
+  if (!value) return undefined;
+  const timestamp = new Date(value).getTime();
+  return Number.isFinite(timestamp) ? timestamp : undefined;
 }
 
 export async function recoverRecordingSession(folderPath: string) {

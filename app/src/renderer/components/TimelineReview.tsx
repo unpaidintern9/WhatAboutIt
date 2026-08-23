@@ -508,7 +508,9 @@ export function TimelineReview({
       return;
     }
     if (!audio) return;
-    if (Math.abs(audio.currentTime - timelineTime / 1000) > 0.2) audio.currentTime = timelineTime / 1000;
+    const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
+    const pairedAudioTime = Math.max(0, (timelineTime + (pairedTrack?.syncOffsetMs ?? 0)) / 1000);
+    if (Math.abs(audio.currentTime - pairedAudioTime) > 0.2) audio.currentTime = pairedAudioTime;
     audio.volume = masterVolume;
     audio.muted = masterMuted;
     audio.playbackRate = playbackRate;
