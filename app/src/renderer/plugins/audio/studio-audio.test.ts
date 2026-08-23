@@ -1,8 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { assertMicrophoneInputAvailable, calculateAudioLevel, createRoutedMonoStream, getAudioStreamDiagnostics, getMicrophoneInputIndex, highQualityAudioConstraint, openAudioStreamWithFallback } from "./studio-audio";
+import { assertMicrophoneInputAvailable, calculateAudioLevel, createRoutedMonoStream, createStudioAudioContext, getAudioStreamDiagnostics, getMicrophoneInputIndex, highQualityAudioConstraint, openAudioStreamWithFallback } from "./studio-audio";
 
 describe("studio audio capture", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
 
   it("keeps system default devices flexible and physical devices exact", () => {
     expect(highQualityAudioConstraint("default")).toMatchObject({ deviceId: { ideal: "default" } });
@@ -60,6 +63,17 @@ describe("studio audio capture", () => {
     const stream = { getAudioTracks: () => [track] } as unknown as MediaStream;
 
     expect(getAudioStreamDiagnostics(stream)).toMatchObject({ deviceId: "usb-interface", groupId: "usb-group", channelCount: 2, sampleRate: 44100, sampleSize: 16 });
+  });
+
+  it("uses the interface sample rate for live routing instead of forcing a resampling clock", () => {
+    let receivedOptions: AudioContextOptions | undefined;
+    vi.stubGlobal("AudioContext", function FakeContext(options: AudioContextOptions) {
+      receivedOptions = options;
+    });
+
+    createStudioAudioContext(undefined, 44100);
+
+    expect(receivedOptions).toMatchObject({ latencyHint: "interactive", sampleRate: 44100 });
   });
 
   it("calculates independent RMS and clipping peaks", () => {

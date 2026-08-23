@@ -17,6 +17,7 @@ import {
   selectTimelinePoint,
   selectTimelineTrack,
   setTimelineRange,
+  syncTimelineTracksWithMedia,
   undoTimelineEdit,
   updateTimelineCameraTransition,
   updateTimelineCaption,
@@ -60,6 +61,33 @@ describe("timeline draft", () => {
       { id: "camera-camera2", label: "Camera 2", sourceAssetId: "camera-2" },
       { id: "camera-camera3", label: "Camera 3", sourceAssetId: "camera-3" }
     ]);
+  });
+
+  it("applies recorded source start offsets once without overwriting a later manual sync choice", () => {
+    const base = createTimelineDraft({ deviceDefaults });
+    const media = {
+      episodeId: "episode-a",
+      episodeFolder: "C:/episode-a",
+      loadedAt: "2026-08-23T12:00:00.000Z",
+      program: { id: "program", label: "Program", kind: "program" as const, relativePath: "Program/program.webm", status: "ready" as const, captureOffsetMs: 0, message: "Ready" },
+      cameras: [
+        { id: "camera-1", label: "Camera 1", kind: "camera" as const, relativePath: "Cameras/camera-1.webm", status: "ready" as const, captureOffsetMs: 620, message: "Ready" },
+        { id: "camera-2", label: "Camera 2", kind: "camera" as const, relativePath: "Cameras/camera-2.webm", status: "ready" as const, captureOffsetMs: 0, message: "Ready" }
+      ],
+      audio: [
+        { id: "morgan-mic", label: "Morgan Mic", kind: "audio" as const, relativePath: "Audio/morgan-mic.m4a", status: "ready" as const, captureOffsetMs: 740, message: "Ready" },
+        { id: "guest-mic", label: "Guest Mic", kind: "audio" as const, relativePath: "Audio/guest-mic.m4a", status: "ready" as const, captureOffsetMs: 0, message: "Ready" }
+      ],
+      hasPlayableProgram: true,
+      message: "Ready"
+    };
+
+    const synced = syncTimelineTracksWithMedia(base, media);
+    expect(synced.tracks.find((track) => track.id === "camera-camera1")).toMatchObject({ syncOffsetMs: -620, captureSyncOffsetMs: -620 });
+    expect(synced.tracks.find((track) => track.id === "mic-morganMic")).toMatchObject({ syncOffsetMs: -740, captureSyncOffsetMs: -740 });
+
+    const manuallyReset = updateTimelineTrackMix(synced, "mic-morganMic", { syncOffsetMs: 0 });
+    expect(syncTimelineTracksWithMedia(manuallyReset, media).tracks.find((track) => track.id === "mic-morganMic")?.syncOffsetMs).toBe(0);
   });
 
   it("removes session-only undo snapshots before persistence", () => {

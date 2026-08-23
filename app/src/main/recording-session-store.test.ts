@@ -226,7 +226,7 @@ describe("recording session store", () => {
     });
     await beginRecordingMedia(session.folderPath);
 
-    async function appendFile(target: "program" | "morganMic", kind: "program" | "audio", mimeType: string, source: string) {
+    async function appendFile(target: "program" | "morganMic", kind: "program" | "audio", mimeType: string, source: string, sourceStartedAt: string) {
       const bytes = await fs.readFile(source);
       let sequence = 0;
       for (let offset = 0; offset < bytes.length; offset += 4096) {
@@ -235,6 +235,7 @@ describe("recording session store", () => {
           kind,
           mimeType,
           sequence,
+          sourceStartedAt,
           bytes: bytes.subarray(offset, offset + 4096)
         });
         sequence += 1;
@@ -242,12 +243,13 @@ describe("recording session store", () => {
     }
 
     await Promise.all([
-      appendFile("program", "program", "video/webm", programSource),
-      appendFile("morganMic", "audio", "audio/webm", audioSource)
+      appendFile("program", "program", "video/webm", programSource, "2026-08-23T12:00:00.000Z"),
+      appendFile("morganMic", "audio", "audio/webm", audioSource, "2026-08-23T12:00:00.650Z")
     ]);
     const result = await finalizeRecordingMedia(session.folderPath);
     const syncMetadata = JSON.parse(await fs.readFile(path.join(session.folderPath, "Session", "sync-metadata.json"), "utf8")) as {
       deviceStartTimestamps: Record<string, string>;
+      sourceStartOffsetsMs: Record<string, number>;
     };
 
     expect(result.integrity.playable).toBe(true);
@@ -255,6 +257,7 @@ describe("recording session store", () => {
     expect(result.integrity.backupPath).toContain("disk-first");
     expect(syncMetadata.deviceStartTimestamps["recording:program"]).toBeTruthy();
     expect(syncMetadata.deviceStartTimestamps["recording:morganMic"]).toBeTruthy();
+    expect(syncMetadata.sourceStartOffsetsMs).toMatchObject({ program: 0, morganMic: 650 });
     expect(await validatePlayableMedia(result.programPath as string)).toBe(true);
     expect(await validatePlayableMedia(result.tracks[0].filePath as string)).toBe(true);
     await expect(fs.stat(path.join(result.integrity.backupPath as string, "Program", "program.webm"))).resolves.toBeTruthy();

@@ -33,6 +33,7 @@ interface DeviceMapFile {
 
 interface SyncMetadataFile {
   trackStates?: Partial<Record<MicrophoneSlotKey, { status?: string; message?: string }>>;
+  sourceStartOffsetsMs?: Partial<Record<"program" | CameraSlotKey | MicrophoneSlotKey, number>>;
 }
 
 interface ImportedMediaManifest {
@@ -113,14 +114,19 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
   const episodeFolder = path.join(getEpisodesRoot(), episodeId);
   const originalPaths = await loadImportedOriginalPaths(episodeId);
   const fallbackDurationMs = await loadRecordingDuration(episodeFolder);
-  const [assets, cameraMicrophones, microphoneSignals] = await Promise.all([
+  const [rawAssets, cameraMicrophones, microphoneSignals, sourceStartOffsetsMs] = await Promise.all([
     Promise.all(expectedAssets.map(async (asset) => ({
     ...(await inspectAsset(episodeFolder, asset, fallbackDurationMs)),
     originalFilePath: originalPaths[asset.id as ReviewMediaImportSlot]
     }))),
     loadCameraMicrophones(episodeFolder),
-    loadMicrophoneSignals(episodeFolder)
+    loadMicrophoneSignals(episodeFolder),
+    loadSourceStartOffsets(episodeFolder)
   ]);
+  const assets = rawAssets.map((asset) => ({
+    ...asset,
+    captureOffsetMs: sourceStartOffsetsMs[recordingTargetForAsset(asset.id)]
+  }));
   const programMicrophoneSlot = cameraMicrophones.camera1 ?? fallbackCameraMicrophones.camera1;
   const rawProgramAsset = assets.find((asset) => asset.kind === "program") ?? missingAsset(episodeFolder, expectedAssets[0]);
   const rawProgram = { ...rawProgramAsset, audioSignal: microphoneSignals[programMicrophoneSlot] ?? "unknown" as const };
@@ -802,6 +808,23 @@ async function loadMicrophoneSignals(episodeFolder: string): Promise<Partial<Rec
   } catch {
     return {};
   }
+}
+
+async function loadSourceStartOffsets(episodeFolder: string) {
+  try {
+    const metadata = JSON.parse(await fs.readFile(path.join(episodeFolder, "Session", "sync-metadata.json"), "utf8")) as SyncMetadataFile;
+    return metadata.sourceStartOffsetsMs ?? {};
+  } catch {
+    return {};
+  }
+}
+
+function recordingTargetForAsset(assetId: string): "program" | CameraSlotKey | MicrophoneSlotKey {
+  if (assetId === "program") return "program";
+  if (/^camera-[123]$/.test(assetId)) return `camera${assetId.at(-1)}` as CameraSlotKey;
+  if (assetId === "morgan-mic") return "morganMic";
+  if (assetId === "guest-mic") return "guestMic";
+  return "extraMic";
 }
 
 async function inspectAsset(episodeFolder: string, asset: Omit<ReviewMediaAsset, "status" | "message">, fallbackDurationMs?: number): Promise<ReviewMediaAsset> {

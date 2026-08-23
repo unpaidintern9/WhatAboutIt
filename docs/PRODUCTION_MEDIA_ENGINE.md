@@ -11,6 +11,8 @@ The Live Studio creates `Program/program.webm` and attempts a separate sidecar f
 
 Every saved file is probed before it is reported as saved. A source that previews but cannot open a separate recorder is reported as `Preview only`; the app does not create a fake file.
 
+Already-live Program, camera, and microphone sources are armed before recording and start from one shared capture timestamp. If a sleeping optional USB endpoint attaches later, its actual recorder start time is stored in `capture-manifest.json` and converted into a bounded source offset in `sync-metadata.json`. Review, finished mixes, camera masters, and audio masters apply that offset once while preserving later manual sync nudges.
+
 While Record or Pause is active, the renderer reads recorder health from the capture engine. It reports whether the Program recorder is alive, how many selected camera and microphone sidecars are active, and whether any selected source needs attention. Preflight readiness is not reused as proof that recording is healthy.
 
 One Windows camera device can occupy only one camera slot. Multiple Sony bodies are supported only when Windows exposes each body as a unique camera device ID. Every browser-visible Windows audio input remains selectable, including laptop microphone arrays and interface channel pairs. One interface can feed multiple mic tracks through browser-visible Inputs 1 through 16, but the exact same device and input route cannot be assigned twice. Channels hidden behind an ASIO-only driver are not available to Electron.
@@ -53,4 +55,4 @@ Auto Edit reads saved microphone activity and camera-to-mic routes to propose ca
 
 Automated short-media tests create two camera files and two microphone files, render a switched-camera final MP4, exercise camera fades, reframing, color, denoise, sharpening, voice cleanup, EQ, compression, limiting, pan, and sync controls, create 24-bit WAV stems, and decode-validate every result. Focused UI tests also exercise drag range selection and split-tool placement against the non-destructive draft model.
 
-Previously completed physical QA validated Sony Imaging Edge plus an integrated camera, separate microphone files, review playback, export, and ffprobe. Camera 3, Extra Mic, long-duration drift, and hidden ASIO-only channels still require compatible physical hardware validation. The latest start-to-finish UI pass used focused automated tests and intentionally did not run a long recording test.
+Previously completed physical QA validated Sony Imaging Edge plus an integrated camera, separate microphone files, review playback, export, and ffprobe. Camera 3, Extra Mic, long-duration drift, hidden ASIO-only channels, and the synchronized-start correction on Morgan's physical M-Audio/camera combination still require compatible physical hardware validation. The latest start-to-finish UI pass used focused automated tests and intentionally did not run a long recording test.

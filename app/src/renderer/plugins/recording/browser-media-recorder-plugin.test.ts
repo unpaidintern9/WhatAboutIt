@@ -378,6 +378,9 @@ describe("BrowserMediaRecorderPlugin", () => {
 
     expect(beginRecordingMedia).toHaveBeenCalledWith("C:/recording/episode-disk");
     expect(appendRecordingChunk.mock.calls.map((call) => call[1].target)).toEqual(expect.arrayContaining(["program", "camera1", "morganMic"]));
+    const sourceStarts = new Set(appendRecordingChunk.mock.calls.map((call) => call[1].sourceStartedAt));
+    expect(sourceStarts.size).toBe(1);
+    expect([...sourceStarts][0]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(result.persisted).toBe(true);
     expect(result.bytes).toBeUndefined();
   });
