@@ -264,6 +264,59 @@ describe("recording session store", () => {
     await expect(fs.stat(path.join(result.integrity.backupPath as string, "Audio", "morgan-mic.m4a"))).resolves.toBeTruthy();
   }, 30000);
 
+  it("pads isolated microphones to the Program audio packet start", async () => {
+    const { appendRecordingChunk, beginRecordingMedia, createRecordingSession, finalizeRecordingMedia } = await import("./recording-session-store");
+    const { getMediaStreamStartMs, runFfmpeg } = await import("./ffmpeg-tools");
+    const programSource = path.join(mockPaths.episodesRoot, "delayed-program-audio.webm");
+    const audioSource = path.join(mockPaths.episodesRoot, "immediate-isolated-audio.webm");
+    await runFfmpeg([
+      "-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=20",
+      "-itsoffset", "0.125", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", programSource
+    ]);
+    await runFfmpeg([
+      "-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000",
+      "-t", "1", "-c:a", "libopus", audioSource
+    ]);
+    const session = await createRecordingSession({
+      episodeId: "episode-encoded-audio-offset",
+      episodeTitle: "Encoded Audio Offset",
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+    });
+    await beginRecordingMedia(session.folderPath);
+
+    async function appendFile(target: "program" | "morganMic", kind: "program" | "audio", source: string) {
+      const bytes = await fs.readFile(source);
+      let sequence = 0;
+      for (let offset = 0; offset < bytes.length; offset += 4096) {
+        await appendRecordingChunk(session.folderPath, {
+          target,
+          kind,
+          mimeType: kind === "program" ? "video/webm" : "audio/webm",
+          sequence,
+          sourceStartedAt: "2026-08-23T12:00:00.000Z",
+          bytes: bytes.subarray(offset, offset + 4096)
+        });
+        sequence += 1;
+      }
+    }
+
+    await Promise.all([
+      appendFile("program", "program", programSource),
+      appendFile("morganMic", "audio", audioSource)
+    ]);
+    const result = await finalizeRecordingMedia(session.folderPath);
+    const programAudioStartMs = await getMediaStreamStartMs(result.programPath as string, "audio");
+    const microphonePath = result.tracks[0].filePath as string;
+    const silence = await runFfmpeg(["-i", microphonePath, "-af", "silencedetect=noise=-40dB:d=0.05", "-f", "null", "-"]);
+    const silenceEndSeconds = Number(/silence_end:\s*([\d.]+)/.exec(silence.stderr)?.[1] ?? 0);
+
+    expect(programAudioStartMs).toBeGreaterThanOrEqual(80);
+    expect(programAudioStartMs).toBeLessThanOrEqual(160);
+    expect(silenceEndSeconds * 1000).toBeGreaterThanOrEqual(programAudioStartMs - 20);
+    expect(silenceEndSeconds * 1000).toBeLessThanOrEqual(programAudioStartMs + 30);
+  }, 30000);
+
   it("keeps a playable Program available when an optional isolated microphone is silent", async () => {
     const { appendRecordingChunk, beginRecordingMedia, createRecordingSession, finalizeRecordingMedia } = await import("./recording-session-store");
     const { runFfmpeg } = await import("./ffmpeg-tools");

@@ -295,6 +295,19 @@ export function RecordingStudio({
     });
   }, [defaults.microphones, programMicSignal, programMicSlot, recordingInProgress]);
 
+  useEffect(() => {
+    if (!recordingInProgress) return;
+    setMixerChannels((current) => {
+      let changed = false;
+      const next = Object.fromEntries(Object.entries(current).map(([slot, controls]) => {
+        if (!controls.monitor) return [slot, controls];
+        changed = true;
+        return [slot, { ...controls, monitor: false }];
+      }));
+      return changed ? next : current;
+    });
+  }, [recordingInProgress]);
+
   async function playTestSound() {
     await onPlayTestSound();
     setStudioNotice({ tone: "ready", message: "Test sound played. Pick headphones if you didn't hear it." });
@@ -642,7 +655,7 @@ export function RecordingStudio({
                         ))}
                       </select>
                     </label>
-                    <span className="monitor-status" title="Monitoring uses a direct low-buffer software path and stays off until you choose Hear."><Headphones size={16} /> Direct software monitor</span>
+                    <span className="monitor-status" title="Software monitoring is available for setup checks and turns off during recording to prevent delayed doubling."><Headphones size={16} /> {recordingInProgress ? "Hardware monitor" : "Setup monitor"}</span>
                     <span className="headphone-warning" title="For true zero-delay monitoring, use the Direct Monitor control on your audio interface.">Use headphones. Hardware direct monitoring is zero-delay.</span>
                     <RusticButton title="Play a short tone through the selected output." onClick={() => void playTestSound()}>
                       <Volume2 size={16} /> Play Test Sound
@@ -670,6 +683,7 @@ export function RecordingStudio({
                           controls={controls}
                           monitorLabel={getMonitorLabel(slot.label)}
                           monitoring={controls.monitor && !controls.muted && (soloedChannels.length === 0 || soloedChannels.includes(slot.key))}
+                          softwareMonitoringDisabled={recordingInProgress}
                           outputDeviceId={defaults.audioOutputId}
                           fallbackLevel={0}
                           trackStatus={trackStatusBySlot[slot.key as RecordingTrackSlot]}
@@ -1280,6 +1294,7 @@ function LiveMicMeter({
   controls,
   monitorLabel,
   monitoring,
+  softwareMonitoringDisabled,
   outputDeviceId,
   fallbackLevel,
   fallbackLabel,
@@ -1307,6 +1322,7 @@ function LiveMicMeter({
   controls: MixerChannelControls;
   monitorLabel: string;
   monitoring: boolean;
+  softwareMonitoringDisabled: boolean;
   outputDeviceId?: string;
   fallbackLevel?: number;
   fallbackLabel?: string;
@@ -1409,6 +1425,7 @@ function LiveMicMeter({
   }, [deviceId, inputChannel, onEchoWarning, stopMonitorPlayback]);
 
   function toggleMonitor() {
+    if (softwareMonitoringDisabled) return;
     const nextMonitor = !controls.monitor;
     onControlsChange({ monitor: nextMonitor });
     if (!nextMonitor) {
@@ -1505,13 +1522,13 @@ function LiveMicMeter({
   }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream, onReleaseMicrophoneStream, startMonitorPlayback, stopMonitorPlayback]);
 
   useEffect(() => {
-    if (!monitoring || controls.muted) {
+    if (softwareMonitoringDisabled || !monitoring || controls.muted) {
       stopMonitorPlayback();
       return;
     }
 
     void startMonitorPlayback();
-  }, [controls.muted, deviceId, inputChannel, monitoring, outputDeviceId, startMonitorPlayback, stopMonitorPlayback]);
+  }, [controls.muted, deviceId, inputChannel, monitoring, outputDeviceId, softwareMonitoringDisabled, startMonitorPlayback, stopMonitorPlayback]);
 
   useEffect(() => {
     monitorGraphRef.current?.chain.update(controls.voicePreset, controls.gain);
@@ -1605,13 +1622,13 @@ function LiveMicMeter({
             </button>
           </Tooltip>
           <Tooltip label="Hear: send this mic to your selected headphone output.">
-            <button title={`${monitorLabel} through headphones`} className={controls.monitor ? "selected" : ""} type="button" onClick={toggleMonitor}>
+            <button disabled={softwareMonitoringDisabled} title={softwareMonitoringDisabled ? "Software monitoring is off while recording. Use the interface Direct Monitor control." : `${monitorLabel} through headphones`} className={controls.monitor ? "selected" : ""} type="button" onClick={toggleMonitor}>
               <Headphones size={14} /> <span>Hear</span> <strong>{controls.monitor && !controls.muted ? "On" : "Off"}</strong>
             </button>
           </Tooltip>
         </div>
         <small className={`monitor-feedback ${monitoring && !monitorIssue ? "on" : monitorIssue ? "needs-attention" : ""}`}>
-          {monitorIssue ?? (monitoring ? `${monitorLabel} On -> ${outputLabel}` : `${monitorLabel} Off`)}
+          {softwareMonitoringDisabled ? "Hardware Direct Monitor prevents headphone echo" : monitorIssue ?? (monitoring ? `${monitorLabel} On -> ${outputLabel}` : `${monitorLabel} Off`)}
         </small>
         <small className={peakLevel >= 98 ? "peak hot" : "peak"}>Peak {peakLevel}%{peakLevel >= 98 ? " - CLIPPING" : ""}</small>
       </div>

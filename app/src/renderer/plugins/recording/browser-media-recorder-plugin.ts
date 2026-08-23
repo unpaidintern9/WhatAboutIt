@@ -4,7 +4,6 @@ import type { MicrophoneInputChannel } from "../../../shared/types";
 import { normalizeSharedMicrophoneRoutes } from "../../../shared/device-config";
 import {
   connectInputChannelSource,
-  createRoutedMonoStream,
   createStudioAudioContext,
   getAudioStreamDiagnostics,
   openAudioStreamWithFallback,
@@ -31,8 +30,19 @@ interface ProgramAudioBridge {
   silenceOscillator: OscillatorNode;
   silenceGain: GainNode;
   inputStream?: MediaStream;
-  route?: ReturnType<typeof connectInputChannelSource>;
+  route?: { disconnect: () => void };
   connected: boolean;
+}
+
+interface SharedMicrophoneRouter {
+  audioContext: AudioContext;
+  inputStream: MediaStream;
+  source: MediaStreamAudioSourceNode;
+  channelCount?: number;
+  routes: Map<MicrophoneInputChannel, {
+    destination: MediaStreamAudioDestinationNode;
+    route: ReturnType<typeof connectInputChannelSource>;
+  }>;
 }
 
 export interface BrowserMediaRecorderStreamResolver {
@@ -60,6 +70,8 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   private captureGeneration = 0;
   private programAudioBridge?: ProgramAudioBridge;
   private programAudioReady?: Promise<boolean>;
+  private sharedMicrophoneRouters = new Map<string, SharedMicrophoneRouter>();
+  private sharedMicrophoneOpenPromises = new Map<string, Promise<SharedMicrophoneRouter>>();
 
   constructor(private readonly streams: BrowserMediaRecorderStreamResolver = {}) {}
 
@@ -357,7 +369,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   ) {
     const tracks: MediaStreamTrack[] = [];
     const activeVideoTrack = cloneLiveTrack(this.streams.getCameraStream?.(videoDeviceId)?.getVideoTracks()[0]);
-    const activeAudioTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(audioDeviceId)?.getAudioTracks()[0]);
+    const activeAudioStream = audioDeviceId ? this.openReadySharedMicrophoneRoute(audioDeviceId, channel) : undefined;
 
     if (activeVideoTrack) tracks.push(activeVideoTrack);
     const needsVideo = !activeVideoTrack;
@@ -368,21 +380,21 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       );
       tracks.push(...fallbackVideo.getVideoTracks());
     }
-    if (activeAudioTrack) {
-      tracks.push(activeAudioTrack);
+    if (activeAudioStream) {
+      tracks.push(...activeAudioStream.getAudioTracks());
       const programSource = new MediaStream(tracks);
       logAudioCapture("program", this.programMicSlot, audioDeviceId ?? "default", channel, programSource);
-      return createRoutedMonoStream(programSource, channel, { preserveVideo: true });
+      return programSource;
     }
 
-    const pendingProgramAudio = audioDeviceId ? openRecordingAudioStream(audioDeviceId) : undefined;
+    const pendingProgramAudio = audioDeviceId ? this.openSharedMicrophoneRoute(audioDeviceId, channel) : undefined;
     if (pendingProgramAudio) {
       try {
         const audioStream = await resolveWithin(pendingProgramAudio, PROGRAM_AUDIO_SYNC_WAIT_MS);
         tracks.push(...audioStream.getAudioTracks());
         const programSource = new MediaStream(tracks);
         logAudioCapture("program", this.programMicSlot, audioDeviceId ?? "default", channel, programSource);
-        return createRoutedMonoStream(programSource, channel, { preserveVideo: true });
+        return programSource;
       } catch {
         // Keep the one-click path bounded. The same in-flight device request is
         // attached to the silent carrier below instead of opening the USB
@@ -435,19 +447,16 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   ) {
     let inputStream: MediaStream | undefined;
     try {
-      const activeTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(deviceId)?.getAudioTracks()[0]);
-      inputStream = activeTrack ? new MediaStream([activeTrack]) : await (pendingInput ?? openRecordingAudioStream(deviceId));
+      inputStream = this.openReadySharedMicrophoneRoute(deviceId, channel) ?? await (pendingInput ?? this.openSharedMicrophoneRoute(deviceId, channel));
       if (generation !== this.captureGeneration || this.programAudioBridge !== bridge) {
         stopStudioMediaStream(inputStream);
         return false;
       }
 
-      const diagnostics = getAudioStreamDiagnostics(inputStream);
       const source = bridge.audioContext.createMediaStreamSource(inputStream);
-      const route = connectInputChannelSource(bridge.audioContext, source, channel, diagnostics.channelCount);
-      route.output.connect(bridge.destination);
+      source.connect(bridge.destination);
       bridge.inputStream = inputStream;
-      bridge.route = route;
+      bridge.route = { disconnect: () => source.disconnect() };
       bridge.connected = true;
       await bridge.audioContext.resume();
       this.trackResults = this.trackResults.filter((result) => !(result.slot === this.programMicSlot && result.message?.includes("connecting in the background")));
@@ -478,11 +487,10 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   }
 
   private openReadyMicTrackStream(slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel) {
-    const activeTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(deviceId)?.getAudioTracks()[0]);
-    if (activeTrack) {
-      const stream = new MediaStream([activeTrack]);
-      logAudioCapture("isolated", slot, deviceId, channel, stream);
-      return createRoutedMonoStream(stream, channel);
+    const sharedRoute = this.openReadySharedMicrophoneRoute(deviceId, channel);
+    if (sharedRoute) {
+      logAudioCapture("isolated", slot, deviceId, channel, sharedRoute);
+      return sharedRoute;
     }
     const programTrack = slot === this.programMicSlot && (!this.programAudioBridge || this.programAudioBridge.connected)
       ? cloneLiveTrack(this.stream?.getAudioTracks()[0])
@@ -514,13 +522,11 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   }
 
   private async openMicTrackStream(slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel) {
-    const activeTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(deviceId)?.getAudioTracks()[0]);
-    if (activeTrack) {
-      const stream = new MediaStream([activeTrack]);
-      logAudioCapture("isolated", slot, deviceId, channel, stream);
-      return createRoutedMonoStream(stream, channel);
+    const sharedRoute = this.openReadySharedMicrophoneRoute(deviceId, channel);
+    if (sharedRoute) {
+      logAudioCapture("isolated", slot, deviceId, channel, sharedRoute);
+      return sharedRoute;
     }
-
     if (slot === this.programMicSlot && this.programAudioReady) await this.programAudioReady;
     const programTrack = slot === this.programMicSlot && (!this.programAudioBridge || this.programAudioBridge.connected)
       ? cloneLiveTrack(this.stream?.getAudioTracks()[0])
@@ -531,9 +537,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       return stream;
     }
 
-    const stream = await openRecordingAudioStream(deviceId);
+    const stream = await this.openSharedMicrophoneRoute(deviceId, channel);
     logAudioCapture("isolated", slot, deviceId, channel, stream);
-    return createRoutedMonoStream(stream, channel);
+    return stream;
   }
 
   private stopStream() {
@@ -543,6 +549,99 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.trackRecorders.forEach((trackRecorder) => {
       stopStudioMediaStream(trackRecorder.stream);
     });
+    this.stopSharedMicrophoneRouters();
+  }
+
+  private openReadySharedMicrophoneRoute(deviceId: string, channel: MicrophoneInputChannel) {
+    let router = this.sharedMicrophoneRouters.get(deviceId);
+    if (!router) {
+      const activeTrack = cloneLiveTrack(this.streams.getMicrophoneStream?.(deviceId)?.getAudioTracks()[0]);
+      if (!activeTrack) return undefined;
+      const inputStream = new MediaStream([activeTrack]);
+      if (typeof window === "undefined" || !window.AudioContext) return inputStream;
+      router = this.createSharedMicrophoneRouter(deviceId, inputStream);
+    }
+
+    return this.cloneSharedMicrophoneRoute(router, channel);
+  }
+
+  private async openSharedMicrophoneRoute(deviceId: string, channel: MicrophoneInputChannel) {
+    const ready = this.openReadySharedMicrophoneRoute(deviceId, channel);
+    if (ready) return ready;
+
+    let opening = this.sharedMicrophoneOpenPromises.get(deviceId);
+    if (!opening) {
+      const generation = this.captureGeneration;
+      opening = openRecordingAudioStream(deviceId).then((inputStream) => {
+        if (generation !== this.captureGeneration) {
+          stopStudioMediaStream(inputStream);
+          throw new Error("Microphone request was released");
+        }
+        return this.createSharedMicrophoneRouter(deviceId, inputStream);
+      });
+      this.sharedMicrophoneOpenPromises.set(deviceId, opening);
+      void opening.finally(() => {
+        if (this.sharedMicrophoneOpenPromises.get(deviceId) === opening) this.sharedMicrophoneOpenPromises.delete(deviceId);
+      }).catch(() => undefined);
+    }
+    return this.cloneSharedMicrophoneRoute(await opening, channel);
+  }
+
+  private createSharedMicrophoneRouter(deviceId: string, inputStream: MediaStream) {
+    const existing = this.sharedMicrophoneRouters.get(deviceId);
+    if (existing) {
+      stopStudioMediaStream(inputStream);
+      return existing;
+    }
+    if (typeof window === "undefined" || !window.AudioContext) throw new Error("Web Audio is unavailable");
+    const diagnostics = getAudioStreamDiagnostics(inputStream);
+    const audioContext = createStudioAudioContext(undefined, diagnostics.sampleRate);
+    const router: SharedMicrophoneRouter = {
+      audioContext,
+      inputStream,
+      source: audioContext.createMediaStreamSource(inputStream),
+      channelCount: diagnostics.channelCount,
+      routes: new Map()
+    };
+    this.sharedMicrophoneRouters.set(deviceId, router);
+    void audioContext.resume();
+    logRecorderEvent("info", "Opened one shared microphone capture clock for this interface.", {
+      deviceId,
+      channelCount: diagnostics.channelCount,
+      sampleRate: diagnostics.sampleRate
+    });
+    return router;
+  }
+
+  private cloneSharedMicrophoneRoute(router: SharedMicrophoneRouter, channel: MicrophoneInputChannel) {
+    let routed = router.routes.get(channel);
+    if (!routed) {
+      const route = connectInputChannelSource(router.audioContext, router.source, channel, router.channelCount);
+      const destination = router.audioContext.createMediaStreamDestination();
+      route.output.connect(destination);
+      routed = { destination, route };
+      router.routes.set(channel, routed);
+    }
+
+    const track = cloneLiveTrack(routed.destination.stream.getAudioTracks()[0]);
+    if (!track) throw new Error("Shared microphone route did not expose an audio track");
+    return new MediaStream([track]);
+  }
+
+  private stopSharedMicrophoneRouters() {
+    for (const router of this.sharedMicrophoneRouters.values()) {
+      for (const routed of router.routes.values()) {
+        routed.route.disconnect();
+        routed.destination.stream.getTracks().forEach((track) => {
+          if (track.readyState !== "ended") track.stop();
+        });
+      }
+      router.routes.clear();
+      stopStudioMediaStream(router.inputStream);
+      void router.audioContext.close();
+    }
+    this.sharedMicrophoneRouters.clear();
+    this.sharedMicrophoneOpenPromises.clear();
   }
 
   private stopProgramAudioBridge() {
@@ -586,6 +685,8 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.programWriteError = undefined;
     this.programAudioBridge = undefined;
     this.programAudioReady = undefined;
+    this.sharedMicrophoneRouters.clear();
+    this.sharedMicrophoneOpenPromises.clear();
   }
 
   private queueProgramChunk(blob: Blob, mimeType: string) {

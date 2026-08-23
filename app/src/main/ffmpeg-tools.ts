@@ -185,6 +185,22 @@ export async function getMediaDurationMs(filePath: string, tools?: MediaTools) {
   return Number.isFinite(durationMs) && durationMs > 0 ? durationMs : 0;
 }
 
+export async function getMediaStreamStartMs(
+  filePath: string,
+  codecType: "audio" | "video" = "audio",
+  tools?: MediaTools
+) {
+  const result = await runFfprobe(
+    ["-v", "error", "-show_entries", "stream=codec_type,start_time", "-of", "json", filePath],
+    tools
+  );
+  const parsed = JSON.parse(result.stdout) as {
+    streams?: Array<{ codec_type?: string; start_time?: string }>;
+  };
+  const startSeconds = Number(parsed.streams?.find((stream) => stream.codec_type === codecType)?.start_time ?? 0);
+  return Number.isFinite(startSeconds) ? Math.max(0, Math.round(startSeconds * 1000)) : 0;
+}
+
 export async function validatePlayableMedia(
   filePath: string,
   tools?: MediaTools,

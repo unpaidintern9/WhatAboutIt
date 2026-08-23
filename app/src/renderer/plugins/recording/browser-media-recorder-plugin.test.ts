@@ -85,7 +85,12 @@ class FakeAudioNode {
 }
 
 class FakeAudioContext {
+  static instances: FakeAudioContext[] = [];
   destination = new FakeAudioNode();
+
+  constructor() {
+    FakeAudioContext.instances.push(this);
+  }
 
   createGain() {
     return Object.assign(new FakeAudioNode(), { gain: { value: 1 } });
@@ -127,6 +132,7 @@ describe("BrowserMediaRecorderPlugin", () => {
     FakeMediaRecorder.streams = [];
     FakeMediaRecorder.emitData = true;
     FakeMediaRecorder.emitStop = true;
+    FakeAudioContext.instances = [];
     vi.stubGlobal("MediaStream", FakeMediaStream);
     vi.stubGlobal("MediaRecorder", FakeMediaRecorder);
   });
@@ -188,6 +194,33 @@ describe("BrowserMediaRecorderPlugin", () => {
       expect.objectContaining({ slot: "camera3", kind: "camera" }),
       expect.objectContaining({ slot: "morganMic", kind: "audio" })
     ]));
+  });
+
+  it("uses one capture clock for separate channels on the same USB interface", async () => {
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    const getUserMedia = vi.fn();
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: { getUserMedia }
+    });
+    const interfaceStream = streamWith(new FakeTrack("audio", "usb-interface"));
+    const plugin = new BrowserMediaRecorderPlugin({
+      getCameraStream: () => streamWith(new FakeTrack("video", "camera-1")),
+      getMicrophoneStream: (deviceId) => deviceId === "usb-interface" ? interfaceStream : undefined
+    });
+
+    await plugin.start({
+      deviceDefaults: {
+        cameras: { camera1: "camera-a" },
+        microphones: { morganMic: "usb-interface", guestMic: "usb-interface" },
+        microphoneChannels: { morganMic: "input-1", guestMic: "input-2" }
+      }
+    });
+
+    expect(getUserMedia).not.toHaveBeenCalled();
+    expect(FakeAudioContext.instances).toHaveLength(1);
+    expect(plugin.getHealth()).toMatchObject({ activeAudioTracks: 2, expectedAudioTracks: 2 });
+    await plugin.stop();
   });
 
   it("marks a selected source unhealthy when its first media chunk never arrives", async () => {

@@ -23,7 +23,7 @@ import {
 } from "../shared/recording";
 import type { EpisodeMetadata } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
-import { runFfmpeg, validatePlayableMedia } from "./ffmpeg-tools";
+import { getMediaStreamStartMs, runFfmpeg, validatePlayableMedia } from "./ffmpeg-tools";
 import { logger } from "./logger";
 
 function slugify(input: string) {
@@ -230,7 +230,7 @@ async function finalizeProgramSource(folderPath: string, source?: CaptureManifes
   return { programPath: finalPath, playable: await isPlayableRecording(finalPath) };
 }
 
-async function finalizeTrackSource(folderPath: string, source: CaptureManifestSource): Promise<RecordingTrackSaveResult> {
+async function finalizeTrackSource(folderPath: string, source: CaptureManifestSource, audioLeadInMs = 0): Promise<RecordingTrackSaveResult> {
   const slot = source.target as RecordingTrackSlot;
   try {
     if (source.kind === "camera") {
@@ -242,7 +242,19 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
     }
     const finalPath = path.join(folderPath, "Audio", `${mediaBaseName(slot)}.m4a`);
     await fs.rm(finalPath, { force: true });
-    await runFfmpeg(["-y", "-i", source.partialPath, "-vn", "-c:a", "aac", "-b:a", "160k", finalPath]);
+    const normalizedLeadInMs = Math.max(0, Math.min(30000, Math.round(audioLeadInMs)));
+    await runFfmpeg([
+      "-y",
+      "-i",
+      source.partialPath,
+      "-vn",
+      ...(normalizedLeadInMs > 0 ? ["-af", `adelay=${normalizedLeadInMs}|${normalizedLeadInMs}`] : []),
+      "-c:a",
+      "aac",
+      "-b:a",
+      "160k",
+      finalPath
+    ]);
     if (!(await isPlayableRecording(finalPath))) throw new Error("Audio track failed validation.");
     if (!(await hasAudibleSignal(finalPath))) {
       await fs.rm(source.partialPath, { force: true });
@@ -293,14 +305,16 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
   const sources = Object.values(manifest.sources).filter((source): source is CaptureManifestSource => Boolean(source));
   const programSource = sources.find((source) => source.target === "program");
   const trackSources = sources.filter((source) => source.target !== "program");
-  const [{ programPath, playable: programPlayable }, tracks] = await Promise.all([
-    finalizeProgramSource(safeFolder, programSource),
-    Promise.all(trackSources.map((source) => finalizeTrackSource(safeFolder, source)))
-  ]);
+  const { programPath, playable: programPlayable } = await finalizeProgramSource(safeFolder, programSource);
+  const programAudioLeadInMs = programPath && programPlayable
+    ? await getMediaStreamStartMs(programPath, "audio").catch(() => 0)
+    : 0;
+  const tracks = await Promise.all(trackSources.map((source) => finalizeTrackSource(safeFolder, source, programAudioLeadInMs)));
   await logger.info("RecordingService", "Program and isolated sources finalized.", {
     programPlayable,
     expectedSources: trackSources.length,
     savedSources: tracks.filter((track) => track.status === "saved").length,
+    programAudioLeadInMs,
     tracks: tracks.map((track) => ({ slot: track.slot, kind: track.kind, status: track.status, message: track.message }))
   });
   const savedTracks = tracks.filter((track) => track.status === "saved");
