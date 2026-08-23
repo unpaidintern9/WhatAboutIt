@@ -965,39 +965,49 @@ export function TimelineReview({
         <>
       <section className="edit-direct-toolbar" aria-label="Timeline editing tools">
         <div className="timeline-tool-group" role="toolbar" aria-label="Edit tool">
-          <button type="button" className={timelineTool === "select" ? "selected" : ""} onClick={() => setTimelineTool("select")} title="Select, scrub, or drag a range">
-            <MousePointer2 size={17} /> Select
-          </button>
-          <button type="button" className={timelineTool === "split" ? "selected" : ""} onClick={() => setTimelineTool("split")} title="Click a track to split it">
-            <Split size={17} /> Split
-          </button>
-          <button type="button" onClick={markIn} title="Set the selection start at the playhead">
-            In
-          </button>
-          <button type="button" onClick={markOut} title="Set the selection end at the playhead">
-            Out
-          </button>
-          <button type="button" className="danger" data-compact-tool disabled={!hasSelectedRange} onClick={() => applyEdit("delete-section")} title="Remove the selected range">
-            <Trash2 size={17} /> <span>Delete range</span>
-          </button>
-          <button type="button" disabled={draft.history.length === 0 && draft.editLog.length === 0} onClick={() => onDraftChange(undoTimelineEdit(draft))} title="Undo">
-            <Undo2 size={17} />
-          </button>
-          <button type="button" disabled={draft.redoHistory.length === 0 && draft.undoneEditLog.length === 0} onClick={() => onDraftChange(redoTimelineEdit(draft))} title="Redo">
-            <Redo2 size={17} />
-          </button>
-          <button type="button" data-compact-tool onClick={() => applyEdit("trim-before")} title="Trim everything before the playhead">
-            <ArrowLeftToLine size={16} /> <span>Trim start</span>
-          </button>
-          <button type="button" data-compact-tool onClick={() => applyEdit("trim-after")} title="Trim everything after the playhead">
-            <ArrowRightToLine size={16} /> <span>Trim end</span>
-          </button>
-          <button type="button" data-compact-tool onClick={() => onDraftChange(restoreOriginalTimeline(draft))} title="Restore the original timeline">
-            <RotateCcw size={16} /> <span>Restore</span>
-          </button>
-          <button type="button" data-compact-tool disabled={!firstMicrophoneTrack} onClick={() => firstMicrophoneTrack && selectTrack(firstMicrophoneTrack.id)} title="Open microphone mix and voice filters">
-            <Waves size={17} /> <span>Audio Mix</span>
-          </button>
+          <div className="timeline-tool-cluster" role="group" aria-label="Selection tools">
+            <button type="button" className={timelineTool === "select" ? "selected" : ""} data-compact-tool onClick={() => setTimelineTool("select")} title="Select, scrub, or drag a range">
+              <MousePointer2 size={17} /> <span>Select</span>
+            </button>
+            <button type="button" className={timelineTool === "split" ? "selected" : ""} data-compact-tool onClick={() => setTimelineTool("split")} title="Click a track to split it">
+              <Split size={17} /> <span>Split</span>
+            </button>
+          </div>
+          <div className="timeline-tool-cluster" role="group" aria-label="Range tools">
+            <button type="button" onClick={markIn} title="Set the selection start at the playhead">
+              In
+            </button>
+            <button type="button" onClick={markOut} title="Set the selection end at the playhead">
+              Out
+            </button>
+            <button type="button" className="danger" data-compact-tool disabled={!hasSelectedRange} onClick={() => applyEdit("delete-section")} title="Remove the selected range">
+              <Trash2 size={17} /> <span>Delete range</span>
+            </button>
+          </div>
+          <div className="timeline-tool-cluster" role="group" aria-label="Edit history">
+            <button type="button" disabled={draft.history.length === 0 && draft.editLog.length === 0} onClick={() => onDraftChange(undoTimelineEdit(draft))} title="Undo">
+              <Undo2 size={17} />
+            </button>
+            <button type="button" disabled={draft.redoHistory.length === 0 && draft.undoneEditLog.length === 0} onClick={() => onDraftChange(redoTimelineEdit(draft))} title="Redo">
+              <Redo2 size={17} />
+            </button>
+            <button type="button" data-compact-tool onClick={() => onDraftChange(restoreOriginalTimeline(draft))} title="Restore the original timeline">
+              <RotateCcw size={16} /> <span>Restore</span>
+            </button>
+          </div>
+          <div className="timeline-tool-cluster" role="group" aria-label="Trim tools">
+            <button type="button" data-compact-tool onClick={() => applyEdit("trim-before")} title="Trim everything before the playhead">
+              <ArrowLeftToLine size={16} /> <span>Trim start</span>
+            </button>
+            <button type="button" data-compact-tool onClick={() => applyEdit("trim-after")} title="Trim everything after the playhead">
+              <ArrowRightToLine size={16} /> <span>Trim end</span>
+            </button>
+          </div>
+          <div className="timeline-tool-cluster" role="group" aria-label="Audio tools">
+            <button type="button" className="timeline-audio-tool" data-compact-tool disabled={!firstMicrophoneTrack} onClick={() => firstMicrophoneTrack && selectTrack(firstMicrophoneTrack.id)} title="Open microphone mix and voice filters">
+              <Waves size={17} /> <span>Audio Mix</span>
+            </button>
+          </div>
         </div>
         <div className="timeline-selection-readout">
           <div>

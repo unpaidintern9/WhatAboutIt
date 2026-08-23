@@ -110,6 +110,11 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Clear review cache");
     expect(markup).toContain("Delete exports");
     expect(markup).toContain("Timeline editing tools");
+    expect(markup).toContain('aria-label="Selection tools"');
+    expect(markup).toContain('aria-label="Range tools"');
+    expect(markup).toContain('aria-label="Edit history"');
+    expect(markup).toContain('aria-label="Trim tools"');
+    expect(markup).toContain('aria-label="Audio tools"');
     expect(markup).toContain("Select, scrub, or drag a range");
     expect(markup).toContain("Set range start at the playhead");
     expect(markup).toContain("Set range end at the playhead");
