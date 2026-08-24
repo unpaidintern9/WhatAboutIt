@@ -1,4 +1,4 @@
-import { Menu, ipcMain } from "electron";
+import { Menu, MenuItem, ipcMain } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { EpisodeMetadata } from "../shared/types";
@@ -37,17 +37,20 @@ export function configureCollaboration(preloadPath: string) {
     return setCollaborationStatus(episode.folderPath, episode.id, episode.title, payload.status);
   });
 
-  const existing = Menu.getApplicationMenu();
-  const template = existing ? existing.items.map((item) => ({ role: item.role, label: item.label, submenu: item.submenu ? item.submenu.items.map((sub) => ({ role: sub.role, label: sub.label, accelerator: sub.accelerator, click: sub.click })) : undefined })) : [];
-  template.push({
-    label: "Collaboration",
-    submenu: [
-      {
-        label: "Open Episode Collaboration",
-        accelerator: "CmdOrCtrl+Shift+C",
-        click: () => openCollaborationWindow(preloadPath)
-      }
-    ]
-  });
-  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  const menu = Menu.getApplicationMenu() ?? new Menu();
+  if (!menu.items.some((item) => item.label === "Collaboration")) {
+    menu.append(
+      new MenuItem({
+        label: "Collaboration",
+        submenu: [
+          {
+            label: "Open Episode Collaboration",
+            accelerator: "CmdOrCtrl+Shift+C",
+            click: () => openCollaborationWindow(preloadPath)
+          }
+        ]
+      })
+    );
+    Menu.setApplicationMenu(menu);
+  }
 }
