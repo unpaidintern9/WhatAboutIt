@@ -5,9 +5,12 @@ import type {
   CollaborationCommentInput,
   CollaborationEpisodeStatus,
   CollaborationInviteInput,
+  CollaborationUploadPlan,
+  CollaborationUploadSelection,
   CollaborationWorkspace
 } from "../shared/collaboration";
-import { createLocalCollaborationWorkspace } from "../shared/collaboration";
+import { createLocalCollaborationWorkspace, shouldIncludeCollaborationAsset } from "../shared/collaboration";
+import { buildEpisodeAssetManifest } from "./collaboration-asset-index";
 
 function workspacePath(episodeFolder: string) {
   return path.join(episodeFolder, "Collaboration", "workspace.json");
@@ -54,6 +57,42 @@ export async function loadCollaborationWorkspace(episodeFolder: string, episodeI
   } catch {
     return writeWorkspace(episodeFolder, createLocalCollaborationWorkspace(episodeId, episodeTitle));
   }
+}
+
+export async function refreshCollaborationAssets(episodeFolder: string, episodeId: string, episodeTitle: string) {
+  const workspace = await loadCollaborationWorkspace(episodeFolder, episodeId, episodeTitle);
+  const previousByPath = new Map(workspace.assets.map((asset) => [asset.relativePath, asset]));
+  const scanned = await buildEpisodeAssetManifest(episodeFolder, episodeId);
+  workspace.assets = scanned.map((asset) => {
+    const previous = previousByPath.get(asset.relativePath);
+    if (!previous || previous.contentHash !== asset.contentHash) return asset;
+    return { ...asset, state: previous.state, cloudPath: previous.cloudPath ?? asset.cloudPath };
+  });
+  return writeWorkspace(episodeFolder, workspace);
+}
+
+export async function prepareCollaborationUpload(
+  episodeFolder: string,
+  episodeId: string,
+  episodeTitle: string,
+  selection: CollaborationUploadSelection
+): Promise<CollaborationWorkspace> {
+  const workspace = await refreshCollaborationAssets(episodeFolder, episodeId, episodeTitle);
+  const included = workspace.assets.filter((asset) => shouldIncludeCollaborationAsset(asset.kind, selection));
+  const plan: CollaborationUploadPlan = {
+    episodeId,
+    selection,
+    generatedAt: new Date().toISOString(),
+    totalBytes: included.reduce((total, asset) => total + (asset.bytes ?? 0), 0),
+    assets: included.map((asset) => ({ ...asset, state: workspace.remoteState === "not-connected" ? asset.state : "queued" })),
+    blockedReason: workspace.remoteState === "not-connected" ? "cloudflare-not-connected" : undefined
+  };
+  workspace.lastUploadPlan = plan;
+  if (workspace.remoteState !== "not-connected") {
+    const selectedIds = new Set(plan.assets.map((asset) => asset.id));
+    workspace.assets = workspace.assets.map((asset) => (selectedIds.has(asset.id) ? { ...asset, state: "queued" } : asset));
+  }
+  return writeWorkspace(episodeFolder, workspace);
 }
 
 export async function inviteCollaborator(
