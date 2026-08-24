@@ -62,6 +62,13 @@ export function createLocalCollaborationWorkspace(episodeId: string, episodeTitl
         role: "owner",
         status: "active",
         joinedAt: now
+      },
+      {
+        id: "susan-editor",
+        name: "Susan",
+        role: "editor",
+        status: "invited",
+        invitedAt: now
       }
     ],
     comments: [],
