@@ -21,19 +21,36 @@ async function writeWorkspace(episodeFolder: string, workspace: CollaborationWor
   return nextWorkspace;
 }
 
+function hydrateWorkspace(parsed: Partial<CollaborationWorkspace>, episodeId: string, episodeTitle: string): CollaborationWorkspace {
+  const defaults = createLocalCollaborationWorkspace(episodeId, episodeTitle, parsed.updatedAt ?? new Date().toISOString());
+  return {
+    ...defaults,
+    ...parsed,
+    episodeId,
+    episodeTitle,
+    provider: parsed.provider ?? defaults.provider,
+    remoteState: parsed.remoteState ?? defaults.remoteState,
+    status: parsed.status ?? defaults.status,
+    members: parsed.members?.length ? parsed.members : defaults.members,
+    comments: parsed.comments ?? defaults.comments,
+    assets: parsed.assets ?? defaults.assets,
+    uploadPolicy: {
+      ...defaults.uploadPolicy,
+      ...parsed.uploadPolicy,
+      keepLocalOriginals: true,
+      proxyFirstForCollaborators: true
+    },
+    updatedAt: parsed.updatedAt ?? defaults.updatedAt
+  };
+}
+
 export async function loadCollaborationWorkspace(episodeFolder: string, episodeId: string, episodeTitle: string): Promise<CollaborationWorkspace> {
   const filePath = workspacePath(episodeFolder);
   try {
-    const parsed = JSON.parse(await fs.readFile(filePath, "utf8")) as CollaborationWorkspace;
-    return {
-      ...parsed,
-      episodeId,
-      episodeTitle,
-      provider: parsed.provider ?? "local",
-      remoteState: parsed.remoteState ?? "not-connected",
-      members: parsed.members ?? [],
-      comments: parsed.comments ?? []
-    };
+    const parsed = JSON.parse(await fs.readFile(filePath, "utf8")) as Partial<CollaborationWorkspace>;
+    const hydrated = hydrateWorkspace(parsed, episodeId, episodeTitle);
+    if (!parsed.assets || !parsed.uploadPolicy) return writeWorkspace(episodeFolder, hydrated);
+    return hydrated;
   } catch {
     return writeWorkspace(episodeFolder, createLocalCollaborationWorkspace(episodeId, episodeTitle));
   }
