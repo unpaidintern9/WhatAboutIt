@@ -3,8 +3,9 @@ export type CollaborationMemberStatus = "active" | "invited";
 export type CollaborationEpisodeStatus = "working" | "ready-for-review" | "changes-requested" | "approved";
 export type CollaborationProvider = "local" | "cloudflare";
 export type CollaborationRemoteState = "not-connected" | "ready" | "syncing" | "error";
-export type CollaborationAssetKind = "metadata" | "timeline" | "comments" | "captions" | "markers" | "proxy-video" | "original-video" | "original-audio" | "export";
+export type CollaborationAssetKind = "metadata" | "timeline" | "comments" | "captions" | "markers" | "proxy-video" | "original-video" | "original-audio" | "export" | "other";
 export type CollaborationAssetState = "local-only" | "queued" | "uploading" | "synced" | "remote-newer" | "error";
+export type CollaborationUploadSelection = "project-only" | "project-and-proxies" | "full-backup";
 
 export interface CollaborationMember {
   id: string;
@@ -44,6 +45,15 @@ export interface CollaborationUploadPolicy {
   proxyFirstForCollaborators: true;
 }
 
+export interface CollaborationUploadPlan {
+  episodeId: string;
+  selection: CollaborationUploadSelection;
+  generatedAt: string;
+  totalBytes: number;
+  assets: CollaborationAssetManifestEntry[];
+  blockedReason?: "cloudflare-not-connected";
+}
+
 export interface CollaborationWorkspace {
   version: 1;
   episodeId: string;
@@ -55,6 +65,7 @@ export interface CollaborationWorkspace {
   comments: CollaborationComment[];
   assets: CollaborationAssetManifestEntry[];
   uploadPolicy: CollaborationUploadPolicy;
+  lastUploadPlan?: CollaborationUploadPlan;
   lastUploadedAt?: string;
   lastDownloadedAt?: string;
   updatedAt: string;
@@ -70,6 +81,17 @@ export interface CollaborationCommentInput {
   authorMemberId: string;
   body: string;
   timelineMs?: number;
+}
+
+export function isProjectCollaborationAsset(kind: CollaborationAssetKind) {
+  return kind === "metadata" || kind === "timeline" || kind === "comments" || kind === "captions" || kind === "markers";
+}
+
+export function shouldIncludeCollaborationAsset(kind: CollaborationAssetKind, selection: CollaborationUploadSelection) {
+  if (selection === "full-backup") return true;
+  if (isProjectCollaborationAsset(kind)) return true;
+  if (selection === "project-and-proxies") return kind === "proxy-video";
+  return false;
 }
 
 export function createLocalCollaborationWorkspace(episodeId: string, episodeTitle: string, now = new Date().toISOString()): CollaborationWorkspace {
