@@ -3,6 +3,8 @@ export type CollaborationMemberStatus = "active" | "invited";
 export type CollaborationEpisodeStatus = "working" | "ready-for-review" | "changes-requested" | "approved";
 export type CollaborationProvider = "local" | "cloudflare";
 export type CollaborationRemoteState = "not-connected" | "ready" | "syncing" | "error";
+export type CollaborationAssetKind = "metadata" | "timeline" | "comments" | "captions" | "markers" | "proxy-video" | "original-video" | "original-audio" | "export";
+export type CollaborationAssetState = "local-only" | "queued" | "uploading" | "synced" | "remote-newer" | "error";
 
 export interface CollaborationMember {
   id: string;
@@ -23,6 +25,25 @@ export interface CollaborationComment {
   timelineMs?: number;
 }
 
+export interface CollaborationAssetManifestEntry {
+  id: string;
+  kind: CollaborationAssetKind;
+  relativePath: string;
+  localOriginal: boolean;
+  cloudPath?: string;
+  contentHash?: string;
+  bytes?: number;
+  state: CollaborationAssetState;
+  updatedAt: string;
+}
+
+export interface CollaborationUploadPolicy {
+  automaticProjectDataSync: boolean;
+  uploadOriginalsOnlyOnRequest: boolean;
+  keepLocalOriginals: true;
+  proxyFirstForCollaborators: true;
+}
+
 export interface CollaborationWorkspace {
   version: 1;
   episodeId: string;
@@ -32,6 +53,10 @@ export interface CollaborationWorkspace {
   status: CollaborationEpisodeStatus;
   members: CollaborationMember[];
   comments: CollaborationComment[];
+  assets: CollaborationAssetManifestEntry[];
+  uploadPolicy: CollaborationUploadPolicy;
+  lastUploadedAt?: string;
+  lastDownloadedAt?: string;
   updatedAt: string;
 }
 
@@ -72,6 +97,13 @@ export function createLocalCollaborationWorkspace(episodeId: string, episodeTitl
       }
     ],
     comments: [],
+    assets: [],
+    uploadPolicy: {
+      automaticProjectDataSync: true,
+      uploadOriginalsOnlyOnRequest: true,
+      keepLocalOriginals: true,
+      proxyFirstForCollaborators: true
+    },
     updatedAt: now
   };
 }
