@@ -1,10 +1,10 @@
-import { Menu, MenuItem, ipcMain } from "electron";
+import { Menu, MenuItem, ipcMain, shell } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { EpisodeMetadata } from "../shared/types";
-import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput } from "../shared/collaboration";
+import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput, CollaborationUploadSelection } from "../shared/collaboration";
 import { getEpisodesRoot } from "./config-service";
-import { addCollaborationComment, inviteCollaborator, loadCollaborationWorkspace, resolveCollaborationComment, setCollaborationStatus } from "./collaboration-store";
+import { addCollaborationComment, inviteCollaborator, loadCollaborationWorkspace, prepareCollaborationUpload, refreshCollaborationAssets, resolveCollaborationComment, setCollaborationStatus } from "./collaboration-store";
 import { openCollaborationWindow } from "./collaboration-window";
 
 async function resolveEpisode(episodeId: string): Promise<EpisodeMetadata> {
@@ -19,6 +19,18 @@ export function configureCollaboration(preloadPath: string) {
   ipcMain.handle("collaboration:get", async (_event, episodeId: string) => {
     const episode = await resolveEpisode(episodeId);
     return loadCollaborationWorkspace(episode.folderPath, episode.id, episode.title);
+  });
+  ipcMain.handle("collaboration:refresh-assets", async (_event, episodeId: string) => {
+    const episode = await resolveEpisode(episodeId);
+    return refreshCollaborationAssets(episode.folderPath, episode.id, episode.title);
+  });
+  ipcMain.handle("collaboration:prepare-upload", async (_event, payload: { episodeId: string; selection: CollaborationUploadSelection }) => {
+    const episode = await resolveEpisode(payload.episodeId);
+    return prepareCollaborationUpload(episode.folderPath, episode.id, episode.title, payload.selection);
+  });
+  ipcMain.handle("collaboration:open-episode-folder", async (_event, episodeId: string) => {
+    const episode = await resolveEpisode(episodeId);
+    return shell.openPath(episode.folderPath);
   });
   ipcMain.handle("collaboration:invite", async (_event, payload: { episodeId: string; input: CollaborationInviteInput }) => {
     const episode = await resolveEpisode(payload.episodeId);
