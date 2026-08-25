@@ -1,4 +1,4 @@
-import { Menu, MenuItem, ipcMain, shell } from "electron";
+import { BrowserWindow, Menu, MenuItem, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { EpisodeMetadata } from "../shared/types";
@@ -6,14 +6,37 @@ import type { CollaborationCommentInput, CollaborationEpisodeStatus, Collaborati
 import type { CollaborationPersonId } from "../shared/collaboration-presence";
 import { getEpisodesRoot } from "./config-service";
 import { addCollaborationComment, inviteCollaborator, loadCollaborationWorkspace, prepareCollaborationUpload, refreshCollaborationAssets, resolveCollaborationComment, setCollaborationStatus } from "./collaboration-store";
-import { acquireCollaborationEditorLease, getCollaborationPresence, getCollaborationRemoteConfig, heartbeatCollaborationEditorLease, leaveCollaborationPresence, releaseCollaborationEditorLease, sendCollaborationPresence, setCollaborationRemoteConfig } from "./collaboration-remote-service";
+import {
+  acquireCollaborationEditorLease,
+  downloadCloudEpisode,
+  getCollaborationPresence,
+  getCollaborationRemoteConfig,
+  heartbeatCollaborationEditorLease,
+  leaveCollaborationPresence,
+  listCloudEpisodes,
+  releaseCollaborationEditorLease,
+  sendCollaborationPresence,
+  setCollaborationRemoteConfig,
+  uploadEpisodeToCloud
+} from "./collaboration-remote-service";
 import { openCollaborationPresenceWindow } from "./collaboration-presence-window";
 import { openCollaborationWindow } from "./collaboration-window";
 
-async function resolveEpisode(episodeId: string): Promise<EpisodeMetadata> {
+function validateEpisodeId(episodeId: string) {
   if (!episodeId || episodeId.includes("..") || episodeId.includes("/") || episodeId.includes("\\")) throw new Error("Invalid episode id.");
-  const metadataPath = path.join(getEpisodesRoot(), episodeId, "metadata.json");
+}
+
+async function readEpisodeFolder(folderPath: string): Promise<EpisodeMetadata> {
+  const metadataPath = path.join(folderPath, "metadata.json");
   const episode = JSON.parse(await fs.readFile(metadataPath, "utf8")) as EpisodeMetadata;
+  validateEpisodeId(episode.id);
+  return { ...episode, folderPath };
+}
+
+async function resolveEpisode(episodeId: string): Promise<EpisodeMetadata> {
+  validateEpisodeId(episodeId);
+  const folderPath = path.join(getEpisodesRoot(), episodeId);
+  const episode = await readEpisodeFolder(folderPath);
   if (episode.id !== episodeId) throw new Error("Episode metadata does not match the requested episode.");
   return episode;
 }
@@ -43,6 +66,40 @@ export function configureCollaboration(preloadPath: string) {
     const episode = await resolveEpisode(episodeId);
     return shell.openPath(episode.folderPath);
   });
+  ipcMain.handle("episodes:open-folder", async (_event, episodeId: string) => {
+    const episode = await resolveEpisode(episodeId);
+    return shell.openPath(episode.folderPath);
+  });
+  ipcMain.handle("episodes:open-library-folder", () => shell.openPath(getEpisodesRoot()));
+  ipcMain.handle("episodes:choose-local", async (event) => {
+    const parent = BrowserWindow.fromWebContents(event.sender);
+    const options = {
+      title: "Choose an episode folder",
+      defaultPath: getEpisodesRoot(),
+      buttonLabel: "Open Episode",
+      properties: ["openDirectory"] as Array<"openDirectory">
+    };
+    const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
+    if (result.canceled || !result.filePaths[0]) return undefined;
+    try {
+      const episode = await readEpisodeFolder(result.filePaths[0]);
+      await shell.openPath(episode.folderPath);
+      return episode;
+    } catch {
+      throw new Error("Choose a What About It episode folder that contains metadata.json. The picker starts in the folder that contains all episodes.");
+    }
+  });
+  ipcMain.handle("collaboration:cloud:list", () => listCloudEpisodes());
+  ipcMain.handle("collaboration:cloud:upload", async (_event, payload: { episodeId: string; selection?: CollaborationUploadSelection }) => {
+    const episode = await resolveEpisode(payload.episodeId);
+    return uploadEpisodeToCloud(episode, payload.selection ?? "full-backup");
+  });
+  ipcMain.handle("collaboration:cloud:download", async (_event, episodeId: string) => {
+    validateEpisodeId(episodeId);
+    const result = await downloadCloudEpisode(episodeId);
+    await shell.openPath(result.episode.folderPath);
+    return result;
+  });
   ipcMain.handle("collaboration:invite", async (_event, payload: { episodeId: string; input: CollaborationInviteInput }) => {
     const episode = await resolveEpisode(payload.episodeId);
     return inviteCollaborator(episode.folderPath, episode.id, episode.title, payload.input);
@@ -61,7 +118,7 @@ export function configureCollaboration(preloadPath: string) {
   });
 
   ipcMain.handle("collaboration:remote-config:get", getCollaborationRemoteConfig);
-  ipcMain.handle("collaboration:remote-config:set", (_event, input: { apiUrl?: string; personId?: CollaborationPersonId }) => setCollaborationRemoteConfig(input));
+  ipcMain.handle("collaboration:remote-config:set", (_event, input: { apiUrl?: string; accessKey?: string; personId?: CollaborationPersonId }) => setCollaborationRemoteConfig(input));
   ipcMain.handle("collaboration:presence:get", async (_event, episodeId: string) => {
     await resolveEpisode(episodeId);
     return getCollaborationPresence(episodeId);
@@ -102,6 +159,13 @@ export function configureCollaboration(preloadPath: string) {
             label: "Live Edit Control",
             accelerator: "CmdOrCtrl+Shift+L",
             click: () => openCollaborationPresenceWindow(preloadPath)
+          },
+          {
+            type: "separator"
+          },
+          {
+            label: "Open Local Episode Library",
+            click: () => void shell.openPath(getEpisodesRoot())
           }
         ]
       })
