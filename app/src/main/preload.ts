@@ -110,6 +110,11 @@ contextBridge.exposeInMainWorld("studio", {
 });
 
 function ensureReviewCollaborationButton() {
+  const navReview = document.querySelector<HTMLButtonElement>('button[data-label="Review"]');
+  if (navReview) {
+    navReview.disabled = false;
+    navReview.title = "Choose a local or Cloudflare episode to review";
+  }
   const actions = document.querySelector<HTMLElement>(".timeline-review .edit-studio-actions");
   if (!actions) return;
   if (!actions.querySelector("[data-episode-library-launcher]")) {
@@ -279,7 +284,7 @@ async function openReviewEpisodeLibrary() {
       closeOverlay();
       return;
     }
-    const button = (event.target as Element | null)?.closest<HTMLButtonElement>("[data-library-action]");
+    const button = (event.target as Element | null)?.closest("[data-library-action]") as HTMLButtonElement | null;
     if (!button) return;
     const action = button.dataset.libraryAction;
     const episodeId = button.dataset.episodeId;
@@ -336,8 +341,8 @@ function interceptReviewNavigation() {
   document.addEventListener(
     "click",
     (event) => {
-      const reviewButton = (event.target as Element | null)?.closest<HTMLButtonElement>('button[data-label="Review"]');
-      if (!reviewButton || reviewButton.disabled) return;
+      const reviewButton = (event.target as Element | null)?.closest('button[data-label="Review"]') as HTMLButtonElement | null;
+      if (!reviewButton) return;
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
