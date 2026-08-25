@@ -98,7 +98,7 @@ hr { border:0; border-top:1px solid #3c292c; margin:18px 0; }
 const studio = window.studio;
 let currentWorkspace;
 const byId = (id) => document.getElementById(id);
-function esc(value){ return String(value ?? '').replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c])); }
+function esc(value){ return String(value ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function formatBytes(bytes){ if(!bytes)return '0 B'; const units=['B','KB','MB','GB','TB']; let value=bytes,index=0; while(value>=1024&&index<units.length-1){ value/=1024; index++; } return value.toFixed(index ? 1 : 0)+' '+units[index]; }
 function renderPlan(workspace){
   const plan=workspace.lastUploadPlan;
