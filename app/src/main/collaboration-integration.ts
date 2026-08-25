@@ -92,7 +92,7 @@ export function configureCollaboration(preloadPath: string) {
       return episode;
     } catch (error) {
       if (error instanceof Error && error.message.startsWith("Choose one of")) throw error;
-      throw new Error("Choose a What About It episode folder that contains metadata.json. The picker starts in the folder that contains all episodes.");
+      throw new Error("Choose a What About It episode folder that contains metadata.json. The picker starts in the folder that contains all episodes.", { cause: error });
     }
   });
   ipcMain.handle("collaboration:cloud:list", () => listCloudEpisodes());
