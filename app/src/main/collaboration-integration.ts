@@ -73,19 +73,25 @@ export function configureCollaboration(preloadPath: string) {
   ipcMain.handle("episodes:open-library-folder", () => shell.openPath(getEpisodesRoot()));
   ipcMain.handle("episodes:choose-local", async (event) => {
     const parent = BrowserWindow.fromWebContents(event.sender);
+    const episodesRoot = path.resolve(getEpisodesRoot());
     const options = {
       title: "Choose an episode folder",
-      defaultPath: getEpisodesRoot(),
+      defaultPath: episodesRoot,
       buttonLabel: "Open Episode",
       properties: ["openDirectory"] as Array<"openDirectory">
     };
     const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
     if (result.canceled || !result.filePaths[0]) return undefined;
     try {
-      const episode = await readEpisodeFolder(result.filePaths[0]);
+      const selectedFolder = path.resolve(result.filePaths[0]);
+      if (path.dirname(selectedFolder) !== episodesRoot) {
+        throw new Error("Choose one of the episode folders inside your What About It Episodes folder.");
+      }
+      const episode = await readEpisodeFolder(selectedFolder);
       await shell.openPath(episode.folderPath);
       return episode;
-    } catch {
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Choose one of")) throw error;
       throw new Error("Choose a What About It episode folder that contains metadata.json. The picker starts in the folder that contains all episodes.");
     }
   });
