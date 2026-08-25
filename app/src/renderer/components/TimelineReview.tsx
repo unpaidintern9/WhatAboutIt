@@ -39,6 +39,7 @@ import type { ReviewMediaAsset, ReviewMediaImportProgress, ReviewMediaImportSlot
 import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../../shared/episode-maintenance";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../../shared/local-transcription";
 import type { TimelineAudioPreset, TimelineDraft, TimelineTrack } from "../../shared/timeline";
+import { getTimelineSnapDistanceMs, snapTimelineTimestamp } from "../../shared/timeline-engine";
 import {
   addCameraDecision,
   applyTimelineTrackTreatmentToKind,
@@ -537,18 +538,17 @@ export function TimelineReview({
   }
 
   function snapTimestamp(timestampMs: number) {
-    const safeTimestamp = Math.max(0, Math.min(timestampMs, draft.durationMs || timestampMs));
-    if (!snapEnabled) return safeTimestamp;
-    const snapPoints = [
-      0,
-      draft.durationMs,
-      ...draft.markers.map((marker) => marker.timestampMs),
-      ...draft.cameraDecisions.map((decision) => decision.startMs),
-      ...draft.editLog.map((edit) => edit.timestampMs),
-      ...draft.editLog.flatMap((edit) => (edit.endTimestampMs === undefined ? [] : [edit.endTimestampMs]))
-    ];
-    const nearest = snapPoints.reduce((best, point) => (Math.abs(point - safeTimestamp) < Math.abs(best - safeTimestamp) ? point : best), safeTimestamp);
-    return Math.abs(nearest - safeTimestamp) <= 500 ? nearest : safeTimestamp;
+    const viewportWidthPx = Math.max(1, (timelineViewportRef.current?.clientWidth ?? 1) - timelineTrackHeaderWidth);
+    return snapTimelineTimestamp({
+      draft,
+      targetTimeMs: timestampMs,
+      enabled: snapEnabled,
+      maxSnapDistanceMs: getTimelineSnapDistanceMs({
+        durationMs: draft.durationMs,
+        zoomPercent: timelineZoom,
+        viewportWidthPx
+      })
+    });
   }
 
   function scrubTrack(trackId: string, timestampMs: number) {
