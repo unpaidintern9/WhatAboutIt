@@ -1,13 +1,9 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { EpisodeMetadata } from "../shared/types";
-import type { CloudflareConnectionStatus } from "../shared/cloudflare-auth";
 import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput, CollaborationUploadSelection, CollaborationWorkspace } from "../shared/collaboration";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
-  getCloudflareConnectionStatus: (): Promise<CloudflareConnectionStatus> => ipcRenderer.invoke("cloudflare:status"),
-  connectCloudflare: (): Promise<CloudflareConnectionStatus> => ipcRenderer.invoke("cloudflare:connect"),
-  disconnectCloudflare: (): Promise<CloudflareConnectionStatus> => ipcRenderer.invoke("cloudflare:disconnect"),
   getCollaborationWorkspace: (episodeId: string): Promise<CollaborationWorkspace> => ipcRenderer.invoke("collaboration:get", episodeId),
   refreshCollaborationAssets: (episodeId: string): Promise<CollaborationWorkspace> => ipcRenderer.invoke("collaboration:refresh-assets", episodeId),
   prepareCollaborationUpload: (episodeId: string, selection: CollaborationUploadSelection): Promise<CollaborationWorkspace> => ipcRenderer.invoke("collaboration:prepare-upload", { episodeId, selection }),
