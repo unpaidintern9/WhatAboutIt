@@ -71,6 +71,44 @@ export interface CollaborationWorkspace {
   updatedAt: string;
 }
 
+export interface CloudEpisodeSummary {
+  id: string;
+  title: string;
+  guestName?: string;
+  description?: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  uploadedAt: string;
+  assetCount: number;
+  totalBytes: number;
+}
+
+export interface CloudEpisodeManifest {
+  version: 1;
+  episode: {
+    id: string;
+    title: string;
+    guestName?: string;
+    description?: string;
+    status: string;
+    createdAt: string;
+    updatedAt: string;
+  };
+  collaborationStatus: CollaborationEpisodeStatus;
+  uploadedAt: string;
+  assets: CollaborationAssetManifestEntry[];
+}
+
+export interface CollaborationSyncResult {
+  episodeId: string;
+  uploadedAssets?: number;
+  downloadedAssets?: number;
+  skippedAssets?: number;
+  totalBytes: number;
+  message: string;
+}
+
 export interface CollaborationInviteInput {
   name: string;
   email?: string;
