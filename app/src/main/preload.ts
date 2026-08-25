@@ -12,10 +12,17 @@ import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWin
 import type { AppUpdateStatus } from "../shared/app-update";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
 import type { MediaAccessStatus } from "../shared/media-permissions";
+import type { CloudEpisodeSummary, CollaborationSyncResult, CollaborationUploadSelection } from "../shared/collaboration";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
   createEpisode: (input: { title: string; guestName?: string; description?: string }): Promise<EpisodeMetadata> => ipcRenderer.invoke("episodes:create", input),
+  openEpisodeFolder: (episodeId: string): Promise<string> => ipcRenderer.invoke("episodes:open-folder", episodeId),
+  openEpisodeLibraryFolder: (): Promise<string> => ipcRenderer.invoke("episodes:open-library-folder"),
+  chooseLocalEpisodeFolder: (): Promise<EpisodeMetadata | undefined> => ipcRenderer.invoke("episodes:choose-local"),
+  listCloudEpisodes: (): Promise<CloudEpisodeSummary[]> => ipcRenderer.invoke("collaboration:cloud:list"),
+  uploadEpisodeToCloud: (episodeId: string, selection: CollaborationUploadSelection = "full-backup"): Promise<CollaborationSyncResult> => ipcRenderer.invoke("collaboration:cloud:upload", { episodeId, selection }),
+  downloadCloudEpisode: (episodeId: string): Promise<{ episode: EpisodeMetadata; sync: CollaborationSyncResult }> => ipcRenderer.invoke("collaboration:cloud:download", episodeId),
   getSettings: (): Promise<StudioSettings> => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings: StudioSettings): Promise<StudioSettings> => ipcRenderer.invoke("settings:save", settings),
   createRecordingSession: (input: RecordingSessionCreateInput): Promise<RecordingSession> => ipcRenderer.invoke("recording:create-session", input),
