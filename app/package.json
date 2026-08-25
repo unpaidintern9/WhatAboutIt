@@ -70,6 +70,12 @@
       "node_modules/**/*",
       "package.json"
     ],
+    "extraResources": [
+      {
+        "from": "build/collaboration-bootstrap.json",
+        "to": "collaboration-remote.json"
+      }
+    ],
     "directories": {
       "output": "release"
     },
@@ -80,6 +86,7 @@
       "artifactName": "What-About-It-Studio-${version}-Windows.${ext}"
     },
     "nsis": {
+      "include": "build/installer.nsh",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "What About It Studio"

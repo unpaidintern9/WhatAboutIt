@@ -36,6 +36,24 @@ jobs:
       - name: Give this main build a newer app version
         shell: pwsh
         run: npm version "0.2.${{ github.run_number }}" --no-git-tag-version
+      - name: Prepare What About It collaboration bootstrap
+        shell: pwsh
+        env:
+          WHATABOUTIT_COLLAB_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:WHATABOUTIT_COLLAB_ACCESS_KEY)) {
+            throw "WHATABOUTIT_COLLAB_ACCESS_KEY is required to publish a connected What About It installer."
+          }
+          New-Item -ItemType Directory -Force -Path build | Out-Null
+          $bootstrap = [ordered]@{
+            apiUrl = "https://whataboutit-collab.whataboutit-collab.workers.dev"
+            accessKey = $env:WHATABOUTIT_COLLAB_ACCESS_KEY
+            personId = "morgan-owner"
+          }
+          $bootstrap | ConvertTo-Json -Compress | Set-Content -Path build/collaboration-bootstrap.json -NoNewline -Encoding utf8
+          $verify = Get-Content build/collaboration-bootstrap.json -Raw | ConvertFrom-Json
+          if ($verify.apiUrl -ne "https://whataboutit-collab.whataboutit-collab.workers.dev") { throw "Unexpected collaboration URL in bootstrap." }
+          if ([string]::IsNullOrWhiteSpace($verify.accessKey)) { throw "Collaboration bootstrap access key is empty." }
       - name: Create the matching GitHub release tag
         shell: pwsh
         run: |
