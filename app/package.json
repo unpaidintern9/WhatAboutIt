@@ -100,7 +100,7 @@
       "provider": "github",
       "owner": "unpaidintern9",
       "repo": "WhatAboutIt",
-      "releaseType": "prerelease"
+      "releaseType": "release"
     }
   }
 }
