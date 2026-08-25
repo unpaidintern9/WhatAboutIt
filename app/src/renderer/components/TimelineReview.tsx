@@ -39,6 +39,7 @@ import type { ReviewMediaAsset, ReviewMediaImportProgress, ReviewMediaImportSlot
 import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../../shared/episode-maintenance";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../../shared/local-transcription";
 import type { TimelineAudioPreset, TimelineDraft, TimelineTrack } from "../../shared/timeline";
+import { resolveRealtimeProgramPreview } from "../../shared/realtime-preview";
 import { getTimelineSnapDistanceMs, snapTimelineTimestamp } from "../../shared/timeline-engine";
 import {
   addCameraDecision,
@@ -47,7 +48,6 @@ import {
   getActiveCameraTrackId,
   getNextPlayableTimelineTime,
   getTimelineSegments,
-  isTimelineTrackAvailableAt,
   redoTimelineEdit,
   resetTimelineTrackControls,
   restoreOriginalTimeline,
@@ -157,19 +157,25 @@ export function TimelineReview({
   const [masterVolume, setMasterVolume] = useState(1);
   const [masterMuted, setMasterMuted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const previewVideoRefs = useRef(new Map<string, HTMLVideoElement>());
+  const previewVideoRefCallbacks = useRef(new Map<string, (element: HTMLVideoElement | null) => void>());
   const pairedAudioRef = useRef<HTMLAudioElement>(null);
   const programAudioRefs = useRef(new Map<string, HTMLAudioElement>());
   const multicamVideoRefs = useRef(new Map<string, HTMLVideoElement>());
   const timelineViewportRef = useRef<HTMLDivElement>(null);
   const resumePlaybackRef = useRef(false);
-  const decidedCameraTrackId = selectedVideoId === "program" ? getActiveCameraTrackId(draft, playheadMs) : undefined;
-  const activeCameraTrackId = decidedCameraTrackId && isTimelineTrackAvailableAt(draft, decidedCameraTrackId, playheadMs) ? decidedCameraTrackId : undefined;
-  const activeCameraTrack = draft.tracks.find((track) => track.id === activeCameraTrackId);
-  const activeProgramAsset = activeCameraTrack?.sourceAssetId ? videoAssets.find((asset) => asset.id === activeCameraTrack.sourceAssetId && asset.status === "ready") : undefined;
-  const selectedVideo = activeProgramAsset ?? videoAssets.find((asset) => asset.id === selectedVideoId) ?? videoAssets.find((asset) => asset.status === "ready") ?? videoAssets[0];
-  const selectedVideoTrack = draft.tracks.find((track) => track.sourceAssetId === selectedVideo?.id);
-  const selectedVideoOffsetMs = selectedVideoTrack?.syncOffsetMs ?? 0;
+  const boundarySyncRef = useRef<() => void>(() => undefined);
   const programMode = selectedVideoId === "program";
+  const realtimeProgramPreview = useMemo(
+    () => (programMode && media ? resolveRealtimeProgramPreview(draft, media, playheadMs) : undefined),
+    [draft, media, playheadMs, programMode]
+  );
+  const activePreviewLayer = realtimeProgramPreview?.layers.find((layer) => layer.role === "active");
+  const outgoingPreviewAssetId = realtimeProgramPreview?.layers.find((layer) => layer.role === "outgoing")?.asset.id;
+  const activeCameraTrackId = activePreviewLayer?.track?.kind === "camera" ? activePreviewLayer.track.id : undefined;
+  const selectedVideo = activePreviewLayer?.asset ?? videoAssets.find((asset) => asset.id === selectedVideoId) ?? videoAssets.find((asset) => asset.status === "ready") ?? videoAssets[0];
+  const selectedVideoTrack = activePreviewLayer?.track ?? draft.tracks.find((track) => track.sourceAssetId === selectedVideo?.id);
+  const selectedVideoOffsetMs = selectedVideoTrack?.syncOffsetMs ?? 0;
   const pairedAudio = selectedVideo?.pairedAudioId ? media?.audio.find((asset) => asset.id === selectedVideo.pairedAudioId) : undefined;
   const programAudioSources = useMemo(() => {
     const candidates = draft.tracks
@@ -225,15 +231,23 @@ export function TimelineReview({
   const readyMicCount = media?.audio.filter((asset) => asset.status === "ready").length ?? 0;
   const hasPlayableProgram = Boolean(media?.hasPlayableProgram);
   const hasSelectedRange = draft.selection?.endTimestampMs !== undefined && rangeEndMs > rangeStartMs;
+  const activeCaption = draft.captions.find((caption) => playheadMs >= caption.startMs && playheadMs < caption.endMs && caption.text.trim());
   const saveStatusLabel = saveState === "saving" ? "Saving draft…" : saveState === "failed" ? "Save failed — retry" : draft.hasUnsavedChanges ? "Draft changed" : "Draft saved";
-  const liveVideoStyle: CSSProperties | undefined =
-    selectedVideoTrack?.kind === "camera"
+  const getLiveVideoStyle = (track: TimelineTrack | undefined, isActive: boolean): CSSProperties =>
+    track?.kind === "camera"
       ? {
-          objectFit: selectedVideoTrack.cropMode === "fill" ? "cover" : "contain",
-          filter: `brightness(${100 + selectedVideoTrack.brightness}%) contrast(${selectedVideoTrack.contrast}%) saturate(${selectedVideoTrack.saturation}%)`,
-          transform: `translate(${selectedVideoTrack.positionX * 0.18}%, ${selectedVideoTrack.positionY * 0.18}%) scale(${selectedVideoTrack.zoom / 100})`
+          objectFit: track.cropMode === "fill" ? "cover" : "contain",
+          filter: `brightness(${100 + track.brightness}%) contrast(${track.contrast}%) saturate(${track.saturation}%)`,
+          transform: `translate(${track.positionX * 0.18}%, ${track.positionY * 0.18}%) scale(${track.zoom / 100})`,
+          opacity: isActive ? 1 : 0,
+          zIndex: isActive ? 2 : 1,
+          transition: isPlaying && programMode && draft.cameraTransition === "fade" ? `opacity ${draft.cameraTransitionMs}ms linear` : "none"
         }
-      : undefined;
+      : {
+          opacity: isActive ? 1 : 0,
+          zIndex: isActive ? 2 : 1,
+          transition: isPlaying && programMode && draft.cameraTransition === "fade" ? `opacity ${draft.cameraTransitionMs}ms linear` : "none"
+        };
 
   useEffect(() => {
     if (selectedVideo?.status === "ready") return;
@@ -242,6 +256,22 @@ export function TimelineReview({
   }, [selectedVideo?.status, videoAssets]);
 
   useEffect(() => setPlaybackError(undefined), [selectedVideo?.playbackUrl]);
+
+  useEffect(() => {
+    const nextVideo = selectedVideo?.id ? previewVideoRefs.current.get(selectedVideo.id) : undefined;
+    if (!nextVideo) return;
+    const previousVideo = videoRef.current;
+    const shouldResume = isPlaying || Boolean(previousVideo && !previousVideo.paused);
+    videoRef.current = nextVideo;
+    syncPreviewVideos(playheadMs, shouldResume);
+  }, [selectedVideo?.id, outgoingPreviewAssetId]);
+
+  useEffect(() => {
+    if (!isPlaying || !programMode || !realtimeProgramPreview?.nextBoundaryMs) return;
+    const waitMs = Math.max(0, (realtimeProgramPreview.nextBoundaryMs - playheadMs) / playbackRate);
+    const timer = window.setTimeout(() => boundarySyncRef.current(), waitMs);
+    return () => window.clearTimeout(timer);
+  }, [isPlaying, playbackRate, playheadMs, programMode, realtimeProgramPreview?.nextBoundaryMs]);
 
   useEffect(() => {
     if (allRecordedMicrophonesSilent) setAudioRouteMessage("No audible microphone signal was captured in this take");
@@ -256,6 +286,7 @@ export function TimelineReview({
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.playbackRate = playbackRate;
+    for (const video of previewVideoRefs.current.values()) video.playbackRate = playbackRate;
     if (pairedAudioRef.current) pairedAudioRef.current.playbackRate = playbackRate;
     for (const audio of programAudioRefs.current.values()) audio.playbackRate = playbackRate;
     for (const video of multicamVideoRefs.current.values()) video.playbackRate = playbackRate;
@@ -302,8 +333,7 @@ export function TimelineReview({
   function seek(timestampMs: number) {
     const safeTimestamp = Math.max(0, Math.min(timestampMs, draft.durationMs || timestampMs));
     setPlayheadMs(safeTimestamp);
-    const videoSeconds = Math.max(0, (safeTimestamp + selectedVideoOffsetMs) / 1000);
-    if (videoRef.current) videoRef.current.currentTime = videoSeconds;
+    syncPreviewVideos(safeTimestamp);
     if (pairedAudioRef.current) pairedAudioRef.current.currentTime = Math.max(0, safeTimestamp / 1000);
     syncProgramAudio(safeTimestamp);
   }
@@ -383,7 +413,13 @@ export function TimelineReview({
       trackId: selectedTrack?.id,
       source: "timeline"
     });
-    onDraftChange(applyTimelineEdit(positioned, type, new Date().toISOString(), selectedTrack?.id));
+    const nextDraft = applyTimelineEdit(positioned, type, new Date().toISOString(), selectedTrack?.id);
+    onDraftChange(nextDraft);
+    if (programMode) {
+      const nextPlayable = getNextPlayableTimelineTime(nextDraft, playheadMs);
+      if (nextPlayable === undefined) pauseSelectedVideo();
+      else if (nextPlayable !== playheadMs) seek(nextPlayable);
+    }
   }
 
   function updateTrack(track: TimelineTrack, patch: Parameters<typeof updateTimelineTrackMix>[2]) {
@@ -412,6 +448,7 @@ export function TimelineReview({
     video.volume = masterVolume;
     try {
       await video.play();
+      syncPreviewVideos(nextPlayable, true);
       setIsPlaying(true);
       void window.studio?.writeRuntimeLog?.({
         level: "info",
@@ -454,7 +491,9 @@ export function TimelineReview({
   }
 
   function pauseSelectedVideo() {
-    videoRef.current?.pause();
+    for (const video of previewVideoRefs.current.values()) {
+      if (!video.paused) video.pause();
+    }
     pairedAudioRef.current?.pause();
     for (const audio of programAudioRefs.current.values()) audio.pause();
     for (const video of multicamVideoRefs.current.values()) video.pause();
@@ -485,6 +524,34 @@ export function TimelineReview({
       audio.playbackRate = playbackRate;
       if (play) void audio.play().catch(() => undefined);
     }
+  }
+
+  function syncPreviewVideos(timestampMs: number, play = false) {
+    const activeAssetId = selectedVideo?.id;
+    for (const [assetId, video] of previewVideoRefs.current) {
+      const track = draft.tracks.find((candidate) => candidate.sourceAssetId === assetId);
+      const targetSeconds = Math.max(0, (timestampMs + (track?.syncOffsetMs ?? 0)) / 1000);
+      if (video.readyState >= 1 && Math.abs(video.currentTime - targetSeconds) > 0.08) {
+        video.currentTime = Math.min(targetSeconds, Number.isFinite(video.duration) ? video.duration : targetSeconds);
+      }
+      video.playbackRate = playbackRate;
+      video.volume = masterVolume;
+      video.muted = masterMuted || stemMixActive || assetId !== activeAssetId;
+      const shouldPlay = assetId === activeAssetId || assetId === outgoingPreviewAssetId;
+      if (play && shouldPlay) void video.play().catch(() => undefined);
+      else if (!shouldPlay && !video.paused) video.pause();
+    }
+  }
+
+  function getPreviewVideoRef(assetId: string) {
+    const existing = previewVideoRefCallbacks.current.get(assetId);
+    if (existing) return existing;
+    const callback = (element: HTMLVideoElement | null) => {
+      if (element) previewVideoRefs.current.set(assetId, element);
+      else previewVideoRefs.current.delete(assetId);
+    };
+    previewVideoRefCallbacks.current.set(assetId, callback);
+    return callback;
   }
 
   function syncPreviewAudio(play = false) {
@@ -518,13 +585,10 @@ export function TimelineReview({
     if (play) void audio.play().catch(() => undefined);
   }
 
+  boundarySyncRef.current = () => syncPreviewAudio(true);
+
   function loadSelectedVideoAtPlayhead() {
-    const video = videoRef.current;
-    if (!video) return;
-    const target = Math.max(0, (playheadMs + selectedVideoOffsetMs) / 1000);
-    video.currentTime = Math.min(target, Number.isFinite(video.duration) ? video.duration : target);
-    video.playbackRate = playbackRate;
-    if (resumePlaybackRef.current) void video.play().catch(() => undefined);
+    syncPreviewVideos(playheadMs, resumePlaybackRef.current);
   }
 
   function cutToCamera(cameraTrack: TimelineTrack, reason = `${cameraTrack.label} selected during playback`) {
@@ -710,7 +774,7 @@ export function TimelineReview({
           <div className="panel-heading">
             <div>
               <span>Source monitor</span>
-              <h3>{programMode && activeProgramAsset ? `Program · ${activeProgramAsset.label}` : (selectedVideo?.label ?? "Program video")}</h3>
+              <h3>{programMode && selectedVideo ? `Program · ${selectedVideo.label}` : (selectedVideo?.label ?? "Program video")}</h3>
             </div>
             <strong>{formatRecordingTime(playheadMs)}</strong>
           </div>
@@ -809,45 +873,62 @@ export function TimelineReview({
           {selectedVideo?.status === "ready" && selectedVideo.playbackUrl ? (
             <div className="review-player-stage" data-aspect-ratio="16:9">
               <div className="review-player-frame">
-              <video
-                key={selectedVideo.playbackUrl}
-                ref={videoRef}
-                preload="auto"
-                src={selectedVideo.playbackUrl}
-                poster={selectedVideo.posterUrl}
-                muted={masterMuted || stemMixActive}
-                style={liveVideoStyle}
-                aria-label={`${programMode ? "Edited Program" : selectedVideo.label} playback`}
-                onLoadedMetadata={() => {
-                  setPlaybackError(undefined);
-                  loadSelectedVideoAtPlayhead();
-                }}
-                onError={(event) => {
-                  const mediaError = event.currentTarget.error;
-                  const message = mediaError ? `This recording could not be loaded (media error ${mediaError.code}).` : "This recording could not be loaded.";
-                  setPlaybackError(message);
-                  void window.studio?.writeRuntimeLog?.({
-                    level: "error",
-                    source: "ReviewPlayback",
-                    message: "Review video failed to load.",
-                    details: { assetId: selectedVideo.id, playbackUrl: selectedVideo.playbackUrl, mediaErrorCode: mediaError?.code }
-                  });
-                }}
-                onPlay={() => {
-                  setIsPlaying(true);
-                  syncPreviewAudio(true);
-                }}
-                onPause={() => {
-                  pairedAudioRef.current?.pause();
-                  for (const audio of programAudioRefs.current.values()) audio.pause();
-                  setIsPlaying(false);
-                  setStemMixActive(false);
-                }}
-                onSeeked={() => syncPreviewAudio()}
-                onTimeUpdate={() => syncPreviewAudio()}
-                onVolumeChange={() => syncPreviewAudio()}
-                onEnded={pauseSelectedVideo}
-              />
+              {(programMode ? videoAssets : [selectedVideo])
+                .filter((asset): asset is ReviewMediaAsset & { playbackUrl: string } => asset.status === "ready" && Boolean(asset.playbackUrl))
+                .map((asset) => {
+                  const isActive = asset.id === selectedVideo.id;
+                  const track = draft.tracks.find((candidate) => candidate.sourceAssetId === asset.id);
+                  return (
+                    <video
+                      className={`realtime-preview-layer ${isActive ? "active" : asset.id === outgoingPreviewAssetId ? "outgoing" : "standby"}`}
+                      key={asset.id}
+                      ref={getPreviewVideoRef(asset.id)}
+                      preload="auto"
+                      src={asset.playbackUrl}
+                      poster={asset.posterUrl}
+                      muted={masterMuted || stemMixActive || !isActive}
+                      style={getLiveVideoStyle(track, isActive)}
+                      aria-hidden={!isActive}
+                      aria-label={isActive ? `${programMode ? "Edited Program" : asset.label} playback` : undefined}
+                      onLoadedMetadata={(event) => {
+                        const sourceTime = Math.max(0, (playheadMs + (track?.syncOffsetMs ?? 0)) / 1000);
+                        event.currentTarget.currentTime = Math.min(sourceTime, Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : sourceTime);
+                        if (!isActive) return;
+                        videoRef.current = event.currentTarget;
+                        setPlaybackError(undefined);
+                        loadSelectedVideoAtPlayhead();
+                      }}
+                      onError={(event) => {
+                        const mediaError = event.currentTarget.error;
+                        const message = mediaError ? `This recording could not be loaded (media error ${mediaError.code}).` : "This recording could not be loaded.";
+                        if (isActive) setPlaybackError(message);
+                        void window.studio?.writeRuntimeLog?.({
+                          level: "error",
+                          source: "ReviewPlayback",
+                          message: "Review video failed to load.",
+                          details: { assetId: asset.id, playbackUrl: asset.playbackUrl, mediaErrorCode: mediaError?.code, active: isActive }
+                        });
+                      }}
+                      onPlay={(event) => {
+                        if (event.currentTarget !== videoRef.current) return;
+                        setIsPlaying(true);
+                        syncPreviewAudio(true);
+                      }}
+                      onPause={(event) => {
+                        if (event.currentTarget !== videoRef.current) return;
+                        pairedAudioRef.current?.pause();
+                        for (const audio of programAudioRefs.current.values()) audio.pause();
+                        setIsPlaying(false);
+                        setStemMixActive(false);
+                      }}
+                      onSeeked={(event) => event.currentTarget === videoRef.current && syncPreviewAudio()}
+                      onTimeUpdate={(event) => event.currentTarget === videoRef.current && syncPreviewAudio()}
+                      onVolumeChange={(event) => event.currentTarget === videoRef.current && syncPreviewAudio()}
+                      onEnded={(event) => event.currentTarget === videoRef.current && pauseSelectedVideo()}
+                    />
+                  );
+                })}
+              {programMode && activeCaption ? <div className="realtime-preview-caption">{activeCaption.text}</div> : null}
               {playbackError ? (
                 <div className="review-playback-error" role="alert">
                   <strong>Playback needs attention</strong>
