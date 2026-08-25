@@ -334,7 +334,7 @@ export async function downloadCloudEpisode(episodeId: string): Promise<CloudDown
 
   for (const asset of manifest.assets) {
     const destination = safeLocalAssetPath(episodeFolder, asset.relativePath);
-    let exists = false;
+    let exists: boolean;
     let matches = false;
     try {
       const stat = await fs.stat(destination);
