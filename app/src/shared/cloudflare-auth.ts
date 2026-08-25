@@ -18,7 +18,7 @@ export interface CloudflareOAuthConfiguration {
 
 export const cloudflareOAuthRedirectUri = "http://127.0.0.1:42831/oauth/cloudflare/callback";
 
-export const cloudflareOAuthScopes = [
-  "account.read",
-  "workers-r2-storage.write"
-] as const;
+// The desktop login is only for account identity/setup. Episode media will move
+// through the What About It sync Worker, so broad R2 credentials never live in
+// the desktop app.
+export const cloudflareOAuthScopes = ["account.read"] as const;
