@@ -9312,6 +9312,36 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
   border-radius: 0;
 }
 
+.studio-shell--review .edit-source-monitor .review-player-frame .realtime-preview-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  will-change: opacity;
+}
+
+.studio-shell--review .edit-source-monitor .review-player-frame .realtime-preview-layer.standby {
+  visibility: hidden;
+}
+
+.studio-shell--review .edit-source-monitor .review-player-frame .realtime-preview-layer.outgoing {
+  visibility: visible;
+}
+
+.studio-shell--review .realtime-preview-caption {
+  position: absolute;
+  z-index: 4;
+  right: 8%;
+  bottom: 9%;
+  left: 8%;
+  padding: 7px 12px;
+  color: #fff;
+  font: 800 clamp(0.72rem, 2.25cqh, 1.35rem)/1.3 var(--font-body);
+  text-align: center;
+  text-wrap: balance;
+  text-shadow: 0 2px 5px #000, 0 0 2px #000;
+  pointer-events: none;
+}
+
 .studio-shell--review .review-playback-error {
   position: absolute;
   inset: 0;
