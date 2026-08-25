@@ -182,7 +182,7 @@ async function populateReviewLibrary(container: HTMLElement, status: HTMLElement
   const [localEpisodes, cloudResult, config] = await Promise.all([
     ipcRenderer.invoke("episodes:list") as Promise<EpisodeMetadata[]>,
     (ipcRenderer.invoke("collaboration:cloud:list") as Promise<CloudEpisodeSummary[]>).catch(() => []),
-    (ipcRenderer.invoke("collaboration:remote-config:get") as Promise<{ apiUrl?: string }>).catch(() => ({}))
+    (ipcRenderer.invoke("collaboration:remote-config:get") as Promise<{ apiUrl?: string }>).catch((): { apiUrl?: string } => ({}))
   ]);
 
   const localTitle = document.createElement("h3");
