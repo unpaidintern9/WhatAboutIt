@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "whataboutit-collab",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-25",
+  "workers_dev": true,
+  "r2_buckets": [
+    {
+      "binding": "EPISODE_MEDIA",
+      "bucket_name": "whataboutit-collab-media"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EPISODES",
+        "class_name": "EpisodeCollaboration"
+      }
+    ]
+  },
+  "exports": {
+    "EpisodeCollaboration": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "observability": {
+    "enabled": true
+  }
+}
