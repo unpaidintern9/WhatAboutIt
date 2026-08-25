@@ -42,3 +42,5 @@ export const collaborationPeople: Record<CollaborationPersonId, CollaborationPer
   "morgan-owner": { memberId: "morgan-owner", displayName: "Morgan" },
   "susan-editor": { memberId: "susan-editor", displayName: "Susan" }
 };
+
+export type { CloudEpisodeManifest, CloudEpisodeSummary } from "./collaboration";
