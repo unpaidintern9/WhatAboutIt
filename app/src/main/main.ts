@@ -27,6 +27,7 @@ import { AppUpdateService } from "./app-update-service";
 import { cancelLocalTranscription, getLocalTranscriptionStatus, transcribeEpisodeLocally } from "./local-transcription-store";
 import { RecordingPowerProtection } from "./recording-power-protection";
 import { isStudioMediaPermission } from "../shared/media-permissions";
+import { configureCollaboration } from "./collaboration-integration";
 
 app.setName("What About It Studio");
 
@@ -261,10 +262,6 @@ app.whenReady().then(async () => {
   await studioWindowManager.load();
   appUpdateService = new AppUpdateService();
 
-  // Chromium performs a synchronous permission check before it makes the
-  // request handled below. Electron requires both handlers for complete media
-  // permission handling; without the check handler every camera can disappear
-  // before Chromium reaches the normal capture request path.
   session.defaultSession.setPermissionCheckHandler((_webContents, permission) => isStudioMediaPermission(permission));
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     callback(isStudioMediaPermission(permission));
@@ -277,18 +274,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("workspace:get-state", () => studioWindowManager.getState());
   ipcMain.handle("workspace:save-state", (_event, state) => saveWorkspaceState(state));
   ipcMain.handle("workspace:get-displays", () => studioWindowManager.getDisplays());
-  ipcMain.handle(
-    "workspace:open-panel",
-    (
-      _event,
-      input: {
-        panelId: StudioPanelId;
-        episodeId?: string;
-        displayId?: number;
-        fullscreen?: boolean;
-      }
-    ) => studioWindowManager.openPanel(input.panelId, input)
-  );
+  ipcMain.handle("workspace:open-panel", (_event, input: { panelId: StudioPanelId; episodeId?: string; displayId?: number; fullscreen?: boolean }) => studioWindowManager.openPanel(input.panelId, input));
   ipcMain.handle("workspace:close-panel", (_event, panelId: StudioPanelId) => studioWindowManager.closePanel(panelId));
   ipcMain.handle("workspace:move-panel", (_event, input: { panelId: StudioPanelId; displayId: number }) => studioWindowManager.movePanel(input.panelId, input.displayId));
   ipcMain.handle("workspace:apply-layout", (_event, input: { layoutId: StudioLayoutProfileId; episodeId?: string }) => studioWindowManager.applyLayout(input.layoutId, input.episodeId));
@@ -337,49 +323,20 @@ app.whenReady().then(async () => {
     const options = {
       title: isVideo ? `Choose ${input.slot.replace("camera-", "Camera ")} video` : "Choose podcast audio",
       properties: ["openFile"] as Array<"openFile">,
-      filters: isVideo
-        ? [
-            {
-              name: "Video files",
-              extensions: ["mp4", "mov", "mkv", "webm", "m4v"]
-            }
-          ]
-        : [
-            {
-              name: "Audio files",
-              extensions: ["wav", "mp3", "m4a", "aac", "flac", "ogg"]
-            }
-          ]
+      filters: isVideo ? [{ name: "Video files", extensions: ["mp4", "mov", "mkv", "webm", "m4v"] }] : [{ name: "Audio files", extensions: ["wav", "mp3", "m4a", "aac", "flac", "ogg"] }]
     };
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const result = parentWindow ? await dialog.showOpenDialog(parentWindow, options) : await dialog.showOpenDialog(options);
-    if (result.canceled || !result.filePaths[0]) {
-      return {
-        canceled: true,
-        inventory: await loadReviewMedia(input.episodeId),
-        message: "Import canceled."
-      };
-    }
+    if (result.canceled || !result.filePaths[0]) return { canceled: true, inventory: await loadReviewMedia(input.episodeId), message: "Import canceled." };
     const importKey = `${input.episodeId}:${input.slot}`;
     const controller = new AbortController();
     activeMediaImports.get(importKey)?.abort();
     activeMediaImports.set(importKey, controller);
     try {
-      return {
-        canceled: false,
-        inventory: await importReviewMediaFile(input.episodeId, input.slot, result.filePaths[0], {
-          signal: controller.signal,
-          onProgress: (progress) => event.sender.send("review-media:import-progress", progress)
-        }),
-        message: `${input.slot.startsWith("camera-") ? input.slot.replace("camera-", "Camera ") : "Main audio"} imported. The full-quality original is protected and a lighter editing copy is ready.`
-      };
+      return { canceled: false, inventory: await importReviewMediaFile(input.episodeId, input.slot, result.filePaths[0], { signal: controller.signal, onProgress: (progress) => event.sender.send("review-media:import-progress", progress) }), message: `${input.slot.startsWith("camera-") ? input.slot.replace("camera-", "Camera ") : "Main audio"} imported. The full-quality original is protected and a lighter editing copy is ready.` };
     } catch (error) {
       if (!(error instanceof Error) || error.name !== "AbortError") throw error;
-      return {
-        canceled: true,
-        inventory: await loadReviewMedia(input.episodeId),
-        message: "Import canceled. Existing media was left unchanged."
-      };
+      return { canceled: true, inventory: await loadReviewMedia(input.episodeId), message: "Import canceled. Existing media was left unchanged." };
     } finally {
       if (activeMediaImports.get(importKey) === controller) activeMediaImports.delete(importKey);
     }
@@ -393,11 +350,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("review-media:verify-originals", (_event, episodeId: string) => verifyImportedMediaIntegrity(episodeId));
   ipcMain.handle("review-media:relink", async (event, input: { episodeId: string; slot: ReviewMediaImportSlot }) => {
     const isVideo = input.slot.startsWith("camera-");
-    const options = {
-      title: `Relink ${isVideo ? input.slot.replace("camera-", "Camera ") : "podcast audio"} original`,
-      properties: ["openFile"] as Array<"openFile">,
-      filters: [{ name: isVideo ? "Video files" : "Audio files", extensions: isVideo ? ["mp4", "mov", "mkv", "webm", "m4v"] : ["wav", "mp3", "m4a", "aac", "flac", "ogg"] }]
-    };
+    const options = { title: `Relink ${isVideo ? input.slot.replace("camera-", "Camera ") : "podcast audio"} original`, properties: ["openFile"] as Array<"openFile">, filters: [{ name: isVideo ? "Video files" : "Audio files", extensions: isVideo ? ["mp4", "mov", "mkv", "webm", "m4v"] : ["wav", "mp3", "m4a", "aac", "flac", "ogg"] }] };
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
     const result = parentWindow ? await dialog.showOpenDialog(parentWindow, options) : await dialog.showOpenDialog(options);
     if (result.canceled || !result.filePaths[0]) return { canceled: true, inventory: await loadReviewMedia(input.episodeId), message: "Relink canceled." };
@@ -410,11 +363,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("export:create", (event, input) => createExport(input, (job) => event.sender.send("export:progress", job)));
   ipcMain.handle("export:choose-destination", async (event) => {
     const parentWindow = BrowserWindow.fromWebContents(event.sender);
-    const options = {
-      title: "Choose where to save the editor handoff",
-      buttonLabel: "Use this folder",
-      properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">
-    };
+    const options = { title: "Choose where to save the editor handoff", buttonLabel: "Use this folder", properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory"> };
     const result = parentWindow ? await dialog.showOpenDialog(parentWindow, options) : await dialog.showOpenDialog(options);
     return result.canceled ? undefined : result.filePaths[0];
   });
@@ -442,6 +391,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("app-update:download", () => appUpdateService.downloadUpdate());
   ipcMain.handle("app-update:install", () => appUpdateService.installUpdate());
 
+  configureCollaboration(path.join(__dirname, "collaboration-preload.js"));
   createWindow();
 
   app.on("activate", () => {

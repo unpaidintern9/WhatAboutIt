@@ -1,0 +1,115 @@
+name: Deploy WhatAboutIt Collaboration Backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: Type deploy-whataboutit to confirm this deploy targets only What About It resources
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: whataboutit-cloudflare-collab-production
+  cancel-in-progress: false
+
+env:
+  CLOUDFLARE_API_TOKEN: ${{ secrets.WHATABOUTIT_CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.WHATABOUTIT_CLOUDFLARE_ACCOUNT_ID }}
+  WHATABOUTIT_BUCKET: whataboutit-collab-media
+  WHATABOUTIT_WORKER: whataboutit-collab
+
+jobs:
+  deploy:
+    if: ${{ inputs.confirm == 'deploy-whataboutit' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloudflare/collab
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard WhatAboutIt isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing WHATABOUTIT_CLOUDFLARE_API_TOKEN"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing WHATABOUTIT_CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+          test "$WHATABOUTIT_WORKER" = "whataboutit-collab"
+          test "$WHATABOUTIT_BUCKET" = "whataboutit-collab-media"
+          if grep -Rni 'gilmer' .; then
+            echo "Refusing deploy: a Gilmer reference exists inside the WhatAboutIt Cloudflare package."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Cloudflare tooling
+        run: npm install --no-audit --no-fund
+
+      - name: Ensure dedicated R2 bucket exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if npx wrangler r2 bucket create "$WHATABOUTIT_BUCKET"; then
+            echo "Created $WHATABOUTIT_BUCKET"
+          else
+            echo "Create returned non-zero; verifying the dedicated bucket already exists."
+            npx wrangler r2 bucket list | tee /tmp/r2-buckets.txt
+            grep -F "$WHATABOUTIT_BUCKET" /tmp/r2-buckets.txt >/dev/null
+          fi
+
+      - name: Validate Worker configuration
+        run: npx wrangler deploy --dry-run
+
+      - name: Deploy dedicated collaboration Worker
+        run: npx wrangler deploy
+
+      - name: Install app collaboration access key
+        shell: bash
+        env:
+          WHATABOUTIT_COLLAB_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$WHATABOUTIT_COLLAB_ACCESS_KEY" || { echo "Missing WHATABOUTIT_COLLAB_ACCESS_KEY"; exit 1; }
+          printf '%s' "$WHATABOUTIT_COLLAB_ACCESS_KEY" | npx wrangler secret put WHATABOUTIT_COLLAB_ACCESS_KEY
+
+      - name: Discover collaboration service URL
+        id: service
+        shell: bash
+        run: |
+          set -euo pipefail
+          RESPONSE="$(curl -fsS \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
+          SUBDOMAIN="$(printf '%s' "$RESPONSE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.success||!j.result?.subdomain)process.exit(2);process.stdout.write(j.result.subdomain)})")"
+          SERVICE_URL="https://$WHATABOUTIT_WORKER.$SUBDOMAIN.workers.dev"
+          echo "url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## What About It collaboration deployed"
+            echo ""
+            echo "- Worker: \`$WHATABOUTIT_WORKER\`"
+            echo "- R2 bucket: \`$WHATABOUTIT_BUCKET\`"
+            echo "- Collaboration service URL: \`$SERVICE_URL\`"
+            echo ""
+            echo "Use this URL in What About It → Collaboration → Live Edit Control on Morgan and Susan's computers."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify deployed Worker
+        shell: bash
+        env:
+          SERVICE_URL: ${{ steps.service.outputs.url }}
+          WHATABOUTIT_COLLAB_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          curl -fsS "$SERVICE_URL/health" >/dev/null
+          echo "WhatAboutIt Cloudflare deployment completed."
+          echo "Worker: $WHATABOUTIT_WORKER"
+          echo "R2 bucket: $WHATABOUTIT_BUCKET"
+          echo "Service URL: $SERVICE_URL"
+          echo "Account is sourced only from WHATABOUTIT_CLOUDFLARE_ACCOUNT_ID."

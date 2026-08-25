@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import type { TimelineDraft } from "../shared/timeline";
 import { compactTimelineDraftForPersistence, markTimelineSaved } from "../shared/timeline";
 import { getEpisodesRoot } from "./config-service";
+import { acquireCollaborationEditorLease, getCollaborationRemoteConfig, sendCollaborationPresence } from "./collaboration-remote-service";
 import { logger } from "./logger";
 
 function timelinePath(episodeId: string) {
@@ -38,6 +39,7 @@ async function syncDirectory(directory: string) {
 }
 
 export async function loadTimelineDraft(episodeId: string): Promise<TimelineDraft | null> {
+  void sendCollaborationPresence(episodeId, "viewing").catch(() => undefined);
   const filePath = timelinePath(episodeId);
   try {
     return await readJsonFile<TimelineDraft>(filePath);
@@ -63,6 +65,23 @@ export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft)
   if (draft.episodeId && draft.episodeId !== episodeId) {
     throw new Error(`Refusing to save draft for ${draft.episodeId} into episode ${episodeId}.`);
   }
+
+  const remoteConfig = await getCollaborationRemoteConfig();
+  let collaboration;
+  if (remoteConfig.apiUrl) {
+    try {
+      collaboration = await acquireCollaborationEditorLease(episodeId);
+    } catch (error) {
+      throw new Error("Cloud collaboration is configured but edit ownership could not be verified. Your local changes are still open, but the shared timeline was not overwritten.", { cause: error });
+    }
+    if (!collaboration.connected) {
+      throw new Error("Cloud collaboration is temporarily unavailable. Your local changes are still open, but the shared timeline was not overwritten.");
+    }
+    if (collaboration.activeEditor && collaboration.activeEditor.memberId !== collaboration.self.memberId) {
+      throw new Error(`${collaboration.activeEditor.displayName} is editing this episode right now. Your local changes were not written over their timeline.`);
+    }
+  }
+
   const filePath = timelinePath(episodeId);
   const directory = path.dirname(filePath);
   const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
@@ -92,7 +111,8 @@ export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft)
     await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
   }
   await logger.info("TimelineReview", "Saved local draft timeline.", {
-    episodeId
+    episodeId,
+    collaborationEditor: collaboration?.self.displayName
   });
   return nextDraft;
 }
