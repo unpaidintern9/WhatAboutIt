@@ -66,7 +66,6 @@ hr { border:0; border-top:1px solid #3c292c; margin:18px 0; }
       <div class="syncHero"><div><div class="eyebrow">Episode overview</div><h2 id="title">No episode selected</h2><p id="episodeState" class="muted"></p></div><div class="badge good">Local safety copy on</div></div>
       <div class="metricRow"><div class="metric"><strong id="assetCount">0</strong><span class="muted">Indexed files</span></div><div class="metric"><strong id="originalCount">0</strong><span class="muted">Protected originals</span></div><div class="metric"><strong id="proxyCount">0</strong><span class="muted">Editing proxies</span></div><div class="metric"><strong id="commentCount">0</strong><span class="muted">Open comments</span></div></div>
     </section>
-
     <section class="card">
       <div class="sectionHead"><div><div class="eyebrow">Upload / sync episode</div><h2>Choose what goes to Cloudflare</h2><p class="muted">The app prepares an incremental upload plan from this episode's manifest. Re-scanning detects changed files by content hash.</p></div></div>
       <div class="uploadGrid">
@@ -77,12 +76,10 @@ hr { border:0; border-top:1px solid #3c292c; margin:18px 0; }
       <div class="buttonRow" style="margin-top:14px"><button id="prepareUpload">Prepare upload</button></div>
       <div id="uploadPlan" class="warning" style="margin-top:12px">Cloudflare connection will be added next. You can build and inspect the upload plan now.</div>
     </section>
-
     <section class="card">
       <div class="sectionHead"><div><div class="eyebrow">Episode files</div><h2>Local + cloud manifest</h2></div><button id="refreshAssetsTop" class="secondary">Refresh manifest</button></div>
       <div id="assets" class="stack"><div class="empty">Scan the episode to index its media and project files.</div></div>
     </section>
-
     <div class="grid2">
       <section class="card">
         <div class="eyebrow">People</div><h2>Episode collaborators</h2><div id="members" class="stack"></div>
@@ -98,7 +95,7 @@ hr { border:0; border-top:1px solid #3c292c; margin:18px 0; }
 const studio = window.studio;
 let currentWorkspace;
 const byId = (id) => document.getElementById(id);
-function esc(value){ return String(value ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function esc(value){ return String(value ?? '').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll(String.fromCharCode(34),'&quot;'); }
 function formatBytes(bytes){ if(!bytes)return '0 B'; const units=['B','KB','MB','GB','TB']; let value=bytes,index=0; while(value>=1024&&index<units.length-1){ value/=1024; index++; } return value.toFixed(index ? 1 : 0)+' '+units[index]; }
 function renderPlan(workspace){
   const plan=workspace.lastUploadPlan;
