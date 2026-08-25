@@ -2,7 +2,7 @@ import { BrowserWindow, Menu, MenuItem, dialog, ipcMain, shell } from "electron"
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { EpisodeMetadata } from "../shared/types";
-import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput, CollaborationUploadSelection } from "../shared/collaboration";
+import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput, CollaborationUploadSelection, CollaborationWorkspace } from "../shared/collaboration";
 import type { CollaborationPersonId } from "../shared/collaboration-presence";
 import { getEpisodesRoot } from "./config-service";
 import { addCollaborationComment, inviteCollaborator, loadCollaborationWorkspace, prepareCollaborationUpload, refreshCollaborationAssets, resolveCollaborationComment, setCollaborationStatus } from "./collaboration-store";
@@ -19,6 +19,7 @@ import {
   setCollaborationRemoteConfig,
   uploadEpisodeToCloud
 } from "./collaboration-remote-service";
+import { markProjectMaterialized, pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
 import { openCollaborationPresenceWindow } from "./collaboration-presence-window";
 import { openCollaborationWindow } from "./collaboration-window";
 
@@ -41,6 +42,43 @@ async function resolveEpisode(episodeId: string): Promise<EpisodeMetadata> {
   return episode;
 }
 
+async function syncWorkspaceMutation(episodeId: string, workspace: CollaborationWorkspace) {
+  const config = await getCollaborationRemoteConfig();
+  if (!config.apiUrl) return workspace;
+  try {
+    await pushProjectChanges(episodeId);
+    return await loadCollaborationWorkspace(path.join(getEpisodesRoot(), episodeId), episodeId, workspace.episodeTitle);
+  } catch (error) {
+    throw new Error("The collaboration change is safe on this computer, but Cloudflare sync did not finish. Retry the action before handing the episode to the other editor.", { cause: error });
+  }
+}
+
+async function importExternalEpisode(selectedFolder: string) {
+  const episodesRoot = path.resolve(getEpisodesRoot());
+  const source = path.resolve(selectedFolder);
+  const episode = await readEpisodeFolder(source);
+
+  if (path.dirname(source) === episodesRoot) {
+    await shell.openPath(source);
+    return episode;
+  }
+
+  const destination = path.join(episodesRoot, episode.id);
+  try {
+    await fs.access(destination);
+    throw new Error("An episode with this ID already exists in the What About It library. Open the existing library copy instead of importing a duplicate.");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+
+  // Copy rather than move: the external source remains a safety copy.
+  await fs.cp(source, destination, { recursive: true, errorOnExist: true, force: false });
+  const imported = { ...episode, folderPath: destination, updatedAt: new Date().toISOString() };
+  await fs.writeFile(path.join(destination, "metadata.json"), JSON.stringify(imported, null, 2), "utf8");
+  await shell.openPath(destination);
+  return imported;
+}
+
 export function configureCollaboration(preloadPath: string) {
   ipcMain.handle("collaboration:open-center", () => {
     openCollaborationWindow(preloadPath);
@@ -52,6 +90,7 @@ export function configureCollaboration(preloadPath: string) {
   });
   ipcMain.handle("collaboration:get", async (_event, episodeId: string) => {
     const episode = await resolveEpisode(episodeId);
+    await pullLatestProjectChanges(episodeId).catch(() => undefined);
     return loadCollaborationWorkspace(episode.folderPath, episode.id, episode.title);
   });
   ipcMain.handle("collaboration:refresh-assets", async (_event, episodeId: string) => {
@@ -75,7 +114,7 @@ export function configureCollaboration(preloadPath: string) {
     const parent = BrowserWindow.fromWebContents(event.sender);
     const episodesRoot = path.resolve(getEpisodesRoot());
     const options = {
-      title: "Choose an episode folder",
+      title: "Open or import an episode folder",
       defaultPath: episodesRoot,
       buttonLabel: "Open Episode",
       properties: ["openDirectory"] as Array<"openDirectory">
@@ -83,44 +122,45 @@ export function configureCollaboration(preloadPath: string) {
     const result = parent ? await dialog.showOpenDialog(parent, options) : await dialog.showOpenDialog(options);
     if (result.canceled || !result.filePaths[0]) return undefined;
     try {
-      const selectedFolder = path.resolve(result.filePaths[0]);
-      if (path.dirname(selectedFolder) !== episodesRoot) {
-        throw new Error("Choose one of the episode folders inside your What About It Episodes folder.");
-      }
-      const episode = await readEpisodeFolder(selectedFolder);
-      await shell.openPath(episode.folderPath);
-      return episode;
+      return await importExternalEpisode(result.filePaths[0]);
     } catch (error) {
-      if (error instanceof Error && error.message.startsWith("Choose one of")) throw error;
-      throw new Error("Choose a What About It episode folder that contains metadata.json. The picker starts in the folder that contains all episodes.", { cause: error });
+      if (error instanceof Error && (error.message.includes("already exists") || error.message.includes("Invalid episode"))) throw error;
+      throw new Error("Choose a What About It episode folder that contains metadata.json. Folders outside the managed library are copied in while the source folder stays untouched.", { cause: error });
     }
   });
   ipcMain.handle("collaboration:cloud:list", () => listCloudEpisodes());
   ipcMain.handle("collaboration:cloud:upload", async (_event, payload: { episodeId: string; selection?: CollaborationUploadSelection }) => {
     const episode = await resolveEpisode(payload.episodeId);
-    return uploadEpisodeToCloud(episode, payload.selection ?? "full-backup");
+    const result = await uploadEpisodeToCloud(episode, payload.selection ?? "full-backup");
+    await markProjectMaterialized(episode.id).catch(() => undefined);
+    return result;
   });
   ipcMain.handle("collaboration:cloud:download", async (_event, episodeId: string) => {
     validateEpisodeId(episodeId);
     const result = await downloadCloudEpisode(episodeId);
+    await markProjectMaterialized(episodeId);
     await shell.openPath(result.episode.folderPath);
     return result;
   });
   ipcMain.handle("collaboration:invite", async (_event, payload: { episodeId: string; input: CollaborationInviteInput }) => {
     const episode = await resolveEpisode(payload.episodeId);
-    return inviteCollaborator(episode.folderPath, episode.id, episode.title, payload.input);
+    const workspace = await inviteCollaborator(episode.folderPath, episode.id, episode.title, payload.input);
+    return syncWorkspaceMutation(episode.id, workspace);
   });
   ipcMain.handle("collaboration:add-comment", async (_event, payload: { episodeId: string; input: CollaborationCommentInput }) => {
     const episode = await resolveEpisode(payload.episodeId);
-    return addCollaborationComment(episode.folderPath, episode.id, episode.title, payload.input);
+    const workspace = await addCollaborationComment(episode.folderPath, episode.id, episode.title, payload.input);
+    return syncWorkspaceMutation(episode.id, workspace);
   });
   ipcMain.handle("collaboration:resolve-comment", async (_event, payload: { episodeId: string; commentId: string }) => {
     const episode = await resolveEpisode(payload.episodeId);
-    return resolveCollaborationComment(episode.folderPath, episode.id, episode.title, payload.commentId);
+    const workspace = await resolveCollaborationComment(episode.folderPath, episode.id, episode.title, payload.commentId);
+    return syncWorkspaceMutation(episode.id, workspace);
   });
   ipcMain.handle("collaboration:set-status", async (_event, payload: { episodeId: string; status: CollaborationEpisodeStatus }) => {
     const episode = await resolveEpisode(payload.episodeId);
-    return setCollaborationStatus(episode.folderPath, episode.id, episode.title, payload.status);
+    const workspace = await setCollaborationStatus(episode.folderPath, episode.id, episode.title, payload.status);
+    return syncWorkspaceMutation(episode.id, workspace);
   });
 
   ipcMain.handle("collaboration:remote-config:get", getCollaborationRemoteConfig);
