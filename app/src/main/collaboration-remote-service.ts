@@ -6,6 +6,7 @@ import { collaborationPeople } from "../shared/collaboration-presence";
 
 type RemoteConfig = {
   apiUrl?: string;
+  accessKey?: string;
   personId: CollaborationPersonId;
 };
 
@@ -19,7 +20,7 @@ async function readConfig(): Promise<RemoteConfig> {
   try {
     const parsed = JSON.parse(await fs.readFile(configPath(), "utf8")) as Partial<RemoteConfig>;
     const personId: CollaborationPersonId = parsed.personId === "susan-editor" ? "susan-editor" : "morgan-owner";
-    return { personId, apiUrl: parsed.apiUrl?.trim().replace(/\/$/, "") || undefined };
+    return { personId, apiUrl: parsed.apiUrl?.trim().replace(/\/$/, "") || undefined, accessKey: parsed.accessKey?.trim() || undefined };
   } catch {
     return defaultConfig;
   }
@@ -35,11 +36,12 @@ export async function getCollaborationRemoteConfig() {
   return readConfig();
 }
 
-export async function setCollaborationRemoteConfig(input: { apiUrl?: string; personId?: CollaborationPersonId }) {
+export async function setCollaborationRemoteConfig(input: { apiUrl?: string; accessKey?: string; personId?: CollaborationPersonId }) {
   const current = await readConfig();
   const personId: CollaborationPersonId = input.personId === "susan-editor" ? "susan-editor" : input.personId === "morgan-owner" ? "morgan-owner" : current.personId;
   const apiUrl = input.apiUrl === undefined ? current.apiUrl : input.apiUrl.trim().replace(/\/$/, "") || undefined;
-  return writeConfig({ personId, apiUrl });
+  const accessKey = input.accessKey === undefined ? current.accessKey : input.accessKey.trim() || undefined;
+  return writeConfig({ personId, apiUrl, accessKey });
 }
 
 async function requestRemote<T>(episodeId: string, suffix: string, init?: RequestInit): Promise<T> {
@@ -47,7 +49,11 @@ async function requestRemote<T>(episodeId: string, suffix: string, init?: Reques
   if (!config.apiUrl) throw new Error("What About It collaboration service URL is not configured yet.");
   const response = await fetch(`${config.apiUrl}/episodes/${encodeURIComponent(episodeId)}${suffix}`, {
     ...init,
-    headers: { "content-type": "application/json", ...(init?.headers || {}) }
+    headers: {
+      "content-type": "application/json",
+      ...(config.accessKey ? { "x-whataboutit-key": config.accessKey } : {}),
+      ...(init?.headers || {})
+    }
   });
   const body = (await response.json().catch(() => ({}))) as T & { error?: string };
   if (!response.ok) {
@@ -104,7 +110,7 @@ export async function getCollaborationPresence(episodeId: string): Promise<Colla
       self,
       activeEditor: null,
       people: Object.values(collaborationPeople).map((person) => ({ ...person, mode: "offline" })),
-      canEdit: true,
+      canEdit: false,
       error: error instanceof Error ? error.message : "Collaboration service unavailable."
     };
   }
