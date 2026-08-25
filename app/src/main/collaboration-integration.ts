@@ -5,6 +5,7 @@ import type { EpisodeMetadata } from "../shared/types";
 import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput, CollaborationUploadSelection } from "../shared/collaboration";
 import { getEpisodesRoot } from "./config-service";
 import { addCollaborationComment, inviteCollaborator, loadCollaborationWorkspace, prepareCollaborationUpload, refreshCollaborationAssets, resolveCollaborationComment, setCollaborationStatus } from "./collaboration-store";
+import { connectCloudflare, disconnectCloudflare, getCloudflareConnectionStatus } from "./cloudflare-auth-service-v2";
 import { openCollaborationWindow } from "./collaboration-window";
 
 async function resolveEpisode(episodeId: string): Promise<EpisodeMetadata> {
@@ -16,6 +17,9 @@ async function resolveEpisode(episodeId: string): Promise<EpisodeMetadata> {
 }
 
 export function configureCollaboration(preloadPath: string) {
+  ipcMain.handle("cloudflare:status", getCloudflareConnectionStatus);
+  ipcMain.handle("cloudflare:connect", connectCloudflare);
+  ipcMain.handle("cloudflare:disconnect", disconnectCloudflare);
   ipcMain.handle("collaboration:open-center", () => {
     openCollaborationWindow(preloadPath);
     return true;
