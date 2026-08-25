@@ -1,0 +1,30 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "whataboutit-collaboration",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-25",
+  "workers_dev": true,
+  "vars": {
+    "APP_NAMESPACE": "whataboutit"
+  },
+  "r2_buckets": [
+    {
+      "binding": "EPISODES",
+      "bucket_name": "whataboutit-episodes"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EPISODE_SESSIONS",
+        "class_name": "EpisodeSession"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EpisodeSession"]
+    }
+  ]
+}
