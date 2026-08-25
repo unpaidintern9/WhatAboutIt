@@ -95,6 +95,41 @@ export async function prepareCollaborationUpload(
   return writeWorkspace(episodeFolder, workspace);
 }
 
+export async function recordCollaborationUploadComplete(
+  episodeFolder: string,
+  episodeId: string,
+  episodeTitle: string,
+  syncedAssetIds: string[]
+) {
+  const workspace = await loadCollaborationWorkspace(episodeFolder, episodeId, episodeTitle);
+  const synced = new Set(syncedAssetIds);
+  workspace.provider = "cloudflare";
+  workspace.remoteState = "ready";
+  workspace.lastUploadedAt = new Date().toISOString();
+  workspace.assets = workspace.assets.map((asset) => (synced.has(asset.id) ? { ...asset, state: "synced" } : asset));
+  if (workspace.lastUploadPlan) {
+    workspace.lastUploadPlan = {
+      ...workspace.lastUploadPlan,
+      blockedReason: undefined,
+      assets: workspace.lastUploadPlan.assets.map((asset) => (synced.has(asset.id) ? { ...asset, state: "synced" } : asset))
+    };
+  }
+  return writeWorkspace(episodeFolder, workspace);
+}
+
+export async function recordCollaborationDownloadComplete(
+  episodeFolder: string,
+  episodeId: string,
+  episodeTitle: string
+) {
+  const workspace = await refreshCollaborationAssets(episodeFolder, episodeId, episodeTitle);
+  workspace.provider = "cloudflare";
+  workspace.remoteState = "ready";
+  workspace.lastDownloadedAt = new Date().toISOString();
+  workspace.assets = workspace.assets.map((asset) => ({ ...asset, state: "synced" }));
+  return writeWorkspace(episodeFolder, workspace);
+}
+
 export async function inviteCollaborator(
   episodeFolder: string,
   episodeId: string,
