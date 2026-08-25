@@ -4,6 +4,7 @@ import type { TimelineDraft } from "../shared/timeline";
 import { compactTimelineDraftForPersistence, markTimelineSaved } from "../shared/timeline";
 import { getEpisodesRoot } from "./config-service";
 import { acquireCollaborationEditorLease, getCollaborationRemoteConfig, sendCollaborationPresence } from "./collaboration-remote-service";
+import { assertProjectRevisionCurrent, pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
 import { logger } from "./logger";
 
 function timelinePath(episodeId: string) {
@@ -40,6 +41,21 @@ async function syncDirectory(directory: string) {
 
 export async function loadTimelineDraft(episodeId: string): Promise<TimelineDraft | null> {
   void sendCollaborationPresence(episodeId, "viewing").catch(() => undefined);
+  try {
+    const pulled = await pullLatestProjectChanges(episodeId);
+    if (pulled.changed > 0) {
+      await logger.info("TimelineReview", "Applied newer collaborative project files before opening Review.", {
+        episodeId,
+        changedFiles: pulled.changed
+      });
+    }
+  } catch (error) {
+    await logger.warning("TimelineReview", "Could not refresh collaborative project files before opening Review.", {
+      episodeId,
+      error: String(error)
+    });
+  }
+
   const filePath = timelinePath(episodeId);
   try {
     return await readJsonFile<TimelineDraft>(filePath);
@@ -80,6 +96,7 @@ export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft)
     if (collaboration.activeEditor && collaboration.activeEditor.memberId !== collaboration.self.memberId) {
       throw new Error(`${collaboration.activeEditor.displayName} is editing this episode right now. Your local changes were not written over their timeline.`);
     }
+    await assertProjectRevisionCurrent(episodeId);
   }
 
   const filePath = timelinePath(episodeId);
@@ -110,9 +127,23 @@ export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft)
     await temporaryHandle?.close().catch(() => undefined);
     await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
   }
+
+  if (remoteConfig.apiUrl) {
+    try {
+      await pushProjectChanges(episodeId);
+    } catch (error) {
+      await logger.warning("TimelineReview", "Timeline is safe locally but automatic cloud project sync failed.", {
+        episodeId,
+        error: String(error)
+      });
+      throw new Error("Your edit was saved safely on this computer, but Cloudflare sync did not finish. Retry Save before handing the episode to the other editor.", { cause: error });
+    }
+  }
+
   await logger.info("TimelineReview", "Saved local draft timeline.", {
     episodeId,
-    collaborationEditor: collaboration?.self.displayName
+    collaborationEditor: collaboration?.self.displayName,
+    automaticCloudSync: Boolean(remoteConfig.apiUrl)
   });
   return nextDraft;
 }
