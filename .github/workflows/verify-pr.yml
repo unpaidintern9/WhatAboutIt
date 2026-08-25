@@ -4,8 +4,10 @@ on:
   pull_request:
     paths:
       - "app/**"
+      - "cloudflare/collab/**"
       - "docs/**"
       - ".github/workflows/verify-pr.yml"
+      - ".github/workflows/deploy-whataboutit-collab.yml"
   workflow_dispatch:
 
 permissions:
@@ -28,3 +30,17 @@ jobs:
       - run: npm ci
       - run: npm run verify
       - run: npm run build
+
+  verify-cloudflare-collaboration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: cloudflare/collab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npm run check
