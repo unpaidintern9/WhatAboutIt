@@ -78,11 +78,38 @@ jobs:
           test -n "$WHATABOUTIT_COLLAB_ACCESS_KEY" || { echo "Missing WHATABOUTIT_COLLAB_ACCESS_KEY"; exit 1; }
           printf '%s' "$WHATABOUTIT_COLLAB_ACCESS_KEY" | npx wrangler secret put WHATABOUTIT_COLLAB_ACCESS_KEY
 
-      - name: Verify deployed Worker
+      - name: Discover collaboration service URL
+        id: service
         shell: bash
         run: |
           set -euo pipefail
+          RESPONSE="$(curl -fsS \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -H "Content-Type: application/json" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain")"
+          SUBDOMAIN="$(printf '%s' "$RESPONSE" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);if(!j.success||!j.result?.subdomain)process.exit(2);process.stdout.write(j.result.subdomain)})")"
+          SERVICE_URL="https://$WHATABOUTIT_WORKER.$SUBDOMAIN.workers.dev"
+          echo "url=$SERVICE_URL" >> "$GITHUB_OUTPUT"
+          {
+            echo "## What About It collaboration deployed"
+            echo ""
+            echo "- Worker: \`$WHATABOUTIT_WORKER\`"
+            echo "- R2 bucket: \`$WHATABOUTIT_BUCKET\`"
+            echo "- Collaboration service URL: \`$SERVICE_URL\`"
+            echo ""
+            echo "Use this URL in What About It → Collaboration → Live Edit Control on Morgan and Susan's computers."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify deployed Worker
+        shell: bash
+        env:
+          SERVICE_URL: ${{ steps.service.outputs.url }}
+          WHATABOUTIT_COLLAB_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          curl -fsS "$SERVICE_URL/health" >/dev/null
           echo "WhatAboutIt Cloudflare deployment completed."
           echo "Worker: $WHATABOUTIT_WORKER"
           echo "R2 bucket: $WHATABOUTIT_BUCKET"
+          echo "Service URL: $SERVICE_URL"
           echo "Account is sourced only from WHATABOUTIT_CLOUDFLARE_ACCOUNT_ID."
