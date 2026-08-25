@@ -101,3 +101,21 @@ contextBridge.exposeInMainWorld("studio", {
     return () => ipcRenderer.removeListener("app:update-status", handler);
   }
 });
+
+function ensureReviewCollaborationButton() {
+  const actions = document.querySelector<HTMLElement>(".timeline-review .edit-studio-actions");
+  if (!actions || actions.querySelector("[data-collaboration-launcher]")) return;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.collaborationLauncher = "true";
+  button.textContent = "Collaborate / Sync";
+  button.title = "Open episode collaboration, comments, file manifest, and cloud upload";
+  button.addEventListener("click", () => void ipcRenderer.invoke("collaboration:open-center"));
+  actions.prepend(button);
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  ensureReviewCollaborationButton();
+  const observer = new MutationObserver(() => ensureReviewCollaborationButton());
+  observer.observe(document.documentElement, { childList: true, subtree: true });
+});
