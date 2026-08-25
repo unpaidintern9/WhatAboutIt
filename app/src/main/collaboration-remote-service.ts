@@ -1,7 +1,7 @@
 import { app } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { CollaborationPersonId, CollaborationPresenceSnapshot, CollaborationRemoteState } from "../shared/collaboration-presence";
+import type { CollaborationPersonId, CollaborationPresenceMode, CollaborationPresenceSnapshot, CollaborationRemoteState } from "../shared/collaboration-presence";
 import { collaborationPeople } from "../shared/collaboration-presence";
 
 type RemoteConfig = {
@@ -70,7 +70,7 @@ function snapshotFromState(episodeId: string, personId: CollaborationPersonId, s
   const now = Date.now();
   const people = (Object.values(collaborationPeople) as Array<(typeof collaborationPeople)[CollaborationPersonId]>).map((person) => {
     const entry = state.presence?.[person.memberId];
-    const mode = entry && entry.expiresAt > now ? entry.mode : "offline";
+    const mode: CollaborationPresenceMode = entry && entry.expiresAt > now ? entry.mode : "offline";
     return { ...person, mode, lastSeenAt: entry?.lastSeenAt };
   });
   return {
@@ -94,7 +94,7 @@ export async function getCollaborationPresence(episodeId: string): Promise<Colla
       episodeId,
       self,
       activeEditor: null,
-      people: Object.values(collaborationPeople).map((person) => ({ ...person, mode: "offline" })),
+      people: Object.values(collaborationPeople).map((person) => ({ ...person, mode: "offline" as const })),
       canEdit: true,
       error: "Collaboration service is not configured yet."
     };
@@ -109,7 +109,7 @@ export async function getCollaborationPresence(episodeId: string): Promise<Colla
       episodeId,
       self,
       activeEditor: null,
-      people: Object.values(collaborationPeople).map((person) => ({ ...person, mode: "offline" })),
+      people: Object.values(collaborationPeople).map((person) => ({ ...person, mode: "offline" as const })),
       canEdit: false,
       error: error instanceof Error ? error.message : "Collaboration service unavailable."
     };
