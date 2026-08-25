@@ -41,6 +41,11 @@ function episodeAssetKey(episodeId, relativePath) {
   return `episodes/${episodeId}/${cleaned}`;
 }
 
+function temporaryStorageFailure(error, cors) {
+  console.error("WhatAboutIt collaboration storage operation failed", error);
+  return json({ error: "Cloud storage is temporarily unavailable. The app can retry this upload safely." }, 503, cors);
+}
+
 function normalizeState(state) {
   const now = Date.now();
   const presence = Object.fromEntries(
@@ -309,6 +314,68 @@ export default {
       } catch (error) {
         return json({ error: error.message }, 400, cors);
       }
+      const multipartAction = url.searchParams.get("multipart");
+      if (multipartAction === "create" && request.method === "POST") {
+        try {
+          const upload = await env.EPISODE_MEDIA.createMultipartUpload(key, {
+            httpMetadata: { contentType: request.headers.get("content-type") || "application/octet-stream" },
+            customMetadata: {
+              sha256: request.headers.get("x-content-sha256") || "",
+              uploadedAt: new Date().toISOString()
+            }
+          });
+          return json({ key: upload.key, uploadId: upload.uploadId }, 200, cors);
+        } catch (error) {
+          return temporaryStorageFailure(error, cors);
+        }
+      }
+      if (multipartAction === "part" && request.method === "PUT") {
+        const uploadId = url.searchParams.get("uploadId");
+        const partNumber = Number(url.searchParams.get("partNumber"));
+        if (!uploadId || uploadId.length > 1024 || !Number.isInteger(partNumber) || partNumber < 1 || partNumber > 10_000) {
+          return json({ error: "A valid multipart upload id and part number are required." }, 400, cors);
+        }
+        if (!request.body) return json({ error: "Upload part body is required." }, 400, cors);
+        try {
+          const upload = env.EPISODE_MEDIA.resumeMultipartUpload(key, uploadId);
+          const part = await upload.uploadPart(partNumber, request.body);
+          return json({ partNumber: part.partNumber, etag: part.etag }, 200, cors);
+        } catch (error) {
+          return temporaryStorageFailure(error, cors);
+        }
+      }
+      if (multipartAction === "complete" && request.method === "POST") {
+        const uploadId = url.searchParams.get("uploadId");
+        if (!uploadId || uploadId.length > 1024) return json({ error: "A valid multipart upload id is required." }, 400, cors);
+        let parts;
+        try {
+          const input = await request.json();
+          parts = Array.isArray(input?.parts) ? input.parts : [];
+          if (!parts.length || parts.some((part) => !Number.isInteger(part?.partNumber) || part.partNumber < 1 || part.partNumber > 10_000 || typeof part.etag !== "string" || !part.etag)) {
+            return json({ error: "Valid uploaded part receipts are required." }, 400, cors);
+          }
+        } catch {
+          return json({ error: "Multipart completion body must be valid JSON." }, 400, cors);
+        }
+        try {
+          const upload = env.EPISODE_MEDIA.resumeMultipartUpload(key, uploadId);
+          const object = await upload.complete(parts);
+          return json({ ok: true, key, etag: object.httpEtag }, 200, cors);
+        } catch (error) {
+          return temporaryStorageFailure(error, cors);
+        }
+      }
+      if (multipartAction === "abort" && request.method === "DELETE") {
+        const uploadId = url.searchParams.get("uploadId");
+        if (!uploadId || uploadId.length > 1024) return json({ error: "A valid multipart upload id is required." }, 400, cors);
+        try {
+          const upload = env.EPISODE_MEDIA.resumeMultipartUpload(key, uploadId);
+          await upload.abort();
+          return json({ ok: true, key }, 200, cors);
+        } catch (error) {
+          return temporaryStorageFailure(error, cors);
+        }
+      }
       if (request.method === "HEAD") {
         const object = await env.EPISODE_MEDIA.head(key);
         if (!object) return new Response(null, { status: 404, headers: cors });
@@ -319,14 +386,18 @@ export default {
         return new Response(null, { status: 200, headers });
       }
       if (request.method === "PUT") {
-        await env.EPISODE_MEDIA.put(key, request.body, {
-          httpMetadata: { contentType: request.headers.get("content-type") || "application/octet-stream" },
-          customMetadata: {
-            sha256: request.headers.get("x-content-sha256") || "",
-            uploadedAt: new Date().toISOString()
-          }
-        });
-        return json({ ok: true, key }, 200, cors);
+        try {
+          await env.EPISODE_MEDIA.put(key, request.body, {
+            httpMetadata: { contentType: request.headers.get("content-type") || "application/octet-stream" },
+            customMetadata: {
+              sha256: request.headers.get("x-content-sha256") || "",
+              uploadedAt: new Date().toISOString()
+            }
+          });
+          return json({ ok: true, key }, 200, cors);
+        } catch (error) {
+          return temporaryStorageFailure(error, cors);
+        }
       }
       if (request.method === "GET") {
         const object = await env.EPISODE_MEDIA.get(key);

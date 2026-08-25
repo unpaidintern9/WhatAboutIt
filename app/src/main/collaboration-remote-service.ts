@@ -18,7 +18,9 @@ import { collaborationPeople } from "../shared/collaboration-presence";
 import type { CollaborationSyncResult, CollaborationUploadSelection } from "../shared/collaboration";
 import { shouldIncludeCollaborationAsset } from "../shared/collaboration";
 import { getEpisodesRoot } from "./config-service";
+import { uploadCollaborationAsset } from "./collaboration-asset-upload";
 import { recordCollaborationDownloadComplete, recordCollaborationUploadComplete, refreshCollaborationAssets } from "./collaboration-store";
+import { logger } from "./logger";
 
 type RemoteConfig = {
   apiUrl?: string;
@@ -254,23 +256,34 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
       skippedAssets += 1;
       continue;
     }
-    const stream = createReadStream(absolutePath);
-    const response = await apiFetch(`/episodes/${encodeURIComponent(episode.id)}/assets/${encodeURIComponent(asset.relativePath)}`, {
-      method: "PUT",
-      body: Readable.toWeb(stream) as ReadableStream,
-      headers: {
-        "content-type": contentType(asset.relativePath),
-        "x-content-sha256": asset.contentHash ?? ""
-      },
-      duplex: "half"
-    } as RequestInit & { duplex: "half" });
-    if (!response.ok) {
-      stream.destroy();
-      const body = (await response.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error || `Upload failed for ${asset.relativePath} (${response.status}).`);
+    const bytes = asset.bytes ?? (await fs.stat(absolutePath)).size;
+    await logger.info("CollaborationUpload", "Uploading episode asset.", { episodeId: episode.id, relativePath: asset.relativePath, bytes });
+    try {
+      await uploadCollaborationAsset({
+        apiFetch,
+        pathname: `/episodes/${encodeURIComponent(episode.id)}/assets/${encodeURIComponent(asset.relativePath)}`,
+        absolutePath,
+        bytes,
+        contentType: contentType(asset.relativePath),
+        contentHash: asset.contentHash,
+        onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud upload failure.", {
+          episodeId: episode.id,
+          relativePath: asset.relativePath,
+          ...event
+        })
+      });
+    } catch (error) {
+      await logger.error("CollaborationUpload", "Episode asset upload failed.", {
+        episodeId: episode.id,
+        relativePath: asset.relativePath,
+        bytes,
+        error: String(error)
+      });
+      throw new Error(`Upload failed for ${asset.relativePath}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
+    await logger.info("CollaborationUpload", "Episode asset upload completed.", { episodeId: episode.id, relativePath: asset.relativePath, bytes });
     uploadedAssets += 1;
-    uploadedBytes += asset.bytes ?? 0;
+    uploadedBytes += bytes;
   }
 
   let existingAssets = [] as CloudEpisodeManifest["assets"];

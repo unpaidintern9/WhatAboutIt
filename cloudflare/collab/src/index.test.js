@@ -10,9 +10,57 @@ class MemoryStorage {
 
 class MemoryR2 {
   objects = new Map();
+  multipartUploads = new Map();
+  nextUploadId = 1;
+  async bytes(body) {
+    if (body instanceof ReadableStream) return new Uint8Array(await new Response(body).arrayBuffer());
+    if (body instanceof ArrayBuffer) return new Uint8Array(body);
+    if (ArrayBuffer.isView(body)) return new Uint8Array(body.buffer, body.byteOffset, body.byteLength);
+    return new TextEncoder().encode(typeof body === "string" ? body : String(body ?? ""));
+  }
   async put(key, body, options = {}) {
-    const bytes = body instanceof ReadableStream ? new Uint8Array(await new Response(body).arrayBuffer()) : new TextEncoder().encode(typeof body === "string" ? body : String(body ?? ""));
+    const bytes = await this.bytes(body);
     this.objects.set(key, { bytes, httpMetadata: options.httpMetadata ?? {}, customMetadata: options.customMetadata ?? {} });
+  }
+  async createMultipartUpload(key, options = {}) {
+    const uploadId = `upload-${this.nextUploadId++}`;
+    this.multipartUploads.set(uploadId, { key, options, parts: new Map() });
+    return { key, uploadId };
+  }
+  resumeMultipartUpload(key, uploadId) {
+    const bucket = this;
+    const current = () => {
+      const upload = bucket.multipartUploads.get(uploadId);
+      if (!upload || upload.key !== key) throw new Error("Multipart upload not found.");
+      return upload;
+    };
+    return {
+      key,
+      uploadId,
+      async uploadPart(partNumber, body) {
+        const upload = current();
+        const bytes = await bucket.bytes(body);
+        const part = { partNumber, etag: `etag-${uploadId}-${partNumber}` };
+        upload.parts.set(partNumber, { ...part, bytes });
+        return part;
+      },
+      async complete(parts) {
+        const upload = current();
+        const chunks = parts.map((part) => {
+          const stored = upload.parts.get(part.partNumber);
+          if (!stored || stored.etag !== part.etag) throw new Error("Multipart receipt mismatch.");
+          return stored.bytes;
+        });
+        const size = chunks.reduce((total, bytes) => total + bytes.length, 0);
+        const bytes = new Uint8Array(size);
+        let offset = 0;
+        chunks.forEach((chunk) => { bytes.set(chunk, offset); offset += chunk.length; });
+        bucket.objects.set(key, { bytes, httpMetadata: upload.options.httpMetadata ?? {}, customMetadata: upload.options.customMetadata ?? {} });
+        bucket.multipartUploads.delete(uploadId);
+        return { httpEtag: `etag-${key}` };
+      },
+      async abort() { current(); bucket.multipartUploads.delete(uploadId); }
+    };
   }
   async get(key) {
     const entry = this.objects.get(key);
@@ -113,4 +161,42 @@ test("editor lease prevents two collaborators from editing the same episode", as
   const body = await susan.json();
   assert.equal(body.reason, "already-locked");
   assert.equal(body.activeEditor.memberId, "morgan-owner");
+});
+
+test("multipart upload assembles camera media and preserves verification metadata", async () => {
+  const env = makeEnv();
+  const pathname = "/episodes/episode-a/assets/Cameras%2Fcamera-1.webm";
+  const create = await worker.fetch(request(`${pathname}?multipart=create`, {
+    method: "POST",
+    headers: { "content-type": "video/webm", "x-content-sha256": "camera-hash" }
+  }), env);
+  assert.equal(create.status, 200);
+  const { uploadId } = await create.json();
+
+  const first = await worker.fetch(request(`${pathname}?multipart=part&uploadId=${uploadId}&partNumber=1`, { method: "PUT", body: "camera-" }), env);
+  const second = await worker.fetch(request(`${pathname}?multipart=part&uploadId=${uploadId}&partNumber=2`, { method: "PUT", body: "bytes" }), env);
+  assert.equal(first.status, 200);
+  assert.equal(second.status, 200);
+
+  const complete = await worker.fetch(request(`${pathname}?multipart=complete&uploadId=${uploadId}`, {
+    method: "POST",
+    body: JSON.stringify({ parts: [await first.json(), await second.json()] }),
+    headers: { "content-type": "application/json" }
+  }), env);
+  assert.equal(complete.status, 200);
+
+  const head = await worker.fetch(request(pathname, { method: "HEAD" }), env);
+  assert.equal(head.status, 200);
+  assert.equal(head.headers.get("content-length"), "12");
+  assert.equal(head.headers.get("x-content-sha256"), "camera-hash");
+  const downloaded = await worker.fetch(request(pathname), env);
+  assert.equal(await downloaded.text(), "camera-bytes");
+});
+
+test("storage failures return a retryable response instead of an unhandled Worker error", async () => {
+  const env = makeEnv();
+  env.EPISODE_MEDIA.put = async () => { throw new Error("temporary R2 failure"); };
+  const response = await worker.fetch(request("/episodes/episode-a/assets/Cameras%2Fcamera-1.webm", { method: "PUT", body: "camera" }), env);
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /temporarily unavailable/i);
 });
