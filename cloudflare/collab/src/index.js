@@ -4,6 +4,9 @@ const json = (value, status = 200, headers = {}) =>
     headers: { "content-type": "application/json; charset=utf-8", ...headers }
   });
 
+const PRESENCE_TTL_MS = 45_000;
+const EDITOR_LEASE_MS = 30_000;
+
 function corsHeaders(request) {
   const origin = request.headers.get("origin");
   return {
@@ -24,10 +27,27 @@ function cleanEpisodeId(value) {
   return value;
 }
 
+function cleanMember(input) {
+  const memberId = String(input?.memberId || "").trim();
+  const displayName = String(input?.displayName || "").trim();
+  if (!/^[A-Za-z0-9._-]{1,80}$/.test(memberId)) throw new Error("Invalid member id.");
+  if (!displayName || displayName.length > 120) throw new Error("Invalid display name.");
+  return { memberId, displayName };
+}
+
 function episodeAssetKey(episodeId, relativePath) {
   const cleaned = relativePath.split("/").filter(Boolean).map((part) => encodeURIComponent(part)).join("/");
   if (!cleaned) throw new Error("Asset path is required.");
   return `episodes/${episodeId}/${cleaned}`;
+}
+
+function normalizeState(state) {
+  const now = Date.now();
+  const presence = Object.fromEntries(
+    Object.entries(state.presence || {}).filter(([, entry]) => Number(entry?.expiresAt || 0) > now)
+  );
+  const activeEditor = state.activeEditor && Number(state.activeEditor.expiresAt || 0) > now ? state.activeEditor : null;
+  return { ...state, presence, activeEditor };
 }
 
 export class EpisodeCollaboration {
@@ -35,50 +55,140 @@ export class EpisodeCollaboration {
     this.ctx = ctx;
   }
 
-  async fetch(request) {
-    const url = new URL(request.url);
-    const state = (await this.ctx.storage.get("state")) || {
+  async readState() {
+    const stored = (await this.ctx.storage.get("state")) || {
       activeEditor: null,
+      presence: {},
       members: [],
       comments: [],
-      version: 1,
+      version: 2,
       updatedAt: new Date().toISOString()
     };
+    const state = normalizeState(stored);
+    if (JSON.stringify(state) !== JSON.stringify(stored)) await this.ctx.storage.put("state", state);
+    return state;
+  }
+
+  async writeState(state) {
+    const next = { ...state, version: 2, updatedAt: new Date().toISOString() };
+    await this.ctx.storage.put("state", next);
+    return next;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    let state = await this.readState();
 
     if (request.method === "GET" && url.pathname.endsWith("/state")) return json(state);
 
     if (request.method === "PUT" && url.pathname.endsWith("/state")) {
-      const next = { ...(await request.json()), updatedAt: new Date().toISOString() };
-      await this.ctx.storage.put("state", next);
+      const input = await request.json();
+      const next = await this.writeState({
+        ...state,
+        members: Array.isArray(input.members) ? input.members : state.members,
+        comments: Array.isArray(input.comments) ? input.comments : state.comments
+      });
       return json(next);
     }
 
-    if (request.method === "POST" && url.pathname.endsWith("/lock")) {
-      const input = await request.json();
-      const now = Date.now();
-      const current = state.activeEditor;
-      if (current && current.expiresAt > now && current.memberId !== input.memberId) {
-        return json({ ok: false, activeEditor: current }, 409);
+    if (request.method === "POST" && url.pathname.endsWith("/presence")) {
+      try {
+        const input = await request.json();
+        const member = cleanMember(input);
+        const now = Date.now();
+        const requestedMode = input.mode === "editing" ? "editing" : "viewing";
+        const currentEditor = state.activeEditor;
+        const actualMode = requestedMode === "editing" && currentEditor?.memberId === member.memberId ? "editing" : "viewing";
+        const presence = {
+          ...state.presence,
+          [member.memberId]: {
+            ...member,
+            mode: actualMode,
+            lastSeenAt: now,
+            expiresAt: now + PRESENCE_TTL_MS
+          }
+        };
+        state = await this.writeState({ ...state, presence });
+        return json({ ok: true, state });
+      } catch (error) {
+        return json({ error: error.message }, 400);
       }
-      const activeEditor = {
-        memberId: String(input.memberId || "unknown"),
-        displayName: String(input.displayName || "Editor"),
-        acquiredAt: now,
-        expiresAt: now + 120000
-      };
-      const next = { ...state, activeEditor, updatedAt: new Date().toISOString() };
-      await this.ctx.storage.put("state", next);
-      return json({ ok: true, activeEditor });
+    }
+
+    if (request.method === "DELETE" && url.pathname.endsWith("/presence")) {
+      const memberId = url.searchParams.get("memberId");
+      const presence = { ...state.presence };
+      if (memberId) delete presence[memberId];
+      const activeEditor = state.activeEditor?.memberId === memberId ? null : state.activeEditor;
+      state = await this.writeState({ ...state, presence, activeEditor });
+      return json({ ok: true, state });
+    }
+
+    if (request.method === "POST" && url.pathname.endsWith("/lock")) {
+      try {
+        const input = await request.json();
+        const member = cleanMember(input);
+        const now = Date.now();
+        const current = state.activeEditor;
+        if (current && current.memberId !== member.memberId) {
+          return json({ ok: false, reason: "already-locked", activeEditor: current, state }, 409);
+        }
+        const activeEditor = {
+          ...member,
+          acquiredAt: current?.memberId === member.memberId ? current.acquiredAt : now,
+          heartbeatAt: now,
+          expiresAt: now + EDITOR_LEASE_MS
+        };
+        const presence = {
+          ...state.presence,
+          [member.memberId]: {
+            ...member,
+            mode: "editing",
+            lastSeenAt: now,
+            expiresAt: now + PRESENCE_TTL_MS
+          }
+        };
+        state = await this.writeState({ ...state, activeEditor, presence });
+        return json({ ok: true, activeEditor, state });
+      } catch (error) {
+        return json({ error: error.message }, 400);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname.endsWith("/lock/heartbeat")) {
+      try {
+        const input = await request.json();
+        const member = cleanMember(input);
+        if (!state.activeEditor || state.activeEditor.memberId !== member.memberId) {
+          return json({ ok: false, reason: "not-editor", activeEditor: state.activeEditor, state }, 409);
+        }
+        const now = Date.now();
+        const activeEditor = { ...state.activeEditor, heartbeatAt: now, expiresAt: now + EDITOR_LEASE_MS };
+        const presence = {
+          ...state.presence,
+          [member.memberId]: {
+            ...member,
+            mode: "editing",
+            lastSeenAt: now,
+            expiresAt: now + PRESENCE_TTL_MS
+          }
+        };
+        state = await this.writeState({ ...state, activeEditor, presence });
+        return json({ ok: true, activeEditor, state });
+      } catch (error) {
+        return json({ error: error.message }, 400);
+      }
     }
 
     if (request.method === "DELETE" && url.pathname.endsWith("/lock")) {
       const memberId = url.searchParams.get("memberId");
       if (!state.activeEditor || !memberId || state.activeEditor.memberId === memberId) {
-        const next = { ...state, activeEditor: null, updatedAt: new Date().toISOString() };
-        await this.ctx.storage.put("state", next);
-        return json({ ok: true });
+        const presence = { ...state.presence };
+        if (memberId && presence[memberId]) presence[memberId] = { ...presence[memberId], mode: "viewing" };
+        state = await this.writeState({ ...state, activeEditor: null, presence });
+        return json({ ok: true, state });
       }
-      return json({ ok: false, activeEditor: state.activeEditor }, 409);
+      return json({ ok: false, activeEditor: state.activeEditor, state }, 409);
     }
 
     return json({ error: "Not found" }, 404);
@@ -90,7 +200,7 @@ export default {
     const url = new URL(request.url);
     const cors = corsHeaders(request);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects" }, 200, cors);
+    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true }, 200, cors);
     if (!authorized(request, env)) return json({ error: "Unauthorized" }, 401, cors);
 
     const match = url.pathname.match(/^\/episodes\/([^/]+)(\/.*)?$/);
@@ -104,7 +214,7 @@ export default {
     }
     const suffix = match[2] || "";
 
-    if (suffix === "/state" || suffix === "/lock") {
+    if (suffix === "/state" || suffix === "/presence" || suffix === "/lock" || suffix === "/lock/heartbeat") {
       const stub = env.EPISODES.getByName(episodeId);
       const response = await stub.fetch(request);
       const headers = new Headers(response.headers);
