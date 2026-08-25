@@ -84,14 +84,16 @@ async function localFileMatches(filePath: string, contentHash?: string) {
 }
 
 /**
- * Applies only project/edit metadata from Cloudflare. Camera, Program, Audio,
- * Originals and other large media remain local unless the user explicitly
- * chooses a full episode download from the cloud library.
+ * Applies only project/edit metadata from Cloudflare after this installation
+ * has established a sync marker. First-time local projects are never silently
+ * replaced; a full Review-from-Cloud materialization establishes the local copy.
  */
 export async function pullLatestProjectChanges(episodeId: string) {
-  const manifest = await getRemoteManifest(episodeId);
+  const [marker, manifest] = await Promise.all([readMarker(episodeId), getRemoteManifest(episodeId)]);
   if (!manifest) return { changed: 0, remoteUploadedAt: undefined as string | undefined };
   if (manifest.episode.id !== episodeId) throw new Error("Cloud project does not match this episode.");
+  if (!marker?.remoteUploadedAt) return { changed: 0, remoteUploadedAt: manifest.uploadedAt };
+  if (manifest.uploadedAt <= marker.remoteUploadedAt) return { changed: 0, remoteUploadedAt: manifest.uploadedAt };
 
   const root = episodeFolder(episodeId);
   const safetyStamp = new Date().toISOString().replaceAll(":", "-");
@@ -143,4 +145,10 @@ export async function pushProjectChanges(episodeId: string) {
   const manifest = await getRemoteManifest(episodeId);
   await writeMarker(episodeId, manifest?.uploadedAt);
   return result;
+}
+
+/** Called after a deliberate full cloud materialization so future project pulls are safe. */
+export async function markProjectMaterialized(episodeId: string) {
+  const manifest = await getRemoteManifest(episodeId);
+  if (manifest) await writeMarker(episodeId, manifest.uploadedAt);
 }
