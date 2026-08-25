@@ -11,8 +11,8 @@ function corsHeaders(request) {
   const origin = request.headers.get("origin");
   return {
     "access-control-allow-origin": origin || "*",
-    "access-control-allow-headers": "content-type, authorization, x-whataboutit-key",
-    "access-control-allow-methods": "GET, PUT, POST, DELETE, OPTIONS"
+    "access-control-allow-headers": "content-type, authorization, x-whataboutit-key, x-content-sha256",
+    "access-control-allow-methods": "GET, HEAD, PUT, POST, DELETE, OPTIONS"
   };
 }
 
@@ -48,6 +48,45 @@ function normalizeState(state) {
   );
   const activeEditor = state.activeEditor && Number(state.activeEditor.expiresAt || 0) > now ? state.activeEditor : null;
   return { ...state, presence, activeEditor };
+}
+
+function cloudSummary(manifest) {
+  const assets = Array.isArray(manifest?.assets) ? manifest.assets : [];
+  const episode = manifest?.episode || {};
+  return {
+    id: String(episode.id || ""),
+    title: String(episode.title || "Untitled Episode"),
+    guestName: episode.guestName || undefined,
+    description: episode.description || undefined,
+    status: String(episode.status || "draft"),
+    createdAt: String(episode.createdAt || manifest.uploadedAt || new Date(0).toISOString()),
+    updatedAt: String(episode.updatedAt || manifest.uploadedAt || new Date(0).toISOString()),
+    uploadedAt: String(manifest.uploadedAt || episode.updatedAt || new Date(0).toISOString()),
+    assetCount: assets.length,
+    totalBytes: assets.reduce((total, asset) => total + Number(asset?.bytes || 0), 0)
+  };
+}
+
+async function listCloudEpisodes(env) {
+  const summaries = [];
+  let cursor;
+  do {
+    const page = await env.EPISODE_MEDIA.list({ prefix: "episodes/", cursor, limit: 1000 });
+    const manifests = page.objects.filter((object) => object.key.endsWith("/manifest.json"));
+    for (const object of manifests) {
+      const stored = await env.EPISODE_MEDIA.get(object.key);
+      if (!stored) continue;
+      try {
+        const manifest = await stored.json();
+        const summary = cloudSummary(manifest);
+        if (summary.id) summaries.push(summary);
+      } catch {
+        // Ignore a malformed manifest rather than hiding healthy episodes.
+      }
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 export class EpisodeCollaboration {
@@ -200,8 +239,12 @@ export default {
     const url = new URL(request.url);
     const cors = corsHeaders(request);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true }, 200, cors);
+    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true }, 200, cors);
     if (!authorized(request, env)) return json({ error: "Unauthorized" }, 401, cors);
+
+    if (url.pathname === "/episodes" && request.method === "GET") {
+      return json({ episodes: await listCloudEpisodes(env) }, 200, cors);
+    }
 
     const match = url.pathname.match(/^\/episodes\/([^/]+)(\/.*)?$/);
     if (!match) return json({ error: "Not found" }, 404, cors);
@@ -226,15 +269,36 @@ export default {
       const key = `episodes/${episodeId}/manifest.json`;
       if (request.method === "GET") {
         const object = await env.EPISODE_MEDIA.get(key);
-        if (!object) return json({ episodeId, assets: [], version: 1 }, 200, cors);
+        if (!object) return json({ error: "Episode is not in the cloud library." }, 404, cors);
         const headers = new Headers(cors);
         headers.set("content-type", object.httpMetadata?.contentType || "application/json; charset=utf-8");
         return new Response(object.body, { headers });
       }
       if (request.method === "PUT") {
-        const body = await request.arrayBuffer();
-        await env.EPISODE_MEDIA.put(key, body, { httpMetadata: { contentType: "application/json" } });
-        return json({ ok: true, key }, 200, cors);
+        try {
+          const input = await request.json();
+          const episode = input?.episode || {};
+          if (cleanEpisodeId(String(episode.id || "")) !== episodeId) throw new Error("Manifest episode id does not match the route.");
+          const manifest = {
+            version: 1,
+            episode: {
+              id: episodeId,
+              title: String(episode.title || "Untitled Episode").slice(0, 300),
+              guestName: episode.guestName ? String(episode.guestName).slice(0, 300) : undefined,
+              description: episode.description ? String(episode.description).slice(0, 4000) : undefined,
+              status: String(episode.status || "draft").slice(0, 80),
+              createdAt: String(episode.createdAt || new Date().toISOString()),
+              updatedAt: String(episode.updatedAt || new Date().toISOString())
+            },
+            collaborationStatus: String(input?.collaborationStatus || "working"),
+            uploadedAt: new Date().toISOString(),
+            assets: Array.isArray(input?.assets) ? input.assets : []
+          };
+          await env.EPISODE_MEDIA.put(key, JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" } });
+          return json({ ok: true, key, manifest }, 200, cors);
+        } catch (error) {
+          return json({ error: error.message }, 400, cors);
+        }
       }
     }
 
@@ -244,6 +308,15 @@ export default {
         key = episodeAssetKey(episodeId, decodeURIComponent(suffix.slice("/assets/".length)));
       } catch (error) {
         return json({ error: error.message }, 400, cors);
+      }
+      if (request.method === "HEAD") {
+        const object = await env.EPISODE_MEDIA.head(key);
+        if (!object) return new Response(null, { status: 404, headers: cors });
+        const headers = new Headers(cors);
+        if (object.httpEtag) headers.set("etag", object.httpEtag);
+        headers.set("x-content-sha256", object.customMetadata?.sha256 || "");
+        headers.set("content-length", String(object.size || 0));
+        return new Response(null, { status: 200, headers });
       }
       if (request.method === "PUT") {
         await env.EPISODE_MEDIA.put(key, request.body, {
@@ -261,6 +334,7 @@ export default {
         const headers = new Headers(cors);
         object.writeHttpMetadata(headers);
         if (object.httpEtag) headers.set("etag", object.httpEtag);
+        headers.set("x-content-sha256", object.customMetadata?.sha256 || "");
         return new Response(object.body, { headers });
       }
       if (request.method === "DELETE") {
