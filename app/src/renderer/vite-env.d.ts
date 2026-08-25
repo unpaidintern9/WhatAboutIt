@@ -13,12 +13,19 @@ import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWin
 import type { AppUpdateStatus } from "../shared/app-update";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
 import type { MediaAccessStatus } from "../shared/media-permissions";
+import type { CloudEpisodeSummary, CollaborationSyncResult, CollaborationUploadSelection } from "../shared/collaboration";
 
 declare global {
   interface Window {
     studio: {
       listEpisodes: () => Promise<EpisodeMetadata[]>;
       createEpisode: (input: { title: string; guestName?: string; description?: string }) => Promise<EpisodeMetadata>;
+      openEpisodeFolder?: (episodeId: string) => Promise<string>;
+      openEpisodeLibraryFolder?: () => Promise<string>;
+      chooseLocalEpisodeFolder?: () => Promise<EpisodeMetadata | undefined>;
+      listCloudEpisodes?: () => Promise<CloudEpisodeSummary[]>;
+      uploadEpisodeToCloud?: (episodeId: string, selection?: CollaborationUploadSelection) => Promise<CollaborationSyncResult>;
+      downloadCloudEpisode?: (episodeId: string) => Promise<{ episode: EpisodeMetadata; sync: CollaborationSyncResult }>;
       getSettings: () => Promise<StudioSettings>;
       saveSettings: (settings: StudioSettings) => Promise<StudioSettings>;
       createRecordingSession: (input: RecordingSessionCreateInput) => Promise<RecordingSession>;
