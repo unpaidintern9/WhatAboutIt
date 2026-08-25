@@ -12,18 +12,22 @@ export class AppUpdateService {
     if (!app.isPackaged) return;
     autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
-    autoUpdater.allowPrerelease = true;
+    // What About It publishes one stable "latest" channel. This intentionally
+    // skips intermediate versions: a machine on an older build always resolves
+    // the newest release manifest and downloads that installer directly.
+    autoUpdater.allowPrerelease = false;
+    autoUpdater.channel = "latest";
     autoUpdater.on("checking-for-update", () =>
       this.publish({
         state: "checking",
-        message: "Checking GitHub for updates…"
+        message: "Checking GitHub for the newest update…"
       })
     );
     autoUpdater.on("update-available", (info) => this.handleAvailable(info));
     autoUpdater.on("update-not-available", () =>
       this.publish({
         state: "up-to-date",
-        message: "You already have the latest version."
+        message: "You already have the newest version."
       })
     );
     autoUpdater.on("download-progress", (progress) => this.handleProgress(progress));
@@ -32,7 +36,7 @@ export class AppUpdateService {
         state: "ready",
         availableVersion: info.version,
         downloadPercent: 100,
-        message: `Version ${info.version} is ready. Restart to install it.`
+        message: `Newest version ${info.version} is ready. Restart to install it.`
       })
     );
     autoUpdater.on("error", (error) => {
@@ -52,7 +56,7 @@ export class AppUpdateService {
     if (this.checkPromise) return this.checkPromise;
     this.publish({
       state: "checking",
-      message: "Checking GitHub for updates…"
+      message: "Checking GitHub for the newest update…"
     });
     this.checkPromise = autoUpdater
       .checkForUpdates()
@@ -72,7 +76,7 @@ export class AppUpdateService {
     this.publish({
       state: "downloading",
       downloadPercent: 0,
-      message: "Downloading the update…"
+      message: `Downloading newest version ${this.status.availableVersion ?? ""}…`.trim()
     });
     try {
       await autoUpdater.downloadUpdate();
@@ -92,7 +96,7 @@ export class AppUpdateService {
     this.publish({
       state: "available",
       availableVersion: info.version,
-      message: `Version ${info.version} is available from GitHub.`
+      message: `Newest version ${info.version} is available from GitHub.`
     });
   }
 
@@ -101,7 +105,7 @@ export class AppUpdateService {
     this.publish({
       state: "downloading",
       downloadPercent,
-      message: `Downloading update… ${downloadPercent}%`
+      message: `Downloading newest update… ${downloadPercent}%`
     });
   }
 
