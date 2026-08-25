@@ -39,7 +39,7 @@ jobs:
           test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing WHATABOUTIT_CLOUDFLARE_ACCOUNT_ID"; exit 1; }
           test "$WHATABOUTIT_WORKER" = "whataboutit-collab"
           test "$WHATABOUTIT_BUCKET" = "whataboutit-collab-media"
-          if grep -Rni --exclude='deploy-whataboutit-collab.yml' 'gilmer' .; then
+          if grep -Rni 'gilmer' .; then
             echo "Refusing deploy: a Gilmer reference exists inside the WhatAboutIt Cloudflare package."
             exit 1
           fi
@@ -47,11 +47,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache-dependency-path: cloudflare/collab/package-lock.json
 
       - name: Install Cloudflare tooling
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Ensure dedicated R2 bucket exists
         shell: bash
