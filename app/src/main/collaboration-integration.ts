@@ -67,6 +67,15 @@ export function configureCollaboration(preloadPath: string) {
             label: "Open Episode Collaboration",
             accelerator: "CmdOrCtrl+Shift+C",
             click: () => openCollaborationWindow(preloadPath)
+          },
+          { type: "separator" },
+          {
+            label: "Connect Cloudflare Account",
+            click: () => void connectCloudflare()
+          },
+          {
+            label: "Disconnect Cloudflare Account",
+            click: () => void disconnectCloudflare()
           }
         ]
       })
