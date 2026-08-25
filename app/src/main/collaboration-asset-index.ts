@@ -1,3 +1,4 @@
+import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
@@ -35,8 +36,13 @@ async function walk(root: string, relative = ""): Promise<string[]> {
 }
 
 async function sha256(filePath: string) {
-  const bytes = await fs.readFile(filePath);
-  return crypto.createHash("sha256").update(bytes).digest("hex");
+  return new Promise<string>((resolve, reject) => {
+    const hash = crypto.createHash("sha256");
+    const stream = createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("error", reject);
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
 }
 
 export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId: string): Promise<CollaborationAssetManifestEntry[]> {
