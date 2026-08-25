@@ -16,6 +16,10 @@ async function resolveEpisode(episodeId: string): Promise<EpisodeMetadata> {
 }
 
 export function configureCollaboration(preloadPath: string) {
+  ipcMain.handle("collaboration:open-center", () => {
+    openCollaborationWindow(preloadPath);
+    return true;
+  });
   ipcMain.handle("collaboration:get", async (_event, episodeId: string) => {
     const episode = await resolveEpisode(episodeId);
     return loadCollaborationWorkspace(episode.folderPath, episode.id, episode.title);
