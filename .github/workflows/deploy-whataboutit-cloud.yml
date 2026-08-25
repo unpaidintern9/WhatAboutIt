@@ -1,0 +1,81 @@
+name: Deploy What About It collaboration cloud
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: whataboutit-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.WHATABOUTIT_CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.WHATABOUTIT_CLOUDFLARE_ACCOUNT_ID }}
+      WHATABOUTIT_COLLABORATION_APP_KEY: ${{ secrets.WHATABOUTIT_COLLABORATION_APP_KEY }}
+    defaults:
+      run:
+        working-directory: cloudflare
+    steps:
+      - name: Checkout What About It
+        uses: actions/checkout@v4
+
+      - name: Guard What About It credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CLOUDFLARE_API_TOKEN" || { echo "Missing WHATABOUTIT_CLOUDFLARE_API_TOKEN"; exit 1; }
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || { echo "Missing WHATABOUTIT_CLOUDFLARE_ACCOUNT_ID"; exit 1; }
+          test -n "$WHATABOUTIT_COLLABORATION_APP_KEY" || { echo "Missing WHATABOUTIT_COLLABORATION_APP_KEY"; exit 1; }
+          if grep -RniE 'gilmer|advisoryterminal|gilmer-research' . ../.github/workflows/deploy-whataboutit-cloud.yml; then
+            echo "Refusing deployment because a Gilmer reference exists in the What About It cloud deployment surface."
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: cloudflare/package.json
+
+      - name: Install Wrangler
+        run: npm install --no-audit --no-fund
+
+      - name: Verify isolated Cloudflare config
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q '"name": "whataboutit-collaboration"' wrangler.jsonc
+          grep -q '"bucket_name": "whataboutit-episodes"' wrangler.jsonc
+          npm run check
+
+      - name: Ensure What About It R2 bucket exists
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! npx wrangler r2 bucket list | grep -Fq 'whataboutit-episodes'; then
+            npx wrangler r2 bucket create whataboutit-episodes
+          fi
+
+      - name: Deploy What About It Worker
+        run: npm run deploy
+
+      - name: Install collaboration app key
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf '%s' "$WHATABOUTIT_COLLABORATION_APP_KEY" | npx wrangler secret put WHATABOUTIT_COLLABORATION_APP_KEY --config wrangler.jsonc
+
+      - name: Show deployment identity
+        shell: bash
+        run: |
+          echo "Cloudflare account: ${CLOUDFLARE_ACCOUNT_ID:0:6}...${CLOUDFLARE_ACCOUNT_ID: -4}"
+          echo "Worker: whataboutit-collaboration"
+          echo "R2 bucket: whataboutit-episodes"
+          echo "Durable Object class: EpisodeSession"
