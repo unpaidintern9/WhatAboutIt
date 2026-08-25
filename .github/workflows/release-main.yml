@@ -49,7 +49,7 @@ jobs:
       - name: Build Windows installer
         shell: pwsh
         run: npx electron-builder --win nsis --publish never
-      - name: Publish and verify GitHub prerelease assets
+      - name: Publish and verify newest GitHub release assets
         shell: pwsh
         run: |
           $version = node -p "require('./package.json').version"
@@ -62,10 +62,15 @@ jobs:
           if (-not $manifest) { throw "The updater manifest release/latest.yml was not generated." }
           if ((Get-Content $manifest.FullName -Raw) -notmatch [regex]::Escape($installers[0].Name)) { throw "The updater manifest does not point to $($installers[0].Name)." }
 
-          gh release create $tag --repo "${{ github.repository }}" --title "What About It Studio $version" --notes "Automated Windows studio update $version." --prerelease --verify-tag
+          # Stable releases make GitHub's latest release endpoint authoritative.
+          # electron-updater can therefore jump directly from any older build to
+          # this newest installer instead of following intermediate prereleases.
+          gh release create $tag --repo "${{ github.repository }}" --title "What About It Studio $version" --notes "Automated Windows studio update $version." --latest --verify-tag
           gh release upload $tag $installers[0].FullName $blockMaps[0].FullName $manifest.FullName --repo "${{ github.repository }}" --clobber
 
-          $assetNames = @(gh release view $tag --repo "${{ github.repository }}" --json assets --jq '.assets[].name')
+          $release = gh release view $tag --repo "${{ github.repository }}" --json isPrerelease,isDraft,assets | ConvertFrom-Json
+          if ($release.isPrerelease -or $release.isDraft) { throw "Updater release must be a published stable release." }
+          $assetNames = @($release.assets | ForEach-Object { $_.name })
           foreach ($requiredAsset in @($installers[0].Name, $blockMaps[0].Name, $manifest.Name)) {
             if ($assetNames -notcontains $requiredAsset) { throw "Published release is missing $requiredAsset." }
           }
