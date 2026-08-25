@@ -7,6 +7,7 @@ import type { CollaborationPersonId } from "../shared/collaboration-presence";
 import { getEpisodesRoot } from "./config-service";
 import { addCollaborationComment, inviteCollaborator, loadCollaborationWorkspace, prepareCollaborationUpload, refreshCollaborationAssets, resolveCollaborationComment, setCollaborationStatus } from "./collaboration-store";
 import { acquireCollaborationEditorLease, getCollaborationPresence, getCollaborationRemoteConfig, heartbeatCollaborationEditorLease, leaveCollaborationPresence, releaseCollaborationEditorLease, sendCollaborationPresence, setCollaborationRemoteConfig } from "./collaboration-remote-service";
+import { openCollaborationPresenceWindow } from "./collaboration-presence-window";
 import { openCollaborationWindow } from "./collaboration-window";
 
 async function resolveEpisode(episodeId: string): Promise<EpisodeMetadata> {
@@ -20,6 +21,10 @@ async function resolveEpisode(episodeId: string): Promise<EpisodeMetadata> {
 export function configureCollaboration(preloadPath: string) {
   ipcMain.handle("collaboration:open-center", () => {
     openCollaborationWindow(preloadPath);
+    return true;
+  });
+  ipcMain.handle("collaboration:open-live-control", () => {
+    openCollaborationPresenceWindow(preloadPath);
     return true;
   });
   ipcMain.handle("collaboration:get", async (_event, episodeId: string) => {
@@ -92,6 +97,11 @@ export function configureCollaboration(preloadPath: string) {
             label: "Open Episode Collaboration",
             accelerator: "CmdOrCtrl+Shift+C",
             click: () => openCollaborationWindow(preloadPath)
+          },
+          {
+            label: "Live Edit Control",
+            accelerator: "CmdOrCtrl+Shift+L",
+            click: () => openCollaborationPresenceWindow(preloadPath)
           }
         ]
       })
