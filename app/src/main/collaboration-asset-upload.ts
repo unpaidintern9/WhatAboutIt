@@ -1,5 +1,4 @@
-import { createReadStream } from "node:fs";
-import { Readable } from "node:stream";
+import fs from "node:fs/promises";
 
 const DEFAULT_MULTIPART_THRESHOLD_BYTES = 64 * 1024 * 1024;
 const DEFAULT_PART_SIZE_BYTES = 16 * 1024 * 1024;
@@ -105,15 +104,26 @@ async function responseError(response: Response, fallback: string) {
   return error;
 }
 
-function streamRequest(absolutePath: string, start?: number, end?: number) {
-  const stream = createReadStream(
-    absolutePath,
-    start === undefined ? undefined : { start, end },
-  );
-  return {
-    stream,
-    body: Readable.toWeb(stream) as ReadableStream,
-  };
+async function readRequestBody(
+  absolutePath: string,
+  start?: number,
+  end?: number,
+) {
+  if (start === undefined || end === undefined)
+    return new Uint8Array(await fs.readFile(absolutePath));
+  const length = end - start + 1;
+  const handle = await fs.open(absolutePath, "r");
+  try {
+    const body = new Uint8Array(length);
+    const { bytesRead } = await handle.read(body, 0, length, start);
+    if (bytesRead !== length)
+      throw new Error(
+        `Could not read the complete upload chunk (${bytesRead}/${length} bytes).`,
+      );
+    return body;
+  } finally {
+    await handle.close();
+  }
 }
 
 async function verifiedAfterFailure(options: UploadOptions) {
@@ -139,22 +149,15 @@ async function uploadDirect(options: UploadOptions) {
   const response = await requestCollaborationWithRetry(
     "upload asset",
     async () => {
-      const { stream, body } = streamRequest(options.absolutePath);
-      try {
-        return await options.apiFetch(options.pathname, {
-          method: "PUT",
-          body,
-          headers: {
-            "content-type": options.contentType,
-            "content-length": String(options.bytes),
-            "x-content-sha256": options.contentHash ?? "",
-          },
-          duplex: "half",
-        } as RequestInit & { duplex: "half" });
-      } catch (error) {
-        stream.destroy();
-        throw error;
-      }
+      const body = await readRequestBody(options.absolutePath);
+      return options.apiFetch(options.pathname, {
+        method: "PUT",
+        body,
+        headers: {
+          "content-type": options.contentType,
+          "x-content-sha256": options.contentHash ?? "",
+        },
+      });
     },
     options,
   );
@@ -196,32 +199,20 @@ async function uploadMultipart(options: UploadOptions) {
       offset += partSize, partNumber += 1
     ) {
       const end = Math.min(offset + partSize, options.bytes) - 1;
-      const partBytes = end - offset + 1;
       const response = await requestCollaborationWithRetry(
         `upload part ${partNumber}`,
         async () => {
-          const { stream, body } = streamRequest(
-            options.absolutePath,
-            offset,
-            end,
+          const body = await readRequestBody(options.absolutePath, offset, end);
+          return options.apiFetch(
+            `${options.pathname}?multipart=part&uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`,
+            {
+              method: "PUT",
+              body,
+              headers: {
+                "content-type": "application/octet-stream",
+              },
+            },
           );
-          try {
-            return await options.apiFetch(
-              `${options.pathname}?multipart=part&uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`,
-              {
-                method: "PUT",
-                body,
-                headers: {
-                  "content-type": "application/octet-stream",
-                  "content-length": String(partBytes),
-                },
-                duplex: "half",
-              } as RequestInit & { duplex: "half" },
-            );
-          } catch (error) {
-            stream.destroy();
-            throw error;
-          }
         },
         options,
       );

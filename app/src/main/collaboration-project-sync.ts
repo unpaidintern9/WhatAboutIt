@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
+import { net } from "electron";
 import type { CloudEpisodeManifest } from "../shared/collaboration";
 import { isProjectCollaborationAsset } from "../shared/collaboration";
 import type { EpisodeMetadata } from "../shared/types";
@@ -45,7 +46,12 @@ async function apiFetch(pathname: string, init?: RequestInit) {
   if (!config.apiUrl) return undefined;
   const headers = new Headers(init?.headers);
   if (config.accessKey) headers.set("x-whataboutit-key", config.accessKey);
-  return fetch(`${config.apiUrl}${pathname}`, { ...init, headers });
+  const url = `${config.apiUrl}${pathname}`;
+  try {
+    return await net.fetch(url, { ...init, headers });
+  } catch {
+    return fetch(url, { ...init, headers });
+  }
 }
 
 async function getRemoteManifest(episodeId: string): Promise<CloudEpisodeManifest | undefined> {
