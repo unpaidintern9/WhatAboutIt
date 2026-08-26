@@ -17,7 +17,7 @@ describe("collaboration asset upload", () => {
     await fs.rm(folder, { recursive: true, force: true });
   });
 
-  it("recreates the file stream and retries a transient 502", async () => {
+  it("recreates the bounded request body and retries a transient 502", async () => {
     await fs.writeFile(filePath, Buffer.from("camera bytes"));
     let putAttempts = 0;
     const received: string[] = [];

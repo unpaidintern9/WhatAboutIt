@@ -1,4 +1,4 @@
-import { app } from "electron";
+import { app, net } from "electron";
 import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -73,7 +73,20 @@ async function apiFetch(pathname: string, init?: RequestInit): Promise<Response>
   const headers = new Headers(init?.headers);
   if (!headers.has("content-type") && init?.body) headers.set("content-type", "application/json");
   if (config.accessKey) headers.set("x-whataboutit-key", config.accessKey);
-  return fetch(`${config.apiUrl}${pathname}`, { ...init, headers });
+  const url = `${config.apiUrl}${pathname}`;
+  try {
+    return await net.fetch(url, { ...init, headers });
+  } catch (chromiumError) {
+    try {
+      return await fetch(url, { ...init, headers });
+    } catch (nodeError) {
+      const chromiumMessage = chromiumError instanceof Error ? chromiumError.message : String(chromiumError);
+      const nodeMessage = nodeError instanceof Error ? nodeError.message : String(nodeError);
+      const host = new URL(config.apiUrl).host;
+      const connection = net.isOnline() ? "Windows reports an internet connection" : "Windows reports that this computer is offline";
+      throw new Error(`Could not reach ${host}. ${connection}. Chromium: ${chromiumMessage}. Node: ${nodeMessage}.`, { cause: nodeError });
+    }
+  }
 }
 
 async function requestJson<T>(pathname: string, init?: RequestInit): Promise<T> {

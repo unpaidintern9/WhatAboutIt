@@ -61,7 +61,7 @@ import {
   updateTimelineTrackMix
 } from "../../shared/timeline";
 import { formatRecordingTime } from "../services";
-import { resumeReviewMonitor, setReviewMonitorGain } from "../services/review-audio-monitor";
+import { resumeReviewMonitor, setReviewMonitorGain, setReviewMonitorTreatment } from "../services/review-audio-monitor";
 import { TimelineCaptionPanel } from "./TimelineCaptionPanel";
 import { TimelineMediaSetup } from "./TimelineMediaSetup";
 
@@ -314,9 +314,16 @@ export function TimelineReview({
 
   useEffect(() => {
     setReviewMonitorGain(videoRef.current, masterMuted || stemMixActive ? 0 : masterVolume, audioOutputId);
-    setReviewMonitorGain(pairedAudioRef.current, masterMuted ? 0 : masterVolume, audioOutputId);
-    syncProgramAudio(playheadMs);
-  }, [audioOutputId, masterMuted, masterVolume, stemMixActive]);
+    const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
+    if (pairedTrack) setReviewMonitorTreatment(pairedAudioRef.current, pairedTrack, masterMuted ? 0 : masterVolume, audioOutputId);
+    else setReviewMonitorGain(pairedAudioRef.current, masterMuted ? 0 : masterVolume, audioOutputId);
+    syncProgramAudio(playheadMs, isPlaying && stemMixActive);
+    if (stemMixActive && !useProgramStemMix) {
+      setStemMixActive(false);
+      setAudioRouteMessage("Using recorded Program audio");
+      setReviewMonitorGain(videoRef.current, masterMuted ? 0 : masterVolume, audioOutputId);
+    }
+  }, [audioOutputId, draft.tracks, isPlaying, masterMuted, masterVolume, pairedAudio, programAudioSources, stemMixActive, useProgramStemMix]);
 
   useEffect(
     () => () => {
@@ -516,7 +523,7 @@ export function TimelineReview({
       if (!audio) continue;
       const targetSeconds = Math.max(0, (timestampMs + track.syncOffsetMs) / 1000);
       if (Math.abs(audio.currentTime - targetSeconds) > 0.12) audio.currentTime = targetSeconds;
-      setReviewMonitorGain(audio, masterMuted ? 0 : (track.volume / 100) * masterVolume, audioOutputId);
+      setReviewMonitorTreatment(audio, track, masterMuted ? 0 : masterVolume, audioOutputId);
       audio.playbackRate = playbackRate;
       if (play) void audio.play().catch(() => undefined);
     }
@@ -574,7 +581,8 @@ export function TimelineReview({
     const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
     const pairedAudioTime = Math.max(0, (timelineTime + (pairedTrack?.syncOffsetMs ?? 0)) / 1000);
     if (Math.abs(audio.currentTime - pairedAudioTime) > 0.2) audio.currentTime = pairedAudioTime;
-    setReviewMonitorGain(audio, masterMuted ? 0 : masterVolume, audioOutputId);
+    if (pairedTrack) setReviewMonitorTreatment(audio, pairedTrack, masterMuted ? 0 : masterVolume, audioOutputId);
+    else setReviewMonitorGain(audio, masterMuted ? 0 : masterVolume, audioOutputId);
     audio.playbackRate = playbackRate;
     if (play) void audio.play().catch(() => undefined);
   }
@@ -955,6 +963,7 @@ export function TimelineReview({
               <div className={`review-audio-route ${selectedVideo.audioSignal === "silent" || allRecordedMicrophonesSilent ? "needs-attention" : programMode || pairedAudio?.status === "ready" ? "ready" : "needs-attention"}`}>
                 <strong>{programMode ? audioRouteMessage : pairedAudio?.audioSignal === "silent" ? `${selectedVideo.pairedAudioLabel ?? "Paired mic"} recorded no signal` : (selectedVideo.pairedAudioLabel ?? "No paired mic")}</strong>
                 <span>{programMode ? (allRecordedMicrophonesSilent ? "This recording contains silence, so there is no audible waveform to display." : useProgramStemMix ? "Separate microphone tracks are preferred; Program audio is the automatic fallback." : "Recorded Program audio is available.") : pairedAudio?.audioSignal === "silent" ? "Choose another audio source or import replacement audio for this take." : selectedVideo.message}</span>
+                {programMode && useProgramStemMix ? <span>Live mix is on — audio control changes are heard immediately during playback.</span> : null}
               </div>
               </div>
             </div>
@@ -1518,7 +1527,7 @@ function TrackInspector({
       {(isAudio || isVideo) && (
         <div className="inspector-effect-preview">
           <button type="button" className="inspector-primary" disabled={!onRenderPreview || previewBusy} onClick={() => void onRenderPreview?.()}>
-            <Play size={16} /> {previewBusy ? "Rendering 10-second preview…" : "Preview current effects"}
+            <Play size={16} /> {previewBusy ? "Rendering 10-second preview…" : "Render final-quality preview"}
           </button>
           {preview?.kind === "audio" && <audio controls autoPlay src={preview.playbackUrl} />}
           {preview?.kind === "video" && <video controls autoPlay src={preview.playbackUrl} />}
@@ -1542,7 +1551,7 @@ function TrackInspector({
               <Gauge size={16} /> Solo
             </button>
           </div>
-          <InspectorRange label="Voice level" value={track.volume} min={0} max={150} suffix="%" onChange={(volume) => onUpdate(track, { volume })} />
+          <InspectorRange label="Voice level" value={track.volume} min={0} max={300} suffix="%" onChange={(volume) => onUpdate(track, { volume })} />
           <InspectorRange label="Left / Right" value={track.pan} min={-100} max={100} suffix={track.pan === 0 ? " Center" : track.pan < 0 ? " L" : " R"} onChange={(pan) => onUpdate(track, { pan })} />
           <label className="inspector-select">
             <span>Voice sound</span>
@@ -1565,7 +1574,7 @@ function TrackInspector({
           </label>
           <details className="editor-tool-group" open>
             <summary>Voice cleanup</summary>
-            <small>Voice cleanup, tone, fades, and output protection are rendered in the final export.</small>
+            <small>Level, pan, cleanup, tone, compression, and output protection update live during Review playback. Final export uses the full-quality render.</small>
             <InspectorRange label="Noise cleanup" value={track.noiseReduction} min={0} max={100} suffix="%" onChange={(noiseReduction) => onUpdate(track, { noiseReduction })} />
             <InspectorRange label="Noise gate" value={track.noiseGateDb} min={-80} max={-20} suffix={track.noiseGateDb === -80 ? " Off" : " dB"} onChange={(noiseGateDb) => onUpdate(track, { noiseGateDb })} />
             <InspectorRange label="De-ess" value={track.deEsser} min={0} max={100} suffix="%" onChange={(deEsser) => onUpdate(track, { deEsser })} />
