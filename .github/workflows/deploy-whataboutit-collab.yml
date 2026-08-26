@@ -108,7 +108,27 @@ jobs:
         run: |
           set -euo pipefail
           curl -fsS "$SERVICE_URL/health" >/dev/null
+          CANARY_EPISODE="deploy-canary-${GITHUB_RUN_ID}"
+          CANARY_ASSET="canary.txt"
+          CANARY_BODY="whataboutit-upload-canary-${GITHUB_RUN_ID}"
+          CANARY_HASH="$(printf '%s' "$CANARY_BODY" | sha256sum | cut -d' ' -f1)"
+          CANARY_URL="$SERVICE_URL/episodes/$CANARY_EPISODE/assets/$CANARY_ASSET"
+          cleanup_canary() {
+            curl -fsS -X DELETE -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$CANARY_URL" >/dev/null || true
+          }
+          trap cleanup_canary EXIT
+          printf '%s' "$CANARY_BODY" | curl -fsS -X PUT \
+            -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" \
+            -H "content-type: text/plain" \
+            -H "x-content-sha256: $CANARY_HASH" \
+            --data-binary @- \
+            "$CANARY_URL" >/dev/null
+          curl -fsSI -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$CANARY_URL" \
+            | tr -d '\r' \
+            | grep -Fi "x-content-sha256: $CANARY_HASH" >/dev/null
+          test "$(curl -fsS -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$CANARY_URL")" = "$CANARY_BODY"
           echo "WhatAboutIt Cloudflare deployment completed."
+          echo "Authenticated R2 upload, verification, download, and cleanup canary passed."
           echo "Worker: $WHATABOUTIT_WORKER"
           echo "R2 bucket: $WHATABOUTIT_BUCKET"
           echo "Service URL: $SERVICE_URL"

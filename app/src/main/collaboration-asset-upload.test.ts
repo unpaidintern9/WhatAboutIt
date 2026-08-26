@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { uploadCollaborationAsset } from "./collaboration-asset-upload";
+import { requestCollaborationWithRetry, uploadCollaborationAsset } from "./collaboration-asset-upload";
 
 describe("collaboration asset upload", () => {
   let folder = "";
@@ -54,6 +54,21 @@ describe("collaboration asset upload", () => {
         operation: "upload asset",
       }),
     );
+  });
+
+  it("retries preflight and manifest requests before aborting a sync", async () => {
+    const onRetry = vi.fn();
+    const responses = [503, 502, 200];
+    const response = await requestCollaborationWithRetry(
+      "read cloud episode manifest",
+      async () => new Response(null, { status: responses.shift() ?? 200 }),
+      { sleep: async () => undefined, onRetry }
+    );
+
+    expect(response.status).toBe(200);
+    expect(onRetry).toHaveBeenCalledTimes(2);
+    expect(onRetry).toHaveBeenNthCalledWith(1, expect.objectContaining({ operation: "read cloud episode manifest", status: 503, attempt: 1 }));
+    expect(onRetry).toHaveBeenNthCalledWith(2, expect.objectContaining({ operation: "read cloud episode manifest", status: 502, attempt: 2 }));
   });
 
   it("uploads long recordings in uniform multipart chunks", async () => {

@@ -6,7 +6,7 @@ const DEFAULT_PART_SIZE_BYTES = 16 * 1024 * 1024;
 const DEFAULT_MAX_ATTEMPTS = 4;
 const RETRYABLE_STATUSES = new Set([408, 425, 429, 500, 502, 503, 504]);
 
-type UploadFetch = (pathname: string, init?: RequestInit) => Promise<Response>;
+export type UploadFetch = (pathname: string, init?: RequestInit) => Promise<Response>;
 
 export type CollaborationUploadRetry = {
   operation: string;
@@ -49,7 +49,7 @@ function retryDelayMs(response: Response | undefined, attempt: number) {
   return Math.min(500 * 2 ** (attempt - 1), 4_000);
 }
 
-async function requestWithRetry(
+export async function requestCollaborationWithRetry(
   operation: string,
   makeRequest: () => Promise<Response>,
   options: Pick<UploadOptions, "maxAttempts" | "sleep" | "onRetry">,
@@ -119,7 +119,7 @@ function streamRequest(absolutePath: string, start?: number, end?: number) {
 async function verifiedAfterFailure(options: UploadOptions) {
   if (!options.contentHash) return false;
   try {
-    const response = await requestWithRetry(
+    const response = await requestCollaborationWithRetry(
       "verify uploaded asset",
       () => options.apiFetch(options.pathname, { method: "HEAD" }),
       options,
@@ -136,7 +136,7 @@ async function verifiedAfterFailure(options: UploadOptions) {
 }
 
 async function uploadDirect(options: UploadOptions) {
-  const response = await requestWithRetry(
+  const response = await requestCollaborationWithRetry(
     "upload asset",
     async () => {
       const { stream, body } = streamRequest(options.absolutePath);
@@ -162,7 +162,7 @@ async function uploadDirect(options: UploadOptions) {
 }
 
 async function uploadMultipart(options: UploadOptions) {
-  const createResponse = await requestWithRetry(
+  const createResponse = await requestCollaborationWithRetry(
     "create multipart upload",
     () =>
       options.apiFetch(`${options.pathname}?multipart=create`, {
@@ -197,7 +197,7 @@ async function uploadMultipart(options: UploadOptions) {
     ) {
       const end = Math.min(offset + partSize, options.bytes) - 1;
       const partBytes = end - offset + 1;
-      const response = await requestWithRetry(
+      const response = await requestCollaborationWithRetry(
         `upload part ${partNumber}`,
         async () => {
           const { stream, body } = streamRequest(
@@ -235,7 +235,7 @@ async function uploadMultipart(options: UploadOptions) {
       parts.push(uploaded);
     }
 
-    const completeResponse = await requestWithRetry(
+    const completeResponse = await requestCollaborationWithRetry(
       "complete multipart upload",
       () =>
         options.apiFetch(

@@ -61,6 +61,7 @@ import {
   updateTimelineTrackMix
 } from "../../shared/timeline";
 import { formatRecordingTime } from "../services";
+import { resumeReviewMonitor, setReviewMonitorGain } from "../services/review-audio-monitor";
 import { TimelineCaptionPanel } from "./TimelineCaptionPanel";
 import { TimelineMediaSetup } from "./TimelineMediaSetup";
 
@@ -139,6 +140,7 @@ export function TimelineReview({
   onCancelTranscription
 }: TimelineReviewProps) {
   const videoAssets = useMemo(() => (media ? [media.program, ...media.cameras] : []), [media]);
+  const multicamAssets = useMemo(() => (media ? [media.program, ...media.cameras] : []), [media]);
   const editableTracks = useMemo(() => draft.tracks.filter((track) => track.kind !== "markers"), [draft.tracks]);
   const [selectedVideoId, setSelectedVideoId] = useState("program");
   const [playheadMs, setPlayheadMs] = useState(draft.selection?.timestampMs ?? 0);
@@ -311,16 +313,10 @@ export function TimelineReview({
   }, [audioOutputId, selectedVideo?.playbackUrl, programAudioSources]);
 
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.volume = masterVolume;
-      videoRef.current.muted = masterMuted || stemMixActive;
-    }
-    if (pairedAudioRef.current) {
-      pairedAudioRef.current.volume = masterVolume;
-      pairedAudioRef.current.muted = masterMuted;
-    }
+    setReviewMonitorGain(videoRef.current, masterMuted || stemMixActive ? 0 : masterVolume, audioOutputId);
+    setReviewMonitorGain(pairedAudioRef.current, masterMuted ? 0 : masterVolume, audioOutputId);
     syncProgramAudio(playheadMs);
-  }, [masterMuted, masterVolume, stemMixActive]);
+  }, [audioOutputId, masterMuted, masterVolume, stemMixActive]);
 
   useEffect(
     () => () => {
@@ -442,10 +438,11 @@ export function TimelineReview({
     const nextPlayable = programMode ? getNextPlayableTimelineTime(draft, playheadMs) : playheadMs;
     if (nextPlayable === undefined) return;
     if (nextPlayable !== playheadMs) seek(nextPlayable);
+    setReviewMonitorGain(video, 0, audioOutputId);
+    resumeReviewMonitor();
     let useStems = false;
     if (useProgramStemMix) useStems = await startProgramStemMix(nextPlayable);
-    video.muted = masterMuted || useStems;
-    video.volume = masterVolume;
+    setReviewMonitorGain(video, masterMuted || useStems ? 0 : masterVolume, audioOutputId);
     try {
       await video.play();
       syncPreviewVideos(nextPlayable, true);
@@ -502,10 +499,10 @@ export function TimelineReview({
   }
 
   function syncMulticamAngles(timestampMs: number, play = false) {
-    for (const camera of media?.cameras ?? []) {
-      const video = multicamVideoRefs.current.get(camera.id);
+    for (const asset of multicamAssets) {
+      const video = multicamVideoRefs.current.get(asset.id);
       if (!video) continue;
-      const track = draft.tracks.find((candidate) => candidate.sourceAssetId === camera.id);
+      const track = draft.tracks.find((candidate) => candidate.sourceAssetId === asset.id);
       const targetSeconds = Math.max(0, (timestampMs + (track?.syncOffsetMs ?? 0)) / 1000);
       if (Math.abs(video.currentTime - targetSeconds) > 0.18) video.currentTime = targetSeconds;
       video.playbackRate = playbackRate;
@@ -519,8 +516,7 @@ export function TimelineReview({
       if (!audio) continue;
       const targetSeconds = Math.max(0, (timestampMs + track.syncOffsetMs) / 1000);
       if (Math.abs(audio.currentTime - targetSeconds) > 0.12) audio.currentTime = targetSeconds;
-      audio.volume = Math.max(0, Math.min(1, (track.volume / 100) * masterVolume));
-      audio.muted = masterMuted;
+      setReviewMonitorGain(audio, masterMuted ? 0 : (track.volume / 100) * masterVolume, audioOutputId);
       audio.playbackRate = playbackRate;
       if (play) void audio.play().catch(() => undefined);
     }
@@ -535,8 +531,7 @@ export function TimelineReview({
         video.currentTime = Math.min(targetSeconds, Number.isFinite(video.duration) ? video.duration : targetSeconds);
       }
       video.playbackRate = playbackRate;
-      video.volume = masterVolume;
-      video.muted = masterMuted || stemMixActive || assetId !== activeAssetId;
+      setReviewMonitorGain(video, masterMuted || stemMixActive || assetId !== activeAssetId ? 0 : masterVolume, audioOutputId);
       const shouldPlay = assetId === activeAssetId || assetId === outgoingPreviewAssetId;
       if (play && shouldPlay) void video.play().catch(() => undefined);
       else if (!shouldPlay && !video.paused) video.pause();
@@ -579,8 +574,7 @@ export function TimelineReview({
     const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
     const pairedAudioTime = Math.max(0, (timelineTime + (pairedTrack?.syncOffsetMs ?? 0)) / 1000);
     if (Math.abs(audio.currentTime - pairedAudioTime) > 0.2) audio.currentTime = pairedAudioTime;
-    audio.volume = masterVolume;
-    audio.muted = masterMuted;
+    setReviewMonitorGain(audio, masterMuted ? 0 : masterVolume, audioOutputId);
     audio.playbackRate = playbackRate;
     if (play) void audio.play().catch(() => undefined);
   }
@@ -831,17 +825,25 @@ export function TimelineReview({
           </div>
           {showMulticam ? (
             <div className="multicam-grid" aria-label="Multicamera angles">
-              {media?.cameras.map((camera) => {
+              {multicamAssets.map((camera) => {
+                const isProgramTile = camera.kind === "program";
                 const cameraTrack = draft.tracks.find((track) => track.kind === "camera" && track.sourceAssetId === camera.id);
                 const isActive = cameraTrack?.id === activeCameraTrackId;
                 const readyCameraIndex = cameraTrack ? readyCameraTracks.findIndex((track) => track.id === cameraTrack.id) : -1;
                 return (
                   <button
                     type="button"
-                    className={isActive ? "active" : ""}
-                    disabled={camera.status !== "ready" || !camera.playbackUrl || !cameraTrack}
-                    onClick={() => cameraTrack && cutToCamera(cameraTrack, `${cameraTrack.label} selected from Multicam view`)}
-                    title={camera.status === "ready" && readyCameraIndex >= 0 ? `Cut to ${camera.label} (shortcut ${readyCameraIndex + 1})` : camera.message}
+                    className={`${isProgramTile ? "program" : ""} ${isActive ? "active" : ""}`.trim()}
+                    disabled={camera.status !== "ready" || !camera.playbackUrl || (!isProgramTile && !cameraTrack)}
+                    onClick={() => {
+                      if (isProgramTile) {
+                        setSelectedVideoId("program");
+                        setShowMulticam(false);
+                      } else if (cameraTrack) {
+                        cutToCamera(cameraTrack, `${cameraTrack.label} selected from Multicam view`);
+                      }
+                    }}
+                    title={isProgramTile ? "Return to the edited Program" : camera.status === "ready" && readyCameraIndex >= 0 ? `Cut to ${camera.label} (shortcut ${readyCameraIndex + 1})` : camera.message}
                     key={camera.id}
                   >
                     {camera.status === "ready" && camera.playbackUrl ? (
@@ -863,7 +865,7 @@ export function TimelineReview({
                       <span className="multicam-missing">Not recorded</span>
                     )}
                     <strong>
-                      {readyCameraIndex >= 0 ? <kbd>{readyCameraIndex + 1}</kbd> : null} {camera.label}
+                      {isProgramTile ? <span className="multicam-program-badge">PROGRAM</span> : readyCameraIndex >= 0 ? <kbd>{readyCameraIndex + 1}</kbd> : null} {camera.label}
                     </strong>
                   </button>
                 );
@@ -977,7 +979,8 @@ export function TimelineReview({
             <button type="button" onClick={() => setMasterMuted((current) => !current)} title={masterMuted ? "Unmute preview" : "Mute preview"} aria-label={masterMuted ? "Unmute preview" : "Mute preview"}>
               {masterMuted ? <VolumeX size={17} /> : <Volume2 size={17} />}
             </button>
-            <input className="transport-volume" aria-label="Preview volume" type="range" min="0" max="1" step="0.05" value={masterVolume} onChange={(event) => setMasterVolume(Number(event.target.value))} />
+            <input className="transport-volume" aria-label="Live monitor gain" aria-valuetext={`${Math.round(masterVolume * 100)}% monitor gain`} title="Live monitor gain — boost quiet recordings without changing the saved mix" type="range" min="0" max="3" step="0.05" value={masterVolume} onChange={(event) => setMasterVolume(Number(event.target.value))} />
+            <strong className="transport-gain-value">{Math.round(masterVolume * 100)}%</strong>
             <label className="edit-playback-speed">
               <span className="sr-only">Speed</span>
               <select aria-label="Playback speed" value={playbackRate} onChange={(event) => setPlaybackRate(Number(event.target.value))}>
@@ -1599,7 +1602,7 @@ function TrackInspector({
           </div>
           <details className="editor-tool-group" open>
             <summary>Frame and position</summary>
-            <InspectorRange label="Zoom" value={track.zoom} min={100} max={160} suffix="%" onChange={(zoom) => onUpdate(track, { zoom })} />
+            <InspectorRange label="Zoom" value={track.zoom} min={100} max={400} suffix="%" onChange={(zoom) => onUpdate(track, { zoom })} />
             <InspectorRange label="Horizontal" value={track.positionX} min={-100} max={100} onChange={(positionX) => onUpdate(track, { positionX })} />
             <InspectorRange label="Vertical" value={track.positionY} min={-100} max={100} onChange={(positionY) => onUpdate(track, { positionY })} />
           </details>

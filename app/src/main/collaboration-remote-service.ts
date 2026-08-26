@@ -18,7 +18,7 @@ import { collaborationPeople } from "../shared/collaboration-presence";
 import type { CollaborationSyncResult, CollaborationUploadSelection } from "../shared/collaboration";
 import { shouldIncludeCollaborationAsset } from "../shared/collaboration";
 import { getEpisodesRoot } from "./config-service";
-import { uploadCollaborationAsset } from "./collaboration-asset-upload";
+import { requestCollaborationWithRetry, uploadCollaborationAsset } from "./collaboration-asset-upload";
 import { recordCollaborationDownloadComplete, recordCollaborationUploadComplete, refreshCollaborationAssets } from "./collaboration-store";
 import { logger } from "./logger";
 
@@ -235,7 +235,13 @@ function safeLocalAssetPath(episodeFolder: string, relativePath: string) {
 
 async function remoteAssetMatches(episodeId: string, relativePath: string, contentHash?: string) {
   if (!contentHash) return false;
-  const response = await apiFetch(`/episodes/${encodeURIComponent(episodeId)}/assets/${encodeURIComponent(relativePath)}`, { method: "HEAD" });
+  const response = await requestCollaborationWithRetry(
+    `check ${relativePath}`,
+    () => apiFetch(`/episodes/${encodeURIComponent(episodeId)}/assets/${encodeURIComponent(relativePath)}`, { method: "HEAD" }),
+    {
+      onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud preflight failure.", { episodeId, relativePath, ...event })
+    }
+  );
   if (response.status === 404) return false;
   if (!response.ok) throw new Error(`Could not check cloud asset ${relativePath} (${response.status}).`);
   return response.headers.get("x-content-sha256") === contentHash;
@@ -287,7 +293,13 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
   }
 
   let existingAssets = [] as CloudEpisodeManifest["assets"];
-  const existingResponse = await apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`);
+  const existingResponse = await requestCollaborationWithRetry(
+    "read cloud episode manifest",
+    () => apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`),
+    {
+      onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest read failure.", { episodeId: episode.id, ...event })
+    }
+  );
   if (existingResponse.ok) {
     const existing = (await existingResponse.json()) as CloudEpisodeManifest;
     existingAssets = Array.isArray(existing.assets) ? existing.assets : [];
@@ -311,7 +323,17 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
     uploadedAt: new Date().toISOString(),
     assets: [...mergedByPath.values()].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
   };
-  await requestRemote(episode.id, "/manifest", { method: "PUT", body: JSON.stringify(manifest) });
+  const manifestResponse = await requestCollaborationWithRetry(
+    "save cloud episode manifest",
+    () => apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`, { method: "PUT", body: JSON.stringify(manifest) }),
+    {
+      onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest save failure.", { episodeId: episode.id, ...event })
+    }
+  );
+  if (!manifestResponse.ok) {
+    const body = (await manifestResponse.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Could not save the cloud episode manifest (${manifestResponse.status}).`);
+  }
   await recordCollaborationUploadComplete(episode.folderPath, episode.id, episode.title, selectedAssets.map((asset) => asset.id));
 
   return {
