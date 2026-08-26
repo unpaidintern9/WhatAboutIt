@@ -260,6 +260,30 @@ describe("TimelineReview", () => {
     expect(markup).toContain('aria-label="Zoom to selected range"');
     expect(markup).toContain('max="12"');
     expect(markup).toContain('aria-valuetext="100% zoom, 00:30:00 visible"');
+    expect(markup).toContain('aria-label="Live monitor gain"');
+    expect(markup).toContain('aria-valuetext="100% monitor gain"');
+  });
+
+  it("shows Program and all three camera slots in the four-up Multicam view", () => {
+    const draft = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a", camera2: "camera-b", camera3: "camera-c" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 });
+    const onDraftChange = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(<TimelineReview draft={draft} media={media} onDraftChange={onDraftChange} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+    });
+
+    act(() => (host.querySelector('.monitor-view-switch button:nth-child(2)') as HTMLButtonElement).click());
+
+    const multiview = host.querySelector('[aria-label="Multicamera angles"]') as HTMLDivElement;
+    expect(multiview.querySelectorAll(":scope > button")).toHaveLength(4);
+    expect(multiview.textContent).toContain("PROGRAM");
+    expect(multiview.textContent).toContain("Camera 1");
+    expect(multiview.textContent).toContain("Camera 2");
+    expect(multiview.textContent).toContain("Camera 3");
+    act(() => root.unmount());
+    host.remove();
   });
 
   it("adds an export-backed Camera 2 cut from the visible Program switcher", () => {
@@ -375,6 +399,7 @@ describe("TimelineReview", () => {
 
     expect(markup).toContain("Frame and position");
     expect(markup).toContain("Zoom");
+    expect(markup).toContain('max="400"');
     expect(markup).toContain("Camera finishing");
     expect(markup).toContain("Temperature");
     expect(markup).toContain("Video denoise");

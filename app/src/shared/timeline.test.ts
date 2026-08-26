@@ -63,6 +63,15 @@ describe("timeline draft", () => {
     ]);
   });
 
+  it("supports close camera crops up to 400 percent", () => {
+    const draft = createTimelineDraft({ deviceDefaults });
+    const closeCrop = updateTimelineTrackMix(draft, "camera-camera1", { zoom: 350 });
+    const boundedCrop = updateTimelineTrackMix(closeCrop, "camera-camera1", { zoom: 900 });
+
+    expect(closeCrop.tracks.find((track) => track.id === "camera-camera1")?.zoom).toBe(350);
+    expect(boundedCrop.tracks.find((track) => track.id === "camera-camera1")?.zoom).toBe(400);
+  });
+
   it("applies recorded source start offsets once without overwriting a later manual sync choice", () => {
     const base = createTimelineDraft({ deviceDefaults });
     const media = {
@@ -253,7 +262,7 @@ describe("timeline draft", () => {
       tint: 100,
       sharpness: 100,
       denoise: 34,
-      zoom: 160,
+      zoom: 200,
       positionX: -100,
       positionY: 100
     });

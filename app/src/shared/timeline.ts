@@ -498,7 +498,7 @@ export function updateTimelineTrackMix(
             tint: patch.tint === undefined ? track.tint : Math.max(-100, Math.min(100, patch.tint)),
             sharpness: patch.sharpness === undefined ? track.sharpness : Math.max(0, Math.min(100, patch.sharpness)),
             denoise: patch.denoise === undefined ? track.denoise : Math.max(0, Math.min(100, patch.denoise)),
-            zoom: patch.zoom === undefined ? track.zoom : Math.max(100, Math.min(160, patch.zoom)),
+            zoom: patch.zoom === undefined ? track.zoom : Math.max(100, Math.min(400, patch.zoom)),
             positionX: patch.positionX === undefined ? track.positionX : Math.max(-100, Math.min(100, patch.positionX)),
             positionY: patch.positionY === undefined ? track.positionY : Math.max(-100, Math.min(100, patch.positionY))
           }
