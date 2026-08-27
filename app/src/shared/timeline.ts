@@ -580,7 +580,7 @@ export function updateTimelineTrackMix(
             // Review and export both support up to 3x source gain. Keep the
             // persisted value on the same contract so a live adjustment is
             // neither silently reduced nor different after reopening.
-            volume: patch.volume === undefined ? track.volume : Math.max(0, Math.min(300, patch.volume)),
+            volume: patch.volume === undefined ? track.volume : Math.max(0, Math.min(600, patch.volume)),
             pan: patch.pan === undefined ? track.pan : Math.max(-100, Math.min(100, patch.pan)),
             fadeInMs: patch.fadeInMs === undefined ? track.fadeInMs : Math.max(0, Math.min(10000, patch.fadeInMs)),
             fadeOutMs: patch.fadeOutMs === undefined ? track.fadeOutMs : Math.max(0, Math.min(10000, patch.fadeOutMs)),

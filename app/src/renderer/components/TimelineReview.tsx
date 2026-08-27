@@ -68,7 +68,7 @@ import {
 } from "../../shared/timeline";
 import { formatRecordingTime } from "../services";
 import { resumeReviewMonitor, setReviewMonitorGain, setReviewMonitorTreatment } from "../services/review-audio-monitor";
-import { startReviewVideoCompositor } from "../services/review-video-compositor";
+import { needsReviewVideoCompositor, startReviewVideoCompositor } from "../services/review-video-compositor";
 import { TimelineCaptionPanel } from "./TimelineCaptionPanel";
 import { TimelineMediaSetup } from "./TimelineMediaSetup";
 
@@ -175,6 +175,7 @@ export function TimelineReview({
   const multicamVideoRefs = useRef(new Map<string, HTMLVideoElement>());
   const timelineViewportRef = useRef<HTMLDivElement>(null);
   const resumePlaybackRef = useRef(false);
+  const pendingPreviewSeekMsRef = useRef<number | undefined>(undefined);
   const boundarySyncRef = useRef<() => void>(() => undefined);
   const programMode = selectedVideoId === "program";
   const realtimeProgramPreview = useMemo(
@@ -283,21 +284,24 @@ export function TimelineReview({
 
   useEffect(() => {
     const stops: Array<() => void> = [];
-    for (const asset of videoAssets) {
+    const compositedAssetIds = new Set([selectedVideo?.id, outgoingPreviewAssetId].filter((id): id is string => Boolean(id)));
+    for (const asset of videoAssets.filter((candidate) => compositedAssetIds.has(candidate.id))) {
       const video = previewVideoRefs.current.get(asset.id);
       const canvas = previewCanvasRefs.current.get(asset.id);
       if (!video || !canvas) continue;
       const track = draft.tracks.find((candidate) => candidate.sourceAssetId === asset.id);
+      if (!needsReviewVideoCompositor(track)) continue;
       stops.push(startReviewVideoCompositor(canvas, video, track));
     }
     return () => stops.forEach((stop) => stop());
-  }, [draft.tracks, videoAssets]);
+  }, [draft.tracks, outgoingPreviewAssetId, selectedVideo?.id, videoAssets]);
 
   useEffect(() => {
     const nextVideo = selectedVideo?.id ? previewVideoRefs.current.get(selectedVideo.id) : undefined;
     if (!nextVideo) return;
     const previousVideo = videoRef.current;
     const shouldResume = isPlaying || Boolean(previousVideo && !previousVideo.paused);
+    pendingPreviewSeekMsRef.current = playheadMs;
     videoRef.current = nextVideo;
     syncPreviewVideos(playheadMs, shouldResume);
   }, [selectedVideo?.id, outgoingPreviewAssetId]);
@@ -576,6 +580,12 @@ export function TimelineReview({
   function syncPreviewVideos(timestampMs: number, play = false) {
     const activeAssetId = selectedVideo?.id;
     for (const [assetId, video] of previewVideoRefs.current) {
+      const shouldPlay = assetId === activeAssetId || assetId === outgoingPreviewAssetId;
+      if (!shouldPlay) {
+        if (!video.paused) video.pause();
+        setReviewMonitorGain(video, 0, audioOutputId);
+        continue;
+      }
       const track = draft.tracks.find((candidate) => candidate.sourceAssetId === assetId);
       const targetSeconds = Math.max(0, (timestampMs + (track?.syncOffsetMs ?? 0)) / 1000);
       if (video.readyState >= 1 && Math.abs(video.currentTime - targetSeconds) > 0.08) {
@@ -583,7 +593,6 @@ export function TimelineReview({
       }
       video.playbackRate = playbackRate;
       setReviewMonitorGain(video, masterMuted || stemMixActive || assetId !== activeAssetId ? 0 : masterVolume, audioOutputId);
-      const shouldPlay = assetId === activeAssetId || assetId === outgoingPreviewAssetId;
       if (play && shouldPlay) void video.play().catch(() => undefined);
       else if (!shouldPlay && !video.paused) video.pause();
     }
@@ -948,7 +957,7 @@ export function TimelineReview({
                     <video
                       className={`realtime-preview-layer ${isActive ? "active" : asset.id === outgoingPreviewAssetId ? "outgoing" : "standby"}`}
                       ref={getPreviewVideoRef(asset.id)}
-                      preload="auto"
+                      preload={isActive || asset.id === outgoingPreviewAssetId ? "auto" : "metadata"}
                       src={asset.playbackUrl}
                       poster={asset.posterUrl}
                       muted={masterMuted || stemMixActive || !isActive}
@@ -956,7 +965,8 @@ export function TimelineReview({
                       aria-hidden={!isActive}
                       aria-label={isActive ? `${programMode ? "Edited Program" : asset.label} playback` : undefined}
                       onLoadedMetadata={(event) => {
-                        const sourceTime = Math.max(0, (playheadMs + (track?.syncOffsetMs ?? 0)) / 1000);
+                        const preservedPlayheadMs = pendingPreviewSeekMsRef.current ?? playheadMs;
+                        const sourceTime = Math.max(0, (preservedPlayheadMs + (track?.syncOffsetMs ?? 0)) / 1000);
                         event.currentTarget.currentTime = Math.min(sourceTime, Number.isFinite(event.currentTarget.duration) ? event.currentTarget.duration : sourceTime);
                         if (!isActive) return;
                         videoRef.current = event.currentTarget;
@@ -986,8 +996,12 @@ export function TimelineReview({
                         setIsPlaying(false);
                         setStemMixActive(false);
                       }}
-                      onSeeked={(event) => event.currentTarget === videoRef.current && syncPreviewAudio()}
-                      onTimeUpdate={(event) => event.currentTarget === videoRef.current && syncPreviewAudio()}
+                      onSeeked={(event) => {
+                        if (event.currentTarget !== videoRef.current) return;
+                        pendingPreviewSeekMsRef.current = undefined;
+                        syncPreviewAudio();
+                      }}
+                      onTimeUpdate={(event) => event.currentTarget === videoRef.current && pendingPreviewSeekMsRef.current === undefined && syncPreviewAudio()}
                       onVolumeChange={(event) => event.currentTarget === videoRef.current && syncPreviewAudio()}
                       onEnded={(event) => event.currentTarget === videoRef.current && pauseSelectedVideo()}
                     />
@@ -1661,7 +1675,7 @@ function TrackInspector({
               <Gauge size={16} /> Solo
             </button>
           </div>
-          <InspectorRange label="Voice level" value={track.volume} min={0} max={300} suffix="%" onChange={(volume) => onUpdate(track, { volume })} />
+          <InspectorRange label="Voice level" value={track.volume} min={0} max={600} suffix="%" onChange={(volume) => onUpdate(track, { volume })} />
           <InspectorRange label="Left / Right" value={track.pan} min={-100} max={100} suffix={track.pan === 0 ? " Center" : track.pan < 0 ? " L" : " R"} onChange={(pan) => onUpdate(track, { pan })} />
           <label className="inspector-select">
             <span>Voice sound</span>

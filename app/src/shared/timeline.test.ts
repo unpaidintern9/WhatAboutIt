@@ -211,7 +211,7 @@ describe("timeline draft", () => {
     const bounded = updateTimelineTrackMix(boosted, "mic-guestMic", { volume: 900 });
 
     expect(boosted.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(275);
-    expect(bounded.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(300);
+    expect(bounded.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(600);
   });
 
   it("adds and edits non-destructive title overlays with bounded timing", () => {
