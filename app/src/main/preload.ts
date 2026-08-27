@@ -176,7 +176,7 @@ function episodeRow(title: string, detail: string, source: "local" | "cloud", ep
   if (source === "local") {
     actions.append(makeActionButton("Review", "review-local", episodeId), makeActionButton("Open Folder", "open-folder", episodeId, true), makeActionButton("Upload / Sync", "upload", episodeId, true));
   } else {
-    actions.append(makeActionButton("Review from Cloud", "review-cloud", episodeId));
+    actions.append(makeActionButton("Download & Review", "review-cloud", episodeId));
   }
   row.append(info, actions);
   return row;
@@ -187,7 +187,9 @@ async function populateReviewLibrary(container: HTMLElement, status: HTMLElement
   status.textContent = "Loading local and cloud episodes…";
   const [localEpisodes, cloudResult, config] = await Promise.all([
     ipcRenderer.invoke("episodes:list") as Promise<EpisodeMetadata[]>,
-    (ipcRenderer.invoke("collaboration:cloud:list") as Promise<CloudEpisodeSummary[]>).catch(() => []),
+    (ipcRenderer.invoke("collaboration:cloud:list") as Promise<CloudEpisodeSummary[]>)
+      .then((episodes) => ({ episodes, error: undefined as string | undefined }))
+      .catch((error: unknown) => ({ episodes: [] as CloudEpisodeSummary[], error: error instanceof Error ? error.message : "Cloudflare could not be reached." })),
     (ipcRenderer.invoke("collaboration:remote-config:get") as Promise<{ apiUrl?: string }>).catch((): { apiUrl?: string } => ({}))
   ]);
 
@@ -213,13 +215,18 @@ async function populateReviewLibrary(container: HTMLElement, status: HTMLElement
     empty.textContent = "Cloudflare is not connected yet. Local review still works normally.";
     empty.style.cssText = "color:#bda9a2;font-size:13px;";
     container.append(empty);
-  } else if (cloudResult.length === 0) {
+  } else if (cloudResult.error) {
+    const empty = document.createElement("p");
+    empty.textContent = `Cloudflare is configured but unavailable: ${cloudResult.error}`;
+    empty.style.cssText = "color:#e5aaa4;font-size:13px;";
+    container.append(empty);
+  } else if (cloudResult.episodes.length === 0) {
     const empty = document.createElement("p");
     empty.textContent = "No episodes have been uploaded to Cloudflare yet.";
     empty.style.cssText = "color:#bda9a2;font-size:13px;";
     container.append(empty);
   } else {
-    cloudResult.forEach((episode) => container.append(episodeRow(episode.title, `${episode.guestName || "Solo episode"} · ${episode.assetCount} files · Cloud`, "cloud", episode.id)));
+    cloudResult.episodes.forEach((episode) => container.append(episodeRow(episode.title, `${episode.guestName || "Solo episode"} · ${episode.assetCount} files · Cloud`, "cloud", episode.id)));
   }
   status.textContent = "Choose an episode. Local originals stay on the recording computer; cloud review downloads only what needs updating.";
 }

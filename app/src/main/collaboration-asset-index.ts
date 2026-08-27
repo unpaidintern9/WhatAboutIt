@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import type { CollaborationAssetKind, CollaborationAssetManifestEntry } from "../shared/collaboration";
+import { isInternalCollaborationAssetPath, type CollaborationAssetKind, type CollaborationAssetManifestEntry } from "../shared/collaboration";
 
 const ignoredTopLevel = new Set(["Logs", "Reports"]);
 
@@ -50,6 +50,7 @@ export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId
   const files = await walk(episodeFolder);
   const manifest: CollaborationAssetManifestEntry[] = [];
   for (const relativePath of files) {
+    if (isInternalCollaborationAssetPath(relativePath)) continue;
     const absolutePath = path.join(episodeFolder, relativePath);
     const stat = await fs.stat(absolutePath);
     const classified = classifyCollaborationAsset(relativePath);
