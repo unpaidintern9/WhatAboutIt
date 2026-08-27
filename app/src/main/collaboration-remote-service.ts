@@ -16,12 +16,14 @@ import type {
 } from "../shared/collaboration-presence";
 import { collaborationPeople } from "../shared/collaboration-presence";
 import type { CollaborationSyncResult, CollaborationTransferProgress, CollaborationUploadSelection } from "../shared/collaboration";
-import { shouldIncludeCollaborationAsset } from "../shared/collaboration";
+import { shouldIncludeCollaborationAsset, transferableCollaborationAssets } from "../shared/collaboration";
 import { getEpisodesRoot } from "./config-service";
 import { requestCollaborationWithRetry, uploadCollaborationAsset } from "./collaboration-asset-upload";
 import { getUploadCheckpoint, setUploadCheckpoint } from "./collaboration-upload-journal";
 import { recordCollaborationDownloadComplete, recordCollaborationUploadComplete, refreshCollaborationAssets } from "./collaboration-store";
 import { logger } from "./logger";
+import { runBoundedTasks } from "./bounded-task-pool";
+import { prepareCollaborationUploadSources } from "./collaboration-upload-snapshot";
 
 type RemoteConfig = {
   apiUrl?: string;
@@ -52,6 +54,7 @@ export type CollaborationTransferOptions = {
 };
 
 const API_REQUEST_TIMEOUT_MS = 120_000;
+const DOWNLOAD_CONCURRENCY = 3;
 
 const defaultConfig: RemoteConfig = { personId: "morgan-owner" };
 
@@ -342,7 +345,12 @@ export async function uploadEpisodeToCloud(
   const config = await readConfig();
   if (!config.apiUrl) throw new Error("Connect the What About It collaboration service before uploading.");
   const workspace = await refreshCollaborationAssets(episode.folderPath, episode.id, episode.title);
-  const selectedAssets = workspace.assets.filter((asset) => shouldIncludeCollaborationAsset(asset.kind, selection));
+  const selectedWorkspaceAssets = workspace.assets.filter((asset) => shouldIncludeCollaborationAsset(asset.kind, selection));
+  const snapshotFolder = await fs.mkdtemp(path.join(app.getPath("temp"), "whataboutit-cloud-upload-"));
+  try {
+  const uploadSources = await prepareCollaborationUploadSources(episode.folderPath, selectedWorkspaceAssets, snapshotFolder);
+  const selectedAssets = uploadSources.map((source) => source.asset);
+  const sourceById = new Map(uploadSources.map((source) => [source.asset.id, source.absolutePath]));
   const operationId = options.operationId ?? crypto.randomUUID();
   const totalBytes = selectedAssets.reduce((total, asset) => total + (asset.bytes ?? 0), 0);
   let completedAssets = 0;
@@ -363,7 +371,7 @@ export async function uploadEpisodeToCloud(
   await report("preparing", "Checking local files and Cloudflare copies.");
   const assetResults = await mapWithConcurrency(selectedAssets, 2, async (asset) => {
     if (options.signal?.aborted) throw options.signal.reason;
-    const absolutePath = safeLocalAssetPath(episode.folderPath, asset.relativePath);
+    const absolutePath = sourceById.get(asset.id) ?? safeLocalAssetPath(episode.folderPath, asset.relativePath);
     if (await remoteAssetMatches(episode.id, asset.relativePath, asset.contentHash)) {
       await setUploadCheckpoint(episode.id, asset.relativePath, undefined);
       completedAssets += 1;
@@ -479,6 +487,9 @@ export async function uploadEpisodeToCloud(
     totalBytes: uploadedBytes,
     message: uploadedAssets > 0 ? `Uploaded ${uploadedAssets} changed episode files. ${skippedAssets} unchanged files stayed in Cloudflare.` : "Cloudflare already has the current episode files."
   };
+  } finally {
+    await fs.rm(snapshotFolder, { recursive: true, force: true });
+  }
 }
 
 async function writeJsonAtomic(filePath: string, value: unknown) {
@@ -566,15 +577,16 @@ async function downloadVerifiedAsset(input: {
 export async function downloadCloudEpisode(episodeId: string, options: CollaborationTransferOptions = {}): Promise<CloudDownloadResult> {
   const manifest = await requestRemote<CloudEpisodeManifest>(episodeId, "/manifest");
   if (manifest.episode.id !== episodeId) throw new Error("Cloud episode manifest does not match the requested episode.");
+  // Sync markers describe this computer's transfer state. Older manifests may
+  // contain them, but they are never episode content and can change after a
+  // manifest is published, so downloading them would create false checksum failures.
+  const downloadableAssets = transferableCollaborationAssets(manifest.assets);
   const episodeFolder = path.join(getEpisodesRoot(), episodeId);
   await fs.mkdir(episodeFolder, { recursive: true });
   const operationId = options.operationId ?? crypto.randomUUID();
-  const totalBytes = manifest.assets.reduce((total, asset) => total + (asset.bytes ?? 0), 0);
+  const totalBytes = downloadableAssets.reduce((total, asset) => total + (asset.bytes ?? 0), 0);
   await assertDownloadCapacity(episodeFolder, totalBytes);
   const safetyStamp = new Date().toISOString().replaceAll(":", "-");
-  let downloadedAssets = 0;
-  let skippedAssets = 0;
-  let downloadedBytes = 0;
   let completedAssets = 0;
   const assetProgress = new Map<string, number>();
   const report = (phase: CollaborationTransferProgress["phase"], message: string, relativePath?: string) => options.onProgress?.({
@@ -584,14 +596,14 @@ export async function downloadCloudEpisode(episodeId: string, options: Collabora
     phase,
     relativePath,
     completedAssets,
-    totalAssets: manifest.assets.length,
+    totalAssets: downloadableAssets.length,
     transferredBytes: [...assetProgress.values()].reduce((total, bytes) => total + bytes, 0),
     totalBytes,
     message
   });
   await report("preparing", "Checking disk space and existing episode files.");
 
-  for (const asset of manifest.assets) {
+  const assetResults = await runBoundedTasks(downloadableAssets, DOWNLOAD_CONCURRENCY, async (asset) => {
     if (options.signal?.aborted) throw options.signal.reason;
     const destination = safeLocalAssetPath(episodeFolder, asset.relativePath);
     let exists: boolean;
@@ -604,20 +616,18 @@ export async function downloadCloudEpisode(episodeId: string, options: Collabora
       exists = false;
     }
     if (matches) {
-      skippedAssets += 1;
       completedAssets += 1;
       assetProgress.set(asset.id, asset.bytes ?? 0);
-      await report("verifying", `Verified ${completedAssets} of ${manifest.assets.length} files.`, asset.relativePath);
-      continue;
+      await report("verifying", `Verified ${completedAssets} of ${downloadableAssets.length} files.`, asset.relativePath);
+      return { downloaded: 0, skipped: 1, bytes: 0 };
     }
     if (exists && asset.localOriginal) {
       // Never overwrite a local original with a cloud copy. The local recording
       // remains the safety source of truth on the machine that recorded it.
-      skippedAssets += 1;
       completedAssets += 1;
       assetProgress.set(asset.id, asset.bytes ?? 0);
       await report("verifying", `Protected local original ${asset.relativePath}.`, asset.relativePath);
-      continue;
+      return { downloaded: 0, skipped: 1, bytes: 0 };
     }
     const verified = await downloadVerifiedAsset({
       episodeId,
@@ -637,11 +647,13 @@ export async function downloadCloudEpisode(episodeId: string, options: Collabora
       await fs.copyFile(destination, backup);
     }
     await fs.rename(verified.partial, destination);
-    downloadedAssets += 1;
-    downloadedBytes += asset.bytes ?? 0;
     completedAssets += 1;
-    await report("verifying", `Downloaded and verified ${completedAssets} of ${manifest.assets.length} files.`, asset.relativePath);
-  }
+    await report("verifying", `Downloaded and verified ${completedAssets} of ${downloadableAssets.length} files.`, asset.relativePath);
+    return { downloaded: 1, skipped: 0, bytes: asset.bytes ?? 0 };
+  });
+  const downloadedAssets = assetResults.reduce((total, result) => total + result.downloaded, 0);
+  const skippedAssets = assetResults.reduce((total, result) => total + result.skipped, 0);
+  const downloadedBytes = assetResults.reduce((total, result) => total + result.bytes, 0);
 
   const metadataPath = path.join(episodeFolder, "metadata.json");
   let episode: EpisodeMetadata;
@@ -669,10 +681,10 @@ export async function downloadCloudEpisode(episodeId: string, options: Collabora
     version: 1,
     episodeId,
     revisionId: manifest.revisionId,
-    assetCount: manifest.assets.length,
+    assetCount: downloadableAssets.length,
     completedAt: new Date().toISOString()
   });
-  await recordCollaborationDownloadComplete(episodeFolder, episode.id, episode.title, manifest.assets);
+  await recordCollaborationDownloadComplete(episodeFolder, episode.id, episode.title, downloadableAssets);
   await report("complete", "Cloudflare download is complete and verified.");
 
   return {

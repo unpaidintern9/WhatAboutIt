@@ -144,6 +144,15 @@ export function isProjectCollaborationAsset(kind: CollaborationAssetKind) {
   return kind === "metadata" || kind === "timeline" || kind === "comments" || kind === "captions" || kind === "markers";
 }
 
+export function isInternalCollaborationAssetPath(relativePath: string) {
+  const normalized = relativePath.replaceAll("\\", "/").toLowerCase();
+  return normalized === "collaboration/project-sync.json" || normalized === "session/cloud-download-complete.json";
+}
+
+export function transferableCollaborationAssets<T extends { relativePath: string }>(assets: T[]) {
+  return assets.filter((asset) => !isInternalCollaborationAssetPath(asset.relativePath));
+}
+
 export function shouldIncludeCollaborationAsset(kind: CollaborationAssetKind, selection: CollaborationUploadSelection) {
   if (selection === "full-backup") return true;
   if (isProjectCollaborationAsset(kind)) return true;

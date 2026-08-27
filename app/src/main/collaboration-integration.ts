@@ -93,8 +93,22 @@ export function configureCollaboration(preloadPath: string) {
   });
   ipcMain.handle("collaboration:get", async (_event, episodeId: string) => {
     const episode = await resolveEpisode(episodeId);
-    await pullLatestProjectChanges(episodeId).catch(() => undefined);
-    return loadCollaborationWorkspace(episode.folderPath, episode.id, episode.title);
+    const config = await getCollaborationRemoteConfig();
+    let remoteState: CollaborationWorkspace["remoteState"] = config.apiUrl ? "error" : "not-connected";
+    if (config.apiUrl) {
+      try {
+        await pullLatestProjectChanges(episodeId);
+        remoteState = "ready";
+      } catch {
+        // The local workspace remains usable when Cloudflare is temporarily unavailable.
+      }
+    }
+    const workspace = await loadCollaborationWorkspace(episode.folderPath, episode.id, episode.title);
+    return {
+      ...workspace,
+      provider: remoteState === "ready" ? "cloudflare" : workspace.provider,
+      remoteState
+    };
   });
   ipcMain.handle("collaboration:refresh-assets", async (_event, episodeId: string) => {
     const episode = await resolveEpisode(episodeId);
