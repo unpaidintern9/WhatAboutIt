@@ -401,7 +401,7 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Output protection On");
     expect(markup).toContain("audio control changes are heard immediately during playback");
     expect(markup).toContain("Level, pan, cleanup, tone, compression, and output protection update live during Review playback");
-    expect(markup).toContain('aria-label="Voice level" type="range" min="0" max="300"');
+    expect(markup).toContain('aria-label="Voice level" type="range" min="0" max="600"');
     expect(markup).toContain("Render final-quality preview");
     expect(markup).toContain("Apply to all mics");
     expect(markup).toContain("Reset track");

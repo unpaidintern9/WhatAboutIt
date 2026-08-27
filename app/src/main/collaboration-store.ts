@@ -123,7 +123,10 @@ export async function recordCollaborationDownloadComplete(
   episodeTitle: string,
   expectedAssets?: Array<{ relativePath: string; contentHash?: string }>
 ) {
-  const workspace = await refreshCollaborationAssets(episodeFolder, episodeId, episodeTitle);
+  // Every downloaded asset was already size- and SHA-256-verified by the
+  // transfer. Re-scanning here used to hash the entire episode a second time,
+  // leaving large downloads apparently stuck at 100% for minutes.
+  const workspace = await loadCollaborationWorkspace(episodeFolder, episodeId, episodeTitle);
   const expectedByPath = new Map((expectedAssets ?? []).map((asset) => [asset.relativePath, asset.contentHash]));
   workspace.provider = "cloudflare";
   workspace.remoteState = "ready";

@@ -22,6 +22,10 @@ export function getReviewVideoUniforms(track?: TimelineTrack): ReviewVideoUnifor
   };
 }
 
+export function needsReviewVideoCompositor(track?: TimelineTrack) {
+  return Boolean(track && (track.sharpness !== 0 || track.denoise !== 0));
+}
+
 const vertexShader = `
 attribute vec2 a_position;
 attribute vec2 a_texCoord;
@@ -71,6 +75,7 @@ function compile(gl: WebGLRenderingContext, type: number, source: string) {
 }
 
 export function startReviewVideoCompositor(canvas: HTMLCanvasElement, video: HTMLVideoElement, track?: TimelineTrack) {
+  if (!needsReviewVideoCompositor(track)) return () => undefined;
   if (typeof navigator !== "undefined" && /jsdom/i.test(navigator.userAgent)) return () => undefined;
   const gl = canvas.getContext("webgl", { alpha: false, antialias: false, powerPreference: "high-performance" });
   if (!gl) return () => undefined;

@@ -339,7 +339,9 @@ async function openReviewEpisodeLibrary() {
     const terminal = progress.phase === "complete" || progress.phase === "cancelled" || progress.phase === "error";
     setTransferActive(!terminal);
     transfer.hidden = false;
-    transferLabel.textContent = progress.phase === "verifying"
+    transferLabel.textContent = progress.phase === "committing"
+      ? "Finalizing episode"
+      : progress.phase === "verifying"
       ? "Verifying episode"
       : progress.phase === "preparing"
         ? "Preparing transfer"

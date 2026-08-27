@@ -73,7 +73,7 @@ function audioContextConstructor() {
 }
 
 export function clampReviewMonitorGain(gain: number) {
-  return Math.max(0, Math.min(3, Number.isFinite(gain) ? gain : 1));
+  return Math.max(0, Math.min(6, Number.isFinite(gain) ? gain : 1));
 }
 
 function bounded(value: number | undefined, minimum: number, maximum: number, fallback = 0) {
@@ -83,7 +83,7 @@ function bounded(value: number | undefined, minimum: number, maximum: number, fa
 export function getReviewMonitorSettings(treatment: ReviewMonitorTreatment = {}): ReviewMonitorSettings {
   const parameters = getAudioTreatmentParameters(treatment);
   return {
-    trackGain: clampReviewMonitorGain(bounded(treatment.volume, 0, 300, 100) / 100),
+    trackGain: clampReviewMonitorGain(bounded(treatment.volume, 0, 600, 100) / 100),
     pan: bounded(treatment.pan, -100, 100) / 100,
     highpassHz: parameters.highpassHz,
     lowpassHz: parameters.lowpassHz,
