@@ -40,7 +40,7 @@ jobs:
           $sourceVersion = [version]$package.version
           $runPatch = [int]"${{ github.run_number }}"
           $releasePatch = [Math]::Max($sourceVersion.Build, $runPatch)
-          npm version "0.2.$releasePatch" --no-git-tag-version
+          npm version "0.2.$releasePatch" --no-git-tag-version --allow-same-version
       - name: Prepare What About It collaboration bootstrap
         shell: pwsh
         env:
