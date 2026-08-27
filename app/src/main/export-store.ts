@@ -4,7 +4,7 @@ import { createReadStream } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { shell } from "electron";
 import type { ExportJob, ExportRequest } from "../shared/export";
-import { compactTimelineDraftForPersistence, isTimelineTrackAvailableAt, type TimelineEditOperation, type TimelineTrack } from "../shared/timeline";
+import { compactTimelineDraftForPersistence, isTimelineTrackAvailableAt, resolveTimelineTrackAt, type TimelineDraft, type TimelineEditOperation, type TimelineTrack } from "../shared/timeline";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
 import type { ReviewMediaTreatmentPreview } from "../shared/review-media";
 import { getAudioTreatmentParameters } from "../shared/audio-treatment";
@@ -298,6 +298,7 @@ async function renderDraftExport(input: {
 
   const hasDraftDecisions = request.draft.cameraDecisions.length > 0
     || request.draft.editLog.length > 0
+    || (request.draft.titles?.length ?? 0) > 0
     || request.draft.tracks.some(hasTrackAdjustments)
     // A clean, no-edit episode still needs the draft renderer when isolated
     // microphones exist. Otherwise the simple path exports only the Program
@@ -328,7 +329,7 @@ async function renderDraftExport(input: {
   const keepRanges = createVideoRanges(
     request.draft.durationMs || input.durationMs,
     globalEdits,
-    [...request.draft.cameraDecisions.map((decision) => decision.startMs), ...cameraEditPoints]
+    [...request.draft.cameraDecisions.map((decision) => decision.startMs), ...cameraEditPoints, ...(request.draft.keyframes ?? []).map((point) => point.timestampMs)]
   );
   const editedDurationMs = keepRanges.reduce((total, range) => total + range.endMs - range.startMs, 0);
   const cameraByTrack = new Map(cameraInputs.map((item) => [item.track.id, item]));
@@ -342,7 +343,7 @@ async function renderDraftExport(input: {
       const midpoint = range.startMs + (range.endMs - range.startMs) / 2;
       const chosenCamera = camera && isTimelineTrackAvailableAt(request.draft, camera.track.id, midpoint) ? camera : undefined;
       const chosen = chosenCamera?.inputIndex ?? 0;
-      const chosenTrack = chosenCamera?.track ?? programTrack;
+      const chosenTrack = resolveTimelineTrackAt(request.draft, chosenCamera?.track ?? programTrack, midpoint);
       const syncOffsetMs = chosenTrack?.syncOffsetMs ?? 0;
       const focusX = (((chosenTrack?.positionX ?? 0) + 100) / 200).toFixed(3);
       const focusY = (((chosenTrack?.positionY ?? 0) + 100) / 200).toFixed(3);
@@ -394,9 +395,25 @@ async function renderDraftExport(input: {
         outputParts.push(`[${blendedLabel}]`);
       }
     }
+    const titleOverlays = (request.draft.titles ?? []).filter((title) => title.text.trim() && title.endMs > title.startMs);
+    const baseVideoLabel = titleOverlays.length > 0 ? "draftvbase" : "vout";
     filters.push(outputParts.length === 1
-      ? `${outputParts[0]}null[vout]`
-      : `${outputParts.join("")}concat=n=${outputParts.length}:v=1:a=0[vout]`);
+      ? `${outputParts[0]}null[${baseVideoLabel}]`
+      : `${outputParts.join("")}concat=n=${outputParts.length}:v=1:a=0[${baseVideoLabel}]`);
+    let currentVideoLabel = baseVideoLabel;
+    titleOverlays.forEach((title, index) => {
+      const startSeconds = seconds(editedTimelineTimeAt(title.startMs, keepRanges));
+      const endSeconds = seconds(editedTimelineTimeAt(title.endMs, keepRanges));
+      if (Number(endSeconds) <= Number(startSeconds)) return;
+      const nextLabel = index === titleOverlays.length - 1 ? "vout" : `draftvtitle${index}`;
+      const y = title.position === "center" ? "(h-text_h)/2" : "h-text_h-h*0.18";
+      filters.push(
+        `[${currentVideoLabel}]drawtext=text='${escapeDrawText(title.text)}':expansion=none:fontcolor=white:fontsize=${title.size}:` +
+        `box=1:boxcolor=black@0.38:boxborderw=18:x=(w-text_w)/2:y=${y}:enable='between(t,${startSeconds},${endSeconds})'[${nextLabel}]`
+      );
+      currentVideoLabel = nextLabel;
+    });
+    if (titleOverlays.length > 0 && currentVideoLabel !== "vout") filters.push(`[${currentVideoLabel}]null[vout]`);
   }
 
   const audioLabels: string[] = [];
@@ -410,15 +427,15 @@ async function renderDraftExport(input: {
   for (const [index, source] of audioSources.entries()) {
     const label = `drafta${index}`;
     const trackEdits = editsForTrack(request.draft.editLog, source.track?.id ?? "program");
-    const volume = allSeparateMicrophonesMuted ? 0 : Math.max(0, Math.min(3, (source.track?.volume ?? 100) / 100));
-    const muteExpression = createMuteExpression(trackEdits, volume);
+    const volume = allSeparateMicrophonesMuted ? 0 : createVolumeAutomationExpression(request.draft, source.track, (source.track?.volume ?? 100) / 100);
+    const muteExpression = createMuteExpression(trackEdits, 1);
     const keepExpression = createKeepExpression(globalEdits);
     const syncFilter = createAudioSyncFilter(source.track?.syncOffsetMs ?? 0);
     const treatment = createAudioTreatment(source.track);
     const panFilter = createPanFilter(source.track?.pan ?? 0);
     const fadeFilter = createFadeFilter(source.track, request.draft.durationMs || input.durationMs);
     filters.push(
-      `[${source.inputIndex}:a:0]${syncFilter}${treatment}volume='${muteExpression}':eval=frame,` +
+      `[${source.inputIndex}:a:0]${syncFilter}${treatment}volume='(${muteExpression})*(${volume})':eval=frame,` +
       `${keepExpression ? `aselect='${keepExpression}',` : ""}asetpts=N/SR/TB,aresample=48000:async=1:first_pts=0,` +
       `aformat=sample_fmts=fltp:channel_layouts=stereo,${panFilter}${fadeFilter}${createLimiterFilter(source.track)}[${label}]`
     );
@@ -563,6 +580,26 @@ function createMuteExpression(edits: TimelineEditOperation[], volume: number) {
   return muted.length > 0 ? `if(${muted.join("+")},0,${volume.toFixed(3)})` : volume.toFixed(3);
 }
 
+function createVolumeAutomationExpression(draft: TimelineDraft, track: TimelineTrack | undefined, fallback: number) {
+  const boundedFallback = Math.max(0, Math.min(3, fallback));
+  if (!track) return boundedFallback.toFixed(4);
+  const points = (draft.keyframes ?? [])
+    .filter((point) => point.trackId === track.id && point.property === "volume")
+    .sort((left, right) => left.timestampMs - right.timestampMs);
+  if (points.length === 0) return boundedFallback.toFixed(4);
+  const gain = (value: number) => Math.max(0, Math.min(3, value / 100)).toFixed(4);
+  let expression = gain(points.at(-1)!.value);
+  for (let index = points.length - 2; index >= 0; index -= 1) {
+    const left = points[index];
+    const right = points[index + 1];
+    const start = seconds(left.timestampMs);
+    const end = seconds(right.timestampMs);
+    const interpolation = `${gain(left.value)}+(${gain(right.value)}-${gain(left.value)})*(t-${start})/(${end}-${start})`;
+    expression = `if(lt(t,${end}),${interpolation},${expression})`;
+  }
+  return `if(lt(t,${seconds(points[0].timestampMs)}),${gain(points[0].value)},${expression})`;
+}
+
 function createKeepExpression(edits: TimelineEditOperation[]) {
   const removed: string[] = [];
   for (const edit of edits) {
@@ -645,6 +682,26 @@ function createFadeFilter(track: TimelineTrack | undefined, durationMs: number) 
 
 function seconds(milliseconds: number) {
   return (Math.max(0, milliseconds) / 1000).toFixed(3);
+}
+
+function editedTimelineTimeAt(timestampMs: number, keepRanges: Array<{ startMs: number; endMs: number }>) {
+  return keepRanges.reduce((total, range) => {
+    if (timestampMs <= range.startMs) return total;
+    return total + Math.max(0, Math.min(timestampMs, range.endMs) - range.startMs);
+  }, 0);
+}
+
+function escapeDrawText(text: string) {
+  return text
+    .replaceAll("\\", "\\\\")
+    .replaceAll("'", "\\'")
+    .replaceAll(":", "\\:")
+    .replaceAll("%", "\\%")
+    .replaceAll("[", "\\[")
+    .replaceAll("]", "\\]")
+    .replaceAll(",", "\\,")
+    .replaceAll(";", "\\;")
+    .replaceAll("\n", "\\n");
 }
 
 interface LoudnessMeasurement {
@@ -843,13 +900,13 @@ async function createAudioMasters(
     const outputPath = reserved.outputPath;
     const trackEdits = editsForTrack(request.draft.editLog, item.track.id);
     const globalEdits = editsForTrack(request.draft.editLog, "program");
-    const volume = Math.max(0, Math.min(3, item.track.volume / 100));
-    const muteExpression = createMuteExpression(trackEdits, volume);
+    const volume = createVolumeAutomationExpression(request.draft, item.track, item.track.volume / 100);
+    const muteExpression = createMuteExpression(trackEdits, 1);
     const keepExpression = createKeepExpression(globalEdits);
     const filters = [
       createAudioSyncFilter(item.track.syncOffsetMs),
       createAudioTreatment(item.track),
-      `volume='${muteExpression}':eval=frame,`,
+      `volume='(${muteExpression})*(${volume})':eval=frame,`,
       keepExpression ? `aselect='${keepExpression}',` : "",
       "asetpts=N/SR/TB,aresample=48000:async=1:first_pts=0,aformat=sample_fmts=fltp:channel_layouts=stereo,",
       createPanFilter(item.track.pan),

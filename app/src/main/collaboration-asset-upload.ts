@@ -31,6 +31,8 @@ type UploadOptions = {
   multipartConcurrency?: number;
   checkpoint?: MultipartUploadCheckpoint;
   onCheckpoint?: (checkpoint: MultipartUploadCheckpoint | undefined) => void | Promise<void>;
+  signal?: AbortSignal;
+  onProgress?: (completedBytes: number) => void | Promise<void>;
 };
 
 export type MultipartPart = {
@@ -57,18 +59,24 @@ function retryDelayMs(response: Response | undefined, attempt: number) {
     if (Number.isFinite(seconds) && seconds >= 0)
       return Math.min(seconds * 1000, 30_000);
   }
-  return Math.min(500 * 2 ** (attempt - 1), 4_000);
+  const base = Math.min(500 * 2 ** (attempt - 1), 4_000);
+  return Math.round(base * (0.8 + Math.random() * 0.4));
+}
+
+function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) throw signal.reason instanceof Error ? signal.reason : new DOMException("Transfer cancelled", "AbortError");
 }
 
 export async function requestCollaborationWithRetry(
   operation: string,
   makeRequest: () => Promise<Response>,
-  options: Pick<UploadOptions, "maxAttempts" | "sleep" | "onRetry">,
+  options: Pick<UploadOptions, "maxAttempts" | "sleep" | "onRetry" | "signal">,
 ) {
   const maxAttempts = Math.max(1, options.maxAttempts ?? DEFAULT_MAX_ATTEMPTS);
   const sleep = options.sleep ?? wait;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    throwIfAborted(options.signal);
     let response: Response | undefined;
     try {
       response = await makeRequest();
@@ -88,6 +96,7 @@ export async function requestCollaborationWithRetry(
         delayMs,
         error: String(error),
       });
+      throwIfAborted(options.signal);
       await sleep(delayMs);
       continue;
     }
@@ -101,6 +110,7 @@ export async function requestCollaborationWithRetry(
       delayMs,
       status: response.status,
     });
+    throwIfAborted(options.signal);
     await sleep(delayMs);
   }
 
@@ -143,7 +153,7 @@ async function verifiedAfterFailure(options: UploadOptions) {
   try {
     const response = await requestCollaborationWithRetry(
       "verify uploaded asset",
-      () => options.apiFetch(options.pathname, { method: "HEAD" }),
+      () => options.apiFetch(options.pathname, { method: "HEAD", signal: options.signal }),
       options,
     );
     if (!response.ok) return false;
@@ -165,6 +175,7 @@ async function uploadDirect(options: UploadOptions) {
       return options.apiFetch(options.pathname, {
         method: "PUT",
         body,
+        signal: options.signal,
         headers: {
           "content-type": options.contentType,
           "x-content-sha256": options.contentHash ?? "",
@@ -174,6 +185,7 @@ async function uploadDirect(options: UploadOptions) {
     options,
   );
   if (!response.ok) throw await responseError(response, "Upload failed");
+  await options.onProgress?.(options.bytes);
 }
 
 async function uploadMultipart(options: UploadOptions) {
@@ -196,6 +208,7 @@ async function uploadMultipart(options: UploadOptions) {
       () =>
         options.apiFetch(`${options.pathname}?multipart=create`, {
           method: "POST",
+          signal: options.signal,
           headers: {
             "content-type": options.contentType,
             "x-content-sha256": options.contentHash ?? "",
@@ -243,7 +256,7 @@ async function uploadMultipart(options: UploadOptions) {
         const body = await readRequestBody(options.absolutePath, offset, end);
         return options.apiFetch(
           `${options.pathname}?multipart=part&uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`,
-          { method: "PUT", body, headers: { "content-type": "application/octet-stream" } },
+          { method: "PUT", body, signal: options.signal, headers: { "content-type": "application/octet-stream" } },
         );
       },
       options,
@@ -254,6 +267,10 @@ async function uploadMultipart(options: UploadOptions) {
     if (uploaded.partNumber !== partNumber || !uploaded.etag)
       throw new Error(`Cloud storage returned an invalid receipt for upload part ${partNumber}.`);
     partsByNumber.set(partNumber, uploaded);
+    await options.onProgress?.(Math.min(options.bytes, [...partsByNumber.keys()].reduce((total, uploadedPartNumber) => {
+      const start = (uploadedPartNumber - 1) * partSize;
+      return total + Math.min(partSize, options.bytes - start);
+    }, 0)));
     await saveCheckpoint();
   };
 
@@ -274,6 +291,7 @@ async function uploadMultipart(options: UploadOptions) {
           `${options.pathname}?multipart=complete&uploadId=${encodeURIComponent(uploadId)}`,
           {
             method: "POST",
+            signal: options.signal,
             body: JSON.stringify({ parts: [...partsByNumber.values()].sort((a, b) => a.partNumber - b.partNumber) }),
           },
         ),

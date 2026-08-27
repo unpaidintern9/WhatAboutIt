@@ -12,6 +12,7 @@ export type TimelineEditMode = "manual" | "auto";
 export type TimelineAudioPreset = "natural" | "clean" | "warm" | "broadcast";
 export type TimelineCropMode = "fit" | "fill";
 export type TimelineCameraTransition = "cut" | "fade";
+export type TimelineAutomationProperty = "volume" | "pan" | "zoom" | "positionX" | "positionY" | "brightness" | "contrast" | "saturation";
 
 export interface TimelineTrack {
   id: string;
@@ -91,6 +92,23 @@ export interface TimelineCaptionCue {
   text: string;
 }
 
+export interface TimelineTitleOverlay {
+  id: string;
+  startMs: number;
+  endMs: number;
+  text: string;
+  position: "center" | "lower-third";
+  size: number;
+}
+
+export interface TimelineKeyframe {
+  id: string;
+  trackId: string;
+  property: TimelineAutomationProperty;
+  timestampMs: number;
+  value: number;
+}
+
 export interface TimelineHistorySnapshot {
   durationMs: number;
   tracks: TimelineTrack[];
@@ -102,6 +120,8 @@ export interface TimelineHistorySnapshot {
   truePeakDb: number;
   editLog: TimelineEditOperation[];
   captions: TimelineCaptionCue[];
+  titles: TimelineTitleOverlay[];
+  keyframes: TimelineKeyframe[];
   autoEdit?: TimelineDraft["autoEdit"];
 }
 
@@ -134,6 +154,8 @@ export interface TimelineDraft {
   selection?: TimelineSelection;
   editLog: TimelineEditOperation[];
   captions: TimelineCaptionCue[];
+  titles: TimelineTitleOverlay[];
+  keyframes: TimelineKeyframe[];
   undoneEditLog: TimelineEditOperation[];
   history: TimelineHistoryEntry[];
   redoHistory: TimelineHistoryEntry[];
@@ -257,6 +279,8 @@ export function createTimelineDraft(input: { episodeId?: string; recordingSessio
     lockedTools: lockedTimelineTools,
     editLog: [],
     captions: [],
+    titles: [],
+    keyframes: [],
     undoneEditLog: [],
     history: [],
     redoHistory: [],
@@ -316,6 +340,8 @@ export function withTimelineDraftDefaults(draft: Partial<TimelineDraft> | null |
     lockedTools: draft?.lockedTools?.length ? draft.lockedTools : lockedTimelineTools,
     editLog: draft?.editLog ?? fallback.editLog ?? [],
     captions: draft?.captions ?? fallback.captions ?? [],
+    titles: draft?.titles ?? fallback.titles ?? [],
+    keyframes: draft?.keyframes ?? fallback.keyframes ?? [],
     undoneEditLog: draft?.undoneEditLog ?? fallback.undoneEditLog ?? [],
     history: draft?.history ?? fallback.history ?? [],
     redoHistory: draft?.redoHistory ?? fallback.redoHistory ?? [],
@@ -385,6 +411,78 @@ export function updateTimelineCaption(draft: TimelineDraft, cueId: string, patch
 
 export function removeTimelineCaption(draft: TimelineDraft, cueId: string, now = new Date().toISOString()) {
   return commitTimelineMutation(draft, { ...draft, captions: draft.captions.filter((cue) => cue.id !== cueId) }, "Delete caption", undefined, now);
+}
+
+export function addTimelineTitle(draft: TimelineDraft, startMs: number, now = new Date().toISOString()) {
+  const safeStart = Math.max(0, Math.min(Math.round(startMs), draft.durationMs || startMs));
+  const title: TimelineTitleOverlay = {
+    id: `title-${now}`,
+    startMs: safeStart,
+    endMs: Math.min(draft.durationMs || Number.MAX_SAFE_INTEGER, safeStart + 4000),
+    text: "Title",
+    position: "lower-third",
+    size: 54
+  };
+  return commitTimelineMutation(draft, { ...draft, titles: [...draft.titles, title] }, "Add title", undefined, now);
+}
+
+export function updateTimelineTitle(draft: TimelineDraft, titleId: string, patch: Partial<Omit<TimelineTitleOverlay, "id">>, now = new Date().toISOString()) {
+  const titles = draft.titles.map((title) => {
+    if (title.id !== titleId) return title;
+    const startMs = Math.max(0, Math.min(Math.round(patch.startMs ?? title.startMs), draft.durationMs || Number.MAX_SAFE_INTEGER));
+    return {
+      ...title,
+      ...patch,
+      text: String(patch.text ?? title.text).slice(0, 300),
+      startMs,
+      endMs: Math.max(startMs + 250, Math.min(Math.round(patch.endMs ?? title.endMs), draft.durationMs || Number.MAX_SAFE_INTEGER)),
+      size: Math.max(18, Math.min(120, Math.round(patch.size ?? title.size)))
+    };
+  });
+  return commitTimelineMutation(draft, { ...draft, titles }, "Edit title", `title:${titleId}`, now);
+}
+
+export function removeTimelineTitle(draft: TimelineDraft, titleId: string, now = new Date().toISOString()) {
+  return commitTimelineMutation(draft, { ...draft, titles: draft.titles.filter((title) => title.id !== titleId) }, "Delete title", undefined, now);
+}
+
+export function addTimelineKeyframe(
+  draft: TimelineDraft,
+  trackId: string,
+  property: TimelineAutomationProperty,
+  timestampMs: number,
+  value: number,
+  now = new Date().toISOString()
+) {
+  if (!draft.tracks.some((track) => track.id === trackId)) return draft;
+  const safeTimestamp = Math.max(0, Math.min(Math.round(timestampMs), draft.durationMs || timestampMs));
+  const keyframe: TimelineKeyframe = { id: `keyframe-${trackId}-${property}-${safeTimestamp}`, trackId, property, timestampMs: safeTimestamp, value };
+  const keyframes = [...draft.keyframes.filter((point) => !(point.trackId === trackId && point.property === property && point.timestampMs === safeTimestamp)), keyframe]
+    .sort((left, right) => left.timestampMs - right.timestampMs);
+  return commitTimelineMutation(draft, { ...draft, keyframes }, `Keyframe ${property}`, undefined, now);
+}
+
+export function removeTimelineKeyframe(draft: TimelineDraft, keyframeId: string, now = new Date().toISOString()) {
+  return commitTimelineMutation(draft, { ...draft, keyframes: draft.keyframes.filter((point) => point.id !== keyframeId) }, "Delete keyframe", undefined, now);
+}
+
+export function resolveTimelineTrackAt(draft: TimelineDraft, track: TimelineTrack | undefined, timestampMs: number): TimelineTrack | undefined {
+  if (!track) return undefined;
+  const automated = { ...track };
+  const keyframes = draft.keyframes ?? [];
+  const properties = [...new Set(keyframes.filter((point) => point.trackId === track.id).map((point) => point.property))];
+  for (const property of properties) {
+    const points = keyframes.filter((point) => point.trackId === track.id && point.property === property).sort((left, right) => left.timestampMs - right.timestampMs);
+    const next = points.find((point) => point.timestampMs >= timestampMs);
+    const previous = [...points].reverse().find((point) => point.timestampMs <= timestampMs);
+    if (!previous) automated[property] = next?.value ?? automated[property];
+    else if (!next || next.timestampMs === previous.timestampMs) automated[property] = previous.value;
+    else {
+      const progress = (timestampMs - previous.timestampMs) / (next.timestampMs - previous.timestampMs);
+      automated[property] = previous.value + (next.value - previous.value) * progress;
+    }
+  }
+  return automated;
 }
 
 export function replaceTimelineCaptions(draft: TimelineDraft, captions: TimelineCaptionCue[], label = "Import captions", now = new Date().toISOString()) {
@@ -479,7 +577,10 @@ export function updateTimelineTrackMix(
         ? {
             ...track,
             ...patch,
-            volume: patch.volume === undefined ? track.volume : Math.max(0, Math.min(150, patch.volume)),
+            // Review and export both support up to 3x source gain. Keep the
+            // persisted value on the same contract so a live adjustment is
+            // neither silently reduced nor different after reopening.
+            volume: patch.volume === undefined ? track.volume : Math.max(0, Math.min(300, patch.volume)),
             pan: patch.pan === undefined ? track.pan : Math.max(-100, Math.min(100, patch.pan)),
             fadeInMs: patch.fadeInMs === undefined ? track.fadeInMs : Math.max(0, Math.min(10000, patch.fadeInMs)),
             fadeOutMs: patch.fadeOutMs === undefined ? track.fadeOutMs : Math.max(0, Math.min(10000, patch.fadeOutMs)),
@@ -828,6 +929,8 @@ export function restoreOriginalTimeline(draft: TimelineDraft, now = new Date().t
         includedInProgram: track.kind !== "markers"
       })),
       editLog: [],
+      titles: [],
+      keyframes: [],
       undoneEditLog: [],
       nonDestructive: true
     },
@@ -884,6 +987,8 @@ function timelineHistorySnapshot(draft: TimelineDraft): TimelineHistorySnapshot 
     truePeakDb: draft.truePeakDb,
     editLog: draft.editLog,
     captions: draft.captions,
+    titles: draft.titles,
+    keyframes: draft.keyframes,
     autoEdit: draft.autoEdit
   };
 }

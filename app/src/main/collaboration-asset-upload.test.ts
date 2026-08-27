@@ -98,6 +98,7 @@ describe("collaboration asset upload", () => {
       return new Response(null, { status: 404 });
     });
 
+    const onProgress = vi.fn();
     await uploadCollaborationAsset({
       apiFetch,
       pathname: "/episodes/episode-a/assets/Cameras%2Fcamera-1.webm",
@@ -108,6 +109,7 @@ describe("collaboration asset upload", () => {
       multipartThresholdBytes: 1,
       partSizeBytes: fiveMiB,
       sleep: async () => undefined,
+      onProgress,
     });
 
     expect([...partLengths.entries()].sort(([a], [b]) => a - b)).toEqual([[1, fiveMiB], [2, fiveMiB], [3, 17]]);
@@ -116,6 +118,17 @@ describe("collaboration asset upload", () => {
       { partNumber: 2, etag: "etag-2" },
       { partNumber: 3, etag: "etag-3" },
     ]);
+    expect(onProgress).toHaveBeenLastCalledWith(bytes);
+  });
+
+  it("stops before issuing another request when the editor cancels", async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException("cancelled", "AbortError"));
+    const apiFetch = vi.fn(async () => Response.json({ ok: true }));
+
+    await expect(requestCollaborationWithRetry("cancelled transfer", apiFetch, { signal: controller.signal }))
+      .rejects.toMatchObject({ name: "AbortError" });
+    expect(apiFetch).not.toHaveBeenCalled();
   });
 
   it("resumes a multipart upload from persisted part receipts", async () => {

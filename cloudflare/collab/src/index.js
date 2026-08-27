@@ -6,20 +6,71 @@ const json = (value, status = 200, headers = {}) =>
 
 const PRESENCE_TTL_MS = 45_000;
 const EDITOR_LEASE_MS = 30_000;
+const MAX_MANIFEST_ASSETS = 2_000;
+const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
 
-function corsHeaders(request) {
+function logEvent(level, event, details = {}) {
+  console[level](JSON.stringify({ service: "whataboutit-collab", event, at: new Date().toISOString(), ...details }));
+}
+
+function corsHeaders(request, env) {
   const origin = request.headers.get("origin");
+  const allowedOrigins = String(env.WHATABOUTIT_ALLOWED_ORIGINS || "").split(",").map((value) => value.trim()).filter(Boolean);
+  const allowedOrigin = origin && allowedOrigins.includes(origin) ? origin : undefined;
   return {
-    "access-control-allow-origin": origin || "*",
-    "access-control-allow-headers": "content-type, authorization, x-whataboutit-key, x-content-sha256, if-match, if-none-match",
+    ...(allowedOrigin ? { "access-control-allow-origin": allowedOrigin, vary: "Origin" } : {}),
+    "access-control-allow-headers": "content-type, authorization, x-whataboutit-key, x-content-sha256, x-request-id, if-match, if-none-match, range",
     "access-control-allow-methods": "GET, HEAD, PUT, POST, DELETE, OPTIONS"
   };
 }
 
-function authorized(request, env) {
-  if (!env.WHATABOUTIT_COLLAB_ACCESS_KEY) return false;
+function configuredAccessKeys(env) {
+  try {
+    const parsed = JSON.parse(env.WHATABOUTIT_COLLAB_ACCESS_KEYS || "{}");
+    return Object.entries(parsed).filter(([identity, key]) => /^[A-Za-z0-9._-]{1,80}$/.test(identity) && typeof key === "string" && key.length >= 24);
+  } catch {
+    return [];
+  }
+}
+
+async function constantTimeEqual(left, right) {
+  const [leftHash, rightHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(left)),
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(right))
+  ]);
+  const a = new Uint8Array(leftHash);
+  const b = new Uint8Array(rightHash);
+  let difference = 0;
+  for (let index = 0; index < a.length; index += 1) difference |= a[index] ^ b[index];
+  return difference === 0;
+}
+
+async function authorizedIdentity(request, env) {
   const supplied = request.headers.get("x-whataboutit-key") || request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-  return supplied === env.WHATABOUTIT_COLLAB_ACCESS_KEY;
+  if (!supplied) return undefined;
+  for (const [identity, key] of configuredAccessKeys(env)) {
+    if (await constantTimeEqual(supplied, key)) return identity;
+  }
+  return undefined;
+}
+
+function cleanSha256(value) {
+  const hash = String(value || "").trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(hash)) throw new Error("A valid SHA-256 checksum is required.");
+  return hash;
+}
+
+function hex(buffer) {
+  return [...new Uint8Array(buffer)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+async function hashObject(object) {
+  if (typeof DigestStream === "undefined") {
+    return hex(await crypto.subtle.digest("SHA-256", await new Response(object.body).arrayBuffer()));
+  }
+  const digest = new DigestStream("SHA-256");
+  await object.body.pipeTo(digest);
+  return hex(await digest.digest);
 }
 
 function cleanEpisodeId(value) {
@@ -84,14 +135,12 @@ async function listCloudEpisodes(env) {
   const summaries = [];
   let cursor;
   do {
-    const page = await env.EPISODE_MEDIA.list({ prefix: "episodes/", cursor, limit: 1000 });
-    const manifests = page.objects.filter((object) => object.key.endsWith("/manifest.json"));
-    for (const object of manifests) {
+    const page = await env.EPISODE_MEDIA.list({ prefix: "episode-index/", cursor, limit: 1000 });
+    for (const object of page.objects) {
       const stored = await env.EPISODE_MEDIA.get(object.key);
       if (!stored) continue;
       try {
-        const manifest = await stored.json();
-        const summary = cloudSummary(manifest);
+        const summary = await stored.json();
         if (summary.id) summaries.push(summary);
       } catch {
         // Ignore a malformed manifest rather than hiding healthy episodes.
@@ -99,6 +148,28 @@ async function listCloudEpisodes(env) {
     }
     cursor = page.truncated ? page.cursor : undefined;
   } while (cursor);
+  // One-time compatibility migration for buckets created before the compact
+  // index existed. Normal requests never scan media keys after this succeeds.
+  if (summaries.length === 0) {
+    let legacyCursor;
+    do {
+      const page = await env.EPISODE_MEDIA.list({ prefix: "episodes/", cursor: legacyCursor, limit: 1000 });
+      for (const object of page.objects.filter((candidate) => candidate.key.endsWith("/manifest.json"))) {
+        const stored = await env.EPISODE_MEDIA.get(object.key);
+        if (!stored) continue;
+        try {
+          const summary = cloudSummary(await stored.json());
+          if (!summary.id) continue;
+          summaries.push(summary);
+          await env.EPISODE_MEDIA.put(`episode-index/${summary.id}.json`, JSON.stringify(summary), { httpMetadata: { contentType: "application/json" } });
+        } catch {
+          // Leave malformed legacy data isolated from the healthy index.
+        }
+      }
+      legacyCursor = page.truncated ? page.cursor : undefined;
+    } while (legacyCursor);
+    if (summaries.length > 0) logEvent("log", "episode-index-migrated", { episodeCount: summaries.length });
+  }
   return summaries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
@@ -250,11 +321,14 @@ export class EpisodeCollaboration {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    const cors = corsHeaders(request);
+    const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: Boolean(env.WHATABOUTIT_COLLAB_ACCESS_KEY) }, 200, cors);
-    if (!env.WHATABOUTIT_COLLAB_ACCESS_KEY) return json({ error: "Collaboration authentication is not configured." }, 503, cors);
-    if (!authorized(request, env)) return json({ error: "Unauthorized" }, 401, cors);
+    const accessKeys = configuredAccessKeys(env);
+    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256" }, 200, cors);
+    if (accessKeys.length === 0) return json({ error: "Collaboration authentication is not configured." }, 503, cors);
+    const identity = await authorizedIdentity(request, env);
+    if (!identity) return json({ error: "Unauthorized" }, 401, cors);
+    logEvent("log", "request", { identity, requestId: request.headers.get("x-request-id") || crypto.randomUUID(), method: request.method, path: url.pathname });
 
     if (url.pathname === "/episodes" && request.method === "GET") {
       return json({ episodes: await listCloudEpisodes(env) }, 200, cors);
@@ -291,9 +365,19 @@ export default {
       }
       if (request.method === "PUT") {
         try {
+          const declaredLength = Number(request.headers.get("content-length") || 0);
+          if (declaredLength > MAX_MANIFEST_BYTES) throw new Error("Manifest is too large.");
           const input = await request.json();
           const episode = input?.episode || {};
           if (cleanEpisodeId(String(episode.id || "")) !== episodeId) throw new Error("Manifest episode id does not match the route.");
+          if (!Array.isArray(input?.assets) || input.assets.length > MAX_MANIFEST_ASSETS) throw new Error(`Manifest must contain at most ${MAX_MANIFEST_ASSETS} assets.`);
+          const assets = input.assets.map((asset) => {
+            const relativePath = String(asset?.relativePath || "").replaceAll("\\", "/");
+            if (!relativePath || relativePath.length > 1024 || relativePath.startsWith("/") || relativePath.split("/").some((part) => !part || part === "..")) throw new Error("Manifest contains an invalid asset path.");
+            const bytes = Number(asset?.bytes);
+            if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("Manifest contains an invalid asset size.");
+            return { ...asset, relativePath, bytes, contentHash: cleanSha256(asset?.contentHash) };
+          });
           const manifest = {
             version: 1,
             revisionId: String(input?.revisionId || crypto.randomUUID()),
@@ -309,7 +393,7 @@ export default {
             },
             collaborationStatus: String(input?.collaborationStatus || "working"),
             uploadedAt: new Date().toISOString(),
-            assets: Array.isArray(input?.assets) ? input.assets : []
+            assets
           };
           const conditionalHeaders = new Headers();
           if (request.headers.has("if-match")) conditionalHeaders.set("if-match", request.headers.get("if-match"));
@@ -325,6 +409,9 @@ export default {
             return temporaryStorageFailure(error, cors);
           }
           if (!stored) return json({ error: "The cloud episode changed before this manifest could be saved." }, 412, cors);
+          await env.EPISODE_MEDIA.put(`episode-index/${episodeId}.json`, JSON.stringify(cloudSummary(manifest)), {
+            httpMetadata: { contentType: "application/json" }
+          });
           const responseHeaders = { ...cors };
           if (stored.httpEtag) responseHeaders.etag = stored.httpEtag;
           return json({ ok: true, key, manifest }, 200, responseHeaders);
@@ -344,10 +431,11 @@ export default {
       const multipartAction = url.searchParams.get("multipart");
       if (multipartAction === "create" && request.method === "POST") {
         try {
+          const contentHash = cleanSha256(request.headers.get("x-content-sha256"));
           const upload = await env.EPISODE_MEDIA.createMultipartUpload(key, {
             httpMetadata: { contentType: request.headers.get("content-type") || "application/octet-stream" },
             customMetadata: {
-              sha256: request.headers.get("x-content-sha256") || "",
+              sha256: contentHash,
               uploadedAt: new Date().toISOString()
             }
           });
@@ -387,6 +475,16 @@ export default {
         try {
           const upload = env.EPISODE_MEDIA.resumeMultipartUpload(key, uploadId);
           const object = await upload.complete(parts);
+          const stored = await env.EPISODE_MEDIA.get(key);
+          if (!stored) throw new Error("Completed object could not be verified.");
+          const expectedHash = cleanSha256(stored.customMetadata?.sha256);
+          const actualHash = await hashObject(stored);
+          if (actualHash !== expectedHash) {
+            await env.EPISODE_MEDIA.delete(key);
+            logEvent("error", "checksum-mismatch", { identity, key, expectedHash, actualHash });
+            return json({ error: "Uploaded bytes did not match the declared SHA-256 checksum.", code: "checksum-mismatch" }, 422, cors);
+          }
+          logEvent("log", "multipart-verified", { identity, key, sha256: actualHash });
           return json({ ok: true, key, etag: object.httpEtag }, 200, cors);
         } catch (error) {
           return multipartStorageFailure(error, cors);
@@ -400,6 +498,9 @@ export default {
           await upload.abort();
           return json({ ok: true, key }, 200, cors);
         } catch (error) {
+          if (/sha-?256|checksum|hash mismatch/i.test(String(error?.message || error))) {
+            return json({ error: "Uploaded bytes did not match the declared SHA-256 checksum.", code: "checksum-mismatch" }, 422, cors);
+          }
           return temporaryStorageFailure(error, cors);
         }
       }
@@ -408,32 +509,47 @@ export default {
         if (!object) return new Response(null, { status: 404, headers: cors });
         const headers = new Headers(cors);
         if (object.httpEtag) headers.set("etag", object.httpEtag);
-        headers.set("x-content-sha256", object.customMetadata?.sha256 || "");
+        headers.set("x-content-sha256", object.checksums?.sha256 ? hex(object.checksums.sha256) : object.customMetadata?.sha256 || "");
         headers.set("content-length", String(object.size || 0));
         return new Response(null, { status: 200, headers });
       }
       if (request.method === "PUT") {
         try {
-          await env.EPISODE_MEDIA.put(key, request.body, {
+          const contentHash = cleanSha256(request.headers.get("x-content-sha256"));
+          const stored = await env.EPISODE_MEDIA.put(key, request.body, {
             httpMetadata: { contentType: request.headers.get("content-type") || "application/octet-stream" },
+            sha256: contentHash,
             customMetadata: {
-              sha256: request.headers.get("x-content-sha256") || "",
+              sha256: contentHash,
               uploadedAt: new Date().toISOString()
             }
           });
-          return json({ ok: true, key }, 200, cors);
+          const verifiedHash = stored?.checksums?.sha256 ? hex(stored.checksums.sha256) : contentHash;
+          logEvent("log", "direct-upload-verified", { identity, key, sha256: verifiedHash });
+          return json({ ok: true, key, sha256: verifiedHash }, 200, cors);
         } catch (error) {
+          if (/sha-?256|checksum|hash mismatch/i.test(String(error?.message || error))) {
+            return json({ error: "Uploaded bytes did not match the declared SHA-256 checksum.", code: "checksum-mismatch" }, 422, cors);
+          }
           return temporaryStorageFailure(error, cors);
         }
       }
       if (request.method === "GET") {
-        const object = await env.EPISODE_MEDIA.get(key);
+        const rangeHeader = request.headers.get("range");
+        const object = await env.EPISODE_MEDIA.get(key, rangeHeader ? { range: request.headers } : undefined);
         if (!object) return json({ error: "Asset not found" }, 404, cors);
         const headers = new Headers(cors);
         object.writeHttpMetadata(headers);
         if (object.httpEtag) headers.set("etag", object.httpEtag);
-        headers.set("x-content-sha256", object.customMetadata?.sha256 || "");
-        return new Response(object.body, { headers });
+        headers.set("x-content-sha256", object.checksums?.sha256 ? hex(object.checksums.sha256) : object.customMetadata?.sha256 || "");
+        headers.set("accept-ranges", "bytes");
+        if (object.range) {
+          headers.set("content-range", `bytes ${object.range.offset}-${object.range.offset + object.range.length - 1}/${object.size}`);
+          headers.set("content-length", String(object.range.length));
+        } else {
+          headers.set("content-length", String(object.size));
+        }
+        return new Response(object.body, { status: object.range ? 206 : 200, headers });
       }
       if (request.method === "DELETE") {
         await env.EPISODE_MEDIA.delete(key);

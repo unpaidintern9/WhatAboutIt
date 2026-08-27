@@ -37,7 +37,14 @@ function slugify(input: string) {
 }
 
 async function writeJson(filePath: string, value: unknown) {
-  await fs.writeFile(filePath, JSON.stringify(value, null, 2), "utf8");
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+  try {
+    await fs.writeFile(temporary, JSON.stringify(value, null, 2), "utf8");
+    await fs.rename(temporary, filePath);
+  } finally {
+    await fs.rm(temporary, { force: true }).catch(() => undefined);
+  }
 }
 
 async function readJsonFile<T>(filePath: string): Promise<T | null> {
@@ -198,7 +205,9 @@ export async function appendRecordingChunk(folderPath: string, chunk: RecordingC
   await fs.appendFile(partialPath, chunk.bytes);
   const stats = await fs.stat(partialPath);
   const lastChunkAt = new Date().toISOString();
-  if (chunk.sequence === 0 || chunk.sequence % 5 === 0) {
+  // Every acknowledged chunk advances the recovery manifest. Atomic replace
+  // keeps a power loss from leaving partially-written JSON.
+  {
     await enqueueManifestWrite(safeFolder, async () => {
       const manifestPath = captureManifestPath(safeFolder);
       const current = await readJsonFile<CaptureManifest>(manifestPath);
@@ -241,6 +250,8 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
       return { slot, kind: "camera", status: "saved", filePath: finalPath, message: "Saved and verified" };
     }
     const finalPath = path.join(folderPath, "Audio", `${mediaBaseName(slot)}.m4a`);
+    const originalExtension = source.mimeType.includes("mp4") || source.mimeType.includes("m4a") ? "m4a" : "webm";
+    const originalPath = path.join(folderPath, "Audio", "Originals", `${mediaBaseName(slot)}.source.${originalExtension}`);
     await fs.rm(finalPath, { force: true });
     const normalizedLeadInMs = Math.max(0, Math.min(30000, Math.round(audioLeadInMs)));
     await runFfmpeg([
@@ -257,11 +268,17 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
     ]);
     if (!(await isPlayableRecording(finalPath))) throw new Error("Audio track failed validation.");
     if (!(await hasAudibleSignal(finalPath))) {
-      await fs.rm(source.partialPath, { force: true });
+      await fs.mkdir(path.dirname(originalPath), { recursive: true });
+      await fs.rm(originalPath, { force: true });
+      await fs.rename(source.partialPath, originalPath);
       await appendRecordingError(folderPath, `${slot} was saved but contains no audible signal.`);
       return { slot, kind: "audio", status: "needs-attention", filePath: finalPath, message: "Saved, but no audible signal was detected" };
     }
-    await fs.rm(source.partialPath, { force: true });
+    // Keep the untouched capture next to the editing-friendly AAC file. This
+    // preserves the best available source for future restoration/mastering.
+    await fs.mkdir(path.dirname(originalPath), { recursive: true });
+    await fs.rm(originalPath, { force: true });
+    await fs.rename(source.partialPath, originalPath);
     return { slot, kind: "audio", status: "saved", filePath: finalPath, message: "Saved and verified" };
   } catch (error) {
     await appendRecordingError(folderPath, `${slot} could not be finalized: ${String(error)}`);

@@ -1,8 +1,9 @@
 import { BrowserWindow, Menu, MenuItem, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
+import crypto from "node:crypto";
 import type { EpisodeMetadata } from "../shared/types";
-import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput, CollaborationUploadSelection, CollaborationWorkspace } from "../shared/collaboration";
+import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput, CollaborationTransferProgress, CollaborationUploadSelection, CollaborationWorkspace } from "../shared/collaboration";
 import type { CollaborationPersonId } from "../shared/collaboration-presence";
 import { getEpisodesRoot } from "./config-service";
 import { addCollaborationComment, inviteCollaborator, loadCollaborationWorkspace, prepareCollaborationUpload, refreshCollaborationAssets, resolveCollaborationComment, setCollaborationStatus } from "./collaboration-store";
@@ -22,6 +23,8 @@ import {
 import { markProjectMaterialized, pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
 import { openCollaborationPresenceWindow } from "./collaboration-presence-window";
 import { openCollaborationWindow } from "./collaboration-window";
+
+const activeCloudTransfers = new Map<string, AbortController>();
 
 function validateEpisodeId(episodeId: string) {
   if (!episodeId || episodeId.includes("..") || episodeId.includes("/") || episodeId.includes("\\")) throw new Error("Invalid episode id.");
@@ -129,18 +132,40 @@ export function configureCollaboration(preloadPath: string) {
     }
   });
   ipcMain.handle("collaboration:cloud:list", () => listCloudEpisodes());
-  ipcMain.handle("collaboration:cloud:upload", async (_event, payload: { episodeId: string; selection?: CollaborationUploadSelection }) => {
+  ipcMain.handle("collaboration:cloud:upload", async (event, payload: { episodeId: string; selection?: CollaborationUploadSelection }) => {
     const episode = await resolveEpisode(payload.episodeId);
-    const result = await uploadEpisodeToCloud(episode, payload.selection ?? "full-backup");
-    await markProjectMaterialized(episode.id).catch(() => undefined);
-    return result;
+    const operationId = crypto.randomUUID();
+    const controller = new AbortController();
+    activeCloudTransfers.set(operationId, controller);
+    const onProgress = (progress: CollaborationTransferProgress) => event.sender.send("collaboration:cloud:progress", progress);
+    try {
+      const result = await uploadEpisodeToCloud(episode, payload.selection ?? "full-backup", { operationId, signal: controller.signal, onProgress });
+      await markProjectMaterialized(episode.id).catch(() => undefined);
+      return result;
+    } finally {
+      activeCloudTransfers.delete(operationId);
+    }
   });
-  ipcMain.handle("collaboration:cloud:download", async (_event, episodeId: string) => {
+  ipcMain.handle("collaboration:cloud:download", async (event, episodeId: string) => {
     validateEpisodeId(episodeId);
-    const result = await downloadCloudEpisode(episodeId);
-    await markProjectMaterialized(episodeId);
-    await shell.openPath(result.episode.folderPath);
-    return result;
+    const operationId = crypto.randomUUID();
+    const controller = new AbortController();
+    activeCloudTransfers.set(operationId, controller);
+    const onProgress = (progress: CollaborationTransferProgress) => event.sender.send("collaboration:cloud:progress", progress);
+    try {
+      const result = await downloadCloudEpisode(episodeId, { operationId, signal: controller.signal, onProgress });
+      await markProjectMaterialized(episodeId);
+      await shell.openPath(result.episode.folderPath);
+      return result;
+    } finally {
+      activeCloudTransfers.delete(operationId);
+    }
+  });
+  ipcMain.handle("collaboration:cloud:cancel", (_event, operationId: string) => {
+    const controller = activeCloudTransfers.get(operationId);
+    if (!controller) return false;
+    controller.abort(new DOMException("Transfer cancelled by the editor", "AbortError"));
+    return true;
   });
   ipcMain.handle("collaboration:invite", async (_event, payload: { episodeId: string; input: CollaborationInviteInput }) => {
     const episode = await resolveEpisode(payload.episodeId);

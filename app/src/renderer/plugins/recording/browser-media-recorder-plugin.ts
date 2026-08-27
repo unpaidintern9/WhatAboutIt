@@ -20,6 +20,9 @@ interface ActiveTrackRecorder {
   startedAtMs: number;
   sequence: number;
   bytesWritten: number;
+  pendingBytes: number;
+  queueDepth: number;
+  peakPendingBytes: number;
   lastChunkAt?: string;
   writeError?: string;
 }
@@ -65,6 +68,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   private programStartedAtMs = 0;
   private programSequence = 0;
   private programBytesWritten = 0;
+  private programPendingBytes = 0;
+  private programQueueDepth = 0;
+  private programPeakPendingBytes = 0;
   private programLastChunkAt?: string;
   private programWriteError?: string;
   private captureGeneration = 0;
@@ -149,6 +155,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
         active: programSourceActive,
         firstChunkReceived: this.practiceActive || programFirstChunkReceived,
         bytesWritten: this.programBytesWritten,
+        pendingBytes: this.programPendingBytes,
+        queueDepth: this.programQueueDepth,
+        peakPendingBytes: this.programPeakPendingBytes,
         lastChunkAt: this.programLastChunkAt,
         message: this.programWriteError ?? sourceHealthMessage(programRecorderActive, programFirstChunkReceived, programSourceActive)
       },
@@ -162,6 +171,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
           active,
           firstChunkReceived,
           bytesWritten: track.bytesWritten,
+          pendingBytes: track.pendingBytes,
+          queueDepth: track.queueDepth,
+          peakPendingBytes: track.peakPendingBytes,
           lastChunkAt: track.lastChunkAt,
           message: track.writeError ?? sourceHealthMessage(recorderActive, firstChunkReceived, active)
         };
@@ -171,6 +183,11 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const recentTimestamps = sources.map((source) => source.lastChunkAt ? new Date(source.lastChunkAt).getTime() : undefined).filter((timestamp): timestamp is number => timestamp !== undefined);
     if (recentTimestamps.length > 1 && Math.max(...recentTimestamps) - Math.min(...recentTimestamps) > 2500) {
       sourceWarnings.push("Camera and audio chunk timing has drifted by more than 2.5 seconds.");
+    }
+    for (const source of sources) {
+      if ((source.pendingBytes ?? 0) >= RECORDING_QUEUE_WARNING_BYTES || (source.queueDepth ?? 0) >= RECORDING_QUEUE_WARNING_CHUNKS) {
+        sourceWarnings.push(`${source.target}: disk writes are falling behind (${source.queueDepth ?? 0} chunks / ${formatBytes(source.pendingBytes ?? 0)} pending).`);
+      }
     }
     return {
       programActive: programSourceActive,
@@ -247,11 +264,18 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.captureGeneration += 1;
     if (this.recorder && this.recorder.state !== "inactive") {
       try {
-        this.recorder.stop();
-      } catch {
-        // The stream cleanup below is the important part during shutdown.
+        // stop() requests a final dataavailable event and waits for every
+        // protected disk write before releasing capture devices.
+        await this.stop();
+        return;
+      } catch (error) {
+        this.programWriteError = appendWarning(this.programWriteError, `shutdown finalization failed: ${String(error)}`);
       }
     }
+    await Promise.all([
+      waitForQueue(this.programWriteQueue),
+      ...this.trackRecorders.map((track) => waitForQueue(track.writeQueue))
+    ]);
     this.stopStream();
     this.resetRecorder();
   }
@@ -681,6 +705,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.programStartedAtMs = 0;
     this.programSequence = 0;
     this.programBytesWritten = 0;
+    this.programPendingBytes = 0;
+    this.programQueueDepth = 0;
+    this.programPeakPendingBytes = 0;
     this.programLastChunkAt = undefined;
     this.programWriteError = undefined;
     this.programAudioBridge = undefined;
@@ -698,6 +725,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
     const sequence = this.programSequence++;
     const session = this.diskSession;
+    this.programPendingBytes += blob.size;
+    this.programQueueDepth += 1;
+    this.programPeakPendingBytes = Math.max(this.programPeakPendingBytes, this.programPendingBytes);
     this.programWriteQueue = this.programWriteQueue.then(async () => {
       const result = await persistChunk(session, "program", "program", mimeType, sequence, this.programStartedAtMs, blob);
       this.programBytesWritten = result.bytesWritten;
@@ -706,6 +736,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }).catch((error) => {
       this.programWriteError = `disk write failed: ${String(error)}`;
       logRecorderEvent("error", "Program disk write failed.", { error: String(error) });
+    }).finally(() => {
+      this.programPendingBytes = Math.max(0, this.programPendingBytes - blob.size);
+      this.programQueueDepth = Math.max(0, this.programQueueDepth - 1);
     });
   }
 
@@ -718,6 +751,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
     const sequence = track.sequence++;
     const session = this.diskSession;
+    track.pendingBytes += blob.size;
+    track.queueDepth += 1;
+    track.peakPendingBytes = Math.max(track.peakPendingBytes, track.pendingBytes);
     track.writeQueue = track.writeQueue.then(async () => {
       const result = await persistChunk(session, track.slot, track.kind, track.recorder.mimeType, sequence, track.startedAtMs, blob);
       track.bytesWritten = result.bytesWritten;
@@ -726,6 +762,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }).catch((error) => {
       track.writeError = `disk write failed: ${String(error)}`;
       logRecorderEvent("error", "Isolated source disk write failed.", { slot: track.slot, kind: track.kind, error: String(error) });
+    }).finally(() => {
+      track.pendingBytes = Math.max(0, track.pendingBytes - blob.size);
+      track.queueDepth = Math.max(0, track.queueDepth - 1);
     });
   }
 }
@@ -799,7 +838,7 @@ function createTrackRecorder(
 ): ActiveTrackRecorder {
   const chunks: Blob[] = [];
   const recorder = new MediaRecorder(stream, { mimeType });
-  const track: ActiveTrackRecorder = { slot, kind, recorder, stream, chunks, writeQueue: Promise.resolve(), startedAtMs: 0, sequence: 0, bytesWritten: 0 };
+  const track: ActiveTrackRecorder = { slot, kind, recorder, stream, chunks, writeQueue: Promise.resolve(), startedAtMs: 0, sequence: 0, bytesWritten: 0, pendingBytes: 0, queueDepth: 0, peakPendingBytes: 0 };
   recorder.ondataavailable = (event) => {
     if (event.data.size > 0) onChunk(track, event.data);
   };
@@ -886,6 +925,14 @@ function waitForQueue(queue: Promise<void>, timeoutMs = FINAL_WRITE_TIMEOUT_MS) 
 
 function appendWarning(current: string | undefined, warning: string) {
   return current ? `${current} ${warning}` : warning;
+}
+
+const RECORDING_QUEUE_WARNING_BYTES = 64 * 1024 * 1024;
+const RECORDING_QUEUE_WARNING_CHUNKS = 12;
+
+function formatBytes(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function logRecorderEvent(level: "info" | "warning" | "error", message: string, details?: Record<string, unknown>) {

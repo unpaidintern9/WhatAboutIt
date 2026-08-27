@@ -111,6 +111,23 @@ export interface CollaborationSyncResult {
   message: string;
 }
 
+export type CollaborationTransferDirection = "upload" | "download";
+export type CollaborationTransferPhase = "preparing" | "transferring" | "verifying" | "committing" | "complete" | "cancelled" | "error";
+
+export interface CollaborationTransferProgress {
+  operationId: string;
+  episodeId: string;
+  direction: CollaborationTransferDirection;
+  phase: CollaborationTransferPhase;
+  relativePath?: string;
+  completedAssets: number;
+  totalAssets: number;
+  transferredBytes: number;
+  totalBytes: number;
+  attempt?: number;
+  message: string;
+}
+
 export interface CollaborationInviteInput {
   name: string;
   email?: string;

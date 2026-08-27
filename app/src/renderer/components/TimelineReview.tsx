@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   ArrowLeftToLine,
   ArrowRightToLine,
@@ -29,6 +29,7 @@ import {
   Sparkles,
   Split,
   Trash2,
+  Type,
   Undo2,
   Video,
   Volume2,
@@ -43,6 +44,8 @@ import { resolveRealtimeInspectorTrack, resolveRealtimeProgramPreview } from "..
 import { getTimelineSnapDistanceMs, snapTimelineTimestamp } from "../../shared/timeline-engine";
 import {
   addCameraDecision,
+  addTimelineKeyframe,
+  addTimelineTitle,
   applyTimelineTrackTreatmentToKind,
   applyTimelineEdit,
   getActiveCameraTrackId,
@@ -50,6 +53,8 @@ import {
   getTimelineSegments,
   redoTimelineEdit,
   resetTimelineTrackControls,
+  removeTimelineTitle,
+  resolveTimelineTrackAt,
   restoreOriginalTimeline,
   selectTimelinePoint,
   selectTimelineTrack,
@@ -58,10 +63,12 @@ import {
   undoTimelineEdit,
   updateTimelineCameraTransition,
   updateTimelineMastering,
-  updateTimelineTrackMix
+  updateTimelineTrackMix,
+  updateTimelineTitle
 } from "../../shared/timeline";
 import { formatRecordingTime } from "../services";
 import { resumeReviewMonitor, setReviewMonitorGain, setReviewMonitorTreatment } from "../services/review-audio-monitor";
+import { startReviewVideoCompositor } from "../services/review-video-compositor";
 import { TimelineCaptionPanel } from "./TimelineCaptionPanel";
 import { TimelineMediaSetup } from "./TimelineMediaSetup";
 
@@ -161,6 +168,8 @@ export function TimelineReview({
   const videoRef = useRef<HTMLVideoElement>(null);
   const previewVideoRefs = useRef(new Map<string, HTMLVideoElement>());
   const previewVideoRefCallbacks = useRef(new Map<string, (element: HTMLVideoElement | null) => void>());
+  const previewCanvasRefs = useRef(new Map<string, HTMLCanvasElement>());
+  const previewCanvasRefCallbacks = useRef(new Map<string, (element: HTMLCanvasElement | null) => void>());
   const pairedAudioRef = useRef<HTMLAudioElement>(null);
   const programAudioRefs = useRef(new Map<string, HTMLAudioElement>());
   const multicamVideoRefs = useRef(new Map<string, HTMLVideoElement>());
@@ -235,6 +244,7 @@ export function TimelineReview({
   const hasPlayableProgram = Boolean(media?.hasPlayableProgram);
   const hasSelectedRange = draft.selection?.endTimestampMs !== undefined && rangeEndMs > rangeStartMs;
   const activeCaption = draft.captions.find((caption) => playheadMs >= caption.startMs && playheadMs < caption.endMs && caption.text.trim());
+  const activeTitle = draft.titles.find((title) => playheadMs >= title.startMs && playheadMs < title.endMs);
   const saveStatusLabel = saveState === "saving" ? "Saving draft…" : saveState === "failed" ? "Save failed — retry" : draft.hasUnsavedChanges ? "Draft changed" : "Draft saved";
   const getLiveVideoStyle = (track: TimelineTrack | undefined, isActive: boolean): CSSProperties =>
     track?.kind === "camera"
@@ -258,6 +268,10 @@ export function TimelineReview({
           zIndex: isActive ? 2 : 1,
           transition: isPlaying && programMode && draft.cameraTransition === "fade" ? `opacity ${draft.cameraTransitionMs}ms linear` : "none"
         };
+  const getLiveCanvasStyle = (track: TimelineTrack | undefined, isActive: boolean): CSSProperties => {
+    const style = getLiveVideoStyle(track, isActive);
+    return { ...style, filter: undefined };
+  };
 
   useEffect(() => {
     if (selectedVideo?.status === "ready") return;
@@ -266,6 +280,18 @@ export function TimelineReview({
   }, [selectedVideo?.status, videoAssets]);
 
   useEffect(() => setPlaybackError(undefined), [selectedVideo?.playbackUrl]);
+
+  useEffect(() => {
+    const stops: Array<() => void> = [];
+    for (const asset of videoAssets) {
+      const video = previewVideoRefs.current.get(asset.id);
+      const canvas = previewCanvasRefs.current.get(asset.id);
+      if (!video || !canvas) continue;
+      const track = draft.tracks.find((candidate) => candidate.sourceAssetId === asset.id);
+      stops.push(startReviewVideoCompositor(canvas, video, track));
+    }
+    return () => stops.forEach((stop) => stop());
+  }, [draft.tracks, videoAssets]);
 
   useEffect(() => {
     const nextVideo = selectedVideo?.id ? previewVideoRefs.current.get(selectedVideo.id) : undefined;
@@ -437,6 +463,16 @@ export function TimelineReview({
     onDraftChange(updateTimelineTrackMix(draft, track.id, patch));
   }
 
+  function addAutomationKeyframes() {
+    if (!selectedTrack || selectedTrack.kind === "program" || selectedTrack.kind === "markers") return;
+    const properties = selectedTrack.kind === "microphone"
+      ? (["volume", "pan"] as const)
+      : (["zoom", "positionX", "positionY", "brightness", "contrast", "saturation"] as const);
+    let next = draft;
+    for (const property of properties) next = addTimelineKeyframe(next, selectedTrack.id, property, playheadMs, selectedTrack[property]);
+    onDraftChange(next);
+  }
+
   function markIn() {
     const nextEnd = rangeEndMs > playheadMs ? rangeEndMs : Math.min(draft.durationMs, playheadMs + 15000);
     onDraftChange(setTimelineRange(draft, playheadMs, nextEnd, selectedTrack?.id));
@@ -531,7 +567,7 @@ export function TimelineReview({
       if (!audio) continue;
       const targetSeconds = Math.max(0, (timestampMs + track.syncOffsetMs) / 1000);
       if (Math.abs(audio.currentTime - targetSeconds) > 0.12) audio.currentTime = targetSeconds;
-      setReviewMonitorTreatment(audio, track, masterMuted ? 0 : masterVolume, audioOutputId);
+      setReviewMonitorTreatment(audio, resolveTimelineTrackAt(draft, track, timestampMs) ?? track, masterMuted ? 0 : masterVolume, audioOutputId);
       audio.playbackRate = playbackRate;
       if (play) void audio.play().catch(() => undefined);
     }
@@ -561,6 +597,17 @@ export function TimelineReview({
       else previewVideoRefs.current.delete(assetId);
     };
     previewVideoRefCallbacks.current.set(assetId, callback);
+    return callback;
+  }
+
+  function getPreviewCanvasRef(assetId: string) {
+    const existing = previewCanvasRefCallbacks.current.get(assetId);
+    if (existing) return existing;
+    const callback = (element: HTMLCanvasElement | null) => {
+      if (element) previewCanvasRefs.current.set(assetId, element);
+      else previewCanvasRefs.current.delete(assetId);
+    };
+    previewCanvasRefCallbacks.current.set(assetId, callback);
     return callback;
   }
 
@@ -895,11 +942,11 @@ export function TimelineReview({
                 .filter((asset): asset is ReviewMediaAsset & { playbackUrl: string } => asset.status === "ready" && Boolean(asset.playbackUrl))
                 .map((asset) => {
                   const isActive = asset.id === selectedVideo.id;
-                  const track = draft.tracks.find((candidate) => candidate.sourceAssetId === asset.id);
+                  const track = resolveTimelineTrackAt(draft, draft.tracks.find((candidate) => candidate.sourceAssetId === asset.id), playheadMs);
                   return (
+                    <Fragment key={asset.id}>
                     <video
                       className={`realtime-preview-layer ${isActive ? "active" : asset.id === outgoingPreviewAssetId ? "outgoing" : "standby"}`}
-                      key={asset.id}
                       ref={getPreviewVideoRef(asset.id)}
                       preload="auto"
                       src={asset.playbackUrl}
@@ -944,9 +991,18 @@ export function TimelineReview({
                       onVolumeChange={(event) => event.currentTarget === videoRef.current && syncPreviewAudio()}
                       onEnded={(event) => event.currentTarget === videoRef.current && pauseSelectedVideo()}
                     />
+                    <canvas
+                      ref={getPreviewCanvasRef(asset.id)}
+                      className={`webgl-preview-layer ${isActive ? "active" : asset.id === outgoingPreviewAssetId ? "outgoing" : "standby"}`}
+                      style={getLiveCanvasStyle(track, isActive)}
+                      aria-hidden="true"
+                      data-renderer="webgl"
+                    />
+                    </Fragment>
                   );
                 })}
               {programMode && activeCaption ? <div className="realtime-preview-caption">{activeCaption.text}</div> : null}
+              {programMode && activeTitle ? <div className={`realtime-preview-title ${activeTitle.position}`}>{activeTitle.text}</div> : null}
               {playbackError ? (
                 <div className="review-playback-error" role="alert">
                   <strong>Playback needs attention</strong>
@@ -972,6 +1028,13 @@ export function TimelineReview({
                 <strong>{programMode ? audioRouteMessage : pairedAudio?.audioSignal === "silent" ? `${selectedVideo.pairedAudioLabel ?? "Paired mic"} recorded no signal` : (selectedVideo.pairedAudioLabel ?? "No paired mic")}</strong>
                 <span>{programMode ? (allRecordedMicrophonesSilent ? "This recording contains silence, so there is no audible waveform to display." : useProgramStemMix ? "Separate microphone tracks are preferred; Program audio is the automatic fallback." : "Recorded Program audio is available.") : pairedAudio?.audioSignal === "silent" ? "Choose another audio source or import replacement audio for this take." : selectedVideo.message}</span>
                 {programMode && useProgramStemMix ? <span>Live mix is on — audio control changes are heard immediately during playback.</span> : null}
+                {programMode && useProgramStemMix && isPlaying && !stemMixActive ? (
+                  <button type="button" onClick={() => void startProgramStemMix(playheadMs).then((active) => {
+                    if (active) setReviewMonitorGain(videoRef.current, 0, audioOutputId);
+                  })}>
+                    Retry live microphone mix
+                  </button>
+                ) : null}
               </div>
               </div>
             </div>
@@ -1008,6 +1071,17 @@ export function TimelineReview({
         </div>
 
         {hasPlayableProgram ? <aside className="edit-track-inspector" aria-label="Selected track controls">
+          {activeTitle ? (
+            <section className="title-overlay-inspector" aria-label="Title overlay controls">
+              <strong>Title overlay</strong>
+              <input aria-label="Title text" value={activeTitle.text} onChange={(event) => onDraftChange(updateTimelineTitle(draft, activeTitle.id, { text: event.target.value }))} />
+              <div className="inspector-number-pair">
+                <InspectorNumber label="Starts" value={activeTitle.startMs} suffix="ms" onChange={(startMs) => onDraftChange(updateTimelineTitle(draft, activeTitle.id, { startMs }))} />
+                <InspectorNumber label="Ends" value={activeTitle.endMs} suffix="ms" onChange={(endMs) => onDraftChange(updateTimelineTitle(draft, activeTitle.id, { endMs }))} />
+              </div>
+              <button type="button" className="danger" onClick={() => onDraftChange(removeTimelineTitle(draft, activeTitle.id))}><Trash2 size={16} /> Delete title</button>
+            </section>
+          ) : null}
           <TrackInspector
             track={inspectorTrack}
             tracks={editableTracks}
@@ -1035,6 +1109,7 @@ export function TimelineReview({
                 setTreatmentPreviewBusy(false);
               }
             } : undefined}
+            audioAuditionMode={allRecordedMicrophonesSilent ? "unavailable" : useProgramStemMix ? (stemMixActive || !isPlaying ? "live-stems" : "program-fallback") : "program-fallback"}
           />
           <div className="editor-inspector-drawers">
             <details>
@@ -1109,6 +1184,16 @@ export function TimelineReview({
           <div className="timeline-tool-cluster" role="group" aria-label="Audio tools">
             <button type="button" className="timeline-audio-tool" data-compact-tool disabled={!firstMicrophoneTrack} onClick={() => firstMicrophoneTrack && selectTrack(firstMicrophoneTrack.id)} title="Open microphone mix and voice filters">
               <Waves size={17} /> <span>Audio Mix</span>
+            </button>
+          </div>
+          <div className="timeline-tool-cluster" role="group" aria-label="Graphics tools">
+            <button type="button" data-compact-tool onClick={() => onDraftChange(addTimelineTitle(draft, playheadMs))} title="Add an editable four-second title at the playhead">
+              <Type size={17} /> <span>Add Title</span>
+            </button>
+          </div>
+          <div className="timeline-tool-cluster" role="group" aria-label="Automation tools">
+            <button type="button" data-compact-tool disabled={!selectedTrack || selectedTrack.kind === "program" || selectedTrack.kind === "markers"} onClick={addAutomationKeyframes} title="Store this track's current controls at the playhead and interpolate to the next keyframe">
+              <Gauge size={17} /> <span>Add Keyframe</span>
             </button>
           </div>
         </div>
@@ -1465,6 +1550,9 @@ function TrackLane({
             <i />
           </span>
         ) : null}
+        {draft.keyframes.filter((point) => point.trackId === track.id).map((point) => (
+          <i className="timeline-keyframe" style={{ left: `${(point.timestampMs / durationMs) * 100}%` }} title={`${point.property} keyframe at ${formatRecordingTime(point.timestampMs)}`} key={point.id} />
+        ))}
         <i className="timeline-playhead" style={{ left: `${(playheadMs / durationMs) * 100}%` }} />
       </div>
     </div>
@@ -1487,7 +1575,8 @@ function TrackInspector({
   preview,
   previewBusy,
   previewError,
-  onRenderPreview
+  onRenderPreview,
+  audioAuditionMode
 }: {
   track: TimelineTrack;
   tracks: TimelineTrack[];
@@ -1505,6 +1594,7 @@ function TrackInspector({
   previewBusy?: boolean;
   previewError?: string;
   onRenderPreview?: () => Promise<void>;
+  audioAuditionMode: "live-stems" | "program-fallback" | "unavailable";
 }) {
   const selectedAsset = track.sourceAssetId;
   const isAudio = track.kind === "microphone";
@@ -1530,6 +1620,18 @@ function TrackInspector({
         <div className="inspector-audio-warning" role="alert">
           <VolumeX size={17} />
           <strong>No audible signal was captured on this microphone track.</strong>
+        </div>
+      ) : null}
+      {isAudio ? (
+        <div className={`inspector-audio-warning ${audioAuditionMode === "live-stems" ? "ready" : ""}`} role="status" aria-live="polite">
+          {audioAuditionMode === "live-stems" ? <Volume2 size={17} /> : <VolumeX size={17} />}
+          <strong>
+            {audioAuditionMode === "live-stems"
+              ? "Live microphone mix — every audio change is heard immediately."
+              : audioAuditionMode === "unavailable"
+                ? "This take has no audible isolated microphone signal."
+                : "Program fallback — changes are saved for export but cannot be auditioned on the baked Program audio."}
+          </strong>
         </div>
       ) : null}
       {(isAudio || isVideo) && (
