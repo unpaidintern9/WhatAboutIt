@@ -156,8 +156,22 @@ function makeActionButton(label: string, action: string, episodeId?: string, sec
   button.textContent = label;
   button.dataset.libraryAction = action;
   if (episodeId) button.dataset.episodeId = episodeId;
-  button.style.cssText = `border:1px solid ${secondary ? "#68484b" : "#b65a54"};background:${secondary ? "#342426" : "#a64d49"};color:#fff;border-radius:9px;padding:8px 11px;font-weight:700;cursor:pointer;`;
+  button.style.cssText = `border:1px solid ${secondary ? "#68484b" : "#b65a54"};background:${secondary ? "#342426" : "#a64d49"};color:#fff;border-radius:9px;padding:8px 11px;font-weight:700;cursor:pointer;transition:opacity .15s ease,filter .15s ease;`;
   return button;
+}
+
+function setLibraryButtonDisabled(button: HTMLButtonElement, disabled: boolean) {
+  button.disabled = disabled;
+  button.style.opacity = disabled ? ".48" : "1";
+  button.style.cursor = disabled ? "not-allowed" : "pointer";
+  button.style.filter = disabled ? "saturate(.65)" : "none";
+}
+
+function formatTransferBytes(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 function episodeRow(title: string, detail: string, source: "local" | "cloud", episodeId: string) {
@@ -284,17 +298,56 @@ async function openReviewEpisodeLibrary() {
   utilities.append(makeActionButton("Open from this computer", "choose-local"), makeActionButton("Open Episodes Folder", "open-library", undefined, true), makeActionButton("Refresh", "refresh", undefined, true), cancelTransfer);
   const status = document.createElement("p");
   status.style.cssText = "min-height:18px;color:#ceb9b0;font-size:12px;margin:10px 0;";
+  status.setAttribute("aria-live", "polite");
+  const transfer = document.createElement("div");
+  transfer.hidden = true;
+  transfer.style.cssText = "margin:12px 0 16px;padding:12px 14px;border:1px solid #4b3134;border-radius:11px;background:#211719;";
+  const transferHeader = document.createElement("div");
+  transferHeader.style.cssText = "display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-bottom:8px;";
+  const transferLabel = document.createElement("strong");
+  transferLabel.style.cssText = "color:#fff6ef;font-size:13px;";
+  const transferPercent = document.createElement("span");
+  transferPercent.style.cssText = "color:#e5aaa4;font-size:12px;font-variant-numeric:tabular-nums;";
+  transferHeader.append(transferLabel, transferPercent);
+  const transferBar = document.createElement("progress");
+  transferBar.max = 100;
+  transferBar.value = 0;
+  transferBar.setAttribute("aria-label", "Episode transfer progress");
+  transferBar.style.cssText = "display:block;width:100%;height:9px;accent-color:#b85b55;";
+  const transferDetail = document.createElement("div");
+  transferDetail.style.cssText = "color:#bda9a2;font-size:11px;margin-top:7px;font-variant-numeric:tabular-nums;";
+  transfer.append(transferHeader, transferBar, transferDetail);
   const list = document.createElement("div");
-  panel.append(header, utilities, status, list);
+  panel.append(header, utilities, status, transfer, list);
   overlay.append(panel);
   document.body.append(overlay);
 
   let activeOperationId: string | undefined;
+  let transferActive = false;
+  const setTransferActive = (active: boolean) => {
+    transferActive = active;
+    overlay.querySelectorAll<HTMLButtonElement>("button[data-library-action]").forEach((libraryButton) => {
+      const disabled = active && libraryButton.dataset.libraryAction !== "cancel-transfer";
+      setLibraryButtonDisabled(libraryButton, disabled);
+    });
+    cancelTransfer.hidden = !active;
+    setLibraryButtonDisabled(cancelTransfer, !active);
+  };
   const onTransferProgress = (_event: Electron.IpcRendererEvent, progress: CollaborationTransferProgress) => {
     activeOperationId = progress.operationId;
     const percent = progress.totalBytes > 0 ? Math.min(100, Math.round((progress.transferredBytes / progress.totalBytes) * 100)) : 0;
-    status.textContent = `${progress.message} ${progress.completedAssets}/${progress.totalAssets} files · ${percent}%`;
-    cancelTransfer.hidden = progress.phase === "complete" || progress.phase === "cancelled" || progress.phase === "error";
+    const terminal = progress.phase === "complete" || progress.phase === "cancelled" || progress.phase === "error";
+    setTransferActive(!terminal);
+    transfer.hidden = false;
+    transferLabel.textContent = progress.phase === "verifying"
+      ? "Verifying episode"
+      : progress.phase === "preparing"
+        ? "Preparing transfer"
+        : progress.direction === "download" ? "Downloading episode" : "Uploading episode";
+    transferPercent.textContent = `${percent}%`;
+    transferBar.value = percent;
+    transferDetail.textContent = `${progress.completedAssets} of ${progress.totalAssets} files complete · ${formatTransferBytes(progress.transferredBytes)} of ${formatTransferBytes(progress.totalBytes)}`;
+    status.textContent = terminal ? progress.message : "You can safely leave the files alone while this finishes.";
   };
   ipcRenderer.on("collaboration:cloud:progress", onTransferProgress);
 
@@ -306,6 +359,7 @@ async function openReviewEpisodeLibrary() {
 
   overlay.addEventListener("click", async (event) => {
     if (event.target === overlay) {
+      if (transferActive) return;
       closeOverlay();
       return;
     }
@@ -313,10 +367,13 @@ async function openReviewEpisodeLibrary() {
     if (!button) return;
     const action = button.dataset.libraryAction;
     const episodeId = button.dataset.episodeId;
+    if (transferActive && action !== "cancel-transfer") return;
     try {
       if (action === "close") return closeOverlay();
       if (action === "refresh") return void populateReviewLibrary(list, status);
       if (action === "cancel-transfer" && activeOperationId) {
+        setLibraryButtonDisabled(cancelTransfer, true);
+        transferLabel.textContent = "Cancelling transfer";
         await ipcRenderer.invoke("collaboration:cloud:cancel", activeOperationId);
         status.textContent = "Cancelling safely after the current protected chunk…";
         return;
@@ -341,23 +398,34 @@ async function openReviewEpisodeLibrary() {
         return;
       }
       if (action === "upload") {
-        button.disabled = true;
+        setTransferActive(true);
+        transfer.hidden = false;
+        transferLabel.textContent = "Preparing upload";
+        transferPercent.textContent = "0%";
+        transferBar.value = 0;
+        transferDetail.textContent = "Checking episode files…";
         status.textContent = "Uploading changed episode files to Cloudflare. Local originals are staying in place…";
         const result = (await ipcRenderer.invoke("collaboration:cloud:upload", { episodeId, selection: "full-backup" })) as CollaborationSyncResult;
         status.textContent = result.message;
-        button.disabled = false;
+        setTransferActive(false);
         await populateReviewLibrary(list, status);
         return;
       }
       if (action === "review-cloud") {
-        button.disabled = true;
+        setTransferActive(true);
+        transfer.hidden = false;
+        transferLabel.textContent = "Preparing download";
+        transferPercent.textContent = "0%";
+        transferBar.value = 0;
+        transferDetail.textContent = "Checking local and cloud files…";
         status.textContent = "Syncing this Cloudflare episode to the local episode folder…";
         const result = (await ipcRenderer.invoke("collaboration:cloud:download", episodeId)) as { episode: EpisodeMetadata; sync: CollaborationSyncResult };
         status.textContent = result.sync.message;
         requestEpisodeActivation(result.episode.id);
       }
     } catch (error) {
-      button.disabled = false;
+      setTransferActive(false);
+      transfer.hidden = true;
       status.textContent = error instanceof Error ? error.message : "That episode action could not finish.";
     }
   });
