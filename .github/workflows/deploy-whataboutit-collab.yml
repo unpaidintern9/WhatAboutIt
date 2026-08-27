@@ -66,20 +66,21 @@ jobs:
       - name: Validate Worker configuration
         run: npx wrangler deploy --dry-run
 
-      - name: Deploy dedicated collaboration Worker
-        run: npx wrangler deploy
-
-      - name: Install per-editor collaboration access keys
+      - name: Install per-editor collaboration access keys before deployment
         shell: bash
         env:
           WHATABOUTIT_MORGAN_ACCESS_KEY: ${{ secrets.WHATABOUTIT_MORGAN_ACCESS_KEY }}
           WHATABOUTIT_SUSAN_ACCESS_KEY: ${{ secrets.WHATABOUTIT_SUSAN_ACCESS_KEY }}
+          WHATABOUTIT_LEGACY_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
         run: |
           set -euo pipefail
           test ${#WHATABOUTIT_MORGAN_ACCESS_KEY} -ge 24 || { echo "Missing or short WHATABOUTIT_MORGAN_ACCESS_KEY"; exit 1; }
           test ${#WHATABOUTIT_SUSAN_ACCESS_KEY} -ge 24 || { echo "Missing or short WHATABOUTIT_SUSAN_ACCESS_KEY"; exit 1; }
-          ACCESS_KEYS_JSON="$(node -e 'process.stdout.write(JSON.stringify({"morgan-owner":process.env.WHATABOUTIT_MORGAN_ACCESS_KEY,"susan-editor":process.env.WHATABOUTIT_SUSAN_ACCESS_KEY}))')"
+          ACCESS_KEYS_JSON="$(node -e 'const keys={"morgan-owner":process.env.WHATABOUTIT_MORGAN_ACCESS_KEY,"susan-editor":process.env.WHATABOUTIT_SUSAN_ACCESS_KEY};if((process.env.WHATABOUTIT_LEGACY_ACCESS_KEY||"").length>=24)keys["legacy-transition"]=process.env.WHATABOUTIT_LEGACY_ACCESS_KEY;process.stdout.write(JSON.stringify(keys))')"
           printf '%s' "$ACCESS_KEYS_JSON" | npx wrangler secret put WHATABOUTIT_COLLAB_ACCESS_KEYS
+
+      - name: Deploy dedicated collaboration Worker
+        run: npx wrangler deploy
 
       - name: Discover collaboration service URL
         id: service
