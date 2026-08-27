@@ -23,6 +23,10 @@ import {
   updateTimelineCaption,
   updateTimelineMastering,
   updateTimelineTrackMix,
+  addTimelineTitle,
+  updateTimelineTitle,
+  addTimelineKeyframe,
+  resolveTimelineTrackAt,
   withTimelineDraftDefaults
 } from "./timeline";
 
@@ -199,6 +203,34 @@ describe("timeline draft", () => {
       startMs: 12000,
       source: "manual"
     });
+  });
+
+  it("persists the full live voice gain range used by Review and export", () => {
+    const base = createTimelineDraft({ deviceDefaults, durationMs: 60000 });
+    const boosted = updateTimelineTrackMix(base, "mic-guestMic", { volume: 275 });
+    const bounded = updateTimelineTrackMix(boosted, "mic-guestMic", { volume: 900 });
+
+    expect(boosted.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(275);
+    expect(bounded.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(300);
+  });
+
+  it("adds and edits non-destructive title overlays with bounded timing", () => {
+    const base = createTimelineDraft({ deviceDefaults, durationMs: 60000 });
+    const titled = addTimelineTitle(base, 12000, "2026-08-27T12:00:00.000Z");
+    const edited = updateTimelineTitle(titled, titled.titles[0].id, { text: "Guest Story", endMs: 18000, size: 200 });
+
+    expect(edited.titles[0]).toMatchObject({ text: "Guest Story", startMs: 12000, endMs: 18000, size: 120 });
+    expect(edited.history.at(-1)?.label).toBe("Edit title");
+  });
+
+  it("interpolates source automation between timeline keyframes", () => {
+    const base = createTimelineDraft({ deviceDefaults, durationMs: 60000 });
+    const first = addTimelineKeyframe(base, "mic-guestMic", "volume", 10000, 80);
+    const second = addTimelineKeyframe(first, "mic-guestMic", "volume", 20000, 120);
+    const track = second.tracks.find((candidate) => candidate.id === "mic-guestMic");
+
+    expect(resolveTimelineTrackAt(second, track, 15000)?.volume).toBe(100);
+    expect(second.keyframes).toHaveLength(2);
   });
 
   it("stores industry-standard source controls with safe limits", () => {

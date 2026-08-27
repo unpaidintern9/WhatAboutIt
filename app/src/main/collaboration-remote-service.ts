@@ -3,7 +3,7 @@ import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { EpisodeMetadata } from "../shared/types";
 import type {
@@ -15,7 +15,7 @@ import type {
   CollaborationRemoteState
 } from "../shared/collaboration-presence";
 import { collaborationPeople } from "../shared/collaboration-presence";
-import type { CollaborationSyncResult, CollaborationUploadSelection } from "../shared/collaboration";
+import type { CollaborationSyncResult, CollaborationTransferProgress, CollaborationUploadSelection } from "../shared/collaboration";
 import { shouldIncludeCollaborationAsset } from "../shared/collaboration";
 import { getEpisodesRoot } from "./config-service";
 import { requestCollaborationWithRetry, uploadCollaborationAsset } from "./collaboration-asset-upload";
@@ -44,6 +44,14 @@ type CloudDownloadResult = {
   episode: EpisodeMetadata;
   sync: CollaborationSyncResult;
 };
+
+export type CollaborationTransferOptions = {
+  operationId?: string;
+  signal?: AbortSignal;
+  onProgress?: (progress: CollaborationTransferProgress) => void | Promise<void>;
+};
+
+const API_REQUEST_TIMEOUT_MS = 120_000;
 
 const defaultConfig: RemoteConfig = { personId: "morgan-owner" };
 
@@ -95,6 +103,7 @@ export async function setCollaborationRemoteConfig(input: { apiUrl?: string; acc
   const current = await readConfig();
   const personId: CollaborationPersonId = input.personId === "susan-editor" ? "susan-editor" : input.personId === "morgan-owner" ? "morgan-owner" : current.personId;
   const apiUrl = input.apiUrl === undefined ? current.apiUrl : input.apiUrl.trim().replace(/\/$/, "") || undefined;
+  if (apiUrl && new URL(apiUrl).protocol !== "https:") throw new Error("Cloud collaboration requires an HTTPS service URL.");
   const accessKey = input.accessKey === undefined ? current.accessKey : input.accessKey.trim() || undefined;
   const saved = await writeConfig({ personId, apiUrl, accessKey });
   return { apiUrl: saved.apiUrl, personId: saved.personId, accessKeyConfigured: Boolean(saved.accessKey) } satisfies CollaborationRemoteConfigSummary;
@@ -103,15 +112,23 @@ export async function setCollaborationRemoteConfig(input: { apiUrl?: string; acc
 export async function fetchCollaborationApi(pathname: string, init?: RequestInit): Promise<Response> {
   const config = await readConfig();
   if (!config.apiUrl) throw new Error("What About It collaboration service URL is not configured yet.");
+  if (new URL(config.apiUrl).protocol !== "https:") throw new Error("Cloud collaboration is blocked until its service URL uses HTTPS.");
   const headers = new Headers(init?.headers);
   if (!headers.has("content-type") && init?.body) headers.set("content-type", "application/json");
+  if (!headers.has("x-request-id")) headers.set("x-request-id", crypto.randomUUID());
   if (config.accessKey) headers.set("x-whataboutit-key", config.accessKey);
   const url = `${config.apiUrl}${pathname}`;
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort(init?.signal?.reason ?? new DOMException("Transfer cancelled", "AbortError"));
+  if (init?.signal?.aborted) abortFromCaller();
+  else init?.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = setTimeout(() => controller.abort(new DOMException("Cloud request timed out", "TimeoutError")), API_REQUEST_TIMEOUT_MS);
   try {
-    return await net.fetch(url, { ...init, headers });
+    return await net.fetch(url, { ...init, headers, signal: controller.signal });
   } catch (chromiumError) {
+    if (controller.signal.aborted) throw controller.signal.reason;
     try {
-      return await fetch(url, { ...init, headers });
+      return await fetch(url, { ...init, headers, signal: controller.signal });
     } catch (nodeError) {
       const chromiumMessage = chromiumError instanceof Error ? chromiumError.message : String(chromiumError);
       const nodeMessage = nodeError instanceof Error ? nodeError.message : String(nodeError);
@@ -119,6 +136,9 @@ export async function fetchCollaborationApi(pathname: string, init?: RequestInit
       const connection = net.isOnline() ? "Windows reports an internet connection" : "Windows reports that this computer is offline";
       throw new Error(`Could not reach ${host}. ${connection}. Chromium: ${chromiumMessage}. Node: ${nodeMessage}.`, { cause: nodeError });
     }
+  } finally {
+    clearTimeout(timeout);
+    init?.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -314,15 +334,40 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, task: (
   return results;
 }
 
-export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: CollaborationUploadSelection = "full-backup"): Promise<CollaborationSyncResult> {
+export async function uploadEpisodeToCloud(
+  episode: EpisodeMetadata,
+  selection: CollaborationUploadSelection = "full-backup",
+  options: CollaborationTransferOptions = {}
+): Promise<CollaborationSyncResult> {
   const config = await readConfig();
   if (!config.apiUrl) throw new Error("Connect the What About It collaboration service before uploading.");
   const workspace = await refreshCollaborationAssets(episode.folderPath, episode.id, episode.title);
   const selectedAssets = workspace.assets.filter((asset) => shouldIncludeCollaborationAsset(asset.kind, selection));
+  const operationId = options.operationId ?? crypto.randomUUID();
+  const totalBytes = selectedAssets.reduce((total, asset) => total + (asset.bytes ?? 0), 0);
+  let completedAssets = 0;
+  let transferredBytes = 0;
+  const assetProgress = new Map<string, number>();
+  const report = (phase: CollaborationTransferProgress["phase"], message: string, relativePath?: string) => options.onProgress?.({
+    operationId,
+    episodeId: episode.id,
+    direction: "upload",
+    phase,
+    relativePath,
+    completedAssets,
+    totalAssets: selectedAssets.length,
+    transferredBytes,
+    totalBytes,
+    message
+  });
+  await report("preparing", "Checking local files and Cloudflare copies.");
   const assetResults = await mapWithConcurrency(selectedAssets, 2, async (asset) => {
+    if (options.signal?.aborted) throw options.signal.reason;
     const absolutePath = safeLocalAssetPath(episode.folderPath, asset.relativePath);
     if (await remoteAssetMatches(episode.id, asset.relativePath, asset.contentHash)) {
       await setUploadCheckpoint(episode.id, asset.relativePath, undefined);
+      completedAssets += 1;
+      await report("transferring", `Verified ${completedAssets} of ${selectedAssets.length} files.`, asset.relativePath);
       return { uploaded: 0, skipped: 1, bytes: 0 };
     }
     const bytes = asset.bytes ?? (await fs.stat(absolutePath)).size;
@@ -335,6 +380,12 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
         bytes,
         contentType: contentType(asset.relativePath),
         contentHash: asset.contentHash,
+        signal: options.signal,
+        onProgress: async (assetBytes) => {
+          transferredBytes = Math.min(totalBytes, transferredBytes + Math.max(0, assetBytes - (assetProgress.get(asset.id) ?? 0)));
+          assetProgress.set(asset.id, assetBytes);
+          await report("transferring", `Uploading ${asset.relativePath}`, asset.relativePath);
+        },
         checkpoint: await getUploadCheckpoint(episode.id, asset.relativePath),
         onCheckpoint: (checkpoint) => setUploadCheckpoint(episode.id, asset.relativePath, checkpoint),
         onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud upload failure.", {
@@ -353,6 +404,8 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
       throw new Error(`Upload failed for ${asset.relativePath}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
     await logger.info("CollaborationUpload", "Episode asset upload completed.", { episodeId: episode.id, relativePath: asset.relativePath, bytes });
+    completedAssets += 1;
+    await report("verifying", `Uploaded and verified ${completedAssets} of ${selectedAssets.length} files.`, asset.relativePath);
     return { uploaded: 1, skipped: 0, bytes };
   });
   const uploadedAssets = assetResults.reduce((total, result) => total + result.uploaded, 0);
@@ -417,6 +470,7 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
     throw new Error(body.error || `Could not save the cloud episode manifest (${manifestResponse.status}).`);
   }
   await recordCollaborationUploadComplete(episode.folderPath, episode.id, episode.title, selectedAssets.map((asset) => asset.id));
+  await report("complete", "Cloudflare upload is complete and verified.");
 
   return {
     episodeId: episode.id,
@@ -427,29 +481,118 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
   };
 }
 
-async function downloadResponseToFile(response: Response, destination: string) {
-  if (!response.body) throw new Error("Cloudflare returned an empty file response.");
-  await fs.mkdir(path.dirname(destination), { recursive: true });
-  const temporary = `${destination}.${process.pid}.${Date.now()}.cloud-download`;
+async function writeJsonAtomic(filePath: string, value: unknown) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
   try {
-    await pipeline(Readable.fromWeb(response.body as never), createWriteStream(temporary));
-    await fs.rename(temporary, destination);
+    await fs.writeFile(temporary, JSON.stringify(value, null, 2), "utf8");
+    await fs.rename(temporary, filePath);
   } finally {
     await fs.rm(temporary, { force: true }).catch(() => undefined);
   }
 }
 
-export async function downloadCloudEpisode(episodeId: string): Promise<CloudDownloadResult> {
+async function assertDownloadCapacity(folderPath: string, requiredBytes: number) {
+  const stats = await fs.statfs(folderPath);
+  const availableBytes = stats.bavail * stats.bsize;
+  const reserveBytes = Math.max(512 * 1024 * 1024, Math.ceil(requiredBytes * 0.1));
+  if (availableBytes < requiredBytes + reserveBytes) {
+    throw new Error(`Not enough disk space for this episode. Free ${Math.ceil((requiredBytes + reserveBytes - availableBytes) / (1024 ** 3))} GB and retry.`);
+  }
+}
+
+async function downloadVerifiedAsset(input: {
+  episodeId: string;
+  relativePath: string;
+  destination: string;
+  expectedBytes: number;
+  expectedHash?: string;
+  signal?: AbortSignal;
+  onBytes: (bytes: number) => void | Promise<void>;
+}) {
+  await fs.mkdir(path.dirname(input.destination), { recursive: true });
+  const partial = `${input.destination}.cloud-download.partial`;
+  let offset = 0;
+  try {
+    const stat = await fs.stat(partial);
+    if (stat.isFile() && stat.size < input.expectedBytes) offset = stat.size;
+    else if (stat.size === input.expectedBytes) offset = stat.size;
+    else await fs.rm(partial, { force: true });
+  } catch {
+    // A fresh download has no checkpoint yet.
+  }
+  await input.onBytes(offset);
+  for (let streamAttempt = 1; offset < input.expectedBytes && streamAttempt <= 4; streamAttempt += 1) {
+    try {
+      const response = await requestCollaborationWithRetry(
+        `download ${input.relativePath}`,
+        () => apiFetch(`/episodes/${encodeURIComponent(input.episodeId)}/assets/${encodeURIComponent(input.relativePath)}`, {
+          headers: offset > 0 ? { range: `bytes=${offset}-` } : undefined,
+          signal: input.signal
+        }),
+        { signal: input.signal }
+      );
+      if (!response.ok) throw new Error(`Could not download ${input.relativePath} (${response.status}).`);
+      if (offset > 0 && response.status !== 206) {
+        offset = 0;
+        await fs.rm(partial, { force: true });
+      }
+      if (!response.body) throw new Error("Cloudflare returned an empty file response.");
+      let received = offset;
+      const counter = new Transform({
+        transform(chunk, _encoding, callback) {
+          received += chunk.length;
+          void Promise.resolve(input.onBytes(received)).then(() => callback(null, chunk), callback);
+        }
+      });
+      await pipeline(Readable.fromWeb(response.body as never), counter, createWriteStream(partial, { flags: offset > 0 ? "a" : "w" }), { signal: input.signal });
+      offset = (await fs.stat(partial)).size;
+    } catch (error) {
+      if (input.signal?.aborted || streamAttempt === 4) throw error;
+      offset = await fs.stat(partial).then((stat) => stat.size, () => 0);
+      await logger.warning("CollaborationDownload", "Resuming an interrupted cloud download.", { relativePath: input.relativePath, streamAttempt, offset, error: String(error) });
+    }
+  }
+  const complete = await fs.stat(partial);
+  if (complete.size !== input.expectedBytes) throw new Error(`Download for ${input.relativePath} is incomplete (${complete.size}/${input.expectedBytes} bytes).`);
+  const downloadedHash = await sha256(partial);
+  if (input.expectedHash && downloadedHash !== input.expectedHash) {
+    await fs.rm(partial, { force: true });
+    throw new Error(`Cloudflare checksum failed for ${input.relativePath}. The invalid copy was removed; retry is safe.`);
+  }
+  return { partial, downloadedHash };
+}
+
+export async function downloadCloudEpisode(episodeId: string, options: CollaborationTransferOptions = {}): Promise<CloudDownloadResult> {
   const manifest = await requestRemote<CloudEpisodeManifest>(episodeId, "/manifest");
   if (manifest.episode.id !== episodeId) throw new Error("Cloud episode manifest does not match the requested episode.");
   const episodeFolder = path.join(getEpisodesRoot(), episodeId);
   await fs.mkdir(episodeFolder, { recursive: true });
+  const operationId = options.operationId ?? crypto.randomUUID();
+  const totalBytes = manifest.assets.reduce((total, asset) => total + (asset.bytes ?? 0), 0);
+  await assertDownloadCapacity(episodeFolder, totalBytes);
   const safetyStamp = new Date().toISOString().replaceAll(":", "-");
   let downloadedAssets = 0;
   let skippedAssets = 0;
   let downloadedBytes = 0;
+  let completedAssets = 0;
+  const assetProgress = new Map<string, number>();
+  const report = (phase: CollaborationTransferProgress["phase"], message: string, relativePath?: string) => options.onProgress?.({
+    operationId,
+    episodeId,
+    direction: "download",
+    phase,
+    relativePath,
+    completedAssets,
+    totalAssets: manifest.assets.length,
+    transferredBytes: [...assetProgress.values()].reduce((total, bytes) => total + bytes, 0),
+    totalBytes,
+    message
+  });
+  await report("preparing", "Checking disk space and existing episode files.");
 
   for (const asset of manifest.assets) {
+    if (options.signal?.aborted) throw options.signal.reason;
     const destination = safeLocalAssetPath(episodeFolder, asset.relativePath);
     let exists: boolean;
     let matches = false;
@@ -462,24 +605,42 @@ export async function downloadCloudEpisode(episodeId: string): Promise<CloudDown
     }
     if (matches) {
       skippedAssets += 1;
+      completedAssets += 1;
+      assetProgress.set(asset.id, asset.bytes ?? 0);
+      await report("verifying", `Verified ${completedAssets} of ${manifest.assets.length} files.`, asset.relativePath);
       continue;
     }
     if (exists && asset.localOriginal) {
       // Never overwrite a local original with a cloud copy. The local recording
       // remains the safety source of truth on the machine that recorded it.
       skippedAssets += 1;
+      completedAssets += 1;
+      assetProgress.set(asset.id, asset.bytes ?? 0);
+      await report("verifying", `Protected local original ${asset.relativePath}.`, asset.relativePath);
       continue;
     }
+    const verified = await downloadVerifiedAsset({
+      episodeId,
+      relativePath: asset.relativePath,
+      destination,
+      expectedBytes: asset.bytes ?? 0,
+      expectedHash: asset.contentHash,
+      signal: options.signal,
+      onBytes: async (bytes) => {
+        assetProgress.set(asset.id, bytes);
+        await report("transferring", `Downloading ${asset.relativePath}`, asset.relativePath);
+      }
+    });
     if (exists) {
       const backup = path.join(episodeFolder, "Backup", "CloudSyncSafety", safetyStamp, ...asset.relativePath.split("/"));
       await fs.mkdir(path.dirname(backup), { recursive: true });
       await fs.copyFile(destination, backup);
     }
-    const response = await apiFetch(`/episodes/${encodeURIComponent(episodeId)}/assets/${encodeURIComponent(asset.relativePath)}`);
-    if (!response.ok) throw new Error(`Could not download ${asset.relativePath} (${response.status}).`);
-    await downloadResponseToFile(response, destination);
+    await fs.rename(verified.partial, destination);
     downloadedAssets += 1;
     downloadedBytes += asset.bytes ?? 0;
+    completedAssets += 1;
+    await report("verifying", `Downloaded and verified ${completedAssets} of ${manifest.assets.length} files.`, asset.relativePath);
   }
 
   const metadataPath = path.join(episodeFolder, "metadata.json");
@@ -499,11 +660,20 @@ export async function downloadCloudEpisode(episodeId: string): Promise<CloudDown
       folderPath: episodeFolder,
       phase: "phase-1-shell"
     };
-    await fs.writeFile(metadataPath, JSON.stringify(episode, null, 2), "utf8");
+    await writeJsonAtomic(metadataPath, episode);
   }
   episode = { ...episode, folderPath: episodeFolder };
-  await fs.writeFile(metadataPath, JSON.stringify(episode, null, 2), "utf8");
-  await recordCollaborationDownloadComplete(episodeFolder, episode.id, episode.title);
+  await writeJsonAtomic(metadataPath, episode);
+  await report("committing", "Committing the verified episode download.");
+  await writeJsonAtomic(path.join(episodeFolder, "Session", "cloud-download-complete.json"), {
+    version: 1,
+    episodeId,
+    revisionId: manifest.revisionId,
+    assetCount: manifest.assets.length,
+    completedAt: new Date().toISOString()
+  });
+  await recordCollaborationDownloadComplete(episodeFolder, episode.id, episode.title, manifest.assets);
+  await report("complete", "Cloudflare download is complete and verified.");
 
   return {
     episode,

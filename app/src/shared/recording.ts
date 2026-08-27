@@ -51,6 +51,9 @@ export interface RecordingSourceHealth {
   active: boolean;
   firstChunkReceived: boolean;
   bytesWritten: number;
+  pendingBytes?: number;
+  queueDepth?: number;
+  peakPendingBytes?: number;
   lastChunkAt?: string;
   message: string;
 }

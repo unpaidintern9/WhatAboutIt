@@ -12,7 +12,7 @@ import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWin
 import type { AppUpdateStatus } from "../shared/app-update";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
 import type { MediaAccessStatus } from "../shared/media-permissions";
-import type { CloudEpisodeSummary, CollaborationSyncResult, CollaborationUploadSelection } from "../shared/collaboration";
+import type { CloudEpisodeSummary, CollaborationSyncResult, CollaborationTransferProgress, CollaborationUploadSelection } from "../shared/collaboration";
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
@@ -23,6 +23,12 @@ contextBridge.exposeInMainWorld("studio", {
   listCloudEpisodes: (): Promise<CloudEpisodeSummary[]> => ipcRenderer.invoke("collaboration:cloud:list"),
   uploadEpisodeToCloud: (episodeId: string, selection: CollaborationUploadSelection = "full-backup"): Promise<CollaborationSyncResult> => ipcRenderer.invoke("collaboration:cloud:upload", { episodeId, selection }),
   downloadCloudEpisode: (episodeId: string): Promise<{ episode: EpisodeMetadata; sync: CollaborationSyncResult }> => ipcRenderer.invoke("collaboration:cloud:download", episodeId),
+  cancelCloudTransfer: (operationId: string): Promise<boolean> => ipcRenderer.invoke("collaboration:cloud:cancel", operationId),
+  onCloudTransferProgress: (listener: (progress: CollaborationTransferProgress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: CollaborationTransferProgress) => listener(progress);
+    ipcRenderer.on("collaboration:cloud:progress", handler);
+    return () => ipcRenderer.removeListener("collaboration:cloud:progress", handler);
+  },
   getSettings: (): Promise<StudioSettings> => ipcRenderer.invoke("settings:get"),
   saveSettings: (settings: StudioSettings): Promise<StudioSettings> => ipcRenderer.invoke("settings:save", settings),
   createRecordingSession: (input: RecordingSessionCreateInput): Promise<RecordingSession> => ipcRenderer.invoke("recording:create-session", input),
@@ -266,7 +272,9 @@ async function openReviewEpisodeLibrary() {
   header.append(copy, close);
   const utilities = document.createElement("div");
   utilities.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;margin:18px 0 8px;";
-  utilities.append(makeActionButton("Open from this computer", "choose-local"), makeActionButton("Open Episodes Folder", "open-library", undefined, true), makeActionButton("Refresh", "refresh", undefined, true));
+  const cancelTransfer = makeActionButton("Cancel transfer", "cancel-transfer", undefined, true);
+  cancelTransfer.hidden = true;
+  utilities.append(makeActionButton("Open from this computer", "choose-local"), makeActionButton("Open Episodes Folder", "open-library", undefined, true), makeActionButton("Refresh", "refresh", undefined, true), cancelTransfer);
   const status = document.createElement("p");
   status.style.cssText = "min-height:18px;color:#ceb9b0;font-size:12px;margin:10px 0;";
   const list = document.createElement("div");
@@ -274,7 +282,17 @@ async function openReviewEpisodeLibrary() {
   overlay.append(panel);
   document.body.append(overlay);
 
+  let activeOperationId: string | undefined;
+  const onTransferProgress = (_event: Electron.IpcRendererEvent, progress: CollaborationTransferProgress) => {
+    activeOperationId = progress.operationId;
+    const percent = progress.totalBytes > 0 ? Math.min(100, Math.round((progress.transferredBytes / progress.totalBytes) * 100)) : 0;
+    status.textContent = `${progress.message} ${progress.completedAssets}/${progress.totalAssets} files · ${percent}%`;
+    cancelTransfer.hidden = progress.phase === "complete" || progress.phase === "cancelled" || progress.phase === "error";
+  };
+  ipcRenderer.on("collaboration:cloud:progress", onTransferProgress);
+
   const closeOverlay = () => {
+    ipcRenderer.removeListener("collaboration:cloud:progress", onTransferProgress);
     reviewLibraryOpen = false;
     overlay.remove();
   };
@@ -291,6 +309,11 @@ async function openReviewEpisodeLibrary() {
     try {
       if (action === "close") return closeOverlay();
       if (action === "refresh") return void populateReviewLibrary(list, status);
+      if (action === "cancel-transfer" && activeOperationId) {
+        await ipcRenderer.invoke("collaboration:cloud:cancel", activeOperationId);
+        status.textContent = "Cancelling safely after the current protected chunk…";
+        return;
+      }
       if (action === "open-library") {
         await ipcRenderer.invoke("episodes:open-library-folder");
         return;

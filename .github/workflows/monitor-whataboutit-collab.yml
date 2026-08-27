@@ -1,0 +1,43 @@
+name: Monitor WhatAboutIt Cloud Transfers
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: whataboutit-cloud-transfer-monitor
+  cancel-in-progress: false
+
+jobs:
+  verified-r2-round-trip:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SERVICE_URL: https://whataboutit-collab.whataboutit-collab.workers.dev
+      ACCESS_KEY: ${{ secrets.WHATABOUTIT_MORGAN_ACCESS_KEY || secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
+    steps:
+      - name: Verify health, authenticated upload, download hash, and cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ${#ACCESS_KEY} -ge 24
+          curl --fail --silent --show-error --max-time 20 "$SERVICE_URL/health" >/dev/null
+          EPISODE_ID="monitor-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          BODY="whataboutit-monitor-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          HASH="$(printf '%s' "$BODY" | sha256sum | cut -d' ' -f1)"
+          URL="$SERVICE_URL/episodes/$EPISODE_ID/assets/health.txt"
+          cleanup() {
+            curl --fail --silent --show-error --max-time 20 -X DELETE -H "x-whataboutit-key: $ACCESS_KEY" "$URL" >/dev/null || true
+          }
+          trap cleanup EXIT
+          printf '%s' "$BODY" | curl --fail --silent --show-error --max-time 60 -X PUT \
+            -H "x-whataboutit-key: $ACCESS_KEY" -H "content-type: text/plain" \
+            -H "x-content-sha256: $HASH" --data-binary @- "$URL" >/dev/null
+          curl --fail --silent --show-error --max-time 30 -H "x-whataboutit-key: $ACCESS_KEY" "$URL" \
+            | sha256sum | cut -d' ' -f1 | grep -Fx "$HASH" >/dev/null
+          cleanup
+          trap - EXIT

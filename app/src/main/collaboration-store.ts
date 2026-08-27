@@ -120,13 +120,18 @@ export async function recordCollaborationUploadComplete(
 export async function recordCollaborationDownloadComplete(
   episodeFolder: string,
   episodeId: string,
-  episodeTitle: string
+  episodeTitle: string,
+  expectedAssets?: Array<{ relativePath: string; contentHash?: string }>
 ) {
   const workspace = await refreshCollaborationAssets(episodeFolder, episodeId, episodeTitle);
+  const expectedByPath = new Map((expectedAssets ?? []).map((asset) => [asset.relativePath, asset.contentHash]));
   workspace.provider = "cloudflare";
   workspace.remoteState = "ready";
   workspace.lastDownloadedAt = new Date().toISOString();
-  workspace.assets = workspace.assets.map((asset) => ({ ...asset, state: "synced" }));
+  workspace.assets = workspace.assets.map((asset) => ({
+    ...asset,
+    state: expectedByPath.size === 0 || expectedByPath.get(asset.relativePath) === asset.contentHash ? "synced" : asset.state
+  }));
   return writeWorkspace(episodeFolder, workspace);
 }
 

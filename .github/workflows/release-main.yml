@@ -39,10 +39,10 @@ jobs:
       - name: Prepare What About It collaboration bootstrap
         shell: pwsh
         env:
-          WHATABOUTIT_COLLAB_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
+          WHATABOUTIT_COLLAB_ACCESS_KEY: ${{ secrets.WHATABOUTIT_MORGAN_ACCESS_KEY || secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:WHATABOUTIT_COLLAB_ACCESS_KEY)) {
-            throw "WHATABOUTIT_COLLAB_ACCESS_KEY is required to publish a connected What About It installer."
+            throw "WHATABOUTIT_MORGAN_ACCESS_KEY is required to publish Morgan's connected What About It installer."
           }
           New-Item -ItemType Directory -Force -Path build | Out-Null
           $bootstrap = [ordered]@{

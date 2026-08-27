@@ -26,9 +26,12 @@ class MemoryR2 {
     if (ifMatch && ifMatch !== currentEtag) return null;
     if (ifNoneMatch === "*" && current) return null;
     const bytes = await this.bytes(body);
+    const checksum = await crypto.subtle.digest("SHA-256", bytes);
+    const checksumHex = [...new Uint8Array(checksum)].map((value) => value.toString(16).padStart(2, "0")).join("");
+    if (options.sha256 && options.sha256 !== checksumHex) throw new Error("SHA-256 mismatch");
     const version = (current?.version ?? 0) + 1;
-    this.objects.set(key, { bytes, httpMetadata: options.httpMetadata ?? {}, customMetadata: options.customMetadata ?? {}, version });
-    return { httpEtag: `\"etag-${key}-${version}\"` };
+    this.objects.set(key, { bytes, httpMetadata: options.httpMetadata ?? {}, customMetadata: options.customMetadata ?? {}, version, checksum });
+    return { httpEtag: `\"etag-${key}-${version}\"`, checksums: { sha256: checksum } };
   }
   async createMultipartUpload(key, options = {}) {
     const uploadId = `upload-${this.nextUploadId++}`;
@@ -63,18 +66,32 @@ class MemoryR2 {
         const bytes = new Uint8Array(size);
         let offset = 0;
         chunks.forEach((chunk) => { bytes.set(chunk, offset); offset += chunk.length; });
-        bucket.objects.set(key, { bytes, httpMetadata: upload.options.httpMetadata ?? {}, customMetadata: upload.options.customMetadata ?? {} });
+        const checksum = await crypto.subtle.digest("SHA-256", bytes);
+        bucket.objects.set(key, { bytes, httpMetadata: upload.options.httpMetadata ?? {}, customMetadata: upload.options.customMetadata ?? {}, checksum, version: 1 });
         bucket.multipartUploads.delete(uploadId);
         return { httpEtag: `etag-${key}` };
       },
       async abort() { current(); bucket.multipartUploads.delete(uploadId); }
     };
   }
-  async get(key) {
+  async get(key, options = {}) {
     const entry = this.objects.get(key);
     if (!entry) return null;
+    let bytes = entry.bytes;
+    let range;
+    const rangeHeader = options.range instanceof Headers ? options.range.get("range") : undefined;
+    const match = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader || "");
+    if (match) {
+      const offset = Number(match[1]);
+      const end = match[2] ? Math.min(Number(match[2]), entry.bytes.length - 1) : entry.bytes.length - 1;
+      bytes = entry.bytes.slice(offset, end + 1);
+      range = { offset, length: bytes.length };
+    }
     return {
-      body: new Response(entry.bytes).body,
+      body: new Response(bytes).body,
+      size: entry.bytes.length,
+      range,
+      checksums: { sha256: entry.checksum },
       httpMetadata: entry.httpMetadata,
       customMetadata: entry.customMetadata,
       httpEtag: `\"etag-${key}-${entry.version ?? 1}\"`,
@@ -85,7 +102,7 @@ class MemoryR2 {
   async head(key) {
     const entry = this.objects.get(key);
     if (!entry) return null;
-    return { size: entry.bytes.length, customMetadata: entry.customMetadata, httpEtag: `etag-${key}` };
+    return { size: entry.bytes.length, customMetadata: entry.customMetadata, checksums: { sha256: entry.checksum }, httpEtag: `etag-${key}` };
   }
   async delete(key) { this.objects.delete(key); }
   async list({ prefix = "" } = {}) {
@@ -100,7 +117,7 @@ function makeEnv() {
   const r2 = new MemoryR2();
   const instances = new Map();
   return {
-    WHATABOUTIT_COLLAB_ACCESS_KEY: "test-key",
+    WHATABOUTIT_COLLAB_ACCESS_KEYS: JSON.stringify({ "test-user": "test-key-with-at-least-24-characters" }),
     EPISODE_MEDIA: r2,
     EPISODES: {
       getByName(name) {
@@ -115,8 +132,13 @@ function makeEnv() {
 function request(pathname, init = {}) {
   return new Request(`https://collab.test${pathname}`, {
     ...init,
-    headers: { "x-whataboutit-key": "test-key", ...(init.headers ?? {}) }
+    headers: { "x-whataboutit-key": "test-key-with-at-least-24-characters", ...(init.headers ?? {}) }
   });
+}
+
+async function sha256(value) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 test("health is public and reports the collaboration capabilities", async () => {
@@ -136,7 +158,7 @@ test("protected routes reject the wrong collaboration key", async () => {
 
 test("protected routes fail closed when the collaboration secret is missing", async () => {
   const env = makeEnv();
-  delete env.WHATABOUTIT_COLLAB_ACCESS_KEY;
+  delete env.WHATABOUTIT_COLLAB_ACCESS_KEYS;
   const response = await worker.fetch(new Request("https://collab.test/episodes"), env);
   assert.equal(response.status, 503);
   assert.match((await response.json()).error, /authentication is not configured/i);
@@ -154,7 +176,7 @@ test("manifest upload becomes a discoverable cloud episode", async () => {
       updatedAt: "2026-08-25T01:00:00.000Z"
     },
     collaborationStatus: "working",
-    assets: [{ relativePath: "Session/draft-timeline.json", bytes: 42 }]
+    assets: [{ relativePath: "Session/draft-timeline.json", bytes: 42, contentHash: await sha256("timeline") }]
   };
   const put = await worker.fetch(request("/episodes/episode-a/manifest", { method: "PUT", body: JSON.stringify(manifest), headers: { "content-type": "application/json" } }), env);
   assert.equal(put.status, 200);
@@ -214,9 +236,10 @@ test("editor lease prevents two collaborators from editing the same episode", as
 test("multipart upload assembles camera media and preserves verification metadata", async () => {
   const env = makeEnv();
   const pathname = "/episodes/episode-a/assets/Cameras%2Fcamera-1.webm";
+  const cameraHash = await sha256("camera-bytes");
   const create = await worker.fetch(request(`${pathname}?multipart=create`, {
     method: "POST",
-    headers: { "content-type": "video/webm", "x-content-sha256": "camera-hash" }
+    headers: { "content-type": "video/webm", "x-content-sha256": cameraHash }
   }), env);
   assert.equal(create.status, 200);
   const { uploadId } = await create.json();
@@ -236,15 +259,37 @@ test("multipart upload assembles camera media and preserves verification metadat
   const head = await worker.fetch(request(pathname, { method: "HEAD" }), env);
   assert.equal(head.status, 200);
   assert.equal(head.headers.get("content-length"), "12");
-  assert.equal(head.headers.get("x-content-sha256"), "camera-hash");
+  assert.equal(head.headers.get("x-content-sha256"), cameraHash);
   const downloaded = await worker.fetch(request(pathname), env);
   assert.equal(await downloaded.text(), "camera-bytes");
+
+  const resumed = await worker.fetch(request(pathname, { headers: { range: "bytes=7-" } }), env);
+  assert.equal(resumed.status, 206);
+  assert.equal(resumed.headers.get("content-range"), "bytes 7-11/12");
+  assert.equal(await resumed.text(), "bytes");
+});
+
+test("multipart completion rejects and deletes bytes with the wrong SHA-256", async () => {
+  const env = makeEnv();
+  const pathname = "/episodes/episode-a/assets/Cameras%2Fcamera-2.webm";
+  const create = await worker.fetch(request(`${pathname}?multipart=create`, {
+    method: "POST",
+    headers: { "x-content-sha256": await sha256("different-bytes") }
+  }), env);
+  const { uploadId } = await create.json();
+  const part = await worker.fetch(request(`${pathname}?multipart=part&uploadId=${uploadId}&partNumber=1`, { method: "PUT", body: "actual-bytes" }), env);
+  const complete = await worker.fetch(request(`${pathname}?multipart=complete&uploadId=${uploadId}`, {
+    method: "POST",
+    body: JSON.stringify({ parts: [await part.json()] })
+  }), env);
+  assert.equal(complete.status, 422);
+  assert.equal((await worker.fetch(request(pathname, { method: "HEAD" }), env)).status, 404);
 });
 
 test("storage failures return a retryable response instead of an unhandled Worker error", async () => {
   const env = makeEnv();
   env.EPISODE_MEDIA.put = async () => { throw new Error("temporary R2 failure"); };
-  const response = await worker.fetch(request("/episodes/episode-a/assets/Cameras%2Fcamera-1.webm", { method: "PUT", body: "camera" }), env);
+  const response = await worker.fetch(request("/episodes/episode-a/assets/Cameras%2Fcamera-1.webm", { method: "PUT", body: "camera", headers: { "x-content-sha256": await sha256("camera") } }), env);
   assert.equal(response.status, 503);
   assert.match((await response.json()).error, /temporarily unavailable/i);
   const manifestResponse = await worker.fetch(request("/episodes/episode-a/manifest", {

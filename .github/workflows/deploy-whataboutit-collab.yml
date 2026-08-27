@@ -49,7 +49,7 @@ jobs:
           node-version: 22
 
       - name: Install Cloudflare tooling
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
 
       - name: Ensure dedicated R2 bucket exists
         shell: bash
@@ -69,14 +69,17 @@ jobs:
       - name: Deploy dedicated collaboration Worker
         run: npx wrangler deploy
 
-      - name: Install app collaboration access key
+      - name: Install per-editor collaboration access keys
         shell: bash
         env:
-          WHATABOUTIT_COLLAB_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
+          WHATABOUTIT_MORGAN_ACCESS_KEY: ${{ secrets.WHATABOUTIT_MORGAN_ACCESS_KEY }}
+          WHATABOUTIT_SUSAN_ACCESS_KEY: ${{ secrets.WHATABOUTIT_SUSAN_ACCESS_KEY }}
         run: |
           set -euo pipefail
-          test -n "$WHATABOUTIT_COLLAB_ACCESS_KEY" || { echo "Missing WHATABOUTIT_COLLAB_ACCESS_KEY"; exit 1; }
-          printf '%s' "$WHATABOUTIT_COLLAB_ACCESS_KEY" | npx wrangler secret put WHATABOUTIT_COLLAB_ACCESS_KEY
+          test ${#WHATABOUTIT_MORGAN_ACCESS_KEY} -ge 24 || { echo "Missing or short WHATABOUTIT_MORGAN_ACCESS_KEY"; exit 1; }
+          test ${#WHATABOUTIT_SUSAN_ACCESS_KEY} -ge 24 || { echo "Missing or short WHATABOUTIT_SUSAN_ACCESS_KEY"; exit 1; }
+          ACCESS_KEYS_JSON="$(node -e 'process.stdout.write(JSON.stringify({"morgan-owner":process.env.WHATABOUTIT_MORGAN_ACCESS_KEY,"susan-editor":process.env.WHATABOUTIT_SUSAN_ACCESS_KEY}))')"
+          printf '%s' "$ACCESS_KEYS_JSON" | npx wrangler secret put WHATABOUTIT_COLLAB_ACCESS_KEYS
 
       - name: Discover collaboration service URL
         id: service
@@ -104,7 +107,7 @@ jobs:
         shell: bash
         env:
           SERVICE_URL: ${{ steps.service.outputs.url }}
-          WHATABOUTIT_COLLAB_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
+          WHATABOUTIT_COLLAB_ACCESS_KEY: ${{ secrets.WHATABOUTIT_MORGAN_ACCESS_KEY }}
         run: |
           set -euo pipefail
           curl -fsS "$SERVICE_URL/health" >/dev/null
@@ -155,6 +158,8 @@ jobs:
             "$MULTIPART_URL?multipart=complete&uploadId=$UPLOAD_ID" >/dev/null
           curl -fsSI -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$MULTIPART_URL" \
             | tr -d '\r' | grep -Fi "x-content-sha256: $MULTIPART_HASH" >/dev/null
+          curl -fsS -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$MULTIPART_URL" \
+            | sha256sum | cut -d' ' -f1 | grep -Fx "$MULTIPART_HASH" >/dev/null
           rm -f "$TEMP_DIR/part-1.bin" "$TEMP_DIR/part-2.bin"
           rmdir "$TEMP_DIR"
           echo "WhatAboutIt Cloudflare deployment completed."

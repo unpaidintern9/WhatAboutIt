@@ -13,7 +13,7 @@ import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWin
 import type { AppUpdateStatus } from "../shared/app-update";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
 import type { MediaAccessStatus } from "../shared/media-permissions";
-import type { CloudEpisodeSummary, CollaborationSyncResult, CollaborationUploadSelection } from "../shared/collaboration";
+import type { CloudEpisodeSummary, CollaborationSyncResult, CollaborationTransferProgress, CollaborationUploadSelection } from "../shared/collaboration";
 
 declare global {
   interface Window {
@@ -26,6 +26,8 @@ declare global {
       listCloudEpisodes?: () => Promise<CloudEpisodeSummary[]>;
       uploadEpisodeToCloud?: (episodeId: string, selection?: CollaborationUploadSelection) => Promise<CollaborationSyncResult>;
       downloadCloudEpisode?: (episodeId: string) => Promise<{ episode: EpisodeMetadata; sync: CollaborationSyncResult }>;
+      cancelCloudTransfer?: (operationId: string) => Promise<boolean>;
+      onCloudTransferProgress?: (listener: (progress: CollaborationTransferProgress) => void) => () => void;
       getSettings: () => Promise<StudioSettings>;
       saveSettings: (settings: StudioSettings) => Promise<StudioSettings>;
       createRecordingSession: (input: RecordingSessionCreateInput) => Promise<RecordingSession>;
