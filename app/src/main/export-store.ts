@@ -7,6 +7,7 @@ import type { ExportJob, ExportRequest } from "../shared/export";
 import { compactTimelineDraftForPersistence, isTimelineTrackAvailableAt, type TimelineEditOperation, type TimelineTrack } from "../shared/timeline";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
 import type { ReviewMediaTreatmentPreview } from "../shared/review-media";
+import { getAudioTreatmentParameters } from "../shared/audio-treatment";
 import { completeExportJob, createExportJob, createExportSummary, failExportJob, cancelExportJob } from "../shared/export";
 import { getEpisodesRoot } from "./config-service";
 import { detectMediaTools, getMediaDurationMs, requireMediaTools, runFfmpeg, runFfmpegWithProgress, validatePlayableMedia } from "./ffmpeg-tools";
@@ -409,7 +410,7 @@ async function renderDraftExport(input: {
   for (const [index, source] of audioSources.entries()) {
     const label = `drafta${index}`;
     const trackEdits = editsForTrack(request.draft.editLog, source.track?.id ?? "program");
-    const volume = allSeparateMicrophonesMuted ? 0 : Math.max(0, Math.min(1.5, (source.track?.volume ?? 100) / 100));
+    const volume = allSeparateMicrophonesMuted ? 0 : Math.max(0, Math.min(3, (source.track?.volume ?? 100) / 100));
     const muteExpression = createMuteExpression(trackEdits, volume);
     const keepExpression = createKeepExpression(globalEdits);
     const syncFilter = createAudioSyncFilter(source.track?.syncOffsetMs ?? 0);
@@ -516,7 +517,7 @@ export async function renderTrackTreatmentPreview(input: { episodeId: string; dr
       "-c:v", "libvpx-vp9", "-deadline", "realtime", "-cpu-used", "8", "-crf", "32", "-b:v", "0", outputPath
     ]);
   } else {
-    const volume = Math.max(0, Math.min(1.5, track.volume / 100));
+    const volume = Math.max(0, Math.min(3, track.volume / 100));
     const loudnessTarget = Math.max(-24, Math.min(-12, input.draft.loudnessTargetLufs ?? -16));
     const truePeak = Math.max(-3, Math.min(-0.5, input.draft.truePeakDb ?? -1.5));
     const filters = `${createAudioTreatment(track)}volume=${track.muted ? 0 : volume.toFixed(3)},${createPanFilter(track.pan)}${createLimiterFilter(track)},loudnorm=I=${loudnessTarget}:LRA=11:TP=${truePeak}`;
@@ -582,26 +583,19 @@ function createAudioSyncFilter(syncOffsetMs: number) {
 }
 
 function createAudioTreatment(track: TimelineTrack | undefined) {
-  const preset = track?.audioPreset ?? "natural";
   const filters: string[] = [];
-  if (preset === "clean") filters.push("highpass=f=70", "lowpass=f=16000");
-  if (preset === "warm") filters.push("highpass=f=70", "equalizer=f=180:t=q:w=1:g=1.5");
-  if (preset === "broadcast") filters.push("highpass=f=80", "equalizer=f=3200:t=q:w=1:g=2");
+  const treatment = getAudioTreatmentParameters(track);
+  filters.push(`highpass=f=${treatment.highpassHz.toFixed(0)}`, `lowpass=f=${treatment.lowpassHz.toFixed(0)}`);
   if (track) {
     if (track.noiseReduction > 0) filters.push(`afftdn=nr=${Math.max(0.01, track.noiseReduction * 0.65).toFixed(2)}:nf=-50:tn=1`);
     if (track.noiseGateDb > -80) {
       const threshold = Math.pow(10, track.noiseGateDb / 20);
       filters.push(`agate=threshold=${threshold.toFixed(5)}:ratio=2.5:attack=15:release=220:range=0.08`);
     }
-    if (track.deEsser > 0) filters.push(`equalizer=f=6500:t=q:w=1.2:g=${(-track.deEsser * 0.045).toFixed(2)}`);
-    if (track.eqLowDb !== 0) filters.push(`equalizer=f=120:t=q:w=0.8:g=${track.eqLowDb.toFixed(1)}`);
-    if (track.eqMidDb !== 0) filters.push(`equalizer=f=1200:t=q:w=1:g=${track.eqMidDb.toFixed(1)}`);
-    if (track.eqHighDb !== 0) filters.push(`equalizer=f=6000:t=q:w=0.8:g=${track.eqHighDb.toFixed(1)}`);
-    if (track.compression > 0) {
-      const ratio = 1.5 + track.compression * 0.045;
-      const threshold = 0.24 - track.compression * 0.0017;
-      filters.push(`acompressor=threshold=${Math.max(0.05, threshold).toFixed(3)}:ratio=${ratio.toFixed(2)}:attack=5:release=110:makeup=1.15`);
-    }
+    if (treatment.lowDb !== 0) filters.push(`equalizer=f=120:t=q:w=0.8:g=${treatment.lowDb.toFixed(1)}`);
+    if (treatment.midDb !== 0) filters.push(`equalizer=f=1200:t=q:w=1:g=${treatment.midDb.toFixed(1)}`);
+    if (treatment.highDb !== 0) filters.push(`equalizer=f=6000:t=q:w=0.8:g=${treatment.highDb.toFixed(1)}`);
+    if (treatment.compression > 0) filters.push(`acompressor=threshold=${treatment.compressorThreshold.toFixed(3)}:ratio=${treatment.compressorRatio.toFixed(2)}:attack=${(treatment.compressorAttackSeconds * 1000).toFixed(0)}:release=${(treatment.compressorReleaseSeconds * 1000).toFixed(0)}:makeup=${treatment.compressorMakeup.toFixed(2)}`);
   }
   return filters.length > 0 ? `${filters.join(",")},` : "";
 }
@@ -849,7 +843,7 @@ async function createAudioMasters(
     const outputPath = reserved.outputPath;
     const trackEdits = editsForTrack(request.draft.editLog, item.track.id);
     const globalEdits = editsForTrack(request.draft.editLog, "program");
-    const volume = Math.max(0, Math.min(1.5, item.track.volume / 100));
+    const volume = Math.max(0, Math.min(3, item.track.volume / 100));
     const muteExpression = createMuteExpression(trackEdits, volume);
     const keepExpression = createKeepExpression(globalEdits);
     const filters = [

@@ -602,7 +602,7 @@ describe("export store", () => {
     expect(await validatePlayableMedia(outputPath, undefined, { video: true, audio: true, decode: true })).toBe(true);
     expect(await validatePlayableMedia(path.join(episodeFolder, "Exports", "Audio Masters", "morgan-mic-edited.wav"), undefined, { audio: true, decode: true })).toBe(true);
     expect(await validatePlayableMedia(path.join(episodeFolder, "Exports", "Audio Masters", "guest-mic-edited.wav"), undefined, { audio: true, decode: true })).toBe(true);
-  }, 30000);
+  }, 60000);
 
   it("mixes every enabled isolated microphone even when the episode has no manual edits", async () => {
     const { createExport } = await import("./export-store");

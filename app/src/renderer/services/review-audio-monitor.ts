@@ -1,3 +1,5 @@
+import { getAudioTreatmentParameters } from "../../shared/audio-treatment";
+
 type AudioContextWithOutput = AudioContext & {
   setSinkId?: (deviceId: string) => Promise<void>;
 };
@@ -10,6 +12,7 @@ type MonitorRoute = {
   mid: BiquadFilterNode;
   high: BiquadFilterNode;
   compressor: DynamicsCompressorNode;
+  compressorMakeup: GainNode;
   pan?: StereoPannerNode;
   analyser: AnalyserNode;
   gateGain: GainNode;
@@ -47,6 +50,9 @@ export type ReviewMonitorSettings = {
   highDb: number;
   compressorThresholdDb: number;
   compressorRatio: number;
+  compressorAttackSeconds: number;
+  compressorReleaseSeconds: number;
+  compressorMakeup: number;
   limiterThresholdDb: number;
   limiterRatio: number;
   noiseGateDb: number;
@@ -75,26 +81,21 @@ function bounded(value: number | undefined, minimum: number, maximum: number, fa
 }
 
 export function getReviewMonitorSettings(treatment: ReviewMonitorTreatment = {}): ReviewMonitorSettings {
-  const preset = treatment.audioPreset ?? "natural";
-  const noiseReduction = bounded(treatment.noiseReduction, 0, 100);
-  const deEsser = bounded(treatment.deEsser, 0, 100);
-  const compression = bounded(treatment.compression, 0, 100);
-  const presetLow = preset === "warm" ? 2 : preset === "broadcast" ? 1 : 0;
-  const presetMid = preset === "clean" ? 0.8 : preset === "warm" ? 0.6 : preset === "broadcast" ? 1.2 : 0;
-  const presetHigh = preset === "clean" ? 1.2 : preset === "broadcast" ? 2 : 0;
-  const presetCompression = preset === "clean" ? 20 : preset === "warm" ? 32 : preset === "broadcast" ? 48 : 0;
-  const effectiveCompression = Math.max(compression, presetCompression);
+  const parameters = getAudioTreatmentParameters(treatment);
   return {
     trackGain: clampReviewMonitorGain(bounded(treatment.volume, 0, 300, 100) / 100),
     pan: bounded(treatment.pan, -100, 100) / 100,
-    highpassHz: 35 + noiseReduction * 0.85,
-    lowpassHz: 20_000 - noiseReduction * 55,
-    lowDb: bounded(treatment.eqLowDb, -12, 12) + presetLow,
-    midDb: bounded(treatment.eqMidDb, -12, 12) + presetMid,
-    highDb: bounded(treatment.eqHighDb, -12, 12) + presetHigh - deEsser * 0.055,
-    compressorThresholdDb: effectiveCompression === 0 ? 0 : -12 - effectiveCompression * 0.18,
-    compressorRatio: effectiveCompression === 0 ? 1 : 1.5 + effectiveCompression * 0.065,
-    limiterThresholdDb: treatment.limiterEnabled === false ? 0 : -1,
+    highpassHz: parameters.highpassHz,
+    lowpassHz: parameters.lowpassHz,
+    lowDb: parameters.lowDb,
+    midDb: parameters.midDb,
+    highDb: parameters.highDb,
+    compressorThresholdDb: parameters.compressorThresholdDb,
+    compressorRatio: parameters.compressorRatio,
+    compressorAttackSeconds: parameters.compressorAttackSeconds,
+    compressorReleaseSeconds: parameters.compressorReleaseSeconds,
+    compressorMakeup: parameters.compressorMakeup,
+    limiterThresholdDb: treatment.limiterEnabled === false ? 0 : -0.45,
     limiterRatio: treatment.limiterEnabled === false ? 1 : 20,
     noiseGateDb: bounded(treatment.noiseGateDb, -80, -20, -80),
     fadeInMs: bounded(treatment.fadeInMs, 0, 10_000),
@@ -119,7 +120,7 @@ function getDynamicGain(route: MonitorRoute, element: HTMLMediaElement) {
     }
     const rms = Math.sqrt(sum / route.samples.length);
     const levelDb = 20 * Math.log10(Math.max(rms, 0.00001));
-    gate = levelDb >= settings.noiseGateDb ? 1 : 0.025;
+    gate = levelDb >= settings.noiseGateDb ? 1 : 0.08;
   }
   let fade = 1;
   const elapsedMs = element.currentTime * 1000;
@@ -158,15 +159,16 @@ function getMonitorRoute(element: HTMLMediaElement) {
   low.frequency.value = 120;
   const mid = sharedContext.createBiquadFilter();
   mid.type = "peaking";
-  mid.frequency.value = 1_000;
-  mid.Q.value = 0.8;
+  mid.frequency.value = 1_200;
+  mid.Q.value = 1;
   const high = sharedContext.createBiquadFilter();
   high.type = "highshelf";
-  high.frequency.value = 5_500;
+  high.frequency.value = 6_000;
   const compressor = sharedContext.createDynamicsCompressor();
   compressor.knee.value = 12;
   compressor.attack.value = 0.008;
   compressor.release.value = 0.14;
+  const compressorMakeup = sharedContext.createGain();
   const pan = sharedContext.createStereoPanner?.();
   const analyser = sharedContext.createAnalyser();
   analyser.fftSize = 256;
@@ -178,9 +180,9 @@ function getMonitorRoute(element: HTMLMediaElement) {
   limiter.attack.value = 0.002;
   limiter.release.value = 0.08;
   const monitorGain = sharedContext.createGain();
-  source.connect(highpass).connect(lowpass).connect(low).connect(mid).connect(high).connect(compressor);
-  if (pan) compressor.connect(pan).connect(analyser);
-  else compressor.connect(analyser);
+  source.connect(highpass).connect(lowpass).connect(low).connect(mid).connect(high).connect(compressor).connect(compressorMakeup);
+  if (pan) compressorMakeup.connect(pan).connect(analyser);
+  else compressorMakeup.connect(analyser);
   analyser.connect(gateGain).connect(trackGain);
   trackGain.connect(limiter).connect(monitorGain).connect(sharedContext.destination);
   const route: MonitorRoute = {
@@ -191,6 +193,7 @@ function getMonitorRoute(element: HTMLMediaElement) {
     mid,
     high,
     compressor,
+    compressorMakeup,
     pan,
     analyser,
     gateGain,
@@ -215,6 +218,9 @@ function applyTreatment(route: MonitorRoute, element: HTMLMediaElement, treatmen
   setParam(route.high.gain, settings.highDb, route.context);
   setParam(route.compressor.threshold, settings.compressorThresholdDb, route.context);
   setParam(route.compressor.ratio, settings.compressorRatio, route.context);
+  setParam(route.compressor.attack, settings.compressorAttackSeconds, route.context);
+  setParam(route.compressor.release, settings.compressorReleaseSeconds, route.context);
+  setParam(route.compressorMakeup.gain, settings.compressorMakeup, route.context);
   if (route.pan) setParam(route.pan.pan, settings.pan, route.context);
   setParam(route.limiter.threshold, settings.limiterThresholdDb, route.context);
   setParam(route.limiter.ratio, settings.limiterRatio, route.context);

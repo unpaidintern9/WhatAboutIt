@@ -1,4 +1,4 @@
-import { app, net } from "electron";
+import { app, net, safeStorage } from "electron";
 import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -19,6 +19,7 @@ import type { CollaborationSyncResult, CollaborationUploadSelection } from "../s
 import { shouldIncludeCollaborationAsset } from "../shared/collaboration";
 import { getEpisodesRoot } from "./config-service";
 import { requestCollaborationWithRetry, uploadCollaborationAsset } from "./collaboration-asset-upload";
+import { getUploadCheckpoint, setUploadCheckpoint } from "./collaboration-upload-journal";
 import { recordCollaborationDownloadComplete, recordCollaborationUploadComplete, refreshCollaborationAssets } from "./collaboration-store";
 import { logger } from "./logger";
 
@@ -28,6 +29,17 @@ type RemoteConfig = {
   personId: CollaborationPersonId;
 };
 
+type StoredRemoteConfig = Omit<RemoteConfig, "accessKey"> & {
+  accessKey?: string;
+  accessKeyEncrypted?: string;
+};
+
+export type CollaborationRemoteConfigSummary = {
+  apiUrl?: string;
+  personId: CollaborationPersonId;
+  accessKeyConfigured: boolean;
+};
+
 type CloudDownloadResult = {
   episode: EpisodeMetadata;
   sync: CollaborationSyncResult;
@@ -35,15 +47,29 @@ type CloudDownloadResult = {
 
 const defaultConfig: RemoteConfig = { personId: "morgan-owner" };
 
+function encryptionAvailable() {
+  try {
+    return Boolean(safeStorage?.isEncryptionAvailable?.());
+  } catch {
+    return false;
+  }
+}
+
 function configPath() {
   return path.join(app.getPath("userData"), "collaboration-remote.json");
 }
 
 async function readConfig(): Promise<RemoteConfig> {
   try {
-    const parsed = JSON.parse(await fs.readFile(configPath(), "utf8")) as Partial<RemoteConfig>;
+    const parsed = JSON.parse(await fs.readFile(configPath(), "utf8")) as Partial<StoredRemoteConfig>;
     const personId: CollaborationPersonId = parsed.personId === "susan-editor" ? "susan-editor" : "morgan-owner";
-    return { personId, apiUrl: parsed.apiUrl?.trim().replace(/\/$/, "") || undefined, accessKey: parsed.accessKey?.trim() || undefined };
+    let accessKey = parsed.accessKey?.trim() || undefined;
+    if (parsed.accessKeyEncrypted && encryptionAvailable()) {
+      accessKey = safeStorage.decryptString(Buffer.from(parsed.accessKeyEncrypted, "base64")).trim() || undefined;
+    }
+    const config = { personId, apiUrl: parsed.apiUrl?.trim().replace(/\/$/, "") || undefined, accessKey };
+    if (parsed.accessKey && encryptionAvailable()) await writeConfig(config);
+    return config;
   } catch {
     return defaultConfig;
   }
@@ -51,12 +77,18 @@ async function readConfig(): Promise<RemoteConfig> {
 
 async function writeConfig(config: RemoteConfig) {
   await fs.mkdir(path.dirname(configPath()), { recursive: true });
-  await fs.writeFile(configPath(), JSON.stringify(config, null, 2), "utf8");
+  const stored: StoredRemoteConfig = { personId: config.personId, apiUrl: config.apiUrl };
+  if (config.accessKey) {
+    if (encryptionAvailable()) stored.accessKeyEncrypted = safeStorage.encryptString(config.accessKey).toString("base64");
+    else stored.accessKey = config.accessKey;
+  }
+  await fs.writeFile(configPath(), JSON.stringify(stored, null, 2), "utf8");
   return config;
 }
 
 export async function getCollaborationRemoteConfig() {
-  return readConfig();
+  const config = await readConfig();
+  return { apiUrl: config.apiUrl, personId: config.personId, accessKeyConfigured: Boolean(config.accessKey) } satisfies CollaborationRemoteConfigSummary;
 }
 
 export async function setCollaborationRemoteConfig(input: { apiUrl?: string; accessKey?: string; personId?: CollaborationPersonId }) {
@@ -64,10 +96,11 @@ export async function setCollaborationRemoteConfig(input: { apiUrl?: string; acc
   const personId: CollaborationPersonId = input.personId === "susan-editor" ? "susan-editor" : input.personId === "morgan-owner" ? "morgan-owner" : current.personId;
   const apiUrl = input.apiUrl === undefined ? current.apiUrl : input.apiUrl.trim().replace(/\/$/, "") || undefined;
   const accessKey = input.accessKey === undefined ? current.accessKey : input.accessKey.trim() || undefined;
-  return writeConfig({ personId, apiUrl, accessKey });
+  const saved = await writeConfig({ personId, apiUrl, accessKey });
+  return { apiUrl: saved.apiUrl, personId: saved.personId, accessKeyConfigured: Boolean(saved.accessKey) } satisfies CollaborationRemoteConfigSummary;
 }
 
-async function apiFetch(pathname: string, init?: RequestInit): Promise<Response> {
+export async function fetchCollaborationApi(pathname: string, init?: RequestInit): Promise<Response> {
   const config = await readConfig();
   if (!config.apiUrl) throw new Error("What About It collaboration service URL is not configured yet.");
   const headers = new Headers(init?.headers);
@@ -88,6 +121,8 @@ async function apiFetch(pathname: string, init?: RequestInit): Promise<Response>
     }
   }
 }
+
+const apiFetch = fetchCollaborationApi;
 
 async function requestJson<T>(pathname: string, init?: RequestInit): Promise<T> {
   const response = await apiFetch(pathname, init);
@@ -260,20 +295,35 @@ async function remoteAssetMatches(episodeId: string, relativePath: string, conte
   return response.headers.get("x-content-sha256") === contentHash;
 }
 
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, task: (item: T) => Promise<R>) {
+  const results = new Array<R>(items.length);
+  const errors: unknown[] = [];
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      try {
+        results[index] = await task(items[index]);
+      } catch (error) {
+        errors.push(error);
+      }
+    }
+  });
+  await Promise.all(workers);
+  if (errors.length > 0) throw errors[0];
+  return results;
+}
+
 export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: CollaborationUploadSelection = "full-backup"): Promise<CollaborationSyncResult> {
   const config = await readConfig();
   if (!config.apiUrl) throw new Error("Connect the What About It collaboration service before uploading.");
   const workspace = await refreshCollaborationAssets(episode.folderPath, episode.id, episode.title);
   const selectedAssets = workspace.assets.filter((asset) => shouldIncludeCollaborationAsset(asset.kind, selection));
-  let uploadedAssets = 0;
-  let skippedAssets = 0;
-  let uploadedBytes = 0;
-
-  for (const asset of selectedAssets) {
+  const assetResults = await mapWithConcurrency(selectedAssets, 2, async (asset) => {
     const absolutePath = safeLocalAssetPath(episode.folderPath, asset.relativePath);
     if (await remoteAssetMatches(episode.id, asset.relativePath, asset.contentHash)) {
-      skippedAssets += 1;
-      continue;
+      await setUploadCheckpoint(episode.id, asset.relativePath, undefined);
+      return { uploaded: 0, skipped: 1, bytes: 0 };
     }
     const bytes = asset.bytes ?? (await fs.stat(absolutePath)).size;
     await logger.info("CollaborationUpload", "Uploading episode asset.", { episodeId: episode.id, relativePath: asset.relativePath, bytes });
@@ -285,6 +335,8 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
         bytes,
         contentType: contentType(asset.relativePath),
         contentHash: asset.contentHash,
+        checkpoint: await getUploadCheckpoint(episode.id, asset.relativePath),
+        onCheckpoint: (checkpoint) => setUploadCheckpoint(episode.id, asset.relativePath, checkpoint),
         onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud upload failure.", {
           episodeId: episode.id,
           relativePath: asset.relativePath,
@@ -301,9 +353,11 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
       throw new Error(`Upload failed for ${asset.relativePath}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
     await logger.info("CollaborationUpload", "Episode asset upload completed.", { episodeId: episode.id, relativePath: asset.relativePath, bytes });
-    uploadedAssets += 1;
-    uploadedBytes += bytes;
-  }
+    return { uploaded: 1, skipped: 0, bytes };
+  });
+  const uploadedAssets = assetResults.reduce((total, result) => total + result.uploaded, 0);
+  const skippedAssets = assetResults.reduce((total, result) => total + result.skipped, 0);
+  const uploadedBytes = assetResults.reduce((total, result) => total + result.bytes, 0);
 
   let existingAssets = [] as CloudEpisodeManifest["assets"];
   const existingResponse = await requestCollaborationWithRetry(
@@ -313,16 +367,26 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
       onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest read failure.", { episodeId: episode.id, ...event })
     }
   );
+  let existingEtag: string | undefined;
+  let existingRevisionId: string | undefined;
   if (existingResponse.ok) {
     const existing = (await existingResponse.json()) as CloudEpisodeManifest;
     existingAssets = Array.isArray(existing.assets) ? existing.assets : [];
+    existingEtag = existingResponse.headers.get("etag") ?? undefined;
+    existingRevisionId = existing.revisionId;
   } else if (existingResponse.status !== 404) {
     throw new Error(`Could not read the existing cloud episode manifest (${existingResponse.status}).`);
   }
-  const mergedByPath = new Map(existingAssets.map((asset) => [asset.relativePath, asset]));
+  const mergedByPath = new Map(
+    existingAssets
+      .filter((asset) => !shouldIncludeCollaborationAsset(asset.kind, selection))
+      .map((asset) => [asset.relativePath, asset])
+  );
   selectedAssets.forEach((asset) => mergedByPath.set(asset.relativePath, { ...asset, state: "synced" }));
   const manifest: CloudEpisodeManifest = {
     version: 1,
+    revisionId: crypto.randomUUID(),
+    parentRevisionId: existingRevisionId,
     episode: {
       id: episode.id,
       title: episode.title,
@@ -338,13 +402,18 @@ export async function uploadEpisodeToCloud(episode: EpisodeMetadata, selection: 
   };
   const manifestResponse = await requestCollaborationWithRetry(
     "save cloud episode manifest",
-    () => apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`, { method: "PUT", body: JSON.stringify(manifest) }),
+    () => apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`, {
+      method: "PUT",
+      body: JSON.stringify(manifest),
+      headers: existingEtag ? { "if-match": existingEtag } : { "if-none-match": "*" }
+    }),
     {
       onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest save failure.", { episodeId: episode.id, ...event })
     }
   );
   if (!manifestResponse.ok) {
     const body = (await manifestResponse.json().catch(() => ({}))) as { error?: string };
+    if (manifestResponse.status === 412) throw new Error("Another computer published this episode while the upload was running. Reopen the episode to receive those changes, then retry the upload.");
     throw new Error(body.error || `Could not save the cloud episode manifest (${manifestResponse.status}).`);
   }
   await recordCollaborationUploadComplete(episode.folderPath, episode.id, episode.title, selectedAssets.map((asset) => asset.id));

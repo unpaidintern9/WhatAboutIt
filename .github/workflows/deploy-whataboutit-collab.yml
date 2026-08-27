@@ -110,11 +110,14 @@ jobs:
           curl -fsS "$SERVICE_URL/health" >/dev/null
           CANARY_EPISODE="deploy-canary-${GITHUB_RUN_ID}"
           CANARY_ASSET="canary.txt"
+          MULTIPART_ASSET="multipart-canary.bin"
           CANARY_BODY="whataboutit-upload-canary-${GITHUB_RUN_ID}"
           CANARY_HASH="$(printf '%s' "$CANARY_BODY" | sha256sum | cut -d' ' -f1)"
           CANARY_URL="$SERVICE_URL/episodes/$CANARY_EPISODE/assets/$CANARY_ASSET"
           cleanup_canary() {
             curl -fsS -X DELETE -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$CANARY_URL" >/dev/null || true
+            curl -fsS -X DELETE -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" \
+              "$SERVICE_URL/episodes/$CANARY_EPISODE/assets/$MULTIPART_ASSET" >/dev/null || true
           }
           trap cleanup_canary EXIT
           printf '%s' "$CANARY_BODY" | curl -fsS -X PUT \
@@ -127,8 +130,35 @@ jobs:
             | tr -d '\r' \
             | grep -Fi "x-content-sha256: $CANARY_HASH" >/dev/null
           test "$(curl -fsS -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$CANARY_URL")" = "$CANARY_BODY"
+
+          # Exercise the same R2 multipart route used for long recordings.
+          TEMP_DIR="$(mktemp -d)"
+          dd if=/dev/zero of="$TEMP_DIR/part-1.bin" bs=1M count=5 status=none
+          printf 'whataboutit-multipart-%s' "$GITHUB_RUN_ID" > "$TEMP_DIR/part-2.bin"
+          MULTIPART_HASH="$(cat "$TEMP_DIR/part-1.bin" "$TEMP_DIR/part-2.bin" | sha256sum | cut -d' ' -f1)"
+          MULTIPART_URL="$SERVICE_URL/episodes/$CANARY_EPISODE/assets/$MULTIPART_ASSET"
+          CREATE_JSON="$(curl -fsS -X POST \
+            -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" \
+            -H "content-type: application/octet-stream" \
+            -H "x-content-sha256: $MULTIPART_HASH" \
+            "$MULTIPART_URL?multipart=create")"
+          UPLOAD_ID="$(printf '%s' "$CREATE_JSON" | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(JSON.parse(s).uploadId))")"
+          PART_ONE="$(curl -fsS -X PUT -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" \
+            -H "content-type: application/octet-stream" --data-binary "@$TEMP_DIR/part-1.bin" \
+            "$MULTIPART_URL?multipart=part&uploadId=$UPLOAD_ID&partNumber=1")"
+          PART_TWO="$(curl -fsS -X PUT -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" \
+            -H "content-type: application/octet-stream" --data-binary "@$TEMP_DIR/part-2.bin" \
+            "$MULTIPART_URL?multipart=part&uploadId=$UPLOAD_ID&partNumber=2")"
+          COMPLETE_BODY="$(node -e 'const parts=process.argv.slice(1).map(value=>JSON.parse(value));process.stdout.write(JSON.stringify({parts}))' "$PART_ONE" "$PART_TWO")"
+          curl -fsS -X POST -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" \
+            -H "content-type: application/json" --data-binary "$COMPLETE_BODY" \
+            "$MULTIPART_URL?multipart=complete&uploadId=$UPLOAD_ID" >/dev/null
+          curl -fsSI -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$MULTIPART_URL" \
+            | tr -d '\r' | grep -Fi "x-content-sha256: $MULTIPART_HASH" >/dev/null
+          rm -f "$TEMP_DIR/part-1.bin" "$TEMP_DIR/part-2.bin"
+          rmdir "$TEMP_DIR"
           echo "WhatAboutIt Cloudflare deployment completed."
-          echo "Authenticated R2 upload, verification, download, and cleanup canary passed."
+          echo "Authenticated direct and multipart R2 upload canaries passed."
           echo "Worker: $WHATABOUTIT_WORKER"
           echo "R2 bucket: $WHATABOUTIT_BUCKET"
           echo "Service URL: $SERVICE_URL"

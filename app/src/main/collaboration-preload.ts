@@ -3,7 +3,7 @@ import type { EpisodeMetadata } from "../shared/types";
 import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput, CollaborationSyncResult, CollaborationUploadSelection, CollaborationWorkspace } from "../shared/collaboration";
 import type { CollaborationPersonId, CollaborationPresenceSnapshot } from "../shared/collaboration-presence";
 
-type CollaborationRemoteConfig = { apiUrl?: string; accessKey?: string; personId: CollaborationPersonId };
+type CollaborationRemoteConfig = { apiUrl?: string; accessKeyConfigured: boolean; personId: CollaborationPersonId };
 
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),

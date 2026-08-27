@@ -11,13 +11,13 @@ function corsHeaders(request) {
   const origin = request.headers.get("origin");
   return {
     "access-control-allow-origin": origin || "*",
-    "access-control-allow-headers": "content-type, authorization, x-whataboutit-key, x-content-sha256",
+    "access-control-allow-headers": "content-type, authorization, x-whataboutit-key, x-content-sha256, if-match, if-none-match",
     "access-control-allow-methods": "GET, HEAD, PUT, POST, DELETE, OPTIONS"
   };
 }
 
 function authorized(request, env) {
-  if (!env.WHATABOUTIT_COLLAB_ACCESS_KEY) return true;
+  if (!env.WHATABOUTIT_COLLAB_ACCESS_KEY) return false;
   const supplied = request.headers.get("x-whataboutit-key") || request.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
   return supplied === env.WHATABOUTIT_COLLAB_ACCESS_KEY;
 }
@@ -44,6 +44,14 @@ function episodeAssetKey(episodeId, relativePath) {
 function temporaryStorageFailure(error, cors) {
   console.error("WhatAboutIt collaboration storage operation failed", error);
   return json({ error: "Cloud storage is temporarily unavailable. The app can retry this upload safely." }, 503, cors);
+}
+
+function multipartStorageFailure(error, cors) {
+  const message = String(error?.message || error || "");
+  if (/NoSuchUpload|multipart upload (?:was )?not found|does not exist/i.test(message)) {
+    return json({ error: "Multipart upload no longer exists.", code: "multipart-upload-expired" }, 404, cors);
+  }
+  return temporaryStorageFailure(error, cors);
 }
 
 function normalizeState(state) {
@@ -244,7 +252,8 @@ export default {
     const url = new URL(request.url);
     const cors = corsHeaders(request);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
-    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true }, 200, cors);
+    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: Boolean(env.WHATABOUTIT_COLLAB_ACCESS_KEY) }, 200, cors);
+    if (!env.WHATABOUTIT_COLLAB_ACCESS_KEY) return json({ error: "Collaboration authentication is not configured." }, 503, cors);
     if (!authorized(request, env)) return json({ error: "Unauthorized" }, 401, cors);
 
     if (url.pathname === "/episodes" && request.method === "GET") {
@@ -277,6 +286,7 @@ export default {
         if (!object) return json({ error: "Episode is not in the cloud library." }, 404, cors);
         const headers = new Headers(cors);
         headers.set("content-type", object.httpMetadata?.contentType || "application/json; charset=utf-8");
+        if (object.httpEtag) headers.set("etag", object.httpEtag);
         return new Response(object.body, { headers });
       }
       if (request.method === "PUT") {
@@ -286,6 +296,8 @@ export default {
           if (cleanEpisodeId(String(episode.id || "")) !== episodeId) throw new Error("Manifest episode id does not match the route.");
           const manifest = {
             version: 1,
+            revisionId: String(input?.revisionId || crypto.randomUUID()),
+            parentRevisionId: input?.parentRevisionId ? String(input.parentRevisionId) : undefined,
             episode: {
               id: episodeId,
               title: String(episode.title || "Untitled Episode").slice(0, 300),
@@ -299,8 +311,23 @@ export default {
             uploadedAt: new Date().toISOString(),
             assets: Array.isArray(input?.assets) ? input.assets : []
           };
-          await env.EPISODE_MEDIA.put(key, JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" } });
-          return json({ ok: true, key, manifest }, 200, cors);
+          const conditionalHeaders = new Headers();
+          if (request.headers.has("if-match")) conditionalHeaders.set("if-match", request.headers.get("if-match"));
+          if (request.headers.has("if-none-match")) conditionalHeaders.set("if-none-match", request.headers.get("if-none-match"));
+          const hasCondition = request.headers.has("if-match") || request.headers.has("if-none-match");
+          let stored;
+          try {
+            stored = await env.EPISODE_MEDIA.put(key, JSON.stringify(manifest), {
+              httpMetadata: { contentType: "application/json" },
+              ...(hasCondition ? { onlyIf: conditionalHeaders } : {})
+            });
+          } catch (error) {
+            return temporaryStorageFailure(error, cors);
+          }
+          if (!stored) return json({ error: "The cloud episode changed before this manifest could be saved." }, 412, cors);
+          const responseHeaders = { ...cors };
+          if (stored.httpEtag) responseHeaders.etag = stored.httpEtag;
+          return json({ ok: true, key, manifest }, 200, responseHeaders);
         } catch (error) {
           return json({ error: error.message }, 400, cors);
         }
@@ -326,7 +353,7 @@ export default {
           });
           return json({ key: upload.key, uploadId: upload.uploadId }, 200, cors);
         } catch (error) {
-          return temporaryStorageFailure(error, cors);
+          return multipartStorageFailure(error, cors);
         }
       }
       if (multipartAction === "part" && request.method === "PUT") {
@@ -341,7 +368,7 @@ export default {
           const part = await upload.uploadPart(partNumber, request.body);
           return json({ partNumber: part.partNumber, etag: part.etag }, 200, cors);
         } catch (error) {
-          return temporaryStorageFailure(error, cors);
+          return multipartStorageFailure(error, cors);
         }
       }
       if (multipartAction === "complete" && request.method === "POST") {
@@ -362,7 +389,7 @@ export default {
           const object = await upload.complete(parts);
           return json({ ok: true, key, etag: object.httpEtag }, 200, cors);
         } catch (error) {
-          return temporaryStorageFailure(error, cors);
+          return multipartStorageFailure(error, cors);
         }
       }
       if (multipartAction === "abort" && request.method === "DELETE") {
