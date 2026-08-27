@@ -10,7 +10,7 @@ export class AppUpdateService {
 
   constructor() {
     if (!app.isPackaged) return;
-    autoUpdater.autoDownload = false;
+    autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
     // What About It publishes one stable "latest" channel. This intentionally
     // skips intermediate versions: a machine on an older build always resolves
@@ -45,6 +45,17 @@ export class AppUpdateService {
       });
       this.publish({ state: "error", message: friendlyUpdateError(error) });
     });
+
+    // Installed studio machines should receive a published fix without knowing
+    // to visit Settings first. The downloaded update still waits for a normal
+    // restart, so an edit or recording session is never interrupted.
+    const startupCheck = setTimeout(() => void this.checkForUpdates(), 5_000);
+    startupCheck.unref();
+    const periodicCheck = setInterval(() => {
+      if (this.status.state !== "downloading" && this.status.state !== "ready")
+        void this.checkForUpdates();
+    }, 30 * 60_000);
+    periodicCheck.unref();
   }
 
   getStatus() {
@@ -96,7 +107,7 @@ export class AppUpdateService {
     this.publish({
       state: "available",
       availableVersion: info.version,
-      message: `Newest version ${info.version} is available from GitHub.`
+      message: `Newest version ${info.version} is available and will download automatically.`
     });
   }
 

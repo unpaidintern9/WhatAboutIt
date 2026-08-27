@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ReviewMediaInventory } from "./review-media";
-import { getRealtimePreviewSourceTimeMs, resolveRealtimeProgramPreview } from "./realtime-preview";
+import { getRealtimePreviewSourceTimeMs, resolveRealtimeInspectorTrack, resolveRealtimeProgramPreview } from "./realtime-preview";
 import { addCameraDecision, applyTimelineEdit, createTimelineDraft, selectTimelinePoint, updateTimelineCameraTransition, updateTimelineTrackMix } from "./timeline";
 
 const deviceDefaults = {
@@ -45,6 +45,16 @@ describe("real-time Program preview", () => {
 
     expect(resolveRealtimeProgramPreview(input, media, 9_999).layers[0].asset.id).toBe("program");
     expect(resolveRealtimeProgramPreview(input, media, 10_000).layers[0].asset.id).toBe("camera-2");
+  });
+
+  it("routes Program inspector controls to the camera visible at the playhead", () => {
+    const input = cutToCamera(draft(), "camera-camera2", 10_000);
+    const preview = resolveRealtimeProgramPreview(input, media, 12_000);
+    const programTrack = input.tracks.find((track) => track.kind === "program");
+    const cameraTrack = input.tracks.find((track) => track.id === "camera-camera2");
+
+    expect(resolveRealtimeInspectorTrack(programTrack, preview)?.id).toBe("camera-camera2");
+    expect(resolveRealtimeInspectorTrack(cameraTrack, preview)?.id).toBe("camera-camera2");
   });
 
   it("keeps the outgoing source available during a configured crossfade", () => {

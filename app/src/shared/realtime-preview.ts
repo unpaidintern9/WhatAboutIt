@@ -58,6 +58,16 @@ export function getRealtimePreviewSourceTimeMs(timelineTimeMs: number, track?: T
   return Math.max(0, timelineTimeMs + (track?.syncOffsetMs ?? 0));
 }
 
+export function resolveRealtimeInspectorTrack(
+  selectedTrack: TimelineTrack | undefined,
+  preview: RealtimeProgramPreview | undefined,
+) {
+  const activeTrack = preview?.layers.find((layer) => layer.role === "active")?.track;
+  return selectedTrack?.kind === "program" && activeTrack?.kind === "camera"
+    ? activeTrack
+    : selectedTrack;
+}
+
 /**
  * Resolves the edited Program into browser-playable layers. This intentionally
  * stays independent from React and FFmpeg so preview and export semantics can

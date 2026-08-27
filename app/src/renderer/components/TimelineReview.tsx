@@ -39,7 +39,7 @@ import type { ReviewMediaAsset, ReviewMediaImportProgress, ReviewMediaImportSlot
 import type { EpisodeCleanupScope, EpisodeStorageSummary } from "../../shared/episode-maintenance";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../../shared/local-transcription";
 import type { TimelineAudioPreset, TimelineDraft, TimelineTrack } from "../../shared/timeline";
-import { resolveRealtimeProgramPreview } from "../../shared/realtime-preview";
+import { resolveRealtimeInspectorTrack, resolveRealtimeProgramPreview } from "../../shared/realtime-preview";
 import { getTimelineSnapDistanceMs, snapTimelineTimestamp } from "../../shared/timeline-engine";
 import {
   addCameraDecision,
@@ -223,7 +223,8 @@ export function TimelineReview({
     return Array.from({ length: divisions + 1 }, (_, index) => ({ position: index / divisions, major: index % 4 === 0 || index === divisions }));
   }, [timelineZoom]);
   const selectedTrack = draft.tracks.find((track) => track.id === draft.selectedTrackId) ?? draft.tracks[0];
-  const selectedTrackAsset = mediaAssetsById.get(selectedTrack?.sourceAssetId ?? "");
+  const inspectorTrack = resolveRealtimeInspectorTrack(selectedTrack, realtimeProgramPreview) ?? selectedTrack;
+  const inspectorTrackAsset = mediaAssetsById.get(inspectorTrack?.sourceAssetId ?? "");
   const firstMicrophoneTrack = draft.tracks.find((track) => track.kind === "microphone");
   const allRecordedMicrophonesSilent = Boolean(media?.audio.some((asset) => asset.status === "ready"))
     && media!.audio.filter((asset) => asset.status === "ready").every((asset) => asset.audioSignal === "silent");
@@ -239,7 +240,14 @@ export function TimelineReview({
     track?.kind === "camera"
       ? {
           objectFit: track.cropMode === "fill" ? "cover" : "contain",
-          filter: `brightness(${100 + track.brightness}%) contrast(${track.contrast}%) saturate(${track.saturation}%)`,
+          filter: [
+            `brightness(${100 + track.brightness}%)`,
+            `contrast(${track.contrast + track.sharpness * 0.1}%)`,
+            `saturate(${track.saturation}%)`,
+            `sepia(${Math.max(0, track.temperature) * 0.18}%)`,
+            `hue-rotate(${track.tint * 0.08 - Math.min(0, track.temperature) * 0.08}deg)`,
+            `blur(${track.denoise * 0.008}px)`,
+          ].join(" "),
           transform: `translate(${track.positionX * 0.18}%, ${track.positionY * 0.18}%) scale(${track.zoom / 100})`,
           opacity: isActive ? 1 : 0,
           zIndex: isActive ? 2 : 1,
@@ -1001,26 +1009,26 @@ export function TimelineReview({
 
         {hasPlayableProgram ? <aside className="edit-track-inspector" aria-label="Selected track controls">
           <TrackInspector
-            track={selectedTrack}
+            track={inspectorTrack}
             tracks={editableTracks}
-            asset={selectedTrackAsset}
+            asset={inspectorTrackAsset}
             draft={draft}
             playheadMs={playheadMs}
             onUpdate={updateTrack}
             onSelectTrack={selectTrack}
-            onUseCamera={() => cutToCamera(selectedTrack)}
+            onUseCamera={() => cutToCamera(inspectorTrack)}
             onTransitionChange={(cameraTransition, cameraTransitionMs) => onDraftChange(updateTimelineCameraTransition(draft, cameraTransition, cameraTransitionMs))}
-            onApplyTreatment={() => onDraftChange(applyTimelineTrackTreatmentToKind(draft, selectedTrack.id))}
-            onReset={() => onDraftChange(resetTimelineTrackControls(draft, selectedTrack.id))}
+            onApplyTreatment={() => onDraftChange(applyTimelineTrackTreatmentToKind(draft, inspectorTrack.id))}
+            onReset={() => onDraftChange(resetTimelineTrackControls(draft, inspectorTrack.id))}
             onMasteringChange={(loudnessTargetLufs, truePeakDb) => onDraftChange(updateTimelineMastering(draft, loudnessTargetLufs, truePeakDb))}
-            preview={treatmentPreview?.trackId === selectedTrack.id ? treatmentPreview : undefined}
+            preview={treatmentPreview?.trackId === inspectorTrack.id ? treatmentPreview : undefined}
             previewBusy={treatmentPreviewBusy}
             previewError={treatmentPreviewError}
             onRenderPreview={onRenderTreatmentPreview ? async () => {
               setTreatmentPreviewBusy(true);
               setTreatmentPreviewError(undefined);
               try {
-                setTreatmentPreview(await onRenderTreatmentPreview(selectedTrack.id, playheadMs));
+                setTreatmentPreview(await onRenderTreatmentPreview(inspectorTrack.id, playheadMs));
               } catch (error) {
                 setTreatmentPreviewError(error instanceof Error ? error.message : String(error));
               } finally {
