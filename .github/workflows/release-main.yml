@@ -35,7 +35,12 @@ jobs:
       - run: npm run verify
       - name: Give this main build a newer app version
         shell: pwsh
-        run: npm version "0.2.${{ github.run_number }}" --no-git-tag-version
+        run: |
+          $package = Get-Content package.json -Raw | ConvertFrom-Json
+          $sourceVersion = [version]$package.version
+          $runPatch = [int]"${{ github.run_number }}"
+          $releasePatch = [Math]::Max($sourceVersion.Build, $runPatch)
+          npm version "0.2.$releasePatch" --no-git-tag-version
       - name: Prepare What About It collaboration bootstrap
         shell: pwsh
         env:
