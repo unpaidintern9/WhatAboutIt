@@ -86,6 +86,8 @@ export interface CloudEpisodeSummary {
 
 export interface CloudEpisodeManifest {
   version: 1;
+  revisionId?: string;
+  parentRevisionId?: string;
   episode: {
     id: string;
     title: string;

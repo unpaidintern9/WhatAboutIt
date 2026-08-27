@@ -19,8 +19,16 @@ class MemoryR2 {
     return new TextEncoder().encode(typeof body === "string" ? body : String(body ?? ""));
   }
   async put(key, body, options = {}) {
+    const current = this.objects.get(key);
+    const ifMatch = options.onlyIf instanceof Headers ? options.onlyIf.get("if-match") : undefined;
+    const ifNoneMatch = options.onlyIf instanceof Headers ? options.onlyIf.get("if-none-match") : undefined;
+    const currentEtag = current ? `\"etag-${key}-${current.version}\"` : undefined;
+    if (ifMatch && ifMatch !== currentEtag) return null;
+    if (ifNoneMatch === "*" && current) return null;
     const bytes = await this.bytes(body);
-    this.objects.set(key, { bytes, httpMetadata: options.httpMetadata ?? {}, customMetadata: options.customMetadata ?? {} });
+    const version = (current?.version ?? 0) + 1;
+    this.objects.set(key, { bytes, httpMetadata: options.httpMetadata ?? {}, customMetadata: options.customMetadata ?? {}, version });
+    return { httpEtag: `\"etag-${key}-${version}\"` };
   }
   async createMultipartUpload(key, options = {}) {
     const uploadId = `upload-${this.nextUploadId++}`;
@@ -69,7 +77,7 @@ class MemoryR2 {
       body: new Response(entry.bytes).body,
       httpMetadata: entry.httpMetadata,
       customMetadata: entry.customMetadata,
-      httpEtag: `etag-${key}`,
+      httpEtag: `\"etag-${key}-${entry.version ?? 1}\"`,
       async json() { return JSON.parse(new TextDecoder().decode(entry.bytes)); },
       writeHttpMetadata(headers) { if (entry.httpMetadata.contentType) headers.set("content-type", entry.httpMetadata.contentType); }
     };
@@ -126,6 +134,14 @@ test("protected routes reject the wrong collaboration key", async () => {
   assert.equal(response.status, 401);
 });
 
+test("protected routes fail closed when the collaboration secret is missing", async () => {
+  const env = makeEnv();
+  delete env.WHATABOUTIT_COLLAB_ACCESS_KEY;
+  const response = await worker.fetch(new Request("https://collab.test/episodes"), env);
+  assert.equal(response.status, 503);
+  assert.match((await response.json()).error, /authentication is not configured/i);
+});
+
 test("manifest upload becomes a discoverable cloud episode", async () => {
   const env = makeEnv();
   const manifest = {
@@ -149,6 +165,38 @@ test("manifest upload becomes a discoverable cloud episode", async () => {
   assert.equal(body.episodes.length, 1);
   assert.equal(body.episodes[0].id, "episode-a");
   assert.equal(body.episodes[0].assetCount, 1);
+});
+
+test("manifest writes reject a stale revision instead of overwriting another computer", async () => {
+  const env = makeEnv();
+  const manifest = {
+    version: 1,
+    episode: { id: "episode-a", title: "Episode A", status: "draft" },
+    collaborationStatus: "working",
+    assets: []
+  };
+  const created = await worker.fetch(request("/episodes/episode-a/manifest", {
+    method: "PUT",
+    body: JSON.stringify(manifest),
+    headers: { "content-type": "application/json", "if-none-match": "*" }
+  }), env);
+  assert.equal(created.status, 200);
+  const etag = created.headers.get("etag");
+  assert.ok(etag);
+
+  const updated = await worker.fetch(request("/episodes/episode-a/manifest", {
+    method: "PUT",
+    body: JSON.stringify(manifest),
+    headers: { "content-type": "application/json", "if-match": etag }
+  }), env);
+  assert.equal(updated.status, 200);
+
+  const stale = await worker.fetch(request("/episodes/episode-a/manifest", {
+    method: "PUT",
+    body: JSON.stringify(manifest),
+    headers: { "content-type": "application/json", "if-match": etag }
+  }), env);
+  assert.equal(stale.status, 412);
 });
 
 test("editor lease prevents two collaborators from editing the same episode", async () => {
@@ -199,4 +247,10 @@ test("storage failures return a retryable response instead of an unhandled Worke
   const response = await worker.fetch(request("/episodes/episode-a/assets/Cameras%2Fcamera-1.webm", { method: "PUT", body: "camera" }), env);
   assert.equal(response.status, 503);
   assert.match((await response.json()).error, /temporarily unavailable/i);
+  const manifestResponse = await worker.fetch(request("/episodes/episode-a/manifest", {
+    method: "PUT",
+    body: JSON.stringify({ episode: { id: "episode-a", title: "Episode A" }, assets: [] })
+  }), env);
+  assert.equal(manifestResponse.status, 503);
+  assert.match((await manifestResponse.json()).error, /temporarily unavailable/i);
 });

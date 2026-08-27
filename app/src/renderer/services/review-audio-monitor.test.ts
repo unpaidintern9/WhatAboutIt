@@ -29,13 +29,14 @@ describe("review audio monitor", () => {
 
     expect(settings.trackGain).toBe(2.4);
     expect(settings.pan).toBe(-0.35);
-    expect(settings.highpassHz).toBe(69);
+    expect(settings.highpassHz).toBe(80);
     expect(settings.lowpassHz).toBe(17800);
     expect(settings.lowDb).toBe(-1);
     expect(settings.midDb).toBe(4.2);
     expect(settings.highDb).toBeCloseTo(4.35);
-    expect(settings.compressorThresholdDb).toBe(-24.6);
-    expect(settings.compressorRatio).toBeCloseTo(6.05);
+    expect(settings.compressorThresholdDb).toBeCloseTo(-18.344, 2);
+    expect(settings.compressorRatio).toBeCloseTo(4.65);
+    expect(settings.compressorMakeup).toBe(1.15);
     expect(settings.limiterRatio).toBe(20);
     expect(settings.noiseGateDb).toBe(-42);
     expect(settings.fadeInMs).toBe(450);

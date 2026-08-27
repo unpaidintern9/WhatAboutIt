@@ -2,16 +2,16 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { net } from "electron";
 import type { CloudEpisodeManifest } from "../shared/collaboration";
 import { isProjectCollaborationAsset } from "../shared/collaboration";
 import type { EpisodeMetadata } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
-import { getCollaborationRemoteConfig, uploadEpisodeToCloud } from "./collaboration-remote-service";
+import { fetchCollaborationApi, getCollaborationRemoteConfig, uploadEpisodeToCloud } from "./collaboration-remote-service";
 
 interface ProjectSyncMarker {
   episodeId: string;
   remoteUploadedAt?: string;
+  remoteRevisionId?: string;
   syncedAt: string;
 }
 
@@ -31,12 +31,12 @@ async function readMarker(episodeId: string): Promise<ProjectSyncMarker | undefi
   }
 }
 
-async function writeMarker(episodeId: string, remoteUploadedAt?: string) {
+async function writeMarker(episodeId: string, manifest?: Pick<CloudEpisodeManifest, "uploadedAt" | "revisionId">) {
   const filePath = markerPath(episodeId);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
   await fs.writeFile(
     filePath,
-    JSON.stringify({ episodeId, remoteUploadedAt, syncedAt: new Date().toISOString() } satisfies ProjectSyncMarker, null, 2),
+    JSON.stringify({ episodeId, remoteUploadedAt: manifest?.uploadedAt, remoteRevisionId: manifest?.revisionId, syncedAt: new Date().toISOString() } satisfies ProjectSyncMarker, null, 2),
     "utf8"
   );
 }
@@ -44,14 +44,7 @@ async function writeMarker(episodeId: string, remoteUploadedAt?: string) {
 async function apiFetch(pathname: string, init?: RequestInit) {
   const config = await getCollaborationRemoteConfig();
   if (!config.apiUrl) return undefined;
-  const headers = new Headers(init?.headers);
-  if (config.accessKey) headers.set("x-whataboutit-key", config.accessKey);
-  const url = `${config.apiUrl}${pathname}`;
-  try {
-    return await net.fetch(url, { ...init, headers });
-  } catch {
-    return fetch(url, { ...init, headers });
-  }
+  return fetchCollaborationApi(pathname, init);
 }
 
 async function getRemoteManifest(episodeId: string): Promise<CloudEpisodeManifest | undefined> {
@@ -98,8 +91,9 @@ export async function pullLatestProjectChanges(episodeId: string) {
   const [marker, manifest] = await Promise.all([readMarker(episodeId), getRemoteManifest(episodeId)]);
   if (!manifest) return { changed: 0, remoteUploadedAt: undefined as string | undefined };
   if (manifest.episode.id !== episodeId) throw new Error("Cloud project does not match this episode.");
-  if (!marker?.remoteUploadedAt) return { changed: 0, remoteUploadedAt: manifest.uploadedAt };
-  if (manifest.uploadedAt <= marker.remoteUploadedAt) return { changed: 0, remoteUploadedAt: manifest.uploadedAt };
+  if (!marker?.remoteUploadedAt && !marker?.remoteRevisionId) return { changed: 0, remoteUploadedAt: manifest.uploadedAt };
+  if (manifest.revisionId && marker.remoteRevisionId === manifest.revisionId) return { changed: 0, remoteUploadedAt: manifest.uploadedAt };
+  if (!manifest.revisionId && manifest.uploadedAt <= (marker.remoteUploadedAt ?? "")) return { changed: 0, remoteUploadedAt: manifest.uploadedAt };
 
   const root = episodeFolder(episodeId);
   const safetyStamp = new Date().toISOString().replaceAll(":", "-");
@@ -127,7 +121,7 @@ export async function pullLatestProjectChanges(episodeId: string) {
     changed += 1;
   }
 
-  await writeMarker(episodeId, manifest.uploadedAt);
+  await writeMarker(episodeId, manifest);
   return { changed, remoteUploadedAt: manifest.uploadedAt };
 }
 
@@ -136,8 +130,11 @@ export async function assertProjectRevisionCurrent(episodeId: string) {
   const config = await getCollaborationRemoteConfig();
   if (!config.apiUrl) return;
   const [marker, manifest] = await Promise.all([readMarker(episodeId), getRemoteManifest(episodeId)]);
-  if (!manifest || !marker?.remoteUploadedAt) return;
-  if (manifest.uploadedAt > marker.remoteUploadedAt) {
+  if (!manifest || (!marker?.remoteUploadedAt && !marker?.remoteRevisionId)) return;
+  const changedRevision = manifest.revisionId
+    ? manifest.revisionId !== marker.remoteRevisionId
+    : manifest.uploadedAt > (marker.remoteUploadedAt ?? "");
+  if (changedRevision) {
     throw new Error("Newer project changes are available from Cloudflare. Reopen this episode to apply them before editing so no newer work is overwritten.");
   }
 }
@@ -149,12 +146,12 @@ export async function pushProjectChanges(episodeId: string) {
   const metadata = JSON.parse(await fs.readFile(path.join(episodeFolder(episodeId), "metadata.json"), "utf8")) as EpisodeMetadata;
   const result = await uploadEpisodeToCloud({ ...metadata, folderPath: episodeFolder(episodeId) }, "project-only");
   const manifest = await getRemoteManifest(episodeId);
-  await writeMarker(episodeId, manifest?.uploadedAt);
+  await writeMarker(episodeId, manifest);
   return result;
 }
 
 /** Called after a deliberate full cloud materialization so future project pulls are safe. */
 export async function markProjectMaterialized(episodeId: string) {
   const manifest = await getRemoteManifest(episodeId);
-  if (manifest) await writeMarker(episodeId, manifest.uploadedAt);
+  if (manifest) await writeMarker(episodeId, manifest);
 }

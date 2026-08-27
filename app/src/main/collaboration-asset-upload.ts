@@ -28,11 +28,23 @@ type UploadOptions = {
   maxAttempts?: number;
   sleep?: (delayMs: number) => Promise<void>;
   onRetry?: (event: CollaborationUploadRetry) => void | Promise<void>;
+  multipartConcurrency?: number;
+  checkpoint?: MultipartUploadCheckpoint;
+  onCheckpoint?: (checkpoint: MultipartUploadCheckpoint | undefined) => void | Promise<void>;
 };
 
-type MultipartPart = {
+export type MultipartPart = {
   partNumber: number;
   etag: string;
+};
+
+export type MultipartUploadCheckpoint = {
+  uploadId: string;
+  bytes: number;
+  contentHash?: string;
+  partSizeBytes: number;
+  parts: MultipartPart[];
+  updatedAt: string;
 };
 
 const wait = (delayMs: number) =>
@@ -165,66 +177,95 @@ async function uploadDirect(options: UploadOptions) {
 }
 
 async function uploadMultipart(options: UploadOptions) {
-  const createResponse = await requestCollaborationWithRetry(
-    "create multipart upload",
-    () =>
-      options.apiFetch(`${options.pathname}?multipart=create`, {
-        method: "POST",
-        headers: {
-          "content-type": options.contentType,
-          "x-content-sha256": options.contentHash ?? "",
-        },
-      }),
-    options,
-  );
-  if (!createResponse.ok)
-    throw await responseError(
-      createResponse,
-      "Could not start multipart upload",
-    );
-  const created = (await createResponse.json()) as { uploadId?: string };
-  if (!created.uploadId)
-    throw new Error("Cloud storage did not return a multipart upload id.");
-
-  const uploadId = created.uploadId;
   const partSize = Math.max(
     5 * 1024 * 1024,
     options.partSizeBytes ?? DEFAULT_PART_SIZE_BYTES,
   );
-  const parts: MultipartPart[] = [];
-  try {
-    for (
-      let offset = 0, partNumber = 1;
-      offset < options.bytes;
-      offset += partSize, partNumber += 1
-    ) {
-      const end = Math.min(offset + partSize, options.bytes) - 1;
-      const response = await requestCollaborationWithRetry(
-        `upload part ${partNumber}`,
-        async () => {
-          const body = await readRequestBody(options.absolutePath, offset, end);
-          return options.apiFetch(
-            `${options.pathname}?multipart=part&uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`,
-            {
-              method: "PUT",
-              body,
-              headers: {
-                "content-type": "application/octet-stream",
-              },
-            },
-          );
-        },
-        options,
+  const reusableCheckpoint = options.checkpoint
+    && options.checkpoint.bytes === options.bytes
+    && options.checkpoint.contentHash === options.contentHash
+    && options.checkpoint.partSizeBytes === partSize
+    ? options.checkpoint
+    : undefined;
+  let uploadId = reusableCheckpoint?.uploadId;
+  const partsByNumber = new Map((reusableCheckpoint?.parts ?? []).map((part) => [part.partNumber, part]));
+
+  if (!uploadId) {
+    const createResponse = await requestCollaborationWithRetry(
+      "create multipart upload",
+      () =>
+        options.apiFetch(`${options.pathname}?multipart=create`, {
+          method: "POST",
+          headers: {
+            "content-type": options.contentType,
+            "x-content-sha256": options.contentHash ?? "",
+          },
+        }),
+      options,
+    );
+    if (!createResponse.ok)
+      throw await responseError(
+        createResponse,
+        "Could not start multipart upload",
       );
-      if (!response.ok)
-        throw await responseError(response, `Upload part ${partNumber} failed`);
-      const uploaded = (await response.json()) as MultipartPart;
-      if (uploaded.partNumber !== partNumber || !uploaded.etag)
-        throw new Error(
-          `Cloud storage returned an invalid receipt for upload part ${partNumber}.`,
+    const created = (await createResponse.json()) as { uploadId?: string };
+    if (!created.uploadId)
+      throw new Error("Cloud storage did not return a multipart upload id.");
+    uploadId = created.uploadId;
+    await options.onCheckpoint?.({ uploadId, bytes: options.bytes, contentHash: options.contentHash, partSizeBytes: partSize, parts: [], updatedAt: new Date().toISOString() });
+  }
+
+  const partCount = Math.ceil(options.bytes / partSize);
+  const pendingPartNumbers = Array.from({ length: partCount }, (_, index) => index + 1)
+    .filter((partNumber) => !partsByNumber.has(partNumber));
+  const concurrency = Math.max(1, Math.min(4, options.multipartConcurrency ?? 3));
+  let checkpointWrite = Promise.resolve();
+
+  const saveCheckpoint = async () => {
+    const checkpoint: MultipartUploadCheckpoint = {
+      uploadId,
+      bytes: options.bytes,
+      contentHash: options.contentHash,
+      partSizeBytes: partSize,
+      parts: [...partsByNumber.values()].sort((a, b) => a.partNumber - b.partNumber),
+      updatedAt: new Date().toISOString(),
+    };
+    checkpointWrite = checkpointWrite.then(() => options.onCheckpoint?.(checkpoint));
+    await checkpointWrite;
+  };
+
+  const uploadPart = async (partNumber: number) => {
+    const offset = (partNumber - 1) * partSize;
+    const end = Math.min(offset + partSize, options.bytes) - 1;
+    const response = await requestCollaborationWithRetry(
+      `upload part ${partNumber}`,
+      async () => {
+        const body = await readRequestBody(options.absolutePath, offset, end);
+        return options.apiFetch(
+          `${options.pathname}?multipart=part&uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`,
+          { method: "PUT", body, headers: { "content-type": "application/octet-stream" } },
         );
-      parts.push(uploaded);
-    }
+      },
+      options,
+    );
+    if (!response.ok)
+      throw await responseError(response, `Upload part ${partNumber} failed`);
+    const uploaded = (await response.json()) as MultipartPart;
+    if (uploaded.partNumber !== partNumber || !uploaded.etag)
+      throw new Error(`Cloud storage returned an invalid receipt for upload part ${partNumber}.`);
+    partsByNumber.set(partNumber, uploaded);
+    await saveCheckpoint();
+  };
+
+  try {
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.min(concurrency, pendingPartNumbers.length) }, async () => {
+      while (nextIndex < pendingPartNumbers.length) {
+        const partNumber = pendingPartNumbers[nextIndex++];
+        await uploadPart(partNumber);
+      }
+    });
+    await Promise.all(workers);
 
     const completeResponse = await requestCollaborationWithRetry(
       "complete multipart upload",
@@ -233,7 +274,7 @@ async function uploadMultipart(options: UploadOptions) {
           `${options.pathname}?multipart=complete&uploadId=${encodeURIComponent(uploadId)}`,
           {
             method: "POST",
-            body: JSON.stringify({ parts }),
+            body: JSON.stringify({ parts: [...partsByNumber.values()].sort((a, b) => a.partNumber - b.partNumber) }),
           },
         ),
       options,
@@ -243,14 +284,19 @@ async function uploadMultipart(options: UploadOptions) {
         completeResponse,
         "Could not complete multipart upload",
       );
+    await options.onCheckpoint?.(undefined);
   } catch (error) {
-    if (await verifiedAfterFailure(options)) return;
-    await options
-      .apiFetch(
-        `${options.pathname}?multipart=abort&uploadId=${encodeURIComponent(uploadId)}`,
-        { method: "DELETE" },
-      )
-      .catch(() => undefined);
+    if (reusableCheckpoint && (error as Error & { status?: number }).status === 404) {
+      await options.onCheckpoint?.(undefined);
+      return uploadMultipart({ ...options, checkpoint: undefined });
+    }
+    if (await verifiedAfterFailure(options)) {
+      await options.onCheckpoint?.(undefined);
+      return;
+    }
+    // Keep the multipart upload and its receipts for a later retry. R2 expires
+    // abandoned uploads automatically, while preserving them here makes a
+    // network interruption or app restart genuinely resumable.
     throw error;
   }
 }
