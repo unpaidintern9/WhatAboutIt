@@ -4,7 +4,7 @@ import path from "node:path";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { createTimelineDraft } from "../../shared/timeline";
+import { addCameraDecision, createTimelineDraft, selectTimelinePoint, updateTimelineTrackMix } from "../../shared/timeline";
 import type { ReviewMediaInventory } from "../../shared/review-media";
 import { TimelineReview } from "./TimelineReview";
 
@@ -73,6 +73,36 @@ const media: ReviewMediaInventory = {
 };
 
 describe("TimelineReview", () => {
+  it("shows Program framing changes immediately on the active camera layer", () => {
+    let draft = createTimelineDraft({
+      episodeId: "episode-a",
+      durationMs: 30_000,
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+    });
+    draft = updateTimelineTrackMix(draft, "camera-camera1", {
+      zoom: 180,
+      positionX: 25,
+      temperature: 30,
+      tint: 25,
+      denoise: 50,
+      sharpness: 40
+    });
+    draft = addCameraDecision(
+      selectTimelinePoint(draft, { timestampMs: 0, trackId: "camera-camera1", source: "timeline" }),
+      "camera-camera1",
+      "manual",
+      "Open on Camera 1",
+      "2026-08-27T12:00:00.000Z"
+    );
+
+    const markup = renderToStaticMarkup(<TimelineReview draft={draft} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+
+    expect(markup).toContain("scale(1.8)");
+    expect(markup).toContain("translate(4.5%, 0%)");
+    expect(markup).toContain("blur(0.4px)");
+    expect(markup).toContain('aria-label="Zoom" type="range" min="100" max="400" step="1" value="180"');
+  });
+
   it("allows local review posters, filmstrips, and waveforms through the renderer CSP", () => {
     const rendererHtml = fs.readFileSync(path.join(process.cwd(), "src", "renderer", "index.html"), "utf8");
     const styles = fs.readFileSync(path.join(process.cwd(), "src", "renderer", "styles.css"), "utf8");
