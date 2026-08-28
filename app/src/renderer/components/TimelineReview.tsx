@@ -7,11 +7,13 @@ import {
   Download,
   Eye,
   EyeOff,
+  FilePlus2,
   FastForward,
   Gauge,
   Grid2X2,
   GripVertical,
   History,
+  FolderOpen,
   LoaderCircle,
   Magnet,
   Maximize2,
@@ -82,6 +84,7 @@ interface TimelineReviewProps {
   onSaveDraft: () => void;
   onExport: () => void;
   onCreateCombinedVideo?: () => void;
+  onOpenEpisodeFolder?: () => void;
   onAutoEdit: () => void;
   onImportMedia?: (slot: ReviewMediaImportSlot) => Promise<string>;
   importProgress?: ReviewMediaImportProgress;
@@ -116,6 +119,14 @@ type TimelineTool = "select" | "split";
 
 const timelineZoomLevels = [100, 150, 225, 350, 500, 750, 1000, 1500, 2250, 3500, 5000, 7500, 10000] as const;
 const timelineTrackHeaderWidth = 146;
+const reviewImportActions: Array<{ slot: ReviewMediaImportSlot; label: string }> = [
+  { slot: "camera-1", label: "Camera 1" },
+  { slot: "camera-2", label: "Camera 2" },
+  { slot: "camera-3", label: "Camera 3" },
+  { slot: "morgan-mic", label: "Morgan Mic" },
+  { slot: "guest-mic", label: "Guest Mic" },
+  { slot: "extra-mic", label: "Extra Mic" }
+];
 
 function getTimelineTimestampX(viewport: HTMLDivElement, ratio: number) {
   const contentWidth = Math.max(0, viewport.scrollWidth - timelineTrackHeaderWidth);
@@ -131,6 +142,7 @@ export function TimelineReview({
   onSaveDraft,
   onExport,
   onCreateCombinedVideo,
+  onOpenEpisodeFolder,
   onAutoEdit,
   onImportMedia,
   importProgress,
@@ -147,6 +159,7 @@ export function TimelineReview({
   onTranscribeLocally,
   onCancelTranscription
 }: TimelineReviewProps) {
+  const fileMenuRef = useRef<HTMLDetailsElement>(null);
   const videoAssets = useMemo(() => (media ? [media.program, ...media.cameras] : []), [media]);
   const multicamAssets = useMemo(() => (media ? [media.program, ...media.cameras] : []), [media]);
   const editableTracks = useMemo(() => draft.tracks.filter((track) => track.kind !== "markers"), [draft.tracks]);
@@ -739,6 +752,11 @@ export function TimelineReview({
     function handleEditorKey(event: KeyboardEvent) {
       const target = event.target;
       if (target instanceof Element && target.matches("input, select, textarea, [contenteditable='true']")) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        event.preventDefault();
+        onSaveDraft();
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         onDraftChange(event.shiftKey ? redoTimelineEdit(draft) : undoTimelineEdit(draft));
@@ -823,6 +841,32 @@ export function TimelineReview({
           </span>
         </div>
         <div className="edit-studio-actions">
+          <details className="review-file-menu" ref={fileMenuRef}>
+            <summary>File</summary>
+            <div className="review-file-menu-popover" role="menu" aria-label="Review file actions">
+              <button type="button" role="menuitem" onClick={() => { fileMenuRef.current?.removeAttribute("open"); onSaveDraft(); }}>
+                <Save size={15} /> <span><strong>Save project</strong><small>Ctrl+S</small></span>
+              </button>
+              <div className="review-file-menu-separator" />
+              <span className="review-file-menu-label">Import media</span>
+              {onImportMedia ? (
+                reviewImportActions.map(({ slot, label }) => (
+                  <button type="button" role="menuitem" key={slot} onClick={() => { fileMenuRef.current?.removeAttribute("open"); void onImportMedia(slot); }}>
+                    <FilePlus2 size={15} /> Import {label}
+                  </button>
+                ))
+              ) : null}
+              <div className="review-file-menu-separator" />
+              {onOpenEpisodeFolder ? (
+                <button type="button" role="menuitem" onClick={() => { fileMenuRef.current?.removeAttribute("open"); onOpenEpisodeFolder(); }}>
+                  <FolderOpen size={15} /> Open episode folder
+                </button>
+              ) : null}
+              <button type="button" role="menuitem" onClick={() => { fileMenuRef.current?.removeAttribute("open"); onExport(); }}>
+                <Download size={15} /> Export options
+              </button>
+            </div>
+          </details>
           <button type="button" onClick={() => onDraftChange(setTimelineEditMode(draft, "manual"))} className={draft.editMode === "manual" ? "selected" : ""}>
             <MousePointer2 size={16} /> Manual
           </button>

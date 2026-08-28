@@ -398,7 +398,6 @@ async function openReviewEpisodeLibrary() {
         return;
       }
       if (action === "review-local") {
-        await ipcRenderer.invoke("episodes:open-folder", episodeId);
         requestEpisodeActivation(episodeId);
         return;
       }
