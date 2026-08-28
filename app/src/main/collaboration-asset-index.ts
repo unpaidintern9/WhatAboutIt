@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { isInternalCollaborationAssetPath, type CollaborationAssetKind, type CollaborationAssetManifestEntry } from "../shared/collaboration";
+import { isInternalCollaborationAssetPath, shouldIncludeCollaborationAsset, type CollaborationAssetKind, type CollaborationAssetManifestEntry, type CollaborationUploadSelection } from "../shared/collaboration";
 
 const ignoredTopLevel = new Set(["Logs", "Reports"]);
 
@@ -45,15 +45,16 @@ async function sha256(filePath: string) {
   });
 }
 
-export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId: string): Promise<CollaborationAssetManifestEntry[]> {
+export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId: string, selection?: CollaborationUploadSelection): Promise<CollaborationAssetManifestEntry[]> {
   const now = new Date().toISOString();
   const files = await walk(episodeFolder);
   const manifest: CollaborationAssetManifestEntry[] = [];
   for (const relativePath of files) {
     if (isInternalCollaborationAssetPath(relativePath)) continue;
     const absolutePath = path.join(episodeFolder, relativePath);
-    const stat = await fs.stat(absolutePath);
     const classified = classifyCollaborationAsset(relativePath);
+    if (selection && !shouldIncludeCollaborationAsset(classified.kind, selection)) continue;
+    const stat = await fs.stat(absolutePath);
     manifest.push({
       id: crypto.createHash("sha1").update(relativePath.replaceAll("\\", "/")).digest("hex"),
       kind: classified.kind,

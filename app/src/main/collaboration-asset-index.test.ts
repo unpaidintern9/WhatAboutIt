@@ -28,4 +28,17 @@ describe("collaboration asset index", () => {
     expect(paths).not.toContain("Collaboration/project-sync.json");
     expect(paths).not.toContain("Session/cloud-download-complete.json");
   });
+
+  it("does not hash large media when preparing a project-only sync", async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "wai-project-only-index-"));
+    await fs.mkdir(path.join(root, "Cameras"), { recursive: true });
+    await fs.mkdir(path.join(root, "Session"), { recursive: true });
+    await fs.writeFile(path.join(root, "metadata.json"), "{}");
+    await fs.writeFile(path.join(root, "Session", "draft-timeline.json"), "{}");
+    await fs.writeFile(path.join(root, "Cameras", "camera-1.webm"), Buffer.alloc(1024));
+
+    const manifest = await buildEpisodeAssetManifest(root, "episode-a", "project-only");
+
+    expect(manifest.map((asset) => asset.relativePath)).toEqual(["metadata.json", "Session/draft-timeline.json"]);
+  });
 });

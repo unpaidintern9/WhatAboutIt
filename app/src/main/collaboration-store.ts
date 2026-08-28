@@ -61,15 +61,18 @@ export async function loadCollaborationWorkspace(episodeFolder: string, episodeI
   }
 }
 
-export async function refreshCollaborationAssets(episodeFolder: string, episodeId: string, episodeTitle: string) {
+export async function refreshCollaborationAssets(episodeFolder: string, episodeId: string, episodeTitle: string, selection?: CollaborationUploadSelection) {
   const workspace = await loadCollaborationWorkspace(episodeFolder, episodeId, episodeTitle);
   const previousByPath = new Map(workspace.assets.map((asset) => [asset.relativePath, asset]));
-  const scanned = await buildEpisodeAssetManifest(episodeFolder, episodeId);
-  workspace.assets = scanned.map((asset) => {
+  const scanned = await buildEpisodeAssetManifest(episodeFolder, episodeId, selection);
+  const refreshed = scanned.map((asset) => {
     const previous = previousByPath.get(asset.relativePath);
     if (!previous || previous.contentHash !== asset.contentHash) return asset;
     return { ...asset, state: previous.state, cloudPath: previous.cloudPath ?? asset.cloudPath };
   });
+  workspace.assets = selection
+    ? [...workspace.assets.filter((asset) => !shouldIncludeCollaborationAsset(asset.kind, selection)), ...refreshed].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
+    : refreshed;
   return writeWorkspace(episodeFolder, workspace);
 }
 
@@ -79,7 +82,7 @@ export async function prepareCollaborationUpload(
   episodeTitle: string,
   selection: CollaborationUploadSelection
 ): Promise<CollaborationWorkspace> {
-  const workspace = await refreshCollaborationAssets(episodeFolder, episodeId, episodeTitle);
+  const workspace = await refreshCollaborationAssets(episodeFolder, episodeId, episodeTitle, selection);
   const included = workspace.assets.filter((asset) => shouldIncludeCollaborationAsset(asset.kind, selection));
   const plan: CollaborationUploadPlan = {
     episodeId,
