@@ -48,6 +48,7 @@ import {
   addTimelineTitle,
   applyTimelineTrackTreatmentToKind,
   applyTimelineEdit,
+  clearProgramCameraCuts,
   getActiveCameraTrackId,
   getNextPlayableTimelineTime,
   getTimelineSegments,
@@ -303,8 +304,9 @@ export function TimelineReview({
     const shouldResume = isPlaying || Boolean(previousVideo && !previousVideo.paused);
     pendingPreviewSeekMsRef.current = playheadMs;
     videoRef.current = nextVideo;
+    nextVideo.muted = masterMuted || stemMixActive || (!programMode && pairedAudio?.status === "ready");
     syncPreviewVideos(playheadMs, shouldResume);
-  }, [selectedVideo?.id, outgoingPreviewAssetId]);
+  }, [masterMuted, outgoingPreviewAssetId, pairedAudio?.status, programMode, selectedVideo?.id, stemMixActive]);
 
   useEffect(() => {
     if (!isPlaying || !programMode || !realtimeProgramPreview?.nextBoundaryMs) return;
@@ -351,7 +353,8 @@ export function TimelineReview({
   }, [audioOutputId, selectedVideo?.playbackUrl, programAudioSources]);
 
   useEffect(() => {
-    setReviewMonitorGain(videoRef.current, masterMuted || stemMixActive ? 0 : masterVolume, audioOutputId);
+    const suppressEmbeddedCameraAudio = !programMode && pairedAudio?.status === "ready";
+    setReviewMonitorGain(videoRef.current, masterMuted || stemMixActive || suppressEmbeddedCameraAudio ? 0 : masterVolume, audioOutputId);
     const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
     if (pairedTrack) setReviewMonitorTreatment(pairedAudioRef.current, pairedTrack, masterMuted ? 0 : masterVolume, audioOutputId);
     else setReviewMonitorGain(pairedAudioRef.current, masterMuted ? 0 : masterVolume, audioOutputId);
@@ -361,7 +364,7 @@ export function TimelineReview({
       setAudioRouteMessage("Using recorded Program audio");
       setReviewMonitorGain(videoRef.current, masterMuted ? 0 : masterVolume, audioOutputId);
     }
-  }, [audioOutputId, draft.tracks, isPlaying, masterMuted, masterVolume, pairedAudio, programAudioSources, stemMixActive, useProgramStemMix]);
+  }, [audioOutputId, draft.tracks, isPlaying, masterMuted, masterVolume, pairedAudio, programAudioSources, programMode, stemMixActive, useProgramStemMix]);
 
   useEffect(
     () => () => {
@@ -960,7 +963,7 @@ export function TimelineReview({
                       preload={isActive || asset.id === outgoingPreviewAssetId ? "auto" : "metadata"}
                       src={asset.playbackUrl}
                       poster={asset.posterUrl}
-                      muted={masterMuted || stemMixActive || !isActive}
+                      muted={masterMuted || stemMixActive || !isActive || (!programMode && pairedAudio?.status === "ready")}
                       style={getLiveVideoStyle(track, isActive)}
                       aria-hidden={!isActive}
                       aria-label={isActive ? `${programMode ? "Edited Program" : asset.label} playback` : undefined}
@@ -1315,7 +1318,9 @@ export function TimelineReview({
         <section className="camera-decision-panel">
           <div className="panel-heading">
             <h3>Episode camera plan</h3>
-            <Video size={20} />
+            <button type="button" className="danger" onClick={() => onDraftChange(clearProgramCameraCuts(draft))} title="Remove only Program camera selections; keep trims, audio, titles, and other edits">
+              <Trash2 size={16} /> Clear camera cuts
+            </button>
           </div>
           {draft.cameraDecisions.map((decision) => (
             <div key={decision.id}>

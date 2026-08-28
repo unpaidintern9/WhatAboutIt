@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   addCameraDecision,
   addTimelineCaption,
+  clearProgramCameraCuts,
   applyTimelineTrackTreatmentToKind,
   applyTimelineEdit,
   createTimelineDraft,
@@ -203,6 +204,20 @@ describe("timeline draft", () => {
       startMs: 12000,
       source: "manual"
     });
+  });
+
+  it("clears only Program camera cuts and keeps audio and timeline edits", () => {
+    const base = selectTimelinePoint(createTimelineDraft({ deviceDefaults, durationMs: 60000 }), { timestampMs: 12000, source: "timeline", trackId: "program" });
+    const mixed = updateTimelineTrackMix(base, "mic-guestMic", { volume: 225 });
+    const trimmed = applyTimelineEdit(mixed, "trim-before");
+    const switched = addCameraDecision(trimmed, "camera-camera2", "manual", "Guest is speaking");
+    const cleared = clearProgramCameraCuts(switched);
+
+    expect(cleared.cameraDecisions).toEqual([]);
+    expect(cleared.editLog.some((edit) => edit.type === "camera-switch")).toBe(false);
+    expect(cleared.editLog.some((edit) => edit.type === "trim-before")).toBe(true);
+    expect(cleared.tracks.find((track) => track.id === "mic-guestMic")?.volume).toBe(225);
+    expect(undoTimelineEdit(cleared).cameraDecisions).toHaveLength(1);
   });
 
   it("persists the full live voice gain range used by Review and export", () => {

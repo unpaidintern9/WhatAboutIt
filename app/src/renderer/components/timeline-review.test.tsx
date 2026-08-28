@@ -335,6 +335,49 @@ describe("TimelineReview", () => {
     host.remove();
   });
 
+  it("offers one scoped action to clear camera cuts without resetting other edits", () => {
+    const base = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a", camera2: "camera-b" }, microphones: { morganMic: "mic-a", guestMic: "mic-b" } }, durationMs: 30000 });
+    const mixed = updateTimelineTrackMix(base, "mic-guestMic", { volume: 225 });
+    const draft = addCameraDecision({ ...mixed, selection: { timestampMs: 12000, trackId: "program", source: "timeline" as const } }, "camera-camera2");
+    const onDraftChange = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => root.render(<TimelineReview draft={draft} media={media} onDraftChange={onDraftChange} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />));
+
+    const clear = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Clear camera cuts")) as HTMLButtonElement;
+    act(() => clear.click());
+
+    expect(onDraftChange).toHaveBeenCalledWith(expect.objectContaining({
+      cameraDecisions: [],
+      tracks: expect.arrayContaining([expect.objectContaining({ id: "mic-guestMic", volume: 225 })])
+    }));
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("mutes embedded camera guide audio when a separate microphone is paired", () => {
+    const draft = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a", camera3: "camera-c" }, microphones: { morganMic: "mic-a", guestMic: "mic-b" } }, durationMs: 30000 });
+    const pairedMedia = {
+      ...media,
+      cameras: media.cameras.map((camera) => camera.id === "camera-3" ? { ...camera, pairedAudioId: "guest-mic", pairedAudioLabel: "Guest Mic" } : camera),
+      audio: [...media.audio, { ...media.audio[0], id: "guest-mic", label: "Guest Mic", playbackUrl: "file:///C:/episodes/episode-a/Audio/guest-mic.m4a" }]
+    };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    act(() => root.render(<TimelineReview draft={draft} media={pairedMedia} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />));
+
+    const cameraThree = Array.from(host.querySelectorAll(".review-source-tabs button")).find((button) => button.textContent?.includes("Camera 3")) as HTMLButtonElement;
+    act(() => cameraThree.click());
+
+    expect(cameraThree.classList.contains("selected")).toBe(true);
+    expect((host.querySelector(".realtime-preview-layer.active") as HTMLVideoElement).muted).toBe(true);
+    expect((host.querySelector('audio[src*="guest-mic"]') as HTMLAudioElement | null)).not.toBeNull();
+    act(() => root.unmount());
+    host.remove();
+  });
+
   it("maps camera keyboard shortcuts to ready feeds when an earlier slot is missing", () => {
     const draft = {
       ...createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a", camera3: "camera-c" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 }),
