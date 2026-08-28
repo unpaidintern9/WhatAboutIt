@@ -73,6 +73,29 @@ const media: ReviewMediaInventory = {
 };
 
 describe("TimelineReview", () => {
+  it("offers save, import, folder, and export actions from the Review File menu", () => {
+    const draft = createTimelineDraft({ episodeId: "episode-a", deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 });
+    const markup = renderToStaticMarkup(
+      <TimelineReview
+        draft={draft}
+        media={media}
+        onDraftChange={vi.fn()}
+        onSaveDraft={vi.fn()}
+        onExport={vi.fn()}
+        onAutoEdit={vi.fn()}
+        onImportMedia={vi.fn()}
+        onOpenEpisodeFolder={vi.fn()}
+      />
+    );
+
+    expect(markup).toContain("Save project");
+    expect(markup).toContain("Import Camera 1");
+    expect(markup).toContain("Import Guest Mic");
+    expect(markup).toContain("Open episode folder");
+    expect(markup).toContain("Export options");
+    expect(markup).toContain('data-episode-id="episode-a"');
+  });
+
   it("shows Program framing changes immediately on the active camera layer", () => {
     let draft = createTimelineDraft({
       episodeId: "episode-a",

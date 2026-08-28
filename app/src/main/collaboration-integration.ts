@@ -62,7 +62,6 @@ async function importExternalEpisode(selectedFolder: string) {
   const episode = await readEpisodeFolder(source);
 
   if (path.dirname(source) === episodesRoot) {
-    await shell.openPath(source);
     return episode;
   }
 
@@ -78,7 +77,6 @@ async function importExternalEpisode(selectedFolder: string) {
   await fs.cp(source, destination, { recursive: true, errorOnExist: true, force: false });
   const imported = { ...episode, folderPath: destination, updatedAt: new Date().toISOString() };
   await fs.writeFile(path.join(destination, "metadata.json"), JSON.stringify(imported, null, 2), "utf8");
-  await shell.openPath(destination);
   return imported;
 }
 
@@ -169,7 +167,6 @@ export function configureCollaboration(preloadPath: string) {
     try {
       const result = await downloadCloudEpisode(episodeId, { operationId, signal: controller.signal, onProgress });
       await markProjectMaterialized(episodeId);
-      await shell.openPath(result.episode.folderPath);
       return result;
     } finally {
       activeCloudTransfers.delete(operationId);

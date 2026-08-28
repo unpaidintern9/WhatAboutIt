@@ -1757,6 +1757,7 @@ export default function App() {
               setView("export");
               await startExport(reviewMode, "full-episode-video", savedDraft);
             }}
+            onOpenEpisodeFolder={() => { if (activeEpisode) void studio.openEpisodeFolder?.(activeEpisode.id); }}
             onAutoEdit={() => void runAutoEditFlow(reviewMode)}
             onImportMedia={importEpisodeMedia}
             importProgress={mediaImportProgress}

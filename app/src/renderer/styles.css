@@ -6979,6 +6979,83 @@ input[type="range"] {
   gap: 5px;
 }
 
+.review-file-menu {
+  position: relative;
+}
+
+.review-file-menu summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 11px;
+  color: #e8ded2;
+  background: #251b1d;
+  border: 1px solid #49363a;
+  border-radius: 5px;
+  font-size: 0.7rem;
+  font-weight: 800;
+  cursor: pointer;
+  list-style: none;
+}
+
+.review-file-menu summary::-webkit-details-marker {
+  display: none;
+}
+
+.review-file-menu[open] summary {
+  color: #fff9ef;
+  background: #5b2328;
+  border-color: #a65b4d;
+}
+
+.review-file-menu-popover {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 240px;
+  padding: 7px;
+  background: #1b1214;
+  border: 1px solid #5a3e42;
+  border-radius: 9px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.48);
+}
+
+.edit-studio-actions .review-file-menu-popover button {
+  width: 100%;
+  justify-content: flex-start;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.review-file-menu-popover button span {
+  display: flex;
+  flex: 1;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.review-file-menu-popover button small,
+.review-file-menu-label {
+  color: #a99b98;
+  font-size: 0.62rem;
+}
+
+.review-file-menu-label {
+  display: block;
+  padding: 5px 9px 3px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.review-file-menu-separator {
+  height: 1px;
+  margin: 5px 3px;
+  background: #49363a;
+}
+
 .edit-studio-actions button,
 .edit-direct-toolbar button,
 .edit-transport button {
