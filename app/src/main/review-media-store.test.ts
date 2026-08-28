@@ -99,7 +99,11 @@ describe("review media store", () => {
     expect(inventory.audio.find((asset) => asset.id === "morgan-mic")?.waveformUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(inventory.cameras.find((asset) => asset.id === "camera-2")?.pairedAudioId).toBe("guest-mic");
     expect(inventory.program.reviewProxyPath).toBeUndefined();
-    expect(inventory.cameras.find((asset) => asset.id === "camera-1")?.includesPairedAudio).toBe(false);
+    const cameraOne = inventory.cameras.find((asset) => asset.id === "camera-1");
+    expect(cameraOne?.reviewProxyPath).toMatch(/camera-1-review\.webm$/);
+    expect(cameraOne?.playbackUrl).toMatch(/^wai-media:\/\/episode\//);
+    expect(cameraOne?.includesPairedAudio).toBe(false);
+    expect(cameraOne?.hasAudio).toBe(false);
   }, 20000);
 
   it("uses recording state duration when a WebM file has no embedded duration", async () => {

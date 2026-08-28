@@ -860,7 +860,7 @@ export default function App() {
     const episodeId = activeEpisode.id;
     const episodeDraft = { ...nextDraft, episodeId, hasUnsavedChanges: true };
     setTimelineDraft(episodeDraft);
-    setTimelineSaveState("saved");
+    setTimelineSaveState("saving");
     if (timelineAutosaveTimerRef.current) window.clearTimeout(timelineAutosaveTimerRef.current);
     pendingTimelineSaveRef.current = { episodeId, draft: episodeDraft };
     timelineAutosaveTimerRef.current = window.setTimeout(() => {

@@ -727,7 +727,7 @@ async function firstExistingPath(paths: string[]) {
 async function ensureReviewProxy(episodeFolder: string, asset: ReviewMediaAsset, pairedAudio?: ReviewMediaAsset): Promise<ReviewMediaAsset> {
   if (asset.status !== "ready" || !asset.filePath) return asset;
   const sourceFile = asset.filePath;
-  if (path.extname(sourceFile).toLowerCase() === ".webm") {
+  if (asset.kind === "program" && path.extname(sourceFile).toLowerCase() === ".webm") {
     const usablePairedAudio = pairedAudio?.status === "ready" && pairedAudio.filePath && pairedAudio.audioSignal !== "silent" ? pairedAudio : undefined;
     return {
       ...asset,
@@ -740,23 +740,19 @@ async function ensureReviewProxy(episodeFolder: string, asset: ReviewMediaAsset,
   const proxyFolder = path.join(episodeFolder, "Session", "Review");
   const proxyPath = path.join(proxyFolder, `${asset.id}-review.webm`);
   const usablePairedAudio = pairedAudio?.status === "ready" && pairedAudio.filePath && pairedAudio.audioSignal !== "silent" ? pairedAudio : undefined;
-  const pairedAudioFile = usablePairedAudio?.filePath;
   const proxySources = [sourceFile];
-  if (pairedAudioFile) proxySources.push(pairedAudioFile);
 
   try {
     await fs.mkdir(proxyFolder, { recursive: true });
     if (await proxyNeedsRefresh(proxyPath, proxySources)) {
-      const args = pairedAudioFile
-        ? ["-y", "-nostats", "-fflags", "+genpts", "-i", sourceFile, "-i", pairedAudioFile, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "libopus", "-b:a", "160k", proxyPath]
-        : asset.kind === "program"
+      const args = asset.kind === "program"
           ? ["-y", "-nostats", "-fflags", "+genpts", "-i", sourceFile, "-map", "0:v:0", "-map", "0:a:0", "-c", "copy", proxyPath]
           : ["-y", "-nostats", "-fflags", "+genpts", "-i", sourceFile, "-map", "0:v:0", "-an", "-c:v", "copy", proxyPath];
       await runFfmpeg(args);
     }
     const requirements = {
       video: true,
-      audio: asset.kind === "program" || Boolean(usablePairedAudio)
+      audio: asset.kind === "program"
     };
     if (!(await validatePlayableMedia(proxyPath, undefined, requirements))) throw new Error("Review proxy validation failed.");
     const probe = await probeMedia(proxyPath);
@@ -765,7 +761,7 @@ async function ensureReviewProxy(episodeFolder: string, asset: ReviewMediaAsset,
       ...asset,
       playbackUrl: mediaFilePlaybackUrl(proxyPath),
       reviewProxyPath: proxyPath,
-      includesPairedAudio: Boolean(usablePairedAudio),
+      includesPairedAudio: false,
       hasAudio: requirements.audio,
       audioSignal: usablePairedAudio?.audioSignal ?? pairedAudio?.audioSignal ?? asset.audioSignal,
       durationMs: Number.isFinite(duration) && duration > 0 ? Math.round(duration * 1000) : asset.durationMs,
