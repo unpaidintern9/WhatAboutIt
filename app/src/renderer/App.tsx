@@ -561,6 +561,11 @@ export default function App() {
 
   useEffect(() => studio.onReviewMediaImportProgress?.(setMediaImportProgress), [studio]);
 
+  useEffect(() => studio.onCollaborationProjectPulled?.((episodeId) => {
+    const episode = activeEpisodeRef.current;
+    if (episode?.id === episodeId) void openEpisode(episode);
+  }), [studio]);
+
   useEffect(() => studio.onLocalTranscriptionProgress?.((progress) => {
     if (activeEpisodeRef.current?.id === progress.episodeId) setLocalTranscriptionProgress(progress);
   }), [studio]);

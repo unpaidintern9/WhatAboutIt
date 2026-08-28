@@ -2,7 +2,7 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import type { CloudEpisodeManifest } from "../shared/collaboration";
+import type { CloudEpisodeManifest, CollaborationProjectSyncStatus } from "../shared/collaboration";
 import { isProjectCollaborationAsset } from "../shared/collaboration";
 import type { EpisodeMetadata } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
@@ -82,6 +82,40 @@ async function localFileMatches(filePath: string, contentHash?: string) {
   }
 }
 
+async function hasLocalProjectChangesSinceMarker(episodeId: string, marker: ProjectSyncMarker | undefined, manifest: CloudEpisodeManifest | undefined) {
+  if (!marker?.syncedAt || !manifest) return false;
+  const syncedAt = Date.parse(marker.syncedAt);
+  if (!Number.isFinite(syncedAt)) return false;
+  for (const asset of manifest.assets.filter((candidate) => isProjectCollaborationAsset(candidate.kind))) {
+    try {
+      if ((await fs.stat(safePath(episodeFolder(episodeId), asset.relativePath))).mtimeMs > syncedAt + 1000) return true;
+    } catch {
+      // A missing local project file is not an unpublished local edit.
+    }
+  }
+  return false;
+}
+
+export async function getProjectSyncStatus(episodeId: string): Promise<CollaborationProjectSyncStatus> {
+  const config = await getCollaborationRemoteConfig();
+  const marker = await readMarker(episodeId);
+  if (!config.apiUrl) return { episodeId, connected: false, remoteExists: false, localRevisionId: marker?.remoteRevisionId, lastSyncedAt: marker?.syncedAt, remoteChangesAvailable: false, localChangesSinceSync: false };
+  const manifest = await getRemoteManifest(episodeId);
+  const remoteChangesAvailable = Boolean(manifest && (manifest.revisionId ? manifest.revisionId !== marker?.remoteRevisionId : manifest.uploadedAt > (marker?.remoteUploadedAt ?? "")));
+  return {
+    episodeId,
+    connected: true,
+    remoteExists: Boolean(manifest),
+    remoteRevisionId: manifest?.revisionId,
+    localRevisionId: marker?.remoteRevisionId,
+    remoteUpdatedAt: manifest?.uploadedAt,
+    remoteUpdatedBy: manifest?.uploadedBy,
+    lastSyncedAt: marker?.syncedAt,
+    remoteChangesAvailable,
+    localChangesSinceSync: await hasLocalProjectChangesSinceMarker(episodeId, marker, manifest)
+  };
+}
+
 /**
  * Applies only project/edit metadata from Cloudflare after this installation
  * has established a sync marker. First-time local projects are never silently
@@ -94,6 +128,9 @@ export async function pullLatestProjectChanges(episodeId: string) {
   if (!marker?.remoteUploadedAt && !marker?.remoteRevisionId) return { changed: 0, remoteUploadedAt: manifest.uploadedAt };
   if (manifest.revisionId && marker.remoteRevisionId === manifest.revisionId) return { changed: 0, remoteUploadedAt: manifest.uploadedAt };
   if (!manifest.revisionId && manifest.uploadedAt <= (marker.remoteUploadedAt ?? "")) return { changed: 0, remoteUploadedAt: manifest.uploadedAt };
+  if (await hasLocalProjectChangesSinceMarker(episodeId, marker, manifest)) {
+    throw new Error("This computer has project changes that have not been synced, so the cloud update was not pulled. Save/sync those changes first or restore a previous cloud safety backup.");
+  }
 
   const root = episodeFolder(episodeId);
   const safetyStamp = new Date().toISOString().replaceAll(":", "-");

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { EpisodeMetadata } from "../shared/types";
-import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput, CollaborationSyncResult, CollaborationTransferProgress, CollaborationUploadSelection, CollaborationWorkspace } from "../shared/collaboration";
+import type { CollaborationCommentInput, CollaborationEpisodeStatus, CollaborationInviteInput, CollaborationProjectSyncStatus, CollaborationSyncResult, CollaborationTransferProgress, CollaborationUploadSelection, CollaborationWorkspace } from "../shared/collaboration";
 import type { CollaborationPersonId, CollaborationPresenceSnapshot } from "../shared/collaboration-presence";
 
 type CollaborationRemoteConfig = { apiUrl?: string; accessKeyConfigured: boolean; personId: CollaborationPersonId };
@@ -8,6 +8,8 @@ type CollaborationRemoteConfig = { apiUrl?: string; accessKeyConfigured: boolean
 contextBridge.exposeInMainWorld("studio", {
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
   getCollaborationWorkspace: (episodeId: string): Promise<CollaborationWorkspace> => ipcRenderer.invoke("collaboration:get", episodeId),
+  getProjectSyncStatus: (episodeId: string): Promise<CollaborationProjectSyncStatus> => ipcRenderer.invoke("collaboration:project-status", episodeId),
+  pullLatestProjectChanges: (episodeId: string): Promise<{ changed: number; remoteUploadedAt?: string; status: CollaborationProjectSyncStatus }> => ipcRenderer.invoke("collaboration:project-pull", episodeId),
   refreshCollaborationAssets: (episodeId: string): Promise<CollaborationWorkspace> => ipcRenderer.invoke("collaboration:refresh-assets", episodeId),
   prepareCollaborationUpload: (episodeId: string, selection: CollaborationUploadSelection): Promise<CollaborationWorkspace> => ipcRenderer.invoke("collaboration:prepare-upload", { episodeId, selection }),
   uploadEpisodeToCloud: (episodeId: string, selection: CollaborationUploadSelection): Promise<CollaborationSyncResult> => ipcRenderer.invoke("collaboration:cloud:upload", { episodeId, selection }),

@@ -112,7 +112,21 @@ export interface CloudEpisodeManifest {
   };
   collaborationStatus: CollaborationEpisodeStatus;
   uploadedAt: string;
+  uploadedBy?: string;
   assets: CollaborationAssetManifestEntry[];
+}
+
+export interface CollaborationProjectSyncStatus {
+  episodeId: string;
+  connected: boolean;
+  remoteExists: boolean;
+  remoteRevisionId?: string;
+  localRevisionId?: string;
+  remoteUpdatedAt?: string;
+  remoteUpdatedBy?: string;
+  lastSyncedAt?: string;
+  remoteChangesAvailable: boolean;
+  localChangesSinceSync: boolean;
 }
 
 export interface CollaborationSyncResult {

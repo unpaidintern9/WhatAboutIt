@@ -21,6 +21,11 @@ contextBridge.exposeInMainWorld("studio", {
   openEpisodeLibraryFolder: (): Promise<string> => ipcRenderer.invoke("episodes:open-library-folder"),
   chooseLocalEpisodeFolder: (): Promise<EpisodeMetadata | undefined> => ipcRenderer.invoke("episodes:choose-local"),
   listCloudEpisodes: (): Promise<CloudEpisodeSummary[]> => ipcRenderer.invoke("collaboration:cloud:list"),
+  onCollaborationProjectPulled: (listener: (episodeId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, episodeId: string) => listener(episodeId);
+    ipcRenderer.on("collaboration:project-pulled", handler);
+    return () => ipcRenderer.removeListener("collaboration:project-pulled", handler);
+  },
   uploadEpisodeToCloud: (episodeId: string, selection: CollaborationUploadSelection = "full-backup"): Promise<CollaborationSyncResult> => ipcRenderer.invoke("collaboration:cloud:upload", { episodeId, selection }),
   downloadCloudEpisode: (episodeId: string): Promise<{ episode: EpisodeMetadata; sync: CollaborationSyncResult }> => ipcRenderer.invoke("collaboration:cloud:download", episodeId),
   cancelCloudTransfer: (operationId: string): Promise<boolean> => ipcRenderer.invoke("collaboration:cloud:cancel", operationId),
