@@ -3,7 +3,7 @@ export type CollaborationMemberStatus = "active" | "invited";
 export type CollaborationEpisodeStatus = "working" | "ready-for-review" | "changes-requested" | "approved";
 export type CollaborationProvider = "local" | "cloudflare";
 export type CollaborationRemoteState = "not-connected" | "ready" | "syncing" | "error";
-export type CollaborationAssetKind = "metadata" | "timeline" | "comments" | "captions" | "markers" | "proxy-video" | "original-video" | "original-audio" | "export" | "other";
+export type CollaborationAssetKind = "metadata" | "timeline" | "comments" | "captions" | "markers" | "program-video" | "proxy-video" | "original-video" | "original-audio" | "export" | "other";
 export type CollaborationAssetState = "local-only" | "queued" | "uploading" | "synced" | "remote-newer" | "error";
 export type CollaborationUploadSelection = "project-only" | "project-and-proxies" | "full-backup";
 export type CollaborationSyncHistoryStatus = "complete" | "failed" | "cancelled";
@@ -183,7 +183,7 @@ export function transferableCollaborationAssets<T extends { relativePath: string
 export function shouldIncludeCollaborationAsset(kind: CollaborationAssetKind, selection: CollaborationUploadSelection) {
   if (selection === "full-backup") return true;
   if (isProjectCollaborationAsset(kind)) return true;
-  if (selection === "project-and-proxies") return kind === "proxy-video";
+  if (selection === "project-and-proxies") return kind === "program-video" || kind === "proxy-video";
   return false;
 }
 
