@@ -138,7 +138,10 @@ function ensureReviewCollaborationButton() {
     button.dataset.collaborationLauncher = "true";
     button.textContent = "Collaborate / Sync";
     button.title = "Open episode collaboration, comments, file manifest, and cloud upload";
-    button.addEventListener("click", () => void ipcRenderer.invoke("collaboration:open-center"));
+    button.addEventListener("click", () => {
+      const episodeId = actions.closest<HTMLElement>(".timeline-review")?.dataset.episodeId;
+      void ipcRenderer.invoke("collaboration:open-center", episodeId);
+    });
     actions.prepend(button);
   }
 }
