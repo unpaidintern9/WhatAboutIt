@@ -9,6 +9,7 @@ vi.mock("electron", () => ({ BrowserWindow: class {} }));
 describe("collaboration window", () => {
   it("boots, lists local episodes, and selects the episode open in Review", async () => {
     const episodeId = "episode-a";
+    let progressListener: ((progress: Record<string, unknown>) => void) | undefined;
     const listEpisodes = vi.fn(async () => [{ id: episodeId, title: "Episode A", status: "draft", createdAt: "2026-08-28T00:00:00.000Z", updatedAt: "2026-08-28T01:00:00.000Z", folderPath: "C:/episodes/episode-a", phase: "phase-1-shell" }]);
     const getCollaborationWorkspace = vi.fn(async () => ({
       episodeId,
@@ -31,7 +32,7 @@ describe("collaboration window", () => {
           getCollaborationWorkspace,
           getProjectSyncStatus: vi.fn(async () => ({ episodeId, connected: true, remoteExists: true, remoteUpdatedAt: "2026-08-28T01:00:00.000Z", remoteUpdatedBy: "Susan", remoteChangesAvailable: true, localChangesSinceSync: false })),
           getCollaborationRemoteConfig: vi.fn(async () => ({ apiUrl: "https://cloud.example", accessKeyConfigured: true, personId: "morgan-owner" })),
-          onCloudTransferProgress: vi.fn()
+          onCloudTransferProgress: vi.fn((listener) => { progressListener = listener; })
         }});
       }
     });
@@ -45,6 +46,13 @@ describe("collaboration window", () => {
     expect(dom.window.document.querySelector("#revisionTitle")?.textContent).toBe("New collaborator changes are available");
     expect(dom.window.document.querySelector("#revisionDetail")?.textContent).toContain("Susan");
     expect(dom.window.document.querySelector<HTMLButtonElement>("#pullUpdate")?.hidden).toBe(false);
+
+    progressListener?.({ operationId: "sync-a", direction: "upload", phase: "preparing", completedAssets: 0, totalAssets: 0, transferredBytes: 0, totalBytes: 0, message: "Indexing changed project files." });
+    expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("Preparing");
+    expect(dom.window.document.querySelector("#syncBar")?.hasAttribute("value")).toBe(false);
+    progressListener?.({ operationId: "sync-a", direction: "upload", phase: "complete", completedAssets: 2, totalAssets: 2, transferredBytes: 2048, totalBytes: 2048, message: "Cloudflare upload is complete and verified." });
+    expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("100%");
+    expect(dom.window.document.querySelector("#syncProgress")?.classList.contains("complete")).toBe(true);
     dom.window.close();
   });
 });

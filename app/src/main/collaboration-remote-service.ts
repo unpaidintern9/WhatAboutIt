@@ -344,14 +344,15 @@ export async function uploadEpisodeToCloud(
 ): Promise<CollaborationSyncResult> {
   const config = await readConfig();
   if (!config.apiUrl) throw new Error("Connect the What About It collaboration service before uploading.");
-  const workspace = await refreshCollaborationAssets(episode.folderPath, episode.id, episode.title);
+  const operationId = options.operationId ?? crypto.randomUUID();
+  await options.onProgress?.({ operationId, episodeId: episode.id, direction: "upload", phase: "preparing", completedAssets: 0, totalAssets: 0, transferredBytes: 0, totalBytes: 0, message: selection === "project-only" ? "Indexing changed project files." : "Indexing selected episode files." });
+  const workspace = await refreshCollaborationAssets(episode.folderPath, episode.id, episode.title, selection);
   const selectedWorkspaceAssets = workspace.assets.filter((asset) => shouldIncludeCollaborationAsset(asset.kind, selection));
   const snapshotFolder = await fs.mkdtemp(path.join(app.getPath("temp"), "whataboutit-cloud-upload-"));
   try {
   const uploadSources = await prepareCollaborationUploadSources(episode.folderPath, selectedWorkspaceAssets, snapshotFolder);
   const selectedAssets = uploadSources.map((source) => source.asset);
   const sourceById = new Map(uploadSources.map((source) => [source.asset.id, source.absolutePath]));
-  const operationId = options.operationId ?? crypto.randomUUID();
   const totalBytes = selectedAssets.reduce((total, asset) => total + (asset.bytes ?? 0), 0);
   let completedAssets = 0;
   let transferredBytes = 0;
