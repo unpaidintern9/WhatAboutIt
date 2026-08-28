@@ -41,4 +41,20 @@ describe("collaboration asset index", () => {
 
     expect(manifest.map((asset) => asset.relativePath)).toEqual(["metadata.json", "Session/draft-timeline.json"]);
   });
+
+  it("includes the playable Program without requiring a full original-media backup", async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "wai-collaborator-copy-index-"));
+    await fs.mkdir(path.join(root, "Program"), { recursive: true });
+    await fs.mkdir(path.join(root, "Cameras"), { recursive: true });
+    await fs.writeFile(path.join(root, "metadata.json"), "{}");
+    await fs.writeFile(path.join(root, "Program", "program.webm"), "program");
+    await fs.writeFile(path.join(root, "Cameras", "camera-1.webm"), "camera");
+
+    const manifest = await buildEpisodeAssetManifest(root, "episode-a", "project-and-proxies");
+
+    expect(manifest.map((asset) => [asset.relativePath, asset.kind])).toEqual([
+      ["metadata.json", "metadata"],
+      ["Program/program.webm", "program-video"]
+    ]);
+  });
 });

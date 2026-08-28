@@ -15,6 +15,7 @@ export function classifyCollaborationAsset(relativePath: string): { kind: Collab
   if (lower.includes("caption") && (lower.endsWith(".json") || lower.endsWith(".vtt") || lower.endsWith(".srt"))) return { kind: "captions", localOriginal: false };
   if (lower.includes("marker") && lower.endsWith(".json")) return { kind: "markers", localOriginal: false };
   if (lower.startsWith("exports/")) return { kind: "export", localOriginal: false };
+  if (lower === "program/program.webm") return { kind: "program-video", localOriginal: true };
   if (lower.includes("proxy") || lower.includes("editing")) return { kind: "proxy-video", localOriginal: false };
   if (lower.startsWith("cameras/") || lower.startsWith("program/")) return { kind: "original-video", localOriginal: true };
   if (lower.startsWith("audio/")) return { kind: "original-audio", localOriginal: true };
