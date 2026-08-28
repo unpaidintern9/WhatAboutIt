@@ -83,8 +83,8 @@ async function importExternalEpisode(selectedFolder: string) {
 }
 
 export function configureCollaboration(preloadPath: string) {
-  ipcMain.handle("collaboration:open-center", () => {
-    openCollaborationWindow(preloadPath);
+  ipcMain.handle("collaboration:open-center", (_event, episodeId?: string) => {
+    openCollaborationWindow(preloadPath, episodeId);
     return true;
   });
   ipcMain.handle("collaboration:open-live-control", () => {

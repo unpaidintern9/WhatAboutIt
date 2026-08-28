@@ -810,7 +810,7 @@ export function TimelineReview({
   }
 
   return (
-    <section className={`timeline-review edit-studio ${hasPlayableProgram ? "" : "edit-studio--empty"}`}>
+    <section className={`timeline-review edit-studio ${hasPlayableProgram ? "" : "edit-studio--empty"}`} data-episode-id={draft.episodeId}>
       <header className="edit-studio-bar">
         <div className="edit-studio-title">
           <strong>Episode editor</strong>
