@@ -5,6 +5,7 @@ import type {
   CollaborationCommentInput,
   CollaborationEpisodeStatus,
   CollaborationInviteInput,
+  CollaborationSyncHistoryEntry,
   CollaborationUploadPlan,
   CollaborationUploadSelection,
   CollaborationWorkspace
@@ -37,6 +38,7 @@ function hydrateWorkspace(parsed: Partial<CollaborationWorkspace>, episodeId: st
     members: parsed.members?.length ? parsed.members : defaults.members,
     comments: parsed.comments ?? defaults.comments,
     assets: parsed.assets ?? defaults.assets,
+    syncHistory: parsed.syncHistory ?? defaults.syncHistory,
     uploadPolicy: {
       ...defaults.uploadPolicy,
       ...parsed.uploadPolicy,
@@ -106,6 +108,18 @@ export async function recordCollaborationUploadComplete(
   workspace.provider = "cloudflare";
   workspace.remoteState = "ready";
   workspace.lastUploadedAt = new Date().toISOString();
+  const completedAssets = workspace.assets.filter((asset) => synced.has(asset.id));
+  const historyEntry: CollaborationSyncHistoryEntry = {
+    id: crypto.randomUUID(),
+    direction: "upload",
+    selection: workspace.lastUploadPlan?.selection,
+    status: "complete",
+    completedAt: workspace.lastUploadedAt,
+    totalBytes: completedAssets.reduce((total, asset) => total + (asset.bytes ?? 0), 0),
+    assetCount: completedAssets.length,
+    message: `Uploaded ${completedAssets.length} changed file${completedAssets.length === 1 ? "" : "s"} to Cloudflare.`
+  };
+  workspace.syncHistory = [historyEntry, ...(workspace.syncHistory ?? [])].slice(0, 50);
   workspace.assets = workspace.assets.map((asset) => (synced.has(asset.id) ? { ...asset, state: "synced" } : asset));
   if (workspace.lastUploadPlan) {
     workspace.lastUploadPlan = {
@@ -131,6 +145,17 @@ export async function recordCollaborationDownloadComplete(
   workspace.provider = "cloudflare";
   workspace.remoteState = "ready";
   workspace.lastDownloadedAt = new Date().toISOString();
+  const downloadedAssets = workspace.assets.filter((asset) => expectedByPath.size === 0 || expectedByPath.get(asset.relativePath) === asset.contentHash);
+  const historyEntry: CollaborationSyncHistoryEntry = {
+    id: crypto.randomUUID(),
+    direction: "download",
+    status: "complete",
+    completedAt: workspace.lastDownloadedAt,
+    totalBytes: downloadedAssets.reduce((total, asset) => total + (asset.bytes ?? 0), 0),
+    assetCount: downloadedAssets.length,
+    message: `Downloaded and verified ${downloadedAssets.length} file${downloadedAssets.length === 1 ? "" : "s"}.`
+  };
+  workspace.syncHistory = [historyEntry, ...(workspace.syncHistory ?? [])].slice(0, 50);
   workspace.assets = workspace.assets.map((asset) => ({
     ...asset,
     state: expectedByPath.size === 0 || expectedByPath.get(asset.relativePath) === asset.contentHash ? "synced" : asset.state

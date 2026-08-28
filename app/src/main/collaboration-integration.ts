@@ -26,6 +26,22 @@ import { openCollaborationWindow } from "./collaboration-window";
 
 const activeCloudTransfers = new Map<string, AbortController>();
 
+function getReviewWindow() {
+  return BrowserWindow.getAllWindows().find((window) => !window.isDestroyed() && !window.webContents.getURL().startsWith("data:text/html"));
+}
+
+function sendReviewFileCommand(command: string) {
+  getReviewWindow()?.webContents.send("review:file-command", command);
+}
+
+async function openCurrentEpisodeCollaboration(preloadPath: string) {
+  const reviewWindow = getReviewWindow();
+  const episodeId = reviewWindow
+    ? await reviewWindow.webContents.executeJavaScript("document.querySelector('.timeline-review')?.dataset.episodeId || undefined").catch(() => undefined) as string | undefined
+    : undefined;
+  openCollaborationWindow(preloadPath, episodeId);
+}
+
 function validateEpisodeId(episodeId: string) {
   if (!episodeId || episodeId.includes("..") || episodeId.includes("/") || episodeId.includes("\\")) throw new Error("Invalid episode id.");
 }
@@ -227,6 +243,25 @@ export function configureCollaboration(preloadPath: string) {
   });
 
   const menu = Menu.getApplicationMenu() ?? new Menu();
+  const fileMenu = menu.items.find((item) => item.label === "File")?.submenu;
+  if (fileMenu && !fileMenu.items.some((item) => item.id === "review-save-project")) {
+    fileMenu.append(new MenuItem({ type: "separator" }));
+    fileMenu.append(new MenuItem({ id: "review-save-project", label: "Save Review Project", accelerator: "CmdOrCtrl+S", click: () => sendReviewFileCommand("save") }));
+    fileMenu.append(new MenuItem({
+      label: "Import Review Media",
+      submenu: [
+        { label: "Camera 1…", click: () => sendReviewFileCommand("import-camera-1") },
+        { label: "Camera 2…", click: () => sendReviewFileCommand("import-camera-2") },
+        { label: "Camera 3…", click: () => sendReviewFileCommand("import-camera-3") },
+        { type: "separator" },
+        { label: "Morgan Mic…", click: () => sendReviewFileCommand("import-morgan-mic") },
+        { label: "Guest Mic…", click: () => sendReviewFileCommand("import-guest-mic") },
+        { label: "Extra Mic…", click: () => sendReviewFileCommand("import-extra-mic") }
+      ]
+    }));
+    fileMenu.append(new MenuItem({ label: "Open Current Episode Folder", click: () => sendReviewFileCommand("open-folder") }));
+    fileMenu.append(new MenuItem({ label: "Export Review…", accelerator: "CmdOrCtrl+Shift+E", click: () => sendReviewFileCommand("export") }));
+  }
   if (!menu.items.some((item) => item.label === "Collaboration")) {
     menu.append(
       new MenuItem({
@@ -235,7 +270,7 @@ export function configureCollaboration(preloadPath: string) {
           {
             label: "Open Episode Collaboration",
             accelerator: "CmdOrCtrl+Shift+C",
-            click: () => openCollaborationWindow(preloadPath)
+            click: () => void openCurrentEpisodeCollaboration(preloadPath)
           },
           {
             label: "Live Edit Control",

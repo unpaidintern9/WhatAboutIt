@@ -146,6 +146,29 @@ function ensureReviewCollaborationButton() {
   }
 }
 
+ipcRenderer.on("review:file-command", (_event, command: string) => {
+  const review = document.querySelector<HTMLElement>(".timeline-review");
+  if (!review) return;
+  const episodeId = review.dataset.episodeId;
+  if (command === "open-folder" && episodeId) {
+    void ipcRenderer.invoke("episodes:open-folder", episodeId);
+    return;
+  }
+  const labels: Record<string, string> = {
+    save: "Save project",
+    export: "Export options",
+    "import-camera-1": "Import Camera 1",
+    "import-camera-2": "Import Camera 2",
+    "import-camera-3": "Import Camera 3",
+    "import-morgan-mic": "Import Morgan Mic",
+    "import-guest-mic": "Import Guest Mic",
+    "import-extra-mic": "Import Extra Mic"
+  };
+  const label = labels[command];
+  if (!label) return;
+  Array.from(review.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.trim().includes(label))?.click();
+});
+
 const reviewLibraryStyle = `
   position:fixed;inset:0;z-index:2147483646;background:rgba(8,5,6,.78);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;padding:28px;
 `;
