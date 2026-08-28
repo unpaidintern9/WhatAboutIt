@@ -811,6 +811,23 @@ export function addCameraDecision(draft: TimelineDraft, cameraTrackId: string, s
   );
 }
 
+export function clearProgramCameraCuts(draft: TimelineDraft, now = new Date().toISOString()): TimelineDraft {
+  if (draft.cameraDecisions.length === 0) return draft;
+  return commitTimelineMutation(
+    draft,
+    {
+      ...draft,
+      cameraDecisions: [],
+      editLog: draft.editLog.filter((edit) => edit.type !== "camera-switch"),
+      undoneEditLog: [],
+      nonDestructive: true
+    },
+    "Clear all Program camera cuts",
+    undefined,
+    now
+  );
+}
+
 export function applyTimelineEdit(draft: TimelineDraft, type: TimelineEditType, now = new Date().toISOString(), targetTrackId?: string): TimelineDraft {
   const selection = draft.selection ?? {
     timestampMs: 0,
