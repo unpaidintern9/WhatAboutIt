@@ -6,6 +6,18 @@ export type CollaborationRemoteState = "not-connected" | "ready" | "syncing" | "
 export type CollaborationAssetKind = "metadata" | "timeline" | "comments" | "captions" | "markers" | "proxy-video" | "original-video" | "original-audio" | "export" | "other";
 export type CollaborationAssetState = "local-only" | "queued" | "uploading" | "synced" | "remote-newer" | "error";
 export type CollaborationUploadSelection = "project-only" | "project-and-proxies" | "full-backup";
+export type CollaborationSyncHistoryStatus = "complete" | "failed" | "cancelled";
+
+export interface CollaborationSyncHistoryEntry {
+  id: string;
+  direction: CollaborationTransferDirection;
+  selection?: CollaborationUploadSelection;
+  status: CollaborationSyncHistoryStatus;
+  completedAt: string;
+  totalBytes: number;
+  assetCount: number;
+  message: string;
+}
 
 export interface CollaborationMember {
   id: string;
@@ -68,6 +80,7 @@ export interface CollaborationWorkspace {
   lastUploadPlan?: CollaborationUploadPlan;
   lastUploadedAt?: string;
   lastDownloadedAt?: string;
+  syncHistory?: CollaborationSyncHistoryEntry[];
   updatedAt: string;
 }
 
@@ -186,6 +199,7 @@ export function createLocalCollaborationWorkspace(episodeId: string, episodeTitl
     ],
     comments: [],
     assets: [],
+    syncHistory: [],
     uploadPolicy: {
       automaticProjectDataSync: true,
       uploadOriginalsOnlyOnRequest: true,
