@@ -19,6 +19,7 @@ declare global {
   interface Window {
     studio: {
       listEpisodes: () => Promise<EpisodeMetadata[]>;
+      onCollaborationProjectPulled?: (listener: (episodeId: string) => void) => () => void;
       createEpisode: (input: { title: string; guestName?: string; description?: string }) => Promise<EpisodeMetadata>;
       openEpisodeFolder?: (episodeId: string) => Promise<string>;
       openEpisodeLibraryFolder?: () => Promise<string>;

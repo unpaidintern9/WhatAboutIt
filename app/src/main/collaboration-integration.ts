@@ -20,7 +20,7 @@ import {
   setCollaborationRemoteConfig,
   uploadEpisodeToCloud
 } from "./collaboration-remote-service";
-import { markProjectMaterialized, pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
+import { getProjectSyncStatus, markProjectMaterialized, pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
 import { openCollaborationPresenceWindow } from "./collaboration-presence-window";
 import { openCollaborationWindow } from "./collaboration-window";
 
@@ -107,15 +107,11 @@ export function configureCollaboration(preloadPath: string) {
   });
   ipcMain.handle("collaboration:get", async (_event, episodeId: string) => {
     const episode = await resolveEpisode(episodeId);
-    const config = await getCollaborationRemoteConfig();
-    let remoteState: CollaborationWorkspace["remoteState"] = config.apiUrl ? "error" : "not-connected";
-    if (config.apiUrl) {
-      try {
-        await pullLatestProjectChanges(episodeId);
-        remoteState = "ready";
-      } catch {
-        // The local workspace remains usable when Cloudflare is temporarily unavailable.
-      }
+    let remoteState: CollaborationWorkspace["remoteState"];
+    try {
+      remoteState = (await getProjectSyncStatus(episodeId)).connected ? "ready" : "not-connected";
+    } catch {
+      remoteState = "error";
     }
     const workspace = await loadCollaborationWorkspace(episode.folderPath, episode.id, episode.title);
     return {
@@ -160,6 +156,16 @@ export function configureCollaboration(preloadPath: string) {
     }
   });
   ipcMain.handle("collaboration:cloud:list", () => listCloudEpisodes());
+  ipcMain.handle("collaboration:project-status", async (_event, episodeId: string) => {
+    await resolveEpisode(episodeId);
+    return getProjectSyncStatus(episodeId);
+  });
+  ipcMain.handle("collaboration:project-pull", async (_event, episodeId: string) => {
+    await resolveEpisode(episodeId);
+    const result = await pullLatestProjectChanges(episodeId);
+    getReviewWindow()?.webContents.send("collaboration:project-pulled", episodeId);
+    return { ...result, status: await getProjectSyncStatus(episodeId) };
+  });
   ipcMain.handle("collaboration:cloud:upload", async (event, payload: { episodeId: string; selection?: CollaborationUploadSelection }) => {
     const episode = await resolveEpisode(payload.episodeId);
     const operationId = crypto.randomUUID();

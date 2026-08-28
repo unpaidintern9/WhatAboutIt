@@ -459,6 +459,7 @@ export async function uploadEpisodeToCloud(
     },
     collaborationStatus: workspace.status,
     uploadedAt: new Date().toISOString(),
+    uploadedBy: collaborationPeople[config.personId].displayName,
     assets: [...mergedByPath.values()].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
   };
   const manifestResponse = await requestCollaborationWithRetry(
