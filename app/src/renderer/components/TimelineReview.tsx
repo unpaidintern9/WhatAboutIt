@@ -998,7 +998,10 @@ export function TimelineReview({
                 .filter((asset): asset is ReviewMediaAsset & { playbackUrl: string } => asset.status === "ready" && Boolean(asset.playbackUrl))
                 .map((asset) => {
                   const isActive = asset.id === selectedVideo.id;
-                  const track = resolveTimelineTrackAt(draft, draft.tracks.find((candidate) => candidate.sourceAssetId === asset.id), playheadMs);
+                  const baseTrack = draft.tracks.find((candidate) => candidate.sourceAssetId === asset.id);
+                  // Source audition is where framing is edited. Show its base
+                  // values immediately even when the Program has automation.
+                  const track = programMode ? resolveTimelineTrackAt(draft, baseTrack, playheadMs) : baseTrack;
                   return (
                     <Fragment key={asset.id}>
                     <video

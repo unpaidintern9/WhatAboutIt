@@ -134,8 +134,17 @@ async function listEpisodes(): Promise<EpisodeMetadata[]> {
     entries
       .filter((entry) => entry.isDirectory())
       .map(async (entry) => {
-        const metadataPath = path.join(episodesRoot, entry.name, "metadata.json");
-        return readJsonFile<EpisodeMetadata | null>(metadataPath, null);
+        const folderPath = path.join(episodesRoot, entry.name);
+        const metadataPath = path.join(folderPath, "metadata.json");
+        const episode = await readJsonFile<EpisodeMetadata | null>(metadataPath, null);
+        if (!episode || episode.id !== entry.name) return null;
+        // Downloaded/imported metadata can contain the absolute path from the
+        // computer that created it. The library directory is authoritative.
+        const localEpisode = { ...episode, folderPath };
+        if (!episode.folderPath || path.resolve(episode.folderPath) !== path.resolve(folderPath)) {
+          await fs.writeFile(metadataPath, JSON.stringify(localEpisode, null, 2), "utf8");
+        }
+        return localEpisode;
       })
   );
 
