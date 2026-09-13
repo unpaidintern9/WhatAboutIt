@@ -17,7 +17,7 @@ import { defaultStudioWorkspaceState, studioPanelLabels, withStudioWorkspaceDefa
 import type { AppUpdateStatus } from "../shared/app-update";
 import { createInitialAppUpdateStatus } from "../shared/app-update";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
-import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
+import { defaultDeviceDefaults, resolveAvailableAudioOutputId, withDeviceDefaults } from "../shared/device-config";
 import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
 import { createHardwareTestResults, didDeviceDisconnectDuringRecording, getHardwareDeviceReadiness, getExportTestStatus, getFriendlyHardwareFailureMessage, getNextHardwareTestStep, getRecordingTestStatus, type DiagnosticsBundleResult, type HardwareDeviceSummary } from "../shared/hardware-test";
 import type { LiveLogInfo, StorageStatus } from "../shared/diagnostics";
@@ -1775,7 +1775,7 @@ export default function App() {
             onRenderTreatmentPreview={renderTreatmentPreview}
             transcriptionStatus={localTranscriptionStatus}
             transcriptionProgress={localTranscriptionProgress?.episodeId === activeEpisode?.id ? localTranscriptionProgress : undefined}
-            audioOutputId={settings.deviceDefaults.audioOutputId}
+            audioOutputId={resolveAvailableAudioOutputId(settings.deviceDefaults.audioOutputId, deviceDetection.speakers.map((speaker) => speaker.id))}
             onTranscribeLocally={transcribeActiveEpisodeLocally}
             onCancelTranscription={cancelActiveEpisodeTranscription}
           />

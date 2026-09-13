@@ -62,7 +62,41 @@ export type ReviewMonitorSettings = {
 
 const routes = new WeakMap<HTMLMediaElement, MonitorRoute>();
 let sharedContext: AudioContextWithOutput | undefined;
-let selectedOutputId: string | undefined;
+
+export function createReviewOutputRouter(setSinkId: (deviceId: string) => Promise<void>) {
+  let desiredOutputId = "";
+  let confirmedOutputId: string | undefined;
+  let failedOutputId: string | undefined;
+  let routing: Promise<void> | undefined;
+
+  async function flush() {
+    while (confirmedOutputId !== desiredOutputId && failedOutputId !== desiredOutputId) {
+      const targetOutputId = desiredOutputId;
+      try {
+        await setSinkId(targetOutputId);
+        confirmedOutputId = targetOutputId;
+        failedOutputId = undefined;
+      } catch {
+        failedOutputId = targetOutputId;
+      }
+    }
+  }
+
+  return async (outputId?: string) => {
+    const nextOutputId = outputId ?? "";
+    if (nextOutputId !== desiredOutputId) {
+      desiredOutputId = nextOutputId;
+      failedOutputId = undefined;
+    }
+    routing ??= flush().finally(() => {
+      routing = undefined;
+    });
+    await routing;
+    return confirmedOutputId === nextOutputId;
+  };
+}
+
+let outputRouter: ReturnType<typeof createReviewOutputRouter> | undefined;
 
 function audioContextConstructor() {
   return (
@@ -149,6 +183,9 @@ function getMonitorRoute(element: HTMLMediaElement) {
   const AudioContextConstructor = audioContextConstructor();
   if (!AudioContextConstructor) return undefined;
   sharedContext ??= new AudioContextConstructor() as AudioContextWithOutput;
+  if (!outputRouter && sharedContext.setSinkId) {
+    outputRouter = createReviewOutputRouter((deviceId) => sharedContext!.setSinkId!(deviceId));
+  }
   const source = sharedContext.createMediaElementSource(element);
   const highpass = sharedContext.createBiquadFilter();
   highpass.type = "highpass";
@@ -244,19 +281,18 @@ export function setReviewMonitorGain(
     element.volume = 1;
     element.muted = false;
     setParam(route.monitorGain.gain, gain, route.context);
-    const requestedOutputId = outputId ?? "";
-    if (requestedOutputId !== (selectedOutputId ?? "") && route.context.setSinkId) {
-      selectedOutputId = requestedOutputId;
-      void route.context.setSinkId(requestedOutputId).catch(() => {
-        selectedOutputId = undefined;
-      });
-    }
+    if (outputRouter) void outputRouter(outputId);
     return true;
   } catch {
     element.volume = Math.min(1, gain);
     element.muted = gain === 0;
     return false;
   }
+}
+
+export async function setReviewMonitorOutput(outputId?: string) {
+  if (!outputRouter) return true;
+  return outputRouter(outputId);
 }
 
 export function setReviewMonitorTreatment(

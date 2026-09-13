@@ -65,6 +65,26 @@ describe("RecordingService", () => {
     expect(window.studio.saveProgramRecording).toHaveBeenCalled();
   });
 
+  it("explains when an existing episode is protected from another recording", async () => {
+    installStudioMock();
+    window.studio.createRecordingSession = vi.fn(async () => {
+      throw new Error("This episode already contains recording media. Create a new episode before recording so the existing episode stays protected.");
+    });
+    const plugin = createPlugin();
+    const service = new RecordingService(plugin);
+
+    const snapshot = await service.start(
+      { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+      { episodeId: "episode-protected", episodeTitle: "Protected Recording" }
+    );
+
+    expect(snapshot).toMatchObject({
+      status: "error",
+      friendlyError: "This episode already has a recording. Create a new episode before recording so the existing episode stays protected."
+    });
+    expect(plugin.start).not.toHaveBeenCalled();
+  });
+
   it("coalesces repeated Stop actions into one recorder finalization", async () => {
     installStudioMock();
     let finishStop: ((result: RecordingEngineResult) => void) | undefined;

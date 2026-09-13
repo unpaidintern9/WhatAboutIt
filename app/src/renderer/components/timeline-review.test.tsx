@@ -4,7 +4,7 @@ import path from "node:path";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import { addCameraDecision, createTimelineDraft, selectTimelinePoint, updateTimelineTrackMix } from "../../shared/timeline";
+import { addCameraDecision, applyTimelineEdit, createTimelineDraft, selectTimelinePoint, setTimelineRange, updateTimelineTrackMix } from "../../shared/timeline";
 import type { ReviewMediaInventory } from "../../shared/review-media";
 import { TimelineReview } from "./TimelineReview";
 
@@ -549,6 +549,58 @@ describe("TimelineReview", () => {
     expect(video.play).toHaveBeenCalled();
     expect(video.muted).toBe(false);
     expect(host.textContent).toContain("Using recorded Program audio");
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("keeps source playback available when the saved Program is empty", async () => {
+    const base = createTimelineDraft({
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+      durationMs: 30000
+    });
+    const emptyProgram = applyTimelineEdit(setTimelineRange(base, 0, 30000, "program"), "delete-section");
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<TimelineReview draft={emptyProgram} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+    });
+    const video = host.querySelector("video") as HTMLVideoElement;
+    const audio = host.querySelector("audio") as HTMLAudioElement;
+    video.play = vi.fn().mockResolvedValue(undefined);
+    video.pause = vi.fn();
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    audio.pause = vi.fn();
+
+    await act(async () => {
+      (host.querySelector(".transport-play") as HTMLButtonElement).click();
+    });
+
+    expect(video.play).toHaveBeenCalled();
+    expect(host.textContent).toContain("Program is empty — previewing the source recording");
+    expect(host.textContent).toContain("Use Undo or Restore to put video back");
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("blocks a Delete Range edit that would erase the entire Program", async () => {
+    const draft = setTimelineRange(createTimelineDraft({
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } },
+      durationMs: 30000
+    }), 0, 30000, "program");
+    const onDraftChange = vi.fn();
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => {
+      root.render(<TimelineReview draft={draft} media={media} onDraftChange={onDraftChange} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
+    });
+
+    const deleteRange = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Delete range")) as HTMLButtonElement;
+    act(() => deleteRange.click());
+
+    expect(onDraftChange).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("That edit would remove the entire episode");
     act(() => root.unmount());
     host.remove();
   });

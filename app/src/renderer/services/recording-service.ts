@@ -96,7 +96,9 @@ export class RecordingService {
       this.stopStartupHealthGate();
       this.status = "error";
       const message = String(error);
-      this.friendlyError = message.includes("Camera needs attention")
+      this.friendlyError = message.includes("already contains recording media")
+        ? "This episode already has a recording. Create a new episode before recording so the existing episode stays protected."
+        : message.includes("Camera needs attention")
         ? friendlyRecordingError("camera")
         : message.includes("Mic needs attention")
         ? friendlyRecordingError("mic")

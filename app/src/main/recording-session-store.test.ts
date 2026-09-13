@@ -50,6 +50,25 @@ describe("recording session store", () => {
     await expect(fs.readFile(path.join(session.folderPath, "metadata.json"), "utf8")).resolves.toContain("Full Flow QA");
   });
 
+  it("refuses to overwrite finalized or recoverable media in an existing episode", async () => {
+    const { createRecordingSession } = await import("./recording-session-store");
+    const folderPath = path.join(mockPaths.episodesRoot, "episode-protected");
+    const sessionPath = path.join(folderPath, "Session", "recording-session.json");
+    await fs.mkdir(path.join(folderPath, "Audio"), { recursive: true });
+    await fs.mkdir(path.dirname(sessionPath), { recursive: true });
+    await fs.writeFile(path.join(folderPath, "Audio", "morgan-mic.m4a"), Uint8Array.from([1, 2, 3]));
+    await fs.writeFile(sessionPath, "preserve me", "utf8");
+
+    await expect(createRecordingSession({
+      episodeId: "episode-protected",
+      episodeTitle: "Protected Recording",
+      deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }
+    })).rejects.toThrow("already contains recording media");
+
+    await expect(fs.readFile(sessionPath, "utf8")).resolves.toBe("preserve me");
+    await expect(fs.readFile(path.join(folderPath, "Audio", "morgan-mic.m4a"))).resolves.toEqual(Buffer.from([1, 2, 3]));
+  });
+
   it("saves and validates real program media", async () => {
     const { createRecordingSession, saveProgramRecording } = await import("./recording-session-store");
     const { runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");

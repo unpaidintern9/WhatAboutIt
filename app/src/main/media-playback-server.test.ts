@@ -32,6 +32,15 @@ describe("media playback server", () => {
     expect(range.headers.get("content-range")).toBe("bytes 2-5/10");
     expect(await range.text()).toBe("2345");
 
+    const suffixRange = await fetch(mediaUrl, { headers: { Range: "bytes=-3" } });
+    expect(suffixRange.status).toBe(206);
+    expect(suffixRange.headers.get("content-range")).toBe("bytes 7-9/10");
+    expect(await suffixRange.text()).toBe("789");
+
+    const invalidRange = await fetch(mediaUrl, { headers: { Range: "bytes=20-" } });
+    expect(invalidRange.status).toBe(416);
+    expect(invalidRange.headers.get("content-range")).toBe("bytes */10");
+
     const outsidePath = Buffer.from(path.join(os.tmpdir(), "outside.webm"), "utf8").toString("base64url");
     expect((await fetch(`${server.baseUrl}/media/${outsidePath}`)).status).toBe(404);
   });
