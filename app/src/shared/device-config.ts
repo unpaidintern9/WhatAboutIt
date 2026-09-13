@@ -61,6 +61,10 @@ export const defaultDeviceDefaults: DeviceDefaults = {
   audioOutputId: undefined
 };
 
+export function resolveAvailableAudioOutputId(configuredId: string | undefined, availableIds: readonly string[]) {
+  return configuredId && availableIds.includes(configuredId) ? configuredId : undefined;
+}
+
 export function withDeviceDefaults(settings: StudioSettings): StudioSettings {
   const mergedDefaults: DeviceDefaults = {
     cameras: {

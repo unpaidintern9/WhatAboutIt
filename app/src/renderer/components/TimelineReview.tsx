@@ -53,6 +53,7 @@ import {
   clearProgramCameraCuts,
   getActiveCameraTrackId,
   getNextPlayableTimelineTime,
+  getTimelineKeepRanges,
   getTimelineSegments,
   redoTimelineEdit,
   resetTimelineTrackControls,
@@ -70,7 +71,7 @@ import {
   updateTimelineTitle
 } from "../../shared/timeline";
 import { formatRecordingTime } from "../services";
-import { resumeReviewMonitor, setReviewMonitorGain, setReviewMonitorTreatment } from "../services/review-audio-monitor";
+import { resumeReviewMonitor, setReviewMonitorGain, setReviewMonitorOutput, setReviewMonitorTreatment } from "../services/review-audio-monitor";
 import { needsReviewVideoCompositor, startReviewVideoCompositor } from "../services/review-video-compositor";
 import { TimelineCaptionPanel } from "./TimelineCaptionPanel";
 import { TimelineMediaSetup } from "./TimelineMediaSetup";
@@ -257,6 +258,7 @@ export function TimelineReview({
   const readyCameraCount = media?.cameras.filter((asset) => asset.status === "ready").length ?? 0;
   const readyMicCount = media?.audio.filter((asset) => asset.status === "ready").length ?? 0;
   const hasPlayableProgram = Boolean(media?.hasPlayableProgram);
+  const programIsEmpty = programMode && draft.durationMs > 0 && getTimelineKeepRanges(draft).length === 0;
   const hasSelectedRange = draft.selection?.endTimestampMs !== undefined && rangeEndMs > rangeStartMs;
   const activeCaption = draft.captions.find((caption) => playheadMs >= caption.startMs && playheadMs < caption.endMs && caption.text.trim());
   const activeTitle = draft.titles.find((title) => playheadMs >= title.startMs && playheadMs < title.endMs);
@@ -348,24 +350,6 @@ export function TimelineReview({
   }, [playbackRate]);
 
   useEffect(() => {
-    const elements: HTMLMediaElement[] = [videoRef.current, pairedAudioRef.current, ...programAudioRefs.current.values()].filter(
-      (element): element is HTMLMediaElement => Boolean(element)
-    );
-    for (const element of elements) {
-      const sinkElement = element as HTMLMediaElement & { setSinkId?: (deviceId: string) => Promise<void> };
-      if (!audioOutputId || !sinkElement.setSinkId) continue;
-      void sinkElement.setSinkId(audioOutputId).catch((error) => {
-        void window.studio?.writeRuntimeLog?.({
-          level: "warning",
-          source: "ReviewPlayback",
-          message: "Could not route Review audio to the selected output.",
-          details: { audioOutputId, error: String(error) }
-        });
-      });
-    }
-  }, [audioOutputId, selectedVideo?.playbackUrl, programAudioSources]);
-
-  useEffect(() => {
     const suppressEmbeddedCameraAudio = !programMode && pairedAudio?.status === "ready";
     setReviewMonitorGain(videoRef.current, masterMuted || stemMixActive || suppressEmbeddedCameraAudio ? 0 : masterVolume, audioOutputId);
     const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
@@ -377,6 +361,15 @@ export function TimelineReview({
       setAudioRouteMessage("Using recorded Program audio");
       setReviewMonitorGain(videoRef.current, masterMuted ? 0 : masterVolume, audioOutputId);
     }
+    void setReviewMonitorOutput(audioOutputId).then((routed) => {
+      if (routed) return;
+      void window.studio?.writeRuntimeLog?.({
+        level: "warning",
+        source: "ReviewPlayback",
+        message: "Selected Review speaker is unavailable; using the system output.",
+        details: { audioOutputId }
+      });
+    });
   }, [audioOutputId, draft.tracks, isPlaying, masterMuted, masterVolume, pairedAudio, programAudioSources, programMode, stemMixActive, useProgramStemMix]);
 
   useEffect(
@@ -471,6 +464,11 @@ export function TimelineReview({
       source: "timeline"
     });
     const nextDraft = applyTimelineEdit(positioned, type, new Date().toISOString(), selectedTrack?.id);
+    if (type === "delete-section" && selectedTrack?.kind === "program" && draft.durationMs > 0 && getTimelineKeepRanges(nextDraft).length === 0) {
+      setPlaybackError("That edit would remove the entire episode. Select a smaller range, or use Restore to recover the original timeline.");
+      return;
+    }
+    setPlaybackError(undefined);
     onDraftChange(nextDraft);
     if (programMode) {
       const nextPlayable = getNextPlayableTimelineTime(nextDraft, playheadMs);
@@ -506,7 +504,7 @@ export function TimelineReview({
   async function playSelectedVideo() {
     const video = videoRef.current;
     if (!video) return;
-    const nextPlayable = programMode ? getNextPlayableTimelineTime(draft, playheadMs) : playheadMs;
+    const nextPlayable = programMode && !programIsEmpty ? getNextPlayableTimelineTime(draft, playheadMs) : playheadMs;
     if (nextPlayable === undefined) return;
     if (nextPlayable !== playheadMs) seek(nextPlayable);
     setReviewMonitorGain(video, 0, audioOutputId);
@@ -641,7 +639,7 @@ export function TimelineReview({
     const audio = pairedAudioRef.current;
     if (!video) return;
     const timelineTime = Math.max(0, Math.round(video.currentTime * 1000 - selectedVideoOffsetMs));
-    const nextPlayable = programMode ? getNextPlayableTimelineTime(draft, timelineTime) : timelineTime;
+    const nextPlayable = programMode && !programIsEmpty ? getNextPlayableTimelineTime(draft, timelineTime) : timelineTime;
     if (programMode && nextPlayable === undefined) {
       pauseSelectedVideo();
       return;
@@ -1088,9 +1086,9 @@ export function TimelineReview({
                     />
                   ))
                 : null}
-              <div className={`review-audio-route ${selectedVideo.audioSignal === "silent" || allRecordedMicrophonesSilent ? "needs-attention" : programMode || pairedAudio?.status === "ready" ? "ready" : "needs-attention"}`}>
-                <strong>{programMode ? audioRouteMessage : pairedAudio?.audioSignal === "silent" ? `${selectedVideo.pairedAudioLabel ?? "Paired mic"} recorded no signal` : (selectedVideo.pairedAudioLabel ?? "No paired mic")}</strong>
-                <span>{programMode ? (allRecordedMicrophonesSilent ? "This recording contains silence, so there is no audible waveform to display." : useProgramStemMix ? "Separate microphone tracks are preferred; Program audio is the automatic fallback." : "Recorded Program audio is available.") : pairedAudio?.audioSignal === "silent" ? "Choose another audio source or import replacement audio for this take." : selectedVideo.message}</span>
+              <div className={`review-audio-route ${programIsEmpty || selectedVideo.audioSignal === "silent" || allRecordedMicrophonesSilent ? "needs-attention" : programMode || pairedAudio?.status === "ready" ? "ready" : "needs-attention"}`}>
+                <strong>{programIsEmpty ? "Program is empty — previewing the source recording" : programMode ? audioRouteMessage : pairedAudio?.audioSignal === "silent" ? `${selectedVideo.pairedAudioLabel ?? "Paired mic"} recorded no signal` : (selectedVideo.pairedAudioLabel ?? "No paired mic")}</strong>
+                <span>{programIsEmpty ? "Use Undo or Restore to put video back in the finished episode. Source playback remains available for review." : programMode ? (allRecordedMicrophonesSilent ? "This recording contains silence, so there is no audible waveform to display." : useProgramStemMix ? "Separate microphone tracks are preferred; Program audio is the automatic fallback." : "Recorded Program audio is available.") : pairedAudio?.audioSignal === "silent" ? "Choose another audio source or import replacement audio for this take." : selectedVideo.message}</span>
                 {programMode && useProgramStemMix ? <span>Live mix is on — audio control changes are heard immediately during playback.</span> : null}
                 {programMode && useProgramStemMix && isPlaying && !stemMixActive ? (
                   <button type="button" onClick={() => void startProgramStemMix(playheadMs).then((active) => {

@@ -60,7 +60,16 @@ async function serveMediaRequest(
 
     const stat = await fs.stat(resolvedPath);
     if (!stat.isFile()) return sendStatus(response, 404);
-    const range = parseRange(request.headers.range, stat.size);
+    const rangeHeader = request.headers.range;
+    const range = parseRange(rangeHeader, stat.size);
+    if (rangeHeader && !range) {
+      response.writeHead(416, {
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-store",
+        "Content-Range": `bytes */${stat.size}`
+      });
+      return response.end();
+    }
     const start = range?.start ?? 0;
     const end = range?.end ?? stat.size - 1;
     const status = range ? 206 : 200;
@@ -73,17 +82,24 @@ async function serveMediaRequest(
       ...(range ? { "Content-Range": `bytes ${start}-${end}/${stat.size}` } : {})
     });
     if (request.method === "HEAD") return response.end();
-    createReadStream(resolvedPath, { start, end }).on("error", () => response.destroy()).pipe(response);
+    const stream = createReadStream(resolvedPath, { start, end });
+    const closeStream = () => stream.destroy();
+    request.once("aborted", closeStream);
+    response.once("close", closeStream);
+    stream.once("error", () => response.destroy());
+    stream.pipe(response);
   } catch {
     sendStatus(response, 404);
   }
 }
 
 function parseRange(header: string | undefined, size: number) {
-  const match = /^bytes=(\d+)-(\d*)$/.exec(header ?? "");
+  const match = /^bytes=(\d*)-(\d*)$/.exec(header ?? "");
   if (!match) return undefined;
-  const start = Number(match[1]);
-  const requestedEnd = match[2] ? Number(match[2]) : size - 1;
+  if (!match[1] && !match[2]) return undefined;
+  const suffixLength = !match[1] ? Number(match[2]) : undefined;
+  const start = suffixLength === undefined ? Number(match[1]) : Math.max(0, size - suffixLength);
+  const requestedEnd = suffixLength === undefined && match[2] ? Number(match[2]) : size - 1;
   if (!Number.isFinite(start) || !Number.isFinite(requestedEnd) || start < 0 || start >= size || requestedEnd < start) return undefined;
   return { start, end: Math.min(requestedEnd, size - 1) };
 }

@@ -7,6 +7,7 @@ import {
   saveMicrophoneDeviceRoute,
   saveMicrophoneInputChannel,
   saveMicrophoneSlot,
+  resolveAvailableAudioOutputId,
   withDeviceDefaults
 } from "./device-config";
 import type { StudioSettings } from "./types";
@@ -20,6 +21,11 @@ describe("device config", () => {
     } as StudioSettings;
 
     expect(withDeviceDefaults(oldSettings).deviceDefaults).toEqual(defaultDeviceDefaults);
+  });
+
+  it("falls back to the system speaker when a saved Windows device disappeared", () => {
+    expect(resolveAvailableAudioOutputId("speaker-a", ["default", "speaker-a"])).toBe("speaker-a");
+    expect(resolveAvailableAudioOutputId("old-speaker", ["default", "speaker-a"])).toBeUndefined();
   });
 
   it("saves camera and microphone slots without touching other defaults", () => {

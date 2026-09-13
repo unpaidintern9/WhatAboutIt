@@ -61,6 +61,8 @@ export async function createRecordingSession(input: RecordingSessionCreateInput)
   const episodeId = input.episodeId || `${now.slice(0, 10)}-${slugify(episodeTitle)}-${crypto.randomUUID().slice(0, 8)}`;
   const folderPath = path.join(getEpisodesRoot(), episodeId);
 
+  if (input.episodeId) await assertEpisodeHasNoRecordingMedia(folderPath);
+
   await fs.mkdir(folderPath, { recursive: true });
   await Promise.all(requiredRecordingSessionFolders.map((folder) => fs.mkdir(path.join(folderPath, folder), { recursive: true })));
 
@@ -145,6 +147,30 @@ function partialMediaPath(folderPath: string, target: RecordingMediaTarget, mime
   if (target.startsWith("camera")) return path.join(folderPath, "Cameras", `${mediaBaseName(target)}.partial.webm`);
   const extension = mimeType.includes("mp4") || mimeType.includes("m4a") ? "m4a" : "webm";
   return path.join(folderPath, "Audio", `${mediaBaseName(target)}.source.partial.${extension}`);
+}
+
+function recordingMediaCandidates(folderPath: string) {
+  return [
+    path.join(folderPath, "Program", "program.webm"),
+    path.join(folderPath, "Program", "program.partial.webm"),
+    ...(["camera-1.webm", "camera-2.webm", "camera-3.webm"] as const).map((name) => path.join(folderPath, "Cameras", name)),
+    ...(["camera-1.partial.webm", "camera-2.partial.webm", "camera-3.partial.webm"] as const).map((name) => path.join(folderPath, "Cameras", name)),
+    ...(["morgan-mic.m4a", "guest-mic.m4a", "extra-mic.m4a"] as const).map((name) => path.join(folderPath, "Audio", name)),
+    ...(["morgan-mic.source.partial.webm", "guest-mic.source.partial.webm", "extra-mic.source.partial.webm"] as const).map((name) => path.join(folderPath, "Audio", name)),
+    ...(["morgan-mic.source.partial.m4a", "guest-mic.source.partial.m4a", "extra-mic.source.partial.m4a"] as const).map((name) => path.join(folderPath, "Audio", name))
+  ];
+}
+
+async function assertEpisodeHasNoRecordingMedia(folderPath: string) {
+  for (const candidate of recordingMediaCandidates(folderPath)) {
+    try {
+      if ((await fs.stat(candidate)).size > 0) {
+        throw new Error("This episode already contains recording media. Create a new episode before recording so the existing episode stays protected.");
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
 }
 
 async function enqueueManifestWrite(folderPath: string, update: () => Promise<void>) {
