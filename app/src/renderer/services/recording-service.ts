@@ -19,6 +19,7 @@ export interface RecordingStartOptions {
   episodeTitle?: string;
   practice?: boolean;
   backupFolderPath?: string;
+  resume?: boolean;
 }
 
 export class RecordingService {
@@ -32,6 +33,9 @@ export class RecordingService {
   private trackStatuses: RecordingTrackSaveResult[] = [];
   private integrity?: RecordingIntegrityReport;
   private stopPromise?: Promise<RecordingServiceSnapshot>;
+  private deviceDefaults?: DeviceDefaults;
+  private stateWrites: Promise<unknown> = Promise.resolve();
+  private starting?: Promise<RecordingServiceSnapshot>;
 
   constructor(private readonly plugin: RecordingEnginePlugin) {}
 
@@ -49,7 +53,9 @@ export class RecordingService {
           : `Program plus ${activeSources} source tracks are starting their disk writers`
       : this.status === "stopped" && this.integrity
         ? this.integrity.playable ? "Recording saved and verified" : "Recording saved with items that need attention"
-        : "Ready to save directly to this computer";
+        : this.status === "paused" && this.session?.durablePaused
+          ? "Episode saved. You can close the app and resume this recording later"
+          : "Ready to save directly to this computer";
     return {
       status: this.status,
       elapsedMs: this.elapsedMs(),
@@ -62,8 +68,32 @@ export class RecordingService {
     };
   }
 
+  hasActiveCapture() { return Boolean(this.starting || this.stopPromise) || this.status === "recording"; }
+
+  selectEpisode(episodeId: string) {
+    if (this.hasActiveCapture()) throw new Error("Pause and save the active episode first.");
+    if (this.session?.episodeId !== episodeId) {
+      this.session = undefined;
+      this.status = "idle";
+      this.elapsedBeforePause = 0;
+      this.trackStatuses = [];
+      this.integrity = undefined;
+      this.friendlyError = undefined;
+    }
+    return this.getSnapshot();
+  }
+
   async start(deviceDefaults: DeviceDefaults, options: RecordingStartOptions = {}) {
-    if (this.status === "recording" || this.status === "paused") return this.getSnapshot();
+    if (this.starting) return this.starting;
+    if (this.stopPromise) return this.stopPromise;
+    const pending = this.startCapture(deviceDefaults, options);
+    this.starting = pending;
+    try { return await pending; } finally { if (this.starting === pending) this.starting = undefined; }
+  }
+
+  private async startCapture(deviceDefaults: DeviceDefaults, options: RecordingStartOptions) {
+    if (this.status === "recording" || (this.status === "paused" && !this.session?.durablePaused)) return this.getSnapshot();
+    if (this.status === "paused" && this.session?.episodeId === options.episodeId) options = { ...options, resume: true };
 
     try {
       logRecordingEvent("info", "Recording start requested.", {
@@ -78,12 +108,14 @@ export class RecordingService {
         episodeId: options.episodeId,
         episodeTitle: options.episodeTitle ?? (options.practice ? "Practice Recording" : "Studio Recording"),
         practice: options.practice,
-        backupFolderPath: options.backupFolderPath
+        backupFolderPath: options.backupFolderPath,
+        resume: options.resume
       });
       await this.plugin.start({ deviceDefaults, practice: options.practice, session: this.session });
       this.status = "recording";
       this.startedAt = Date.now();
-      this.elapsedBeforePause = 0;
+      this.elapsedBeforePause = this.session.elapsedMs ?? 0;
+      this.deviceDefaults = deviceDefaults;
       this.friendlyError = undefined;
       this.trackStatuses = [];
       this.integrity = undefined;
@@ -103,6 +135,15 @@ export class RecordingService {
         : message.includes("Mic needs attention")
         ? friendlyRecordingError("mic")
         : friendlyRecordingError("device");
+      if (this.session?.captureFolderPath && window.studio.checkpointRecordingSession) {
+        await this.plugin.stop().catch(() => undefined);
+        try {
+          const checkpoint = await window.studio.checkpointRecordingSession(this.session.folderPath, true);
+          this.session = checkpoint.session;
+          this.status = "paused";
+          this.elapsedBeforePause = checkpoint.session.elapsedMs ?? this.elapsedBeforePause;
+        } catch { /* Keep partial media available through recovery. */ }
+      }
       if (this.session) await window.studio.appendRecordingError(this.session.folderPath, `${this.friendlyError} Startup detail: ${message}`);
       await this.persistState();
       window.studio?.setRecordingCloseProtection?.(false);
@@ -114,6 +155,7 @@ export class RecordingService {
 
   async pause() {
     if (this.status !== "recording") return this.getSnapshot();
+    if (this.session?.captureFolderPath && window.studio.checkpointRecordingSession && !this.session.practice) return this.finishCapture(true);
     this.stopStartupHealthGate();
     await this.plugin.pause();
     this.elapsedBeforePause = this.elapsedMs();
@@ -125,6 +167,7 @@ export class RecordingService {
 
   async resume() {
     if (this.status !== "paused") return this.getSnapshot();
+    if (this.session?.durablePaused && this.deviceDefaults) return this.resumeSaved(this.session, this.deviceDefaults);
     await this.plugin.resume();
     this.startedAt = Date.now();
     this.status = "recording";
@@ -134,9 +177,29 @@ export class RecordingService {
     return this.getSnapshot();
   }
 
+  async resumeSaved(session: RecordingSession, defaults: DeviceDefaults) {
+    if (this.status === "recording") throw new Error("Pause the active episode before opening another recording.");
+    return this.start(defaults, { episodeId: session.episodeId, episodeTitle: session.episodeTitle, resume: true });
+  }
+
+  restorePaused(session: RecordingSession) {
+    if (this.status === "recording") throw new Error("Pause the active episode first.");
+    this.session = session;
+    this.status = "paused";
+    this.elapsedBeforePause = session.elapsedMs ?? 0;
+    this.friendlyError = undefined;
+    this.integrity = undefined;
+    this.trackStatuses = [];
+    return this.getSnapshot();
+  }
+
   async stop() {
+    return this.finishCapture(false);
+  }
+
+  private async finishCapture(paused: boolean) {
     if (this.stopPromise) return this.stopPromise;
-    const stopPromise = this.stopActiveSession();
+    const stopPromise = this.stopActiveSession(paused);
     this.stopPromise = stopPromise;
     try {
       return await stopPromise;
@@ -145,7 +208,7 @@ export class RecordingService {
     }
   }
 
-  private async stopActiveSession() {
+  private async stopActiveSession(paused = false) {
     if (!this.session || (this.status !== "recording" && this.status !== "paused")) return this.getSnapshot();
     const session = this.session;
     const finalElapsed = this.elapsedMs();
@@ -154,6 +217,20 @@ export class RecordingService {
     logRecordingEvent("info", "Stop requested; flushing browser recorders.", { sessionId: session.id, elapsedMs: finalElapsed });
 
     try {
+      await this.stateWrites;
+      if (session.captureFolderPath && window.studio.checkpointRecordingSession && !session.practice) {
+        if (!session.durablePaused) await this.plugin.stop();
+        const checkpoint = await window.studio.checkpointRecordingSession(session.folderPath, paused);
+        this.session = checkpoint.session;
+        this.elapsedBeforePause = checkpoint.session.elapsedMs ?? finalElapsed;
+        this.status = paused ? "paused" : "stopped";
+        this.integrity = checkpoint.result?.integrity;
+        this.trackStatuses = checkpoint.result?.tracks ?? [];
+        this.friendlyError = undefined;
+        await this.persistState();
+        window.studio?.setRecordingCloseProtection?.(false);
+        return this.getSnapshot();
+      }
       const result: RecordingEngineResult = await this.plugin.stop();
       logRecordingEvent(result.warning ? "warning" : "info", "Browser recorders stopped; finalizing protected media.", {
         sessionId: session.id,
@@ -215,7 +292,7 @@ export class RecordingService {
   async shutdown() {
     this.stopStateTimer();
     this.stopStartupHealthGate();
-    if (this.status === "recording" || this.status === "paused") {
+    if (this.status === "recording" || (this.status === "paused" && !this.session?.durablePaused)) {
       this.elapsedBeforePause = this.elapsedMs();
       this.status = "interrupted";
       await this.persistState(this.elapsedBeforePause).catch(() => undefined);
@@ -244,7 +321,7 @@ export class RecordingService {
   private startStartupHealthGate() {
     this.stopStartupHealthGate();
     if (this.session?.practice) return;
-    const remainingMs = Math.max(0, FIRST_CHUNK_TIMEOUT_MS - this.elapsedMs());
+    const remainingMs = Math.max(0, FIRST_CHUNK_TIMEOUT_MS - (Date.now() - this.startedAt));
     this.startupHealthTimer = window.setTimeout(() => {
       void this.enforceStartupHealth();
     }, remainingMs);
@@ -287,7 +364,10 @@ export class RecordingService {
       status: this.status,
       elapsedMs
     };
-    await window.studio.writeRecordingState(this.session.folderPath, state);
+    const folder = this.session.folderPath;
+    const next = this.stateWrites.catch(() => undefined).then(() => window.studio.writeRecordingState(folder, state));
+    this.stateWrites = next;
+    await next;
   }
 }
 

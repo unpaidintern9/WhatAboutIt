@@ -411,6 +411,7 @@ export default function App() {
   const [deviceDetection, setDeviceDetection] = useState<DeviceDetectionResult>(emptyDetection);
   const [recordingSnapshot, setRecordingSnapshot] = useState<RecordingServiceSnapshot>(getInitialRecordingSnapshot);
   const [unfinishedSessions, setUnfinishedSessions] = useState<RecordingSession[]>([]);
+  const [recordingSessionsReady, setRecordingSessionsReady] = useState(false);
   const [wizardStep, setWizardStep] = useState(() => Number(new URLSearchParams(window.location.search).get("wizard") ?? 0));
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [title, setTitle] = useState("");
@@ -504,6 +505,20 @@ export default function App() {
     },
     [deviceService]
   );
+
+  const activeSavedPause = unfinishedSessions.find((session) => session.episodeId === activeEpisode?.id && session.status === "paused" && session.durablePaused);
+  useEffect(() => {
+    const current = recordingService.getSnapshot();
+    const unfinished = current.session?.episodeId === activeEpisode?.id && (current.status === "recording" || current.status === "paused");
+    if ((view === "timeline-review" || view === "auto-edit-review" || view === "export") && (unfinished || activeSavedPause)) {
+      setWorkspaceMessage("Finish this recording with Stop before reviewing or exporting the episode.");
+      setView("recording");
+    }
+    if (view === "recording" && activeSavedPause && !recordingService.hasActiveCapture() && (current.status === "idle" || current.session?.id !== activeSavedPause.id)) {
+      setRecordingSnapshot(recordingService.restorePaused(activeSavedPause));
+      void loadReviewWorkspace(activeSavedPause.episodeId);
+    }
+  }, [view, activeEpisode?.id, activeSavedPause, recordingService]);
 
   useEffect(() => {
     applyTheme(activeTheme);
@@ -640,7 +655,7 @@ export default function App() {
 
       let devices = summarizeDevices(detectedDevices);
       let disconnected = didDeviceDisconnectDuringRecording({
-        status: recordingService.getSnapshot().status,
+        status: recordingService.getSnapshot().session?.durablePaused ? "idle" : recordingService.getSnapshot().status,
         defaults: settings.deviceDefaults,
         devices
       });
@@ -654,7 +669,7 @@ export default function App() {
         if (sequence !== deviceChangeSequenceRef.current) return;
         devices = summarizeDevices(detectedDevices);
         disconnected = didDeviceDisconnectDuringRecording({
-          status: recordingService.getSnapshot().status,
+          status: recordingService.getSnapshot().session?.durablePaused ? "idle" : recordingService.getSnapshot().status,
           defaults: settings.deviceDefaults,
           devices
         });
@@ -701,6 +716,7 @@ export default function App() {
   }
 
   async function createEpisode() {
+    if (recordingService.hasActiveCapture()) { setWorkspaceMessage("Pause and save the current episode before creating another one."); setView("recording"); return; }
     await flushPendingTimelineSave();
     const episode = await studio.createEpisode({
       title,
@@ -711,11 +727,25 @@ export default function App() {
     setGuestName("");
     setDescription("");
     setEpisodes([episode, ...episodes]);
+    setRecordingSnapshot(recordingService.selectEpisode(episode.id));
+    setExportJob(undefined);
     setActiveEpisode(episode);
     setView("home");
   }
 
   async function openEpisode(episode: EpisodeMetadata) {
+    const live = recordingService.getSnapshot();
+    if (recordingService.hasActiveCapture()) { if (live.session?.episodeId === episode.id) { setView("recording"); return; } setWorkspaceMessage("Pause and save the active episode before opening another episode."); setView("recording"); return; }
+    setRecordingSnapshot(recordingService.selectEpisode(episode.id));
+    setExportJob(undefined);
+    const paused = unfinishedSessions.find((session) => session.episodeId === episode.id && session.durablePaused && session.status === "paused");
+    if (paused) {
+      await flushPendingTimelineSave();
+      setActiveEpisode({ ...episode });
+      setRecordingSnapshot(recordingService.restorePaused(paused));
+      setView("recording");
+      return;
+    }
     try {
       await flushPendingTimelineSave();
     } catch {
@@ -738,11 +768,23 @@ export default function App() {
     }
 
     setReviewMediaLoading(true);
-    void loadReviewWorkspace(activeEpisode.id, sequence);
-  }, [activeEpisode, studio]);
+    if (recordingSessionsReady) void loadReviewWorkspace(activeEpisode.id, sequence);
+  }, [activeEpisode, studio, recordingSessionsReady]);
 
   async function loadReviewWorkspace(episodeId: string, sequence = ++episodeLoadSequenceRef.current) {
     try {
+      const capture = recordingService.getSnapshot();
+      const savedPause = unfinishedSessions.find((session) => session.episodeId === episodeId && session.durablePaused && session.status === "paused");
+      const unfinished = savedPause ?? (capture.session?.episodeId === episodeId && (capture.status === "recording" || capture.status === "paused") ? capture.session : undefined);
+      if (unfinished) {
+        const tools = withPodcastToolDefaults(await studio.loadPodcastTools(episodeId), episodeId);
+        if (sequence !== episodeLoadSequenceRef.current || activeEpisodeRef.current?.id !== episodeId) return;
+        setPodcastTools(tools);
+        setReviewMedia(undefined);
+        setTimelineDraft(createTimelineDraft({ episodeId, recordingSessionId: unfinished.id, deviceDefaults: settings.deviceDefaults, markers: tools.markers, durationMs: savedPause?.elapsedMs ?? capture.elapsedMs }));
+        setTimelineSaveState("saved");
+        return;
+      }
       const [tools, savedDraft, inventory] = await Promise.all([studio.loadPodcastTools(episodeId), studio.loadTimelineDraft(episodeId), studio.loadReviewMedia(episodeId)]);
       if (sequence !== episodeLoadSequenceRef.current || activeEpisodeRef.current?.id !== episodeId) return;
       const hydratedTools = withPodcastToolDefaults(tools, episodeId);
@@ -985,6 +1027,8 @@ export default function App() {
   }
 
   async function startExport(practice = false, typeOverride?: ExportType, draftOverride?: TimelineDraft) {
+    const live = recordingService.getSnapshot();
+    if ((live.status === "recording" || live.status === "paused") && live.session?.episodeId === activeEpisode?.id) { setWorkspaceMessage("Finish this recording with Stop before exporting the episode."); setView("recording"); return; }
     let episodeId = recordingSnapshot.session?.episodeId ?? timelineDraft.episodeId ?? activeEpisode?.id;
     if (!episodeId) {
       const latestEpisodes = await studio.listEpisodes();
@@ -1370,6 +1414,8 @@ export default function App() {
       description: "Real camera and microphone validation recording."
     });
     setEpisodes([episode, ...episodes]);
+    setRecordingSnapshot(recordingService.selectEpisode(episode.id));
+    setExportJob(undefined);
     setActiveEpisode(episode);
     return episode;
   }
@@ -1470,12 +1516,15 @@ export default function App() {
   }
 
   async function refreshUnfinishedSessions() {
-    setUnfinishedSessions(await studio.listUnfinishedRecordingSessions());
+    try { setUnfinishedSessions(await studio.listUnfinishedRecordingSessions()); }
+    finally { setRecordingSessionsReady(true); }
   }
 
   async function startRecording(practice = false) {
     await flushPendingTimelineSave();
+    const paused = unfinishedSessions.find((session) => session.episodeId === activeEpisode?.id && session.durablePaused && session.status === "paused");
     const nextSnapshot = await recordingService.start(settings.deviceDefaults, {
+      resume: Boolean(paused),
       episodeId: activeEpisode?.id,
       episodeTitle: activeEpisode?.title,
       practice,
@@ -1496,16 +1545,29 @@ export default function App() {
   }
 
   async function pauseRecording() {
-    setRecordingSnapshot(await recordingService.pause());
+    const snapshot = await recordingService.pause();
+    setRecordingSnapshot(snapshot);
+    if (snapshot.status !== "paused") throw new Error(snapshot.friendlyError ?? "The recording could not be saved for later.");
+    if (snapshot.session?.durablePaused) {
+      await studio.savePodcastTools(snapshot.session.episodeId, podcastTools);
+      // The local part journal owns unfinished capture timing. Review saves
+      // can acquire a cloud edit lease, so defer that work until Stop.
+      await refreshUnfinishedSessions();
+    }
   }
 
   async function resumeRecording() {
-    setRecordingSnapshot(await recordingService.resume());
+    const paused = recordingService.getSnapshot().session;
+    const snapshot = paused?.durablePaused ? await recordingService.resumeSaved(paused, settings.deviceDefaults) : await recordingService.resume();
+    setRecordingSnapshot(snapshot);
+    if (snapshot.status !== "recording") throw new Error(snapshot.friendlyError ?? "This episode could not be resumed.");
+    await refreshUnfinishedSessions();
   }
 
   async function stopRecording() {
     const nextSnapshot = await recordingService.stop();
     setRecordingSnapshot(nextSnapshot);
+    if (nextSnapshot.status === "stopped") setUnfinishedSessions((current) => current.filter((session) => session.id !== nextSnapshot.session?.id));
     if (nextSnapshot.status === "error") {
       throw new Error(nextSnapshot.friendlyError ?? "Recording stopped, but file verification needs attention.");
     }
@@ -1706,8 +1768,8 @@ export default function App() {
             recordingPreferences={recordingPreferences}
             onStart={() => startRecording(false)}
             onQuickTest={() => startQuickTestRecording()}
-            onPause={() => void pauseRecording()}
-            onResume={() => void resumeRecording()}
+            onPause={() => pauseRecording()}
+            onResume={() => resumeRecording()}
             onStop={async () => {
               await stopRecording();
             }}
@@ -1717,9 +1779,23 @@ export default function App() {
               void startExport(reviewMode);
             }}
             onDismissRecovery={() => setUnfinishedSessions([])}
+            onResumeSession={async (session) => {
+              if (recordingService.hasActiveCapture()) throw new Error("Pause the active episode first.");
+              await flushPendingTimelineSave();
+              const episode = episodes.find((item) => item.id === session.episodeId);
+              if (!episode) throw new Error("Open this episode from the local episode library first.");
+              setActiveEpisode({ ...episode });
+              setRecordingSnapshot(recordingService.restorePaused(session));
+              setView("recording");
+            }}
             onRecoverSession={async (session) => {
+              if (recordingService.hasActiveCapture()) throw new Error("Pause the active episode before recovering another recording.");
+              await flushPendingTimelineSave();
               const recovered = await studio.recoverRecordingSession?.(session.folderPath);
               if (recovered) {
+                recordingService.selectEpisode(session.episodeId);
+                const episode = episodes.find((item) => item.id === session.episodeId);
+                if (episode) setActiveEpisode({ ...episode });
                 setRecordingSnapshot((current) => ({
                   ...current,
                   status: recovered.integrity.programPlayable ? "stopped" : "interrupted",

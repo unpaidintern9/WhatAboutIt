@@ -169,4 +169,34 @@ describe("episode workspace loading", () => {
     act(() => root.unmount());
     host.remove();
   });
+  it("restores paused recording notes without waiting for cloud review reads", async () => {
+    window.history.replaceState(null, "", "/?view=recording&tour=off");
+    const active = episode("paused-episode");
+    const paused = { id: "paused-session", episodeId: active.id, episodeTitle: active.title, folderPath: active.folderPath, startedAt: active.createdAt, status: "paused" as const, durablePaused: true, practice: false, elapsedMs: 12000 };
+    let releaseSessions!: (sessions: typeof paused[]) => void;
+    const savedSessions = new Promise<typeof paused[]>((resolve) => { releaseSessions = resolve; });
+    const tools = { ...createDefaultPodcastToolsState(active.id), markers: [{ id: "saved-marker", label: "Saved paused marker", timestampMs: 1000, createdAt: active.createdAt }] };
+    const loadTimelineDraft = vi.fn(async () => { throw new Error("Cloud must not block a paused capture"); });
+    const loadReviewMedia = vi.fn(async () => reviewMedia(active.id));
+    window.studio = {
+      listEpisodes: vi.fn(async () => [active]), createEpisode: vi.fn(),
+      getSettings: vi.fn(async () => ({ activeThemeId: "what-about-it", defaultEpisodeFolderName: "episodes", practiceModeEnabled: false, exportSettings: defaultExportSettings, deviceDefaults: { cameras: {}, microphones: {} }, onboarding: { guidedTour: "never" as const } })),
+      saveSettings: vi.fn(async (settings) => settings), createRecordingSession: vi.fn(), writeRecordingState: vi.fn(), saveProgramRecording: vi.fn(), saveRecordedTracks: vi.fn(async () => []), appendRecordingError: vi.fn(),
+      listUnfinishedRecordingSessions: vi.fn(async () => savedSessions), loadPodcastTools: vi.fn(async () => tools), savePodcastTools: vi.fn(async (_id, state) => state), loadTimelineDraft, saveTimelineDraft: vi.fn(async (_id, draft) => draft), loadReviewMedia,
+      runAutoEdit: vi.fn(), createExport: vi.fn(), getMediaToolsStatus: vi.fn(async () => ({ ready: true, message: "Media tools are ready" as const })), cancelExport: vi.fn(), openExportFolder: vi.fn(), createDiagnosticsBundle: vi.fn(async () => ({ folderPath: "diagnostics", files: [] })), getStorageStatus: vi.fn(async () => ({ message: "Storage check ready" as const, availableBytes: 1024 }))
+    };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    await act(async () => { root.render(<App />); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(loadTimelineDraft).not.toHaveBeenCalled();
+    await act(async () => { releaseSessions([paused]); await new Promise((resolve) => setTimeout(resolve, 0)); });
+    expect(host.textContent).toContain("Saved paused marker");
+    expect(host.textContent).toContain("Resume recording");
+    expect(loadTimelineDraft).not.toHaveBeenCalled();
+    expect(loadReviewMedia).not.toHaveBeenCalled();
+    act(() => root.unmount());
+    host.remove();
+  });
+
 });

@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import type { EpisodeMetadata, StudioSettings } from "../shared/types";
-import type { RecordingChunkInput, RecordingFinalizeResult, RecordingSession, RecordingSessionCreateInput, RecordingState, RecordingTrackSaveInput, RecordingTrackSaveResult } from "../shared/recording";
+import type { RecordingChunkInput, RecordingCheckpointResult, RecordingFinalizeResult, RecordingSession, RecordingSessionCreateInput, RecordingState, RecordingTrackSaveInput, RecordingTrackSaveResult } from "../shared/recording";
 import type { PodcastToolsState } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import type { ExportJob, ExportRequest, MediaToolsStatus } from "../shared/export";
@@ -40,6 +40,7 @@ contextBridge.exposeInMainWorld("studio", {
   writeRecordingState: (folderPath: string, state: RecordingState): Promise<RecordingState> => ipcRenderer.invoke("recording:write-state", { folderPath, state }),
   beginRecordingMedia: (folderPath: string): Promise<void> => ipcRenderer.invoke("recording:begin-media", folderPath),
   appendRecordingChunk: (folderPath: string, chunk: RecordingChunkInput): Promise<{ bytesWritten: number; lastChunkAt: string }> => ipcRenderer.invoke("recording:append-chunk", { folderPath, chunk }),
+  checkpointRecordingSession: (folderPath: string, paused: boolean): Promise<RecordingCheckpointResult> => ipcRenderer.invoke("recording:checkpoint", { folderPath, paused }),
   finalizeRecordingMedia: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:finalize-media", folderPath),
   recoverRecordingSession: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:recover", folderPath),
   openRecordingFolder: (folderPath: string): Promise<string> => ipcRenderer.invoke("recording:open-folder", folderPath),

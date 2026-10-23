@@ -99,7 +99,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.expectedCameraTracks = Object.values(normalizedRequest.deviceDefaults.cameras).filter(Boolean).length;
     this.expectedAudioTracks = Object.values(normalizedRequest.deviceDefaults.microphones).filter(Boolean).length;
     this.diskSession = normalizedRequest.session && window.studio.beginRecordingMedia && window.studio.appendRecordingChunk
-      ? normalizedRequest.session
+      ? { ...normalizedRequest.session, folderPath: normalizedRequest.session.captureFolderPath ?? normalizedRequest.session.folderPath }
       : undefined;
     if (this.diskSession) await window.studio.beginRecordingMedia?.(this.diskSession.folderPath);
 

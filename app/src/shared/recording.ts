@@ -34,6 +34,9 @@ export interface RecordingSession {
   practice: boolean;
   backupFolderPath?: string;
   recoverableBytes?: number;
+  captureFolderPath?: string;
+  durablePaused?: boolean;
+  elapsedMs?: number;
 }
 
 export interface RecordingChunkInput {
@@ -72,6 +75,11 @@ export interface RecordingFinalizeResult {
   programPath?: string;
   tracks: RecordingTrackSaveResult[];
   integrity: RecordingIntegrityReport;
+}
+
+export interface RecordingCheckpointResult {
+  session: RecordingSession;
+  result?: RecordingFinalizeResult;
 }
 
 export interface RecordingState {
@@ -140,6 +148,7 @@ export interface RecordingSessionCreateInput {
   deviceDefaults: DeviceDefaults;
   practice?: boolean;
   backupFolderPath?: string;
+  resume?: boolean;
 }
 
 export const requiredRecordingSessionFolders = ["Program", "Cameras", "Audio", "Backup", "Session", "Logs"] as const;
