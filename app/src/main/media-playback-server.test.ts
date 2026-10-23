@@ -24,6 +24,7 @@ describe("media playback server", () => {
 
     const full = await fetch(mediaUrl);
     expect(full.status).toBe(200);
+    expect(full.headers.get("access-control-allow-origin")).toBe("*");
     expect(full.headers.get("content-type")).toBe("video/webm");
     expect(await full.text()).toBe("0123456789");
 
@@ -69,6 +70,9 @@ describe("media playback server", () => {
     const response = await fetch(`${server.baseUrl}/cloud/${token}`, { headers: { range: "bytes=2-5" } });
     expect(response.status).toBe(206);
     expect(response.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    const preflight = await fetch(`${server.baseUrl}/cloud/${token}`, { method: "OPTIONS", headers: { Origin: "null", "Access-Control-Request-Headers": "Range" } });
+    expect(preflight.status).toBe(204);
     expect(await response.text()).toBe("2345");
     expect(calls).toEqual(["episode-a:objects/revision/proxy.mp4:bytes=2-5"]);
     expect((await fetch(`${server.baseUrl.replace(/[^/]+$/, "wrong-token")}/cloud/${token}`)).status).toBe(404);

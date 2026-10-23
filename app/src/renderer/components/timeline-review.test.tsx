@@ -395,6 +395,7 @@ describe("TimelineReview", () => {
     act(() => cameraThree.click());
 
     expect(cameraThree.classList.contains("selected")).toBe(true);
+    expect(Array.from(host.querySelectorAll("video, audio")).every((element) => (element as HTMLMediaElement).crossOrigin === "anonymous")).toBe(true);
     expect((host.querySelector(".realtime-preview-layer.active") as HTMLVideoElement).muted).toBe(true);
     expect((host.querySelector('audio[src*="guest-mic"]') as HTMLAudioElement | null)).not.toBeNull();
     act(() => root.unmount());

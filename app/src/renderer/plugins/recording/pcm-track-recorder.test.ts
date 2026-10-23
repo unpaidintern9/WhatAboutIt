@@ -1,6 +1,11 @@
 import { runInNewContext } from "node:vm";
 import { describe, expect, it } from "vitest";
-import { pcmWorkletSource } from "./pcm-track-recorder";
+import fs from "node:fs";
+import path from "node:path";
+const pcmWorkletSource = fs.readFileSync(
+  path.join(process.cwd(), "public", "pcm-capture-worklet.js"),
+  "utf8",
+);
 
 describe("lossless audio rendering-thread capture", () => {
   it("preserves signed 24-bit samples, flushes before stop, and excludes paused audio", () => {
