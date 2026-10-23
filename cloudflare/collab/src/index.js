@@ -25,12 +25,12 @@ function corsHeaders(request, env) {
 }
 
 function configuredAccessKeys(env) {
-  try {
-    const parsed = JSON.parse(env.WHATABOUTIT_COLLAB_ACCESS_KEYS || "{}");
-    return Object.entries(parsed).filter(([identity, key]) => /^[A-Za-z0-9._-]{1,80}$/.test(identity) && typeof key === "string" && key.length >= 24);
-  } catch {
-    return [];
-  }
+  let parsed = {};
+  try { parsed = JSON.parse(env.WHATABOUTIT_COLLAB_ACCESS_KEYS || "{}"); } catch { /* The independently configured legacy credential can still be valid. */ }
+  const entries = Object.entries(parsed || {}).filter(([identity, key]) => /^[A-Za-z0-9._-]{1,80}$/.test(identity) && typeof key === "string" && key.length >= 24);
+  const legacy = env.WHATABOUTIT_COLLAB_ACCESS_KEY;
+  if (typeof legacy === "string" && legacy.length >= 24 && !entries.some(([, key]) => key === legacy)) entries.push(["legacy-transition", legacy]);
+  return entries;
 }
 
 async function constantTimeEqual(left, right) {
