@@ -1,6 +1,6 @@
 import { type ReactElement } from "react";
 import { ArrowLeft, CheckCircle2, ExternalLink, FileArchive, FileAudio, FolderInput, Home, LoaderCircle, PackageOpen, Play, RectangleVertical, ShieldCheck, Square, Video } from "lucide-react";
-import type { ExportJob, ExportMasteringMode, ExportQualityPreset, ExportType, MediaToolsStatus } from "../../shared/export";
+import type { EditorVideoPreset, ExportJob, ExportMasteringMode, ExportQualityPreset, ExportType, MediaToolsStatus } from "../../shared/export";
 import { exportFriendlyErrorCopy, exportTypeLabels } from "../../shared/export";
 import { Button } from ".";
 
@@ -14,6 +14,8 @@ interface ExportEpisodeProps {
   includeAudioMasters?: boolean;
   masteringMode?: ExportMasteringMode;
   destinationFolderPath?: string;
+  editorVideoPreset?: EditorVideoPreset;
+  onEditorVideoPresetChange?: (preset: EditorVideoPreset) => void;
   onTypeChange: (type: ExportType) => void;
   onQualityChange: (preset: ExportQualityPreset) => void;
   onCameraMastersChange?: (included: boolean) => void;
@@ -57,6 +59,8 @@ export function ExportEpisode({
   includeAudioMasters = false,
   masteringMode = "measured",
   destinationFolderPath,
+  editorVideoPreset = "compatible",
+  onEditorVideoPresetChange,
   onTypeChange,
   onQualityChange,
   onCameraMastersChange,
@@ -85,7 +89,7 @@ export function ExportEpisode({
         <div>
           <p className="signature">Save a finished copy</p>
           <h2>Export your episode</h2>
-          <p className="soft-copy">Your original recording stays safe. Pick the finished copy you need and save it locally.</p>
+          <p className="soft-copy">Your original recording stays safe. Every export gets its own dated folder with its media and notes together.</p>
         </div>
         <div className="original-safe-badge">
           <ShieldCheck size={30} />
@@ -123,9 +127,20 @@ export function ExportEpisode({
           <div className="editor-handoff-settings">
             <div className="editor-handoff-summary">
               <strong>Universal editor package</strong>
-              <span>1080p H.264 MP4 camera files with guide audio</span>
-              <span>48 kHz, 24-bit WAV microphone files</span>
+              <span>Full-length Program and camera files at source resolution and frame rate</span>
+              <span>48 kHz, 24-bit WAV microphone files with original channels</span>
               <span>Reference edit, captions, markers, sync map, README, and SHA-256 checksums</span>
+              <span>Includes media and edit notes; rebuild the timeline in your editor using the reference edit.</span>
+            </div>
+            <div className="quality-preset-row" aria-label="Editor source video format">
+              <button type="button" aria-pressed={editorVideoPreset === "compatible"} className={editorVideoPreset === "compatible" ? "selected" : ""} disabled={isRunning} onClick={() => onEditorVideoPresetChange?.("compatible")}>
+                <strong>Compatible MP4<small>Recommended for sharing</small></strong>
+                <span>Smaller H.264 files for Premiere, Resolve, Final Cut, or CapCut.</span>
+              </button>
+              <button type="button" aria-pressed={editorVideoPreset === "prores"} className={editorVideoPreset === "prores" ? "selected" : ""} disabled={isRunning} onClick={() => onEditorVideoPresetChange?.("prores")}>
+                <strong>ProRes 422 MOV</strong>
+                <span>Smoother scrubbing in Premiere, Resolve, and Final Cut. Much larger files; choose MP4 for CapCut.</span>
+              </button>
             </div>
             <div className="editor-handoff-destination">
               <span><strong>Save destination</strong><small>{destinationFolderPath ?? "Choose an external drive, shared folder, or transfer folder."}</small></span>
@@ -209,6 +224,7 @@ export function ExportEpisode({
           <strong>{isRunning ? `${job?.progress ?? 0}%` : isComplete ? "100%" : ""}</strong>
           <span>{job?.error ? exportFriendlyErrorCopy[job.error] : job?.message ?? "Save a finished copy"}</span>
         </div>
+        {job?.outputFolder ? <p className="soft-copy"><strong>Export folder: </strong>{job.outputFolder}</p> : null}
         {isComplete && job?.outputFileNames && job.outputFileNames.length > 1 && (
           <div className="export-output-summary">
             <strong>Your export includes</strong>

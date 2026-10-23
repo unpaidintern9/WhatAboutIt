@@ -57,6 +57,11 @@ describe("ExportEpisode", () => {
     );
 
     expect(missingDestination).toContain("Universal editor package");
+    expect(missingDestination).toContain("Compatible MP4");
+    expect(missingDestination).toContain("ProRes 422 MOV");
+    expect(missingDestination).toContain("source resolution and frame rate");
+    expect(missingDestination).toContain("original channels");
+    expect(missingDestination).toContain("rebuild the timeline");
     expect(missingDestination).toContain("48 kHz, 24-bit WAV");
     expect(missingDestination).toContain("SHA-256 checksums");
     expect(missingDestination).toContain("Choose destination");
@@ -102,6 +107,8 @@ describe("ExportEpisode", () => {
     expect(markup).toContain("camera-1-with-morgan-mic.mp4");
     expect(markup).toContain("Finish");
     expect(markup).toContain("Export again");
+    expect(markup).toContain("Export folder:");
+    expect(markup).toContain("Episode/Exports");
   });
 
   it("renders live export percentage and stage", () => {

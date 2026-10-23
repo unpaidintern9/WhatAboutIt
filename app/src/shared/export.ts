@@ -5,6 +5,7 @@ export type ExportType = "full-episode-video" | "audio-only" | "archive-master" 
 export type ExportQualityPreset = "standard" | "high" | "archive";
 export type ExportJobStatus = "idle" | "queued" | "running" | "complete" | "canceled" | "error";
 export type ExportMasteringMode = "fast" | "measured";
+export type EditorVideoPreset = "compatible" | "prores";
 
 export interface ExportSettings {
   defaultExportFolder: string;
@@ -23,6 +24,7 @@ export interface ExportRequest {
   includeAudioMasters?: boolean;
   masteringMode?: ExportMasteringMode;
   destinationFolderPath?: string;
+  editorVideoPreset?: EditorVideoPreset;
 }
 
 export interface MediaToolsStatus {

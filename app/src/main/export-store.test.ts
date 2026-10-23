@@ -60,7 +60,8 @@ describe("export store", () => {
       practice: true,
       draft: createTimelineDraft({ episodeId: "episode-a", deviceDefaults: { cameras: {}, microphones: {} } })
     });
-    const folder = path.join(mockPaths.episodesRoot, "episode-a", "Exports");
+    const folder = job.outputFolder;
+    expect(path.dirname(folder)).toBe(path.join(mockPaths.episodesRoot, "episode-a", "Exports"));
     const summary = JSON.parse(await fs.readFile(path.join(folder, "export-summary.json"), "utf8")) as { originalRecordingSafe: boolean };
     const outputPath = path.join(folder, job.outputFileName ?? "");
 
@@ -84,12 +85,14 @@ describe("export store", () => {
 
     const first = await createExport(request);
     const second = await createExport(request);
-    const folder = path.join(mockPaths.episodesRoot, request.episodeId, "Exports");
+    expect(first.outputFolder).not.toBe(second.outputFolder);
 
     expect(first.outputFileName).toBe("what-about-it-audio-only.m4a");
-    expect(second.outputFileName).toBe("what-about-it-audio-only-2.m4a");
-    await expect(fs.stat(path.join(folder, first.outputFileName ?? ""))).resolves.toBeTruthy();
-    await expect(fs.stat(path.join(folder, second.outputFileName ?? ""))).resolves.toBeTruthy();
+    expect(second.outputFileName).toBe("what-about-it-audio-only.m4a");
+    await expect(fs.stat(path.join(first.outputFolder, first.outputFileName ?? ""))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(second.outputFolder, second.outputFileName ?? ""))).resolves.toBeTruthy();
+    expect(JSON.parse(await fs.readFile(path.join(first.outputFolder, "export-job.json"), "utf8")).id).toBe(first.id);
+    expect(JSON.parse(await fs.readFile(path.join(second.outputFolder, "export-job.json"), "utf8")).id).toBe(second.id);
   }, 30000);
 
   it("creates a real audio-only export from generated local media", async () => {
@@ -104,7 +107,7 @@ describe("export store", () => {
       draft: createTimelineDraft({ episodeId: "episode-audio", deviceDefaults: { cameras: {}, microphones: {} } })
     });
 
-    const outputPath = path.join(mockPaths.episodesRoot, "episode-audio", "Exports", job.outputFileName ?? "");
+    const outputPath = path.join(job.outputFolder, job.outputFileName ?? "");
 
     expect(job.status).toBe("complete");
     expect(job.outputFileName).toBe("what-about-it-audio-only.m4a");
@@ -141,11 +144,11 @@ describe("export store", () => {
 
     const first = await createExport({ episodeId: "episode-captions", type: "audio-only", qualityPreset: "standard", practice: true, draft });
     const second = await createExport({ episodeId: "episode-captions", type: "audio-only", qualityPreset: "standard", practice: true, draft });
-    const folder = path.join(mockPaths.episodesRoot, "episode-captions", "Exports");
+    expect(first.outputFolder).not.toBe(second.outputFolder);
 
     expect(first.outputFileNames).toContain("captions.srt");
-    expect(second.outputFileNames).toContain("captions-2.srt");
-    expect(await fs.readFile(path.join(folder, "captions.srt"), "utf8")).toContain("00:00:00,250 --> 00:00:01,500");
+    expect(second.outputFileNames).toContain("captions.srt");
+    expect(await fs.readFile(path.join(first.outputFolder, "captions.srt"), "utf8")).toContain("00:00:00,250 --> 00:00:01,500");
   }, 30000);
 
   it("renders the high preset as a real 1080p video", async () => {
@@ -158,7 +161,7 @@ describe("export store", () => {
       practice: true,
       draft: createTimelineDraft({ episodeId: "episode-high", deviceDefaults: { cameras: {}, microphones: {} } })
     });
-    const outputPath = path.join(mockPaths.episodesRoot, "episode-high", "Exports", job.outputFileName ?? "");
+    const outputPath = path.join(job.outputFolder, job.outputFileName ?? "");
     const probe = await runFfprobe(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", outputPath]);
     const streams = (JSON.parse(probe.stdout) as { streams: Array<{ width: number; height: number }> }).streams;
 
@@ -199,7 +202,7 @@ describe("export store", () => {
       draft: createTimelineDraft({ episodeId: "episode-recorded", deviceDefaults: { cameras: {}, microphones: {} } })
     });
 
-    const outputPath = path.join(mockPaths.episodesRoot, "episode-recorded", "Exports", job.outputFileName ?? "");
+    const outputPath = path.join(job.outputFolder, job.outputFileName ?? "");
 
     expect(job.status).toBe("complete");
     expect(job.outputFileName).toBe("what-about-it-full-episode-video.mp4");
@@ -229,7 +232,7 @@ describe("export store", () => {
       qualityPreset: "standard",
       draft: createTimelineDraft({ episodeId, durationMs: 1500, deviceDefaults: { cameras: {}, microphones: {} } })
     });
-    const outputPath = path.join(episodeFolder, "Exports", job.outputFileName ?? "");
+    const outputPath = path.join(job.outputFolder, job.outputFileName ?? "");
 
     expect(job.status).toBe("complete");
     expect(await getMediaDurationMs(outputPath)).toBeGreaterThan(1200);
@@ -262,7 +265,7 @@ describe("export store", () => {
     };
 
     const job = await createExport({ episodeId, type: "full-episode-video", qualityPreset: "standard", draft });
-    const outputPath = path.join(mockPaths.episodesRoot, episodeId, "Exports", job.outputFileName ?? "");
+    const outputPath = path.join(job.outputFolder, job.outputFileName ?? "");
     const durationMs = await getMediaDurationMs(outputPath);
 
     expect(job.status).toBe("complete");
@@ -287,7 +290,7 @@ describe("export store", () => {
     draft.selection = { timestampMs: 500, endTimestampMs: 1500, trackId: "program", source: "timeline" };
 
     const job = await createExport({ episodeId, type: "social-clip-placeholder", qualityPreset: "standard", draft });
-    const outputPath = path.join(mockPaths.episodesRoot, episodeId, "Exports", job.outputFileName ?? "");
+    const outputPath = path.join(job.outputFolder, job.outputFileName ?? "");
     const probe = await runFfprobe(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height", "-of", "json", outputPath]);
     const streams = (JSON.parse(probe.stdout) as { streams: Array<{ width: number; height: number }> }).streams;
 
@@ -367,7 +370,7 @@ describe("export store", () => {
         return draft;
       })()
     }, (next) => progress.push(next.progress));
-    const cameraMaster = path.join(episodeFolder, "Exports", "Camera Masters", "camera-1-with-morgan-mic.mp4");
+    const cameraMaster = path.join(job.outputFolder, "Camera Masters", "camera-1-with-morgan-mic.mp4");
 
     expect(job.status).toBe("complete");
     expect(job.outputFileNames).toContain(path.join("Camera Masters", "camera-1-with-morgan-mic.mp4"));
@@ -379,9 +382,9 @@ describe("export store", () => {
     expect(await validatePlayableMedia(cameraMaster, undefined, { video: true, audio: true, decode: true })).toBe(true);
   }, 30000);
 
-  it("creates a portable editor handoff package in a chosen destination", async () => {
+  it.each(["compatible", "prores"] as const)("creates a portable %s editor handoff preserving source resolution, rate, and channels", async (editorVideoPreset) => {
     const { createExport } = await import("./export-store");
-    const { runFfmpeg, validatePlayableMedia } = await import("./ffmpeg-tools");
+    const { runFfmpeg, runFfprobe, validatePlayableMedia } = await import("./ffmpeg-tools");
     const episodeId = "episode-editor-handoff";
     const episodeFolder = path.join(mockPaths.episodesRoot, episodeId);
     const destination = path.join(mockPaths.episodesRoot, "outside-editor-deliveries");
@@ -394,8 +397,8 @@ describe("export store", () => {
       fs.mkdir(path.dirname(microphonePath), { recursive: true })
     ]);
     await runFfmpeg(["-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24", "-f", "lavfi", "-i", "sine=frequency=550:sample_rate=48000", "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", programPath]);
-    await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=red:size=320x180:rate=24", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000", "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", cameraPath]);
-    await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "1", "-c:a", "aac", microphonePath]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=red:size=640x360:rate=24000/1001", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000", "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", cameraPath]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "1", "-ac", "2", "-c:a", "aac", microphonePath]);
     const draft = createTimelineDraft({
       episodeId,
       durationMs: 1000,
@@ -405,9 +408,10 @@ describe("export store", () => {
     draft.captions = [{ id: "caption-1", startMs: 100, endMs: 800, text: "Welcome to What About It" }];
     draft.tracks = draft.tracks.map((track) => track.id === "mic-morganMic" ? { ...track, syncOffsetMs: 125 } : track);
 
-    const job = await createExport({ episodeId, type: "editor-handoff", qualityPreset: "high", destinationFolderPath: destination, masteringMode: "measured", draft });
+    const job = await createExport({ episodeId, type: "editor-handoff", editorVideoPreset, qualityPreset: "high", destinationFolderPath: destination, masteringMode: "measured", draft });
     const referencePath = path.join(job.outputFolder, "01 Reference Edit", "what-about-it-reference-edit.mp4");
-    const cameraOutput = path.join(job.outputFolder, "02 Camera Video", "Camera 1.mp4");
+    const extension = editorVideoPreset === "prores" ? "mov" : "mp4";
+    const cameraOutput = path.join(job.outputFolder, "02 Camera Video", `Camera 1.${extension}`);
     const microphoneOutput = path.join(job.outputFolder, "03 Isolated Audio", "Morgan Mic.wav");
     const checksums = await fs.readFile(path.join(job.outputFolder, "SHA256SUMS.txt"), "utf8");
     const syncMap = await fs.readFile(path.join(job.outputFolder, "04 Project Notes", "sync-map.csv"), "utf8");
@@ -423,7 +427,26 @@ describe("export store", () => {
     expect(await fs.readFile(path.join(job.outputFolder, "04 Project Notes", "captions.srt"), "utf8")).toContain("Welcome to What About It");
     expect(syncMap).toContain("Trim 125 ms from the start");
     expect(checksums).toContain("01 Reference Edit/what-about-it-reference-edit.mp4");
-    expect(checksums).toContain("02 Camera Video/Camera 1.mp4");
+    expect(checksums).toContain(`02 Camera Video/Camera 1.${extension}`);
+    expect(checksums).toContain(`02 Camera Video/Program Source.${extension}`);
+    const probe = JSON.parse((await runFfprobe(["-v", "error", "-show_streams", "-of", "json", cameraOutput])).stdout);
+    const video = probe.streams.find((stream: { codec_type: string }) => stream.codec_type === "video");
+    expect(video.width).toBe(640);
+    expect(video.height).toBe(360);
+    expect(video.avg_frame_rate).toBe("24000/1001");
+    expect(video.codec_name).toBe(editorVideoPreset === "prores" ? "prores" : "h264");
+    const audio = JSON.parse((await runFfprobe(["-v", "error", "-show_streams", "-of", "json", microphoneOutput])).stdout).streams[0];
+    expect(audio.channels).toBe(2);
+    expect(audio.sample_rate).toBe("48000");
+    expect(audio.codec_name).toBe("pcm_s24le");
+    const manifestText = await fs.readFile(path.join(job.outputFolder, "04 Project Notes", "handoff-manifest.json"), "utf8");
+    const manifest = JSON.parse(manifestText);
+    expect(manifest.videoPreset).toBe(editorVideoPreset);
+    expect(manifest.files).toHaveLength(3);
+    expect(manifestText).not.toContain(mockPaths.episodesRoot);
+    expect(syncMap).toContain("03 Isolated Audio/Morgan Mic.wav,included");
+    const { createHash } = await import("node:crypto");
+    expect(checksums).toContain(`${createHash("sha256").update(await fs.readFile(cameraOutput)).digest("hex")}  02 Camera Video/Camera 1.${extension}`);
   }, 60000);
 
   it("returns a friendly editor handoff state when no destination was chosen", async () => {
@@ -521,7 +544,7 @@ describe("export store", () => {
       "-shortest",
       sourcePath
     ]);
-    await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=red:size=320x180:rate=24", "-t", "2", "-c:v", "libvpx", "-an", cameraOnePath]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=red:size=640x360:rate=24000/1001", "-t", "2", "-c:v", "libvpx", "-an", cameraOnePath]);
     await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=blue:size=320x180:rate=24", "-t", "2", "-c:v", "libvpx", "-an", cameraTwoPath]);
     await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "2", "-c:a", "aac", morganPath]);
     await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=660:sample_rate=48000", "-t", "2", "-c:a", "aac", guestPath]);
@@ -588,8 +611,8 @@ describe("export store", () => {
         })
       }
     });
-    const summary = JSON.parse(await fs.readFile(path.join(mockPaths.episodesRoot, "episode-edited", "Exports", "export-summary.json"), "utf8")) as { message: string };
-    const outputPath = path.join(episodeFolder, "Exports", job.outputFileName ?? "");
+    const summary = JSON.parse(await fs.readFile(path.join(job.outputFolder, "export-summary.json"), "utf8")) as { message: string };
+    const outputPath = path.join(job.outputFolder, job.outputFileName ?? "");
     const { logger } = await import("./logger");
     const exportError = vi.mocked(logger.error).mock.calls.at(-1);
 
@@ -600,8 +623,8 @@ describe("export store", () => {
     expect(job.outputFileNames).toContain(path.join("Audio Masters", "guest-mic-edited.wav"));
     expect(job.outputFileNames).toContain("edit-decision-list.json");
     expect(await validatePlayableMedia(outputPath, undefined, { video: true, audio: true, decode: true })).toBe(true);
-    expect(await validatePlayableMedia(path.join(episodeFolder, "Exports", "Audio Masters", "morgan-mic-edited.wav"), undefined, { audio: true, decode: true })).toBe(true);
-    expect(await validatePlayableMedia(path.join(episodeFolder, "Exports", "Audio Masters", "guest-mic-edited.wav"), undefined, { audio: true, decode: true })).toBe(true);
+    expect(await validatePlayableMedia(path.join(job.outputFolder, "Audio Masters", "morgan-mic-edited.wav"), undefined, { audio: true, decode: true })).toBe(true);
+    expect(await validatePlayableMedia(path.join(job.outputFolder, "Audio Masters", "guest-mic-edited.wav"), undefined, { audio: true, decode: true })).toBe(true);
   }, 60000);
 
   it("mixes every enabled isolated microphone even when the episode has no manual edits", async () => {
@@ -630,7 +653,7 @@ describe("export store", () => {
       deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a", guestMic: "mic-b" } }
     });
     const job = await createExport({ episodeId, type: "full-episode-video", qualityPreset: "standard", draft });
-    const outputPath = path.join(episodeFolder, "Exports", job.outputFileName ?? "");
+    const outputPath = path.join(job.outputFolder, job.outputFileName ?? "");
 
     expect(job.status).toBe("complete");
     expect(job.message).toContain("manual draft");
