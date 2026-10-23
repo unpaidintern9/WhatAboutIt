@@ -63,6 +63,7 @@ describe("RecordingService", () => {
     expect((await service.resume()).status).toBe("recording");
     expect((await service.stop()).status).toBe("stopped");
     expect(window.studio.saveProgramRecording).toHaveBeenCalled();
+    expect(service.selectEpisode("next-episode")).toMatchObject({ status: "idle", elapsedMs: 0, session: undefined });
   });
 
   it("explains when an existing episode is protected from another recording", async () => {
@@ -97,6 +98,7 @@ describe("RecordingService", () => {
 
     const firstStop = service.stop();
     const secondStop = service.stop();
+    await Promise.resolve();
     expect(plugin.stop).toHaveBeenCalledTimes(1);
 
     finishStop?.({ bytes: new Uint8Array([1]), mimeType: "video/webm" });
@@ -104,6 +106,44 @@ describe("RecordingService", () => {
     expect(firstSnapshot.status).toBe("stopped");
     expect(secondSnapshot.status).toBe("stopped");
     expect(window.studio.saveProgramRecording).toHaveBeenCalledTimes(1);
+  });
+
+  it("saves a durable pause, allows shutdown, and resumes the same episode after recreation", async () => {
+    installStudioMock();
+    const session = { id: "saved-session", episodeId: "saved-episode", episodeTitle: "Interview", folderPath: "C:/episodes/saved-episode", captureFolderPath: "C:/episodes/saved-episode/Recordings/part-1", startedAt: "2026-06-27T10:00:00.000Z", status: "recording" as const, practice: false, elapsedMs: 0 };
+    window.studio.createRecordingSession = vi.fn(async (input) => ({ ...session, elapsedMs: input.resume ? 9300 : 0 }));
+    window.studio.checkpointRecordingSession = vi.fn(async () => ({ session: { ...session, status: "paused" as const, durablePaused: true, elapsedMs: 9300 } }));
+    const defaults = { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } };
+    const plugin = createPlugin();
+    const first = new RecordingService(plugin);
+    await first.start(defaults, { episodeId: session.episodeId });
+    const saved = await first.pause();
+    expect(plugin.stop).toHaveBeenCalledTimes(1);
+    expect(saved).toMatchObject({ status: "paused", elapsedMs: 9300, session: { durablePaused: true } });
+    expect(saved.localSaveMessage).toContain("close the app");
+    await first.shutdown();
+    expect(vi.mocked(window.studio.writeRecordingState).mock.calls.some((call) => call[1].status === "interrupted")).toBe(false);
+    const reopenedPlugin = createPlugin();
+    const reopened = new RecordingService(reopenedPlugin);
+    expect(reopened.restorePaused(saved.session!).elapsedMs).toBe(9300);
+    const continued = await reopened.resumeSaved(saved.session!, defaults);
+    expect(window.studio.createRecordingSession).toHaveBeenLastCalledWith(expect.objectContaining({ episodeId: session.episodeId, resume: true }));
+    expect(continued).toMatchObject({ status: "recording", session: { id: session.id, folderPath: session.folderPath } });
+    expect(continued.elapsedMs).toBeGreaterThanOrEqual(9300);
+    expect(reopenedPlugin.start).toHaveBeenCalledTimes(1);
+    await reopened.shutdown();
+  });
+
+  it("prevents episode switches during capture and save transitions", async () => {
+    installStudioMock();
+    const plugin = createPlugin();
+    const service = new RecordingService(plugin);
+    await service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } });
+    expect(() => service.selectEpisode("different-episode")).toThrow("Pause and save");
+    const finishing = service.stop();
+    expect(() => service.selectEpisode("different-episode")).toThrow("Pause and save");
+    await finishing;
+    expect(service.selectEpisode("different-episode").session).toBeUndefined();
   });
 
   it("marks a stopped capture recoverable when the recorder throws during Stop", async () => {

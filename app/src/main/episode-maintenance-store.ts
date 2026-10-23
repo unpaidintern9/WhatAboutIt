@@ -26,7 +26,7 @@ function getEpisodeFolder(episodeId: string) {
 export async function getEpisodeStorageSummary(episodeId: string): Promise<EpisodeStorageSummary> {
   const folder = getEpisodeFolder(episodeId);
   const definitions: Array<{ id: EpisodeStorageBucket["id"]; label: string; paths: string[]; rebuildable: boolean }> = [
-    { id: "originals", label: "Protected originals", paths: ["Originals", "Program"], rebuildable: false },
+    { id: "originals", label: "Protected originals", paths: ["Originals", "Program", "Recordings"], rebuildable: false },
     { id: "editing-media", label: "Editing media", paths: ["Cameras", "Audio"], rebuildable: false },
     { id: "review-cache", label: "Review cache", paths: [path.join("Session", "Review")], rebuildable: true },
     { id: "backups", label: "Imported-media backups", paths: [path.join("Backup", "Imported Media")], rebuildable: false },

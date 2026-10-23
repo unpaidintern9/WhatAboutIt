@@ -25,6 +25,8 @@ import type { EpisodeMetadata } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
 import { getMediaStreamStartMs, runFfmpeg, validatePlayableMedia } from "./ffmpeg-tools";
 import { logger } from "./logger";
+import { allocateRecordingPart, materializeRecordingParts, readActiveRecordingPart, readRecordingJson, recordingSessionPath, retainEmptyRecordingAttempt, saveCompletedRecordingPart, withRecordingOperation, writeRecordingJson } from "./recording-parts-store";
+import type { RecordingCheckpointResult } from "../shared/recording";
 
 function slugify(input: string) {
   return (
@@ -57,6 +59,20 @@ async function readJsonFile<T>(filePath: string): Promise<T | null> {
 
 export async function createRecordingSession(input: RecordingSessionCreateInput): Promise<RecordingSession> {
   const now = new Date().toISOString();
+  if (input.episodeId && (path.basename(input.episodeId) !== input.episodeId || [".", ".."].includes(input.episodeId))) throw new Error("Invalid episode folder identifier.");
+  if (input.episodeId && !input.resume) {
+    const saved = await readJsonFile<RecordingSession>(recordingSessionPath(path.join(getEpisodesRoot(), input.episodeId)));
+    if (saved?.status === "paused" && saved.durablePaused) input = { ...input, resume: true };
+  }
+  if (input.resume) {
+    if (!input.episodeId || path.basename(input.episodeId) !== input.episodeId || [".", ".."].includes(input.episodeId)) throw new Error("Open the paused episode before resuming.");
+    const folder = assertRecordingFolder(path.join(getEpisodesRoot(), input.episodeId));
+    return withRecordingOperation(folder, async () => {
+      const session = await readRecordingJson<RecordingSession>(recordingSessionPath(folder));
+      if (session.status !== "paused" || !session.durablePaused) throw new Error("This episode is not saved as a paused recording.");
+      return allocateRecordingPart(folder, session, input.deviceDefaults, true);
+    });
+  }
   const originalFolder = input.episodeId ? assertRecordingFolder(path.join(getEpisodesRoot(), input.episodeId)) : undefined;
   const originalMetadata = originalFolder ? await readJsonFile<EpisodeMetadata>(path.join(originalFolder, "metadata.json")) : null;
   const episodeTitle = input.episodeTitle?.trim() || originalMetadata?.title || "Quick Recording";
@@ -118,7 +134,22 @@ export async function createRecordingSession(input: RecordingSessionCreateInput)
   await fs.writeFile(path.join(folderPath, "Logs", "errors.log"), "", "utf8");
   await logger.info("RecordingService", "Created local recording session.", { sessionId: session.id, episodeId });
 
-  return session;
+  return allocateRecordingPart(folderPath, session, input.deviceDefaults);
+}
+
+export async function checkpointRecordingSession(folderPath: string, paused: boolean): Promise<RecordingCheckpointResult> {
+  const folder = assertRecordingFolder(folderPath);
+  return withRecordingOperation(folder, async () => {
+    await retainEmptyRecordingAttempt(folder);
+    const { session, part, captureFolder } = await readActiveRecordingPart(folder);
+    if (!part.result) await saveCompletedRecordingPart(folder, await finalizeRecordingMedia(captureFolder));
+    const { journal } = await readActiveRecordingPart(folder);
+    const result = paused ? undefined : await materializeRecordingParts(folder);
+    const next = { ...session, captureFolderPath: captureFolder, status: paused ? "paused" as const : "stopped" as const, durablePaused: paused, elapsedMs: journal.parts.reduce((sum, item) => sum + (item.durationMs ?? 0), 0) };
+    await writeRecordingJson(recordingSessionPath(folder), next);
+    await writeRecordingState(folder, { ...createInitialRecordingState(next.id), status: next.status, elapsedMs: next.elapsedMs });
+    return { session: next, result };
+  });
 }
 
 interface CaptureManifestSource {
@@ -288,9 +319,19 @@ export async function appendRecordingChunk(folderPath: string, chunk: RecordingC
 async function finalizeProgramSource(folderPath: string, source?: CaptureManifestSource) {
   if (!source) return { programPath: undefined, playable: false };
   const finalPath = path.join(folderPath, "Program", "program.webm");
-  await fs.rm(finalPath, { force: true });
-  await fs.rename(source.partialPath, finalPath);
-  return { programPath: finalPath, playable: await isPlayableRecording(finalPath) };
+  const rawPath = path.join(folderPath, "Program", "program.source.webm");
+  if (!(await mediaFileExists(source.partialPath)) && await isPlayableRecording(finalPath)) return { programPath: finalPath, playable: true };
+  if (await mediaFileExists(source.partialPath)) await fs.rename(source.partialPath, rawPath);
+  // Browser WebM streams often omit duration/cues. A lossless remux makes
+  // completed parts seekable while retaining the untouched capture for recovery.
+  const temporary = path.join(folderPath, "Program", `.remux-${crypto.randomUUID()}.webm`);
+  try {
+    await runFfmpeg(["-y", "-i", rawPath, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", temporary]);
+    const playable = await isPlayableRecording(temporary);
+    if (!playable) return { programPath: undefined, playable: false };
+    await fs.rename(temporary, finalPath);
+    return { programPath: finalPath, playable };
+  } finally { await fs.rm(temporary, { force: true }); }
 }
 
 async function finalizeTrackSource(folderPath: string, source: CaptureManifestSource, audioLeadInMs = 0): Promise<RecordingTrackSaveResult> {
@@ -298,12 +339,14 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
   try {
     if (source.kind === "camera") {
       const finalPath = path.join(folderPath, "Cameras", `${mediaBaseName(slot)}.webm`);
+      if (!(await mediaFileExists(source.partialPath)) && await isPlayableRecording(finalPath)) return { slot, kind: "camera", status: "saved", filePath: finalPath, message: "Saved and verified" };
       await fs.rm(finalPath, { force: true });
       await fs.rename(source.partialPath, finalPath);
       if (!(await isPlayableRecording(finalPath))) throw new Error("Camera track failed validation.");
       return { slot, kind: "camera", status: "saved", filePath: finalPath, message: "Saved and verified" };
     }
     const finalPath = path.join(folderPath, "Audio", `${mediaBaseName(slot)}.m4a`);
+    if (!(await mediaFileExists(source.partialPath)) && await isPlayableRecording(finalPath) && await hasAudibleSignal(finalPath)) return { slot, kind: "audio", status: "saved", filePath: finalPath, message: "Saved and verified" };
     const originalExtension = source.mimeType.includes("mp4") || source.mimeType.includes("m4a") ? "m4a" : "webm";
     const originalPath = path.join(folderPath, "Audio", "Originals", `${mediaBaseName(slot)}.source.${originalExtension}`);
     await fs.rm(finalPath, { force: true });
@@ -340,6 +383,10 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
   }
 }
 
+async function mediaFileExists(file: string) {
+  try { await fs.access(file); return true; } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return false; throw error; }
+}
+
 async function hasAudibleSignal(filePath: string) {
   try {
     const result = await runFfmpeg(["-nostats", "-i", filePath, "-map", "0:a:0", "-af", "volumedetect", "-f", "null", "-"]);
@@ -354,7 +401,9 @@ async function hasAudibleSignal(filePath: string) {
 
 async function copyFinalizedRecordingToBackup(session: RecordingSession, programPath: string | undefined, tracks: RecordingTrackSaveResult[]) {
   if (!session.backupFolderPath) return undefined;
-  const backupPath = path.join(session.backupFolderPath, `${slugify(session.episodeTitle)}-${session.id.slice(0, 8)}`);
+  const base = path.join(session.backupFolderPath, `${slugify(session.episodeTitle)}-${session.id.slice(0, 8)}`);
+  const backupPath = session.captureFolderPath && path.resolve(session.folderPath) === path.resolve(session.captureFolderPath)
+    ? path.join(base, "Recordings", path.basename(session.captureFolderPath)) : base;
   await fs.mkdir(backupPath, { recursive: true });
   const files = [programPath, ...tracks.map((track) => track.filePath)].filter((filePath): filePath is string => Boolean(filePath));
   await Promise.all(files.map(async (source) => {
@@ -450,6 +499,12 @@ function parseTimestampMs(value?: string) {
 }
 
 export async function recoverRecordingSession(folderPath: string) {
+  const session = await readJsonFile<RecordingSession>(recordingSessionPath(assertRecordingFolder(folderPath)));
+  if (session?.captureFolderPath && !(await mediaFileExists(captureManifestPath(folderPath)))) {
+    const checkpoint = await checkpointRecordingSession(folderPath, false);
+    if (!checkpoint.result) throw new Error("Recording recovery could not be completed.");
+    return checkpoint.result;
+  }
   const result = await finalizeRecordingMedia(folderPath);
   const statePath = path.join(assertRecordingFolder(folderPath), "Session", "recording-state.json");
   const state = await readJsonFile<RecordingState>(statePath);
@@ -646,10 +701,10 @@ export async function listUnfinishedRecordingSessions() {
       const session = await readJsonFile<RecordingSession>(sessionPath);
       const state = await readJsonFile<RecordingState>(statePath);
 
-      if (session && state && isUnfinishedRecordingState(state)) {
-        const manifest = await readJsonFile<CaptureManifest>(captureManifestPath(folderPath));
+      if (session && state && (isUnfinishedRecordingState(state) || (state.status === "error" && session.captureFolderPath))) {
+        const manifest = (await readJsonFile<CaptureManifest>(captureManifestPath(folderPath))) ?? await readJsonFile<CaptureManifest>(captureManifestPath(session.captureFolderPath ?? folderPath));
         const recoverableBytes = Object.values(manifest?.sources ?? {}).reduce((total, source) => total + (source?.bytesWritten ?? 0), 0);
-        results.push({ ...session, status: "interrupted", recoverableBytes });
+        results.push({ ...session, folderPath, status: session.durablePaused && state.status === "paused" ? "paused" : "interrupted", recoverableBytes });
       }
     }
 

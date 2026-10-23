@@ -181,7 +181,18 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Hardware Direct Monitor prevents headphone echo");
   });
 
-  it("calls real recording controls for record, pause, resume, and stop", () => {
+  it("opens a saved paused episode without finalizing it as recovery", async () => {
+    const onResumeSession = vi.fn();
+    const onRecoverSession = vi.fn();
+    const session = { id: "paused-session", episodeId: "paused-episode", episodeTitle: "Paused interview", folderPath: "C:/episodes/paused", startedAt: "2026-06-27T10:00:00.000Z", status: "paused" as const, practice: false, durablePaused: true, elapsedMs: 12000 };
+    const { host } = renderStudio({ unfinishedSessions: [session], onResumeSession, onRecoverSession });
+    click(host, "Open Paused Episode");
+    await act(async () => { await Promise.resolve(); });
+    expect(onResumeSession).toHaveBeenCalledWith(session);
+    expect(onRecoverSession).not.toHaveBeenCalled();
+  });
+
+  it("calls real recording controls for record, pause, resume, and stop", async () => {
     const onStart = vi.fn();
     const onPause = vi.fn();
     const onResume = vi.fn();
@@ -192,6 +203,7 @@ describe("RecordingStudio", () => {
 
     const { host: recordingHost } = renderStudio({ snapshot: { status: "recording", elapsedMs: 1000, localSaveMessage: "Everything is saving locally", trackStatuses: [] }, onPause, onStop });
     click(recordingHost, "Pause");
+    await act(async () => { await Promise.resolve(); });
     click(recordingHost, "Stop");
     expect(onPause).toHaveBeenCalledTimes(1);
     expect(onStop).toHaveBeenCalledTimes(1);

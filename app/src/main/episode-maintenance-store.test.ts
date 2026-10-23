@@ -25,6 +25,7 @@ describe("episode maintenance store", () => {
     const folder = path.join(mockPaths.episodesRoot, episodeId);
     const files = {
       original: path.join(folder, "Originals", "camera.mp4"),
+      part: path.join(folder, "Recordings", "part-1", "Program", "program.source.webm"),
       program: path.join(folder, "Program", "program.webm"),
       editing: path.join(folder, "Cameras", "camera-1.webm"),
       review: path.join(folder, "Session", "Review", "camera-1-review.webm"),
@@ -36,7 +37,7 @@ describe("episode maintenance store", () => {
 
     const summary = await getEpisodeStorageSummary(episodeId);
     expect(summary.buckets).toHaveLength(5);
-    expect(summary.buckets.find((bucket) => bucket.id === "originals")).toMatchObject({ fileCount: 2, rebuildable: false });
+    expect(summary.buckets.find((bucket) => bucket.id === "originals")).toMatchObject({ fileCount: 3, rebuildable: false });
     expect(summary.buckets.find((bucket) => bucket.id === "review-cache")).toMatchObject({ fileCount: 1, rebuildable: true });
     expect(summary.buckets.find((bucket) => bucket.id === "exports")).toMatchObject({ fileCount: 1, rebuildable: false });
     expect(summary.totalBytes).toBe(Object.keys(files).reduce((total, name) => total + name.length, 0));
@@ -50,6 +51,7 @@ describe("episode maintenance store", () => {
     expect(afterExportCleanup.buckets.find((bucket) => bucket.id === "exports")?.fileCount).toBe(0);
     await expect(fs.readFile(files.editing, "utf8")).resolves.toBe("editing");
     await expect(fs.readFile(files.backup, "utf8")).resolves.toBe("backup");
+    await expect(fs.readFile(files.part, "utf8")).resolves.toBe("part");
   });
 
   it("rejects paths and cleanup options outside the episode allowlist", async () => {

@@ -11,7 +11,7 @@ import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-conf
 import { defaultExportSettings } from "../shared/export";
 import { configureEpisodesRoot, getAppDataRoot, getEpisodesRoot, getSettingsPath, getWorkspaceStatePath } from "./config-service";
 import { logger } from "./logger";
-import { appendRecordingChunk, appendRecordingError, beginRecordingMedia, createRecordingSession, finalizeRecordingMedia, listUnfinishedRecordingSessions, recoverRecordingSession, saveProgramRecording, saveRecordedTracks, writeRecordingState } from "./recording-session-store";
+import { appendRecordingChunk, appendRecordingError, beginRecordingMedia, checkpointRecordingSession, createRecordingSession, finalizeRecordingMedia, listUnfinishedRecordingSessions, recoverRecordingSession, saveProgramRecording, saveRecordedTracks, writeRecordingState } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
 import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
 import { cancelExport, createExport, detectMediaTools, openExportFolder, renderTrackTreatmentPreview } from "./export-store";
@@ -292,6 +292,7 @@ app.whenReady().then(async () => {
   ipcMain.handle("recording:write-state", (_event, input) => writeRecordingState(input.folderPath, input.state));
   ipcMain.handle("recording:begin-media", (_event, folderPath) => beginRecordingMedia(folderPath));
   ipcMain.handle("recording:append-chunk", (_event, input) => appendRecordingChunk(input.folderPath, input.chunk));
+  ipcMain.handle("recording:checkpoint", (_event, input) => checkpointRecordingSession(input.folderPath, input.paused));
   ipcMain.handle("recording:finalize-media", (_event, folderPath) => finalizeRecordingMedia(folderPath));
   ipcMain.handle("recording:recover", (_event, folderPath) => recoverRecordingSession(folderPath));
   ipcMain.handle("recording:open-folder", async (_event, folderPath) => shell.openPath(folderPath));

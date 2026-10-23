@@ -26,7 +26,7 @@ Program remains the reliable fallback. Review now exposes every saved sidecar as
 
 ## Editing and Episode Folders
 
-Each episode is one recording and keeps its complete work inside its own folder. Record uses a selected empty episode shell once. If that episode already has a session, imported media, finalized media, or recoverable media, Record automatically creates a new sibling episode with a UTC timestamp, title slug, and unique suffix. Existing data is never moved. Even empty/failed sessions are retained, and concurrent starts reserve different session files. Guest and description metadata carry forward; the new recording gets a fresh review draft and markers. Recent Episodes shows date and time so identically titled recordings are distinguishable. Pause/Resume remains within the same recording.
+Each episode is one recording and keeps its complete work inside its own folder. Record uses a selected empty episode shell once. If that episode already has a session, imported media, finalized media, or recoverable media, Record automatically creates a new sibling episode with a UTC timestamp, title slug, and unique suffix. Existing data is never moved. Even empty/failed sessions are retained, and concurrent starts reserve different session files. Guest and description metadata carry forward; the new recording gets a fresh review draft and markers. Recent Episodes shows date and time so identically titled recordings are distinguishable. Pause/Resume remains within the same episode, including after closing and reopening the app.
 
 Each recording contains:
 
@@ -131,3 +131,17 @@ Automated coverage confirms:
 - Mixer input selectors update Morgan/Guest/Extra mic device assignments.
 
 Physical M-Audio AudioBox input selection and headphone monitoring still need a human hardware pass.
+
+## Durable Pause and Resume
+
+New capture sessions write immutable parts inside `Episode/Recordings/part-<sequence>-<id>/`. Each part has its own Program, Cameras, Audio, Session, and Logs folders. `Episode/Session/recording-parts.json` owns the ordered part list. The episode/session IDs and top-level episode folder stay the same through every pause and resume.
+
+Pause flushes the recorders, validates the part, writes a durable checkpoint with measured duration, and releases capture/close protection only after the save succeeds. A lossless Program remux supplies duration and seek metadata missing from browser WebM; the untouched capture remains as `Program/program.source.webm`. The app may then close. Reopening the episode or choosing **Open Paused Episode** restores the elapsed time; **Resume** starts another part in that episode. Only recorded time is included; time away from the app is excluded.
+
+**Stop** finishes the episode and publishes validated combined Program/Cameras/Audio files at the existing top-level paths used by Review and Export. A single part is copied without transcoding. Multiple parts are aligned to each Program duration, normalize video to the first part's dimensions/frame rate, and are concatenated locally. Missing isolated tracks are withheld from the combined outputs with warnings; their available originals remain in the part folders. No fabricated camera or microphone track is substituted. Secondary backups use distinct part directories.
+
+Recording starts/resumes and checkpoint operations are serialized. The backend only resumes a durably paused session, checks its saved Program files, rejects concurrent resume claims, and retains completed parts if assembly fails. Recovery can retry after interruption during finalization. Active capture/start/save prevents switching to or creating another episode. Paused episodes can be left and returned to; Review and Export require finishing with Stop. New Episode clears the prior recording's in-memory transport state and gets its own folder.
+
+Legacy episode folders remain readable. Old interrupted recordings still support recovery; only new segmented sessions support closing and reopening a durable pause. Protected part originals should be included in a full local backup; they are not expendable review cache.
+
+Real-media tests simulate main-process recreation between pauses, repeated saves, multiple resumes, streaming WebM without duration, concurrent resume claims, incomplete sidecars, and recovery after media finalization but before journal commit. Physical device reopen and long-session performance require hands-on QA.

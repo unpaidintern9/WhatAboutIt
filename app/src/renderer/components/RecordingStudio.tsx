@@ -60,6 +60,7 @@ interface RecordingStudioProps {
   recordingPreferences?: RecordingPreferences;
   onStart: () => Promise<RecordingServiceSnapshot | void> | RecordingServiceSnapshot | void;
   onQuickTest?: () => Promise<void> | void;
+  onResumeSession?: (session: RecordingSession) => Promise<void> | void;
   onPause: () => Promise<void> | void;
   onResume: () => Promise<void> | void;
   onStop: () => Promise<void> | void;
@@ -152,6 +153,7 @@ export function RecordingStudio({
   recordingPreferences: recordingPreferencesProp,
   onStart,
   onQuickTest,
+  onResumeSession,
   onPause,
   onResume,
   onStop,
@@ -213,8 +215,8 @@ export function RecordingStudio({
   const storageReady = !storageWarning;
   const recordingInProgress = isRecording || isPaused;
   const recordingPreferences = { ...defaultRecordingPreferences, ...recordingPreferencesProp };
-  const liveMode = recordingInProgress && recordingPreferences.liveModeEnabled;
-  const recordingHealthy = snapshot.status !== "error" && (!recordingInProgress || Boolean(snapshot.health?.programActive));
+  const liveMode = isRecording && recordingPreferences.liveModeEnabled;
+  const recordingHealthy = snapshot.status !== "error" && (!isRecording || Boolean(snapshot.health?.programActive));
   const deviceAssignmentsHealthy = getDeviceAssignmentConflicts(defaults).length === 0;
   const programMicSlot = defaults.cameraMicrophones?.camera1 ?? "morganMic";
   const programMicSignal = micSignals[programMicSlot];
@@ -462,6 +464,17 @@ export function RecordingStudio({
     }
   }
 
+  async function pauseOrResume() {
+    if (recordingAction !== "idle") return;
+    setRecordingAction("saving");
+    try {
+      await (isPaused ? onResume() : onPause());
+      setStudioNotice({ tone: "recording", message: isPaused ? "Recording continues in this episode folder." : "Episode paused and saved. You can close the app and return later." });
+    } catch (error) {
+      setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "The episode needs attention before continuing." });
+    } finally { setRecordingAction("idle"); }
+  }
+
   function playSyncCue() {
     try {
       const context = createStudioAudioContext(defaults.audioOutputId);
@@ -510,7 +523,7 @@ export function RecordingStudio({
       if (!recordingInProgress) return;
       if (event.code === "Space") {
         event.preventDefault();
-        void (isPaused ? onResume() : onPause());
+        void pauseOrResume();
       } else if (event.key.toLowerCase() === "t") {
         event.preventDefault();
         mark("Retake");
@@ -530,13 +543,13 @@ export function RecordingStudio({
           <AlertTriangle size={28} />
           <div>
             <h3>We found an unfinished recording</h3>
-            <p>Recoverable media chunks were found. Finalize them now or inspect the session folder.</p>
+            <p>Saved episodes can be resumed in the same folder. Interrupted captures can be recovered before review.</p>
           </div>
           <div className="recovery-actions">
-            {unfinishedSessions.slice(0, 1).map((session) => (
+            {unfinishedSessions.filter((session) => session.id !== snapshot.session?.id || snapshot.status === "idle" || snapshot.status === "error").map((session) => (
               <div key={session.id}>
                 <small>{session.episodeTitle} · {session.recoverableBytes ? `${Math.max(1, Math.round(session.recoverableBytes / 1024 / 1024))} MB protected` : "recovery data found"}</small>
-                <RusticButton disabled={recoverySessionId === session.id} onClick={async () => { setRecoverySessionId(session.id); try { await onRecoverSession?.(session); } finally { setRecoverySessionId(undefined); } }}>{recoverySessionId === session.id ? "Recovering..." : "Recover Recording"}</RusticButton>
+                <RusticButton disabled={isRecording || recoverySessionId === session.id} onClick={async () => { setRecoverySessionId(session.id); try { if (session.durablePaused && session.status === "paused") await onResumeSession?.(session); else await onRecoverSession?.(session); } catch (error) { setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "This episode needs attention." }); } finally { setRecoverySessionId(undefined); } }}>{recoverySessionId === session.id ? "Opening..." : session.durablePaused && session.status === "paused" ? "Open Paused Episode" : "Recover Recording"}</RusticButton>
                 <RusticButton onClick={() => onOpenSessionFolder?.(session)}>Open Folder</RusticButton>
               </div>
             ))}
@@ -745,7 +758,7 @@ export function RecordingStudio({
             <StudioControlButton
               className="pause"
               disabled={!recordingInProgress || recordingAction !== "idle"}
-              onClick={() => void (isPaused ? onResume() : onPause())}
+              onClick={() => void pauseOrResume()}
             >
               {isPaused ? <Play size={28} /> : <Pause size={28} />}
               <span><strong>{isPaused ? "Resume" : "Pause"}</strong><small>{isPaused ? "Resume recording" : "Pause recording"}</small></span>
