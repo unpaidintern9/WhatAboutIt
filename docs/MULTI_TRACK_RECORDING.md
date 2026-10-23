@@ -26,15 +26,17 @@ Program remains the reliable fallback. Review now exposes every saved sidecar as
 
 ## Editing and Episode Folders
 
-Each episode keeps its complete work inside its own folder:
+Each episode is one recording and keeps its complete work inside its own folder. Record uses a selected empty episode shell once. If that episode already has a session, imported media, finalized media, or recoverable media, Record automatically creates a new sibling episode with a UTC timestamp, title slug, and unique suffix. Existing data is never moved. Even empty/failed sessions are retained, and concurrent starts reserve different session files. Guest and description metadata carry forward; the new recording gets a fresh review draft and markers. Recent Episodes shows date and time so identically titled recordings are distinguishable. Pause/Resume remains within the same recording.
+
+Each recording contains:
 
 - original Program, Cameras, and Audio media
 - device and camera-to-microphone routing in `Session/device-map.json`
 - non-destructive manual or Auto Edit decisions in `Session/draft-timeline.json`
 - Auto Edit evidence and explanations in `Session/AutoEditReport.json`
 - final episode and camera masters in `Exports/`
-- edited 48 kHz, 24-bit microphone masters in `Exports/Audio Masters/`
-- portable edit decisions in `Exports/edit-decision-list.json`
+- edited 48 kHz, 24-bit microphone masters in `Exports/<job>/Audio Masters/`
+- portable edit decisions in `Exports/<job>/edit-decision-list.json`
 
 Camera and microphone sources can be selected independently in Review. Source-specific trims and cuts affect only that source. Program edits affect the combined episode. Microphones can be included, excluded, and leveled independently before the final mix.
 

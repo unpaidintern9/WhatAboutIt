@@ -57,13 +57,32 @@ async function readJsonFile<T>(filePath: string): Promise<T | null> {
 
 export async function createRecordingSession(input: RecordingSessionCreateInput): Promise<RecordingSession> {
   const now = new Date().toISOString();
-  const episodeTitle = input.episodeTitle?.trim() || "Quick Recording";
-  const episodeId = input.episodeId || `${now.slice(0, 10)}-${slugify(episodeTitle)}-${crypto.randomUUID().slice(0, 8)}`;
-  const folderPath = path.join(getEpisodesRoot(), episodeId);
+  const originalFolder = input.episodeId ? assertRecordingFolder(path.join(getEpisodesRoot(), input.episodeId)) : undefined;
+  const originalMetadata = originalFolder ? await readJsonFile<EpisodeMetadata>(path.join(originalFolder, "metadata.json")) : null;
+  const episodeTitle = input.episodeTitle?.trim() || originalMetadata?.title || "Quick Recording";
+  let episodeId = input.episodeId;
+  let folderPath = originalFolder;
 
-  if (input.episodeId) await assertEpisodeHasNoRecordingMedia(folderPath);
-
-  await fs.mkdir(folderPath, { recursive: true });
+  // An episode is one recording. Reuse only an unused episode shell; each
+  // subsequent Record gets a sibling episode so all existing readers keep
+  // resolving Program/Cameras/Audio without a multi-take path migration.
+  if (folderPath && await episodeHasRecordingData(folderPath)) folderPath = undefined;
+  while (true) {
+    if (!folderPath) {
+      episodeId = `${now.replace(/[:.]/g, "-")}-${slugify(episodeTitle)}-${crypto.randomUUID().slice(0, 8)}`;
+      folderPath = path.join(getEpisodesRoot(), episodeId);
+    }
+    await fs.mkdir(path.join(folderPath, "Session"), { recursive: true });
+    try {
+      // Exclusive reservation also separates simultaneous start requests.
+      await fs.writeFile(path.join(folderPath, "Session", "recording-session.json"), "{}", { flag: "wx" });
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      folderPath = undefined;
+    }
+  }
+  if (!episodeId) throw new Error("Recording episode could not be reserved.");
   await Promise.all(requiredRecordingSessionFolders.map((folder) => fs.mkdir(path.join(folderPath, folder), { recursive: true })));
 
   const session: RecordingSession = {
@@ -85,6 +104,8 @@ export async function createRecordingSession(input: RecordingSessionCreateInput)
   await ensureRecordingMetadata(folderPath, {
     id: episodeId,
     title: episodeTitle,
+    guestName: originalMetadata?.guestName,
+    description: originalMetadata?.description,
     status: "draft",
     createdAt: now,
     updatedAt: now,
@@ -161,16 +182,23 @@ function recordingMediaCandidates(folderPath: string) {
   ];
 }
 
-async function assertEpisodeHasNoRecordingMedia(folderPath: string) {
-  for (const candidate of recordingMediaCandidates(folderPath)) {
+async function episodeHasRecordingData(folderPath: string) {
+  for (const marker of ["recording-session.json", "imported-media.json", "capture-manifest.json"]) {
     try {
-      if ((await fs.stat(candidate)).size > 0) {
-        throw new Error("This episode already contains recording media. Create a new episode before recording so the existing episode stays protected.");
-      }
+      await fs.access(path.join(folderPath, "Session", marker));
+      return true;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
   }
+  for (const candidate of recordingMediaCandidates(folderPath)) {
+    try {
+      if ((await fs.stat(candidate)).size > 0) return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return false;
 }
 
 async function enqueueManifestWrite(folderPath: string, update: () => Promise<void>) {

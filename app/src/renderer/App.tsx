@@ -7,7 +7,7 @@ import type { PodcastToolsState, SoundSlot } from "../shared/podcast-tools";
 import { createDefaultPodcastToolsState, createLiveMarker, withPodcastToolDefaults } from "../shared/podcast-tools";
 import type { TimelineDraft } from "../shared/timeline";
 import { createTimelineDraft, setTimelineEditOperationEnabled, syncTimelineTracksWithMedia, updateTimelineSyncOffsets, withTimelineDraftDefaults } from "../shared/timeline";
-import type { ExportJob, ExportMasteringMode, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
+import type { EditorVideoPreset, ExportJob, ExportMasteringMode, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
 import { defaultExportSettings } from "../shared/export";
 import type { ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaInventory } from "../shared/review-media";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
@@ -425,6 +425,7 @@ export default function App() {
   const [includeAudioMasters, setIncludeAudioMasters] = useState(false);
   const [exportMasteringMode, setExportMasteringMode] = useState<ExportMasteringMode>("measured");
   const [exportDestinationFolder, setExportDestinationFolder] = useState<string | undefined>();
+  const [editorVideoPreset, setEditorVideoPreset] = useState<EditorVideoPreset>("compatible");
   const [exportJob, setExportJob] = useState<ExportJob | undefined>();
   const [mediaToolsStatus, setMediaToolsStatus] = useState<MediaToolsStatus | undefined>();
   const [reviewMedia, setReviewMedia] = useState<ReviewMediaInventory | undefined>();
@@ -1022,6 +1023,7 @@ export default function App() {
       includeCameraMasters,
       includeAudioMasters,
       masteringMode: exportMasteringMode,
+      editorVideoPreset,
       destinationFolderPath
     });
     setExportJob(job);
@@ -1472,6 +1474,7 @@ export default function App() {
   }
 
   async function startRecording(practice = false) {
+    await flushPendingTimelineSave();
     const nextSnapshot = await recordingService.start(settings.deviceDefaults, {
       episodeId: activeEpisode?.id,
       episodeTitle: activeEpisode?.title,
@@ -1481,10 +1484,13 @@ export default function App() {
     setRecordingSnapshot(nextSnapshot);
 
     if (nextSnapshot.session?.episodeId && nextSnapshot.session.episodeId !== activeEpisode?.id) {
-      await flushPendingTimelineSave();
       const latestEpisodes = await studio.listEpisodes();
       setEpisodes(latestEpisodes);
       setActiveEpisode(latestEpisodes.find((episode) => episode.id === nextSnapshot.session?.episodeId) ?? activeEpisode);
+      setPodcastTools(createDefaultPodcastToolsState(nextSnapshot.session.episodeId));
+      setTimelineDraft(createTimelineDraft({ episodeId: nextSnapshot.session.episodeId, recordingSessionId: nextSnapshot.session.id, deviceDefaults: settings.deviceDefaults }));
+      setReviewMedia(undefined);
+      setExportJob(undefined);
     }
     return nextSnapshot;
   }
@@ -1804,6 +1810,8 @@ export default function App() {
             includeAudioMasters={includeAudioMasters}
             masteringMode={exportMasteringMode}
             destinationFolderPath={exportDestinationFolder}
+            editorVideoPreset={editorVideoPreset}
+            onEditorVideoPresetChange={setEditorVideoPreset}
             onTypeChange={(type) => void changeExportType(type)}
             onQualityChange={(preset) => void changeQualityPreset(preset)}
             onCameraMastersChange={setIncludeCameraMasters}
@@ -2006,7 +2014,7 @@ function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStud
                   <div>
                     <h4>{episode.title}</h4>
                     <p>
-                      {episode.guestName || "Solo episode"} - {new Date(episode.createdAt).toLocaleDateString()}
+                      {episode.guestName || "Solo episode"} - {new Date(episode.createdAt).toLocaleString()}
                     </p>
                   </div>
                   <span>{episode.status}</span>
