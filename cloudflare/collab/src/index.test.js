@@ -336,3 +336,17 @@ test("stale publication cannot overwrite a newer revision or its media", async (
   assert.equal(stale.status, 412);
   assert.equal((await (await worker.fetch(request("/episodes/cas/manifest"), env)).json()).revisionId, "second");
 });
+
+test("retains the installed editor map while accepting the existing legacy credential", async () => {
+  const env = makeEnv();
+  const legacy = "existing-legacy-credential-32-characters";
+  env.WHATABOUTIT_COLLAB_ACCESS_KEY = legacy;
+  assert.equal((await worker.fetch(request("/episodes"), env)).status, 200);
+  const legacyRequest = new Request("https://collab.test/episodes", { headers: { "x-whataboutit-key": legacy } });
+  assert.equal((await worker.fetch(legacyRequest, env)).status, 200);
+  env.WHATABOUTIT_COLLAB_ACCESS_KEYS = "{}";
+  assert.equal((await worker.fetch(legacyRequest, env)).status, 200);
+  assert.equal((await worker.fetch(new Request("https://collab.test/episodes"), env)).status, 401);
+  env.WHATABOUTIT_COLLAB_ACCESS_KEY = "short";
+  assert.equal((await worker.fetch(legacyRequest, env)).status, 503);
+});

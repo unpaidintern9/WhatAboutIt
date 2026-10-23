@@ -34,7 +34,8 @@
     "installer:win": "npm run build && electron-builder --win nsis",
     "beta:win": "npm run verify && npm run installer:win",
     "create-shortcut": "node scripts/create-shortcut.mjs",
-    "create-shortcut:dev": "node scripts/create-shortcut.mjs --dev"
+    "create-shortcut:dev": "node scripts/create-shortcut.mjs --dev",
+    "verify:media-runtime": "electron --no-sandbox --ozone-platform=headless --disable-gpu scripts/verify-media-runtime.mjs"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",

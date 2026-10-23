@@ -52,9 +52,18 @@ async function serveMediaRequest(
   cloudFetcher?: CloudFetcher
 ) {
   try {
-    if (request.method !== "GET" && request.method !== "HEAD") return sendStatus(response, 405);
+    if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS") return sendStatus(response, 405);
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length !== 3 || parts[0] !== accessToken) return sendStatus(response, 404);
+    // Web Audio must receive CORS-enabled media, including file:// renderer origins.
+    // The unguessable per-launch URL token remains the authorization boundary.
+    response.setHeader("Access-Control-Allow-Origin", "*");
+    response.setHeader("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS");
+    response.setHeader("Access-Control-Allow-Headers", "Range");
+    response.setHeader("Access-Control-Expose-Headers", "Content-Length, Content-Range, Accept-Ranges");
+    if (request.method === "OPTIONS") { response.writeHead(204); response.end(); return; }
+
     if (parts.length === 3 && parts[0] === accessToken && parts[1] === "cloud" && cloudFetcher) {
       const { episodeId, relativePath } = JSON.parse(Buffer.from(parts[2], "base64url").toString("utf8")) as { episodeId: string; relativePath: string };
       if (!/^[A-Za-z0-9._-]{1,160}$/.test(episodeId) || !relativePath || relativePath.split("/").some((part) => !part || part === ".." || part === ".")) return sendStatus(response, 404);

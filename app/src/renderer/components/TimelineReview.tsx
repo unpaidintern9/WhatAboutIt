@@ -965,6 +965,7 @@ export function TimelineReview({
                   >
                     {camera.status === "ready" && camera.playbackUrl ? (
                       <video
+                        crossOrigin="anonymous"
                         ref={(element) => {
                           if (element) multicamVideoRefs.current.set(camera.id, element);
                           else multicamVideoRefs.current.delete(camera.id);
@@ -1003,6 +1004,7 @@ export function TimelineReview({
                   return (
                     <Fragment key={asset.id}>
                     <video
+                      crossOrigin="anonymous"
                       className={`realtime-preview-layer ${isActive ? "active" : asset.id === outgoingPreviewAssetId ? "outgoing" : "standby"}`}
                       ref={getPreviewVideoRef(asset.id)}
                       preload={isActive || asset.id === outgoingPreviewAssetId ? "auto" : "metadata"}
@@ -1071,10 +1073,11 @@ export function TimelineReview({
                   <span>{playbackError}</span>
                 </div>
               ) : null}
-              {!programMode && !selectedVideo.includesPairedAudio && pairedAudio?.status === "ready" && pairedAudio.playbackUrl ? <audio key={pairedAudio.playbackUrl} ref={pairedAudioRef} preload="metadata" src={pairedAudio.playbackUrl} /> : null}
+              {!programMode && !selectedVideo.includesPairedAudio && pairedAudio?.status === "ready" && pairedAudio.playbackUrl ? <audio crossOrigin="anonymous" key={pairedAudio.playbackUrl} ref={pairedAudioRef} preload="metadata" src={pairedAudio.playbackUrl} /> : null}
               {useProgramStemMix
                 ? programAudioSources.map(({ track, asset }) => (
                     <audio
+                      crossOrigin="anonymous"
                       key={asset.id}
                       ref={(element) => {
                         if (element) programAudioRefs.current.set(asset.id, element);
@@ -1703,8 +1706,8 @@ function TrackInspector({
           <button type="button" className="inspector-primary" disabled={!onRenderPreview || previewBusy} onClick={() => void onRenderPreview?.()}>
             <Play size={16} /> {previewBusy ? "Rendering 10-second preview…" : "Render final-quality preview"}
           </button>
-          {preview?.kind === "audio" && <audio controls autoPlay src={preview.playbackUrl} />}
-          {preview?.kind === "video" && <video controls autoPlay src={preview.playbackUrl} />}
+          {preview?.kind === "audio" && <audio crossOrigin="anonymous" controls autoPlay src={preview.playbackUrl} />}
+          {preview?.kind === "video" && <video crossOrigin="anonymous" controls autoPlay src={preview.playbackUrl} />}
           {previewError && <small role="alert">{previewError}</small>}
         </div>
       )}
