@@ -1,3 +1,4 @@
+import { cancelEpisodeReviewProxies } from "./review-proxy-store";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { EpisodeCleanupScope, EpisodeStorageBucket, EpisodeStorageSummary } from "../shared/episode-maintenance";
@@ -28,7 +29,7 @@ export async function getEpisodeStorageSummary(episodeId: string): Promise<Episo
   const definitions: Array<{ id: EpisodeStorageBucket["id"]; label: string; paths: string[]; rebuildable: boolean }> = [
     { id: "originals", label: "Protected originals", paths: ["Originals", "Program", "Recordings"], rebuildable: false },
     { id: "editing-media", label: "Editing media", paths: ["Cameras", "Audio"], rebuildable: false },
-    { id: "review-cache", label: "Review cache", paths: [path.join("Session", "Review")], rebuildable: true },
+    { id: "review-cache", label: "Review cache", paths: [path.join("Session", "Review"), path.join("Session", "Proxies")], rebuildable: true },
     { id: "backups", label: "Imported-media backups", paths: [path.join("Backup", "Imported Media")], rebuildable: false },
     { id: "exports", label: "Finished exports", paths: ["Exports"], rebuildable: false }
   ];
@@ -48,6 +49,7 @@ export async function getEpisodeStorageSummary(episodeId: string): Promise<Episo
 export async function cleanupEpisodeStorage(episodeId: string, scope: EpisodeCleanupScope) {
   if (scope !== "review-cache" && scope !== "exports") throw new Error("That episode cleanup option is not supported.");
   const folder = getEpisodeFolder(episodeId);
+  if (scope === "review-cache") { await cancelEpisodeReviewProxies(folder); await fs.rm(path.join(folder, "Session", "Proxies"), { recursive: true, force: true }); }
   const target = scope === "review-cache" ? path.join(folder, "Session", "Review") : path.join(folder, "Exports");
   await fs.rm(target, { recursive: true, force: true });
   await fs.mkdir(target, { recursive: true });

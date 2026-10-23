@@ -32,13 +32,15 @@ export function assessRecordingStorage(input: {
   cameraCount: number;
   microphoneCount: number;
   estimatedMinutes: number;
+  captureQuality?: "balanced" | "high";
 }): RecordingStorageAssessment {
   const estimatedMinutes = Math.max(5, input.estimatedMinutes);
-  const programBitsPerSecond = 8_000_000;
-  const cameraBitsPerSecond = input.cameraCount * 6_000_000;
-  const microphoneBitsPerSecond = input.microphoneCount * 192_000;
+  const bitsPerCamera = input.captureQuality === "high" ? 16_000_000 : 8_000_000;
+  const programBitsPerSecond = input.cameraCount === 0 ? bitsPerCamera : 0;
+  const cameraBitsPerSecond = input.cameraCount * bitsPerCamera;
+  const microphoneBitsPerSecond = input.microphoneCount * 48000 * 24;
   const captureBytes = ((programBitsPerSecond + cameraBitsPerSecond + microphoneBitsPerSecond) / 8) * estimatedMinutes * 60;
-  const requiredBytes = Math.ceil(captureBytes * 1.35 + 2 * 1024 ** 3);
+  const requiredBytes = Math.ceil(captureBytes * 3 + 2 * 1024 ** 3);
   const availableBytes = input.status?.availableBytes;
   const ready = Boolean(availableBytes && availableBytes >= requiredBytes);
   const requiredGb = Math.ceil(requiredBytes / 1024 ** 3);

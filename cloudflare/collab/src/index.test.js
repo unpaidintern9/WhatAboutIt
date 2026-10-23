@@ -69,7 +69,7 @@ class MemoryR2 {
         const checksum = await crypto.subtle.digest("SHA-256", bytes);
         bucket.objects.set(key, { bytes, httpMetadata: upload.options.httpMetadata ?? {}, customMetadata: upload.options.customMetadata ?? {}, checksum, version: 1 });
         bucket.multipartUploads.delete(uploadId);
-        return { httpEtag: `etag-${key}` };
+        return { httpEtag: `\"etag-${key}-1\"` };
       },
       async abort() { current(); bucket.multipartUploads.delete(uploadId); }
     };
@@ -102,7 +102,7 @@ class MemoryR2 {
   async head(key) {
     const entry = this.objects.get(key);
     if (!entry) return null;
-    return { size: entry.bytes.length, customMetadata: entry.customMetadata, checksums: { sha256: entry.checksum }, httpEtag: `etag-${key}` };
+    return { size: entry.bytes.length, customMetadata: entry.customMetadata, checksums: { sha256: entry.checksum }, httpEtag: `\"etag-${key}-${entry.version ?? 1}\"` };
   }
   async delete(key) { this.objects.delete(key); }
   async list({ prefix = "" } = {}) {
@@ -298,4 +298,41 @@ test("storage failures return a retryable response instead of an unhandled Worke
   }), env);
   assert.equal(manifestResponse.status, 503);
   assert.match((await manifestResponse.json()).error, /temporarily unavailable/i);
+});
+
+test("versioned publications require verified assets and retain the previous revision on failure", async () => {
+  const env = makeEnv();
+  const episodeId = "versioned-episode";
+  const body = "protected-original";
+  const hash = await sha256(body);
+  const relative = `objects/revision-a/${hash}/Recordings/part-1/Audio/mic.flac`;
+  const assetUrl = `/episodes/${episodeId}/assets/${encodeURIComponent(relative)}`;
+  assert.equal((await worker.fetch(request(assetUrl, { method: "PUT", body, headers: { "x-content-sha256": hash } }), env)).status, 200);
+  const head = await worker.fetch(request(assetUrl, { method: "HEAD" }), env);
+  assert.equal(head.headers.get("x-content-verified"), "true");
+  const manifest = {
+    version: 1, revisionId: "revision-a", uploadedAt: "2026-10-23T00:00:00Z", episode: { id: episodeId },
+    assets: [{ id: "audio", relativePath: "Recordings/part-1/Audio/mic.flac", cloudPath: `episodes/${episodeId}/${relative}`, contentHash: hash, bytes: body.length }]
+  };
+  const saved = await worker.fetch(request(`/episodes/${episodeId}/manifest`, { method: "PUT", body: JSON.stringify(manifest), headers: { "if-none-match": "*" } }), env);
+  assert.equal(saved.status, 200);
+  const failed = await worker.fetch(request(`/episodes/${episodeId}/manifest`, { method: "PUT", body: JSON.stringify({ ...manifest, revisionId: "revision-b", assets: [{ ...manifest.assets[0], cloudPath: `episodes/${episodeId}/objects/missing/file` }] }) }), env);
+  assert.equal(failed.status, 400);
+  const current = await worker.fetch(request(`/episodes/${episodeId}/manifest`), env);
+  assert.equal((await current.json()).revisionId, "revision-a");
+  assert.equal(await (await worker.fetch(request(assetUrl), env)).text(), body);
+  assert.equal((await worker.fetch(request(assetUrl, { method: "DELETE" }), env)).status, 409);
+  assert.ok(await env.EPISODE_MEDIA.get(`episode-history/${episodeId}/revision-a.json`));
+});
+
+test("stale publication cannot overwrite a newer revision or its media", async () => {
+  const env = makeEnv();
+  const first = { revisionId: "first", episode: { id: "cas" }, assets: [] };
+  const saved = await worker.fetch(request("/episodes/cas/manifest", { method: "PUT", body: JSON.stringify(first) }), env);
+  const etag = saved.headers.get("etag");
+  const second = await worker.fetch(request("/episodes/cas/manifest", { method: "PUT", body: JSON.stringify({ ...first, revisionId: "second" }), headers: { "if-match": etag } }), env);
+  assert.equal(second.status, 200);
+  const stale = await worker.fetch(request("/episodes/cas/manifest", { method: "PUT", body: JSON.stringify({ ...first, revisionId: "stale" }), headers: { "if-match": etag } }), env);
+  assert.equal(stale.status, 412);
+  assert.equal((await (await worker.fetch(request("/episodes/cas/manifest"), env)).json()).revisionId, "second");
 });

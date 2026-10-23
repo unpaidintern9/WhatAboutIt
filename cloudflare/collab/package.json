@@ -6,7 +6,8 @@
   "scripts": {
     "test": "node --test src/index.test.js",
     "deploy": "wrangler deploy",
-    "check": "npm test && wrangler deploy --dry-run"
+    "check": "npm test && wrangler deploy --dry-run",
+    "test:runtime": "node scripts/verify-local.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

@@ -11,7 +11,7 @@ const defaults = { cameras: { camera1: "camera-a" }, microphones: { morganMic: "
 describe("durable episode recording parts", () => {
   beforeEach(async () => { vi.resetModules(); paths.root = await fs.mkdtemp(path.join(os.tmpdir(), "wai-parts-")); });
   afterEach(async () => { await fs.rm(paths.root, { recursive: true, force: true }); });
-  async function capture(session: RecordingSession, camera = true) {
+  async function capture(session: RecordingSession, camera: boolean | "camera2" = true) {
     const { runFfmpeg } = await import("./ffmpeg-tools");
     const { beginRecordingMedia, appendRecordingChunk } = await import("./recording-session-store");
     const source = path.join(paths.root, "fixture.webm");
@@ -21,7 +21,7 @@ describe("durable episode recording parts", () => {
     const bytes = await fs.readFile(source);
     const sourceStartedAt = new Date().toISOString();
     await appendRecordingChunk(folder, { target: "program", kind: "program", sourceStartedAt, sequence: 1, mimeType: "video/webm", bytes });
-    if (camera) await appendRecordingChunk(folder, { target: "camera1", kind: "camera", sourceStartedAt, sequence: 1, mimeType: "video/webm", bytes });
+    if (camera) await appendRecordingChunk(folder, { target: camera === "camera2" ? "camera2" : "camera1", kind: "camera", sourceStartedAt, sequence: 1, mimeType: "video/webm", bytes });
     await appendRecordingChunk(folder, { target: "morganMic", kind: "audio", sourceStartedAt: new Date(Date.parse(sourceStartedAt) - 125).toISOString(), sequence: 1, mimeType: "audio/webm", bytes });
   }
   it("pauses, reloads, resumes twice in one episode, and combines only recorded time", async () => {
@@ -58,14 +58,14 @@ describe("durable episode recording parts", () => {
   it("withholds incomplete isolated tracks and keeps their part originals", async () => {
     const store = await import("./recording-session-store");
     const first = await store.createRecordingSession({ episodeId: "episode-gap", deviceDefaults: defaults });
-    await capture(first);
+    await capture(first, "camera2");
     await store.checkpointRecordingSession(first.folderPath, true);
     const second = await store.createRecordingSession({ episodeId: first.episodeId, deviceDefaults: defaults, resume: true });
     await capture(second, false);
     const complete = await store.checkpointRecordingSession(first.folderPath, false);
-    expect(complete.result!.tracks.map((track) => track.slot)).not.toContain("camera1");
-    expect(complete.result!.integrity.warnings.join(" ")).toContain("camera1 is incomplete");
-    await expect(fs.stat(path.join(first.captureFolderPath!, "Cameras", "camera-1.webm"))).resolves.toBeTruthy();
+    expect(complete.result!.tracks.map((track) => track.slot)).not.toContain("camera2");
+    expect(complete.result!.integrity.warnings.join(" ")).toContain("camera2 is incomplete");
+    await expect(fs.stat(path.join(first.captureFolderPath!, "Cameras", "camera-2.webm"))).resolves.toBeTruthy();
   }, 40000);
   it("recovers after part finalization was interrupted before journal completion", async () => {
     const store = await import("./recording-session-store");

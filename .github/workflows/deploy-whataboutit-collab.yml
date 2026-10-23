@@ -1,6 +1,11 @@
 name: Deploy WhatAboutIt Collaboration Backend
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "cloudflare/collab/**"
+      - ".github/workflows/deploy-whataboutit-collab.yml"
   workflow_dispatch:
     inputs:
       confirm:
@@ -23,7 +28,7 @@ env:
 
 jobs:
   deploy:
-    if: ${{ inputs.confirm == 'deploy-whataboutit' }}
+    if: ${{ github.event_name == 'push' || inputs.confirm == 'deploy-whataboutit' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -63,8 +68,8 @@ jobs:
             grep -F "$WHATABOUTIT_BUCKET" /tmp/r2-buckets.txt >/dev/null
           fi
 
-      - name: Validate Worker configuration
-        run: npx wrangler deploy --dry-run
+      - name: Validate Worker and streaming checksums
+        run: npm run check && npm run test:runtime
 
       - name: Install per-editor collaboration access keys before deployment
         shell: bash
@@ -138,7 +143,8 @@ jobs:
           # Exercise the same R2 multipart route used for long recordings.
           TEMP_DIR="$(mktemp -d)"
           dd if=/dev/zero of="$TEMP_DIR/part-1.bin" bs=1M count=5 status=none
-          printf 'whataboutit-multipart-%s' "$GITHUB_RUN_ID" > "$TEMP_DIR/part-2.bin"
+          dd if=/dev/zero of="$TEMP_DIR/part-2.bin" bs=1M count=4 status=none
+          printf 'whataboutit-multipart-%s' "$GITHUB_RUN_ID" >> "$TEMP_DIR/part-2.bin"
           MULTIPART_HASH="$(cat "$TEMP_DIR/part-1.bin" "$TEMP_DIR/part-2.bin" | sha256sum | cut -d' ' -f1)"
           MULTIPART_URL="$SERVICE_URL/episodes/$CANARY_EPISODE/assets/$MULTIPART_ASSET"
           CREATE_JSON="$(curl -fsS -X POST \

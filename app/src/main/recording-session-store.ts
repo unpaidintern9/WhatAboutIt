@@ -1,3 +1,6 @@
+import { assertRecordingCapacity, configureRollingBackup, finishRollingBackup, queueRollingBackup, rollingBackupWarning, serializeSourceWrite } from "./recording-disk-writer";
+import { microphoneSlots, microphoneAssetId } from "../shared/audio-tracks";
+import { durableAppend, durableJson } from "./durable-file";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
@@ -38,16 +41,7 @@ function slugify(input: string) {
   );
 }
 
-async function writeJson(filePath: string, value: unknown) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const temporary = `${filePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(temporary, JSON.stringify(value, null, 2), "utf8");
-    await fs.rename(temporary, filePath);
-  } finally {
-    await fs.rm(temporary, { force: true }).catch(() => undefined);
-  }
-}
+async function writeJson(filePath: string, value: unknown) { return durableJson(filePath, value); }
 
 async function readJsonFile<T>(filePath: string): Promise<T | null> {
   try {
@@ -137,14 +131,15 @@ export async function createRecordingSession(input: RecordingSessionCreateInput)
   return allocateRecordingPart(folderPath, session, input.deviceDefaults);
 }
 
-export async function checkpointRecordingSession(folderPath: string, paused: boolean): Promise<RecordingCheckpointResult> {
+export async function checkpointRecordingSession(folderPath: string, paused: boolean, report?: (progress: number, message: string) => void): Promise<RecordingCheckpointResult> {
   const folder = assertRecordingFolder(folderPath);
   return withRecordingOperation(folder, async () => {
     await retainEmptyRecordingAttempt(folder);
     const { session, part, captureFolder } = await readActiveRecordingPart(folder);
+    report?.(0, "Flushing and verifying recording sources");
     if (!part.result) await saveCompletedRecordingPart(folder, await finalizeRecordingMedia(captureFolder));
     const { journal } = await readActiveRecordingPart(folder);
-    const result = paused ? undefined : await materializeRecordingParts(folder);
+    const result = paused ? undefined : await materializeRecordingParts(folder, report);
     const next = { ...session, captureFolderPath: captureFolder, status: paused ? "paused" as const : "stopped" as const, durablePaused: paused, elapsedMs: journal.parts.reduce((sum, item) => sum + (item.durationMs ?? 0), 0) };
     await writeRecordingJson(recordingSessionPath(folder), next);
     await writeRecordingState(folder, { ...createInitialRecordingState(next.id), status: next.status, elapsedMs: next.elapsedMs });
@@ -162,6 +157,8 @@ interface CaptureManifestSource {
   sourceStartedAt?: string;
   firstChunkAt?: string;
   lastChunkAt: string;
+  clockRateRatio?: number;
+  sampleFrames?: number;
 }
 
 interface CaptureManifest {
@@ -191,12 +188,13 @@ function mediaBaseName(target: RecordingMediaTarget) {
   if (target.startsWith("camera")) return target.replace("camera", "camera-");
   if (target === "morganMic") return "morgan-mic";
   if (target === "guestMic") return "guest-mic";
-  return "extra-mic";
+  return microphoneAssetId(target);
 }
 
 function partialMediaPath(folderPath: string, target: RecordingMediaTarget, mimeType: string) {
   if (target === "program") return path.join(folderPath, "Program", "program.partial.webm");
   if (target.startsWith("camera")) return path.join(folderPath, "Cameras", `${mediaBaseName(target)}.partial.webm`);
+  if (mimeType.startsWith("audio/x-pcm")) return path.join(folderPath, "Audio", `${mediaBaseName(target)}.source.partial.pcm`);
   const extension = mimeType.includes("mp4") || mimeType.includes("m4a") ? "m4a" : "webm";
   return path.join(folderPath, "Audio", `${mediaBaseName(target)}.source.partial.${extension}`);
 }
@@ -268,12 +266,14 @@ export async function beginRecordingMedia(folderPath: string) {
   const session = await readJsonFile<RecordingSession>(path.join(safeFolder, "Session", "recording-session.json"));
   if (!session) throw new Error("Recording session could not be opened.");
   await backupExistingRecordingFiles(safeFolder);
+  if (session.backupFolderPath) await configureRollingBackup(safeFolder, path.join(session.backupFolderPath, `${slugify(session.episodeTitle)}-${session.id.slice(0, 8)}`, "Rolling", path.basename(safeFolder)));
   const partialCandidates = [
     partialMediaPath(safeFolder, "program", "video/webm"),
     ...(["camera1", "camera2", "camera3"] as const).map((target) => partialMediaPath(safeFolder, target, "video/webm")),
-    ...(["morganMic", "guestMic", "extraMic"] as const).flatMap((target) => [
+    ...microphoneSlots.map(({ key }) => key).flatMap((target) => [
       partialMediaPath(safeFolder, target, "audio/webm"),
-      partialMediaPath(safeFolder, target, "audio/mp4")
+      partialMediaPath(safeFolder, target, "audio/mp4"),
+      partialMediaPath(safeFolder, target, "audio/x-pcm")
     ])
   ];
   await Promise.all(partialCandidates.map((candidate) => fs.rm(candidate, { force: true })));
@@ -284,10 +284,18 @@ export async function beginRecordingMedia(folderPath: string) {
 }
 
 export async function appendRecordingChunk(folderPath: string, chunk: RecordingChunkInput) {
+  return serializeSourceWrite(`${folderPath}:${chunk.target}`, () => appendSourceChunk(folderPath, chunk));
+}
+async function appendSourceChunk(folderPath: string, chunk: RecordingChunkInput) {
   const safeFolder = assertRecordingFolder(folderPath);
   if (chunk.bytes.length === 0) return { bytesWritten: 0, lastChunkAt: new Date().toISOString() };
   const partialPath = partialMediaPath(safeFolder, chunk.target, chunk.mimeType);
-  await fs.appendFile(partialPath, chunk.bytes);
+  const manifestBefore = await readJsonFile<CaptureManifest>(captureManifestPath(safeFolder));
+  const previous = manifestBefore?.sources[chunk.target];
+  if (previous && chunk.sequence <= previous.lastSequence) return { bytesWritten: previous.bytesWritten, lastChunkAt: previous.lastChunkAt };
+  if (previous && chunk.sequence !== previous.lastSequence + 1) throw new Error("Recording chunk sequence is incomplete. Recovery files were preserved.");
+  await assertRecordingCapacity(safeFolder, chunk.bytes.length);
+  await durableAppend(partialPath, chunk.bytes);
   const stats = await fs.stat(partialPath);
   const lastChunkAt = new Date().toISOString();
   // Every acknowledged chunk advances the recovery manifest. Atomic replace
@@ -307,13 +315,16 @@ export async function appendRecordingChunk(folderPath: string, chunk: RecordingC
         bytesWritten: stats.size,
         lastSequence: chunk.sequence,
         sourceStartedAt: previousSource?.sourceStartedAt ?? chunk.sourceStartedAt,
+        clockRateRatio: chunk.clockRateRatio ?? previousSource?.clockRateRatio,
+        sampleFrames: chunk.sampleFrames ?? previousSource?.sampleFrames,
         firstChunkAt: previousSource?.firstChunkAt ?? lastChunkAt,
         lastChunkAt
       };
       await writeJson(manifestPath, current);
+      queueRollingBackup(safeFolder, path.relative(safeFolder, partialPath), chunk.bytes, current);
     });
   }
-  return { bytesWritten: stats.size, lastChunkAt };
+  return { bytesWritten: stats.size, lastChunkAt, warning: rollingBackupWarning(safeFolder) };
 }
 
 async function finalizeProgramSource(folderPath: string, source?: CaptureManifestSource) {
@@ -342,25 +353,39 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
       if (!(await mediaFileExists(source.partialPath)) && await isPlayableRecording(finalPath)) return { slot, kind: "camera", status: "saved", filePath: finalPath, message: "Saved and verified" };
       await fs.rm(finalPath, { force: true });
       await fs.rename(source.partialPath, finalPath);
+      const ratio = source.clockRateRatio ?? 1;
+      if (ratio > 0.998 && ratio < 1.002 && Math.abs(ratio - 1) >= 0.0001) {
+        const original = path.join(folderPath, "Cameras", "Originals", `${mediaBaseName(slot)}.webm`);
+        await fs.mkdir(path.dirname(original), { recursive: true });
+        await fs.copyFile(finalPath, original);
+        const temporary = path.join(folderPath, "Cameras", `.clock-${crypto.randomUUID()}.webm`);
+        try {
+          await runFfmpeg(["-y", "-i", original, "-vf", `setpts=PTS/${ratio.toFixed(9)}`, "-af", `atempo=${ratio.toFixed(9)}`, "-c:v", "libvpx-vp9", "-lossless", "1", "-cpu-used", "4", "-c:a", "libopus", temporary]);
+          if (!await isPlayableRecording(temporary)) throw new Error("Clock-corrected camera failed validation.");
+          await fs.rename(temporary, finalPath);
+        } finally { await fs.rm(temporary, { force: true }); }
+      }
       if (!(await isPlayableRecording(finalPath))) throw new Error("Camera track failed validation.");
       return { slot, kind: "camera", status: "saved", filePath: finalPath, message: "Saved and verified" };
     }
-    const finalPath = path.join(folderPath, "Audio", `${mediaBaseName(slot)}.m4a`);
+    const finalPath = path.join(folderPath, "Audio", `${mediaBaseName(slot)}.flac`);
     if (!(await mediaFileExists(source.partialPath)) && await isPlayableRecording(finalPath) && await hasAudibleSignal(finalPath)) return { slot, kind: "audio", status: "saved", filePath: finalPath, message: "Saved and verified" };
-    const originalExtension = source.mimeType.includes("mp4") || source.mimeType.includes("m4a") ? "m4a" : "webm";
+    const pcm = source.mimeType.startsWith("audio/x-pcm");
+    const originalExtension = pcm ? "pcm" : source.mimeType.includes("mp4") || source.mimeType.includes("m4a") ? "m4a" : "webm";
+    const rate = Number(/rate=(\d+)/.exec(source.mimeType)?.[1] ?? 48000);
+    const pcmInput = pcm ? ["-f", "s24le", "-ar", String(rate), "-ac", "1"] : [];
+    const ratio = source.clockRateRatio ?? 1;
+    const driftFilter = pcm && ratio > 0.998 && ratio < 1.002 && Math.abs(ratio - 1) >= 0.0001 ? `asetrate=${Math.round(rate * ratio)},aresample=${rate}` : undefined;
     const originalPath = path.join(folderPath, "Audio", "Originals", `${mediaBaseName(slot)}.source.${originalExtension}`);
     await fs.rm(finalPath, { force: true });
     const normalizedLeadInMs = Math.max(0, Math.min(30000, Math.round(audioLeadInMs)));
     await runFfmpeg([
       "-y",
-      "-i",
-      source.partialPath,
-      "-vn",
-      ...(normalizedLeadInMs > 0 ? ["-af", `adelay=${normalizedLeadInMs}|${normalizedLeadInMs}`] : []),
-      "-c:a",
-      "aac",
-      "-b:a",
-      "160k",
+      ...pcmInput,
+      "-i", source.partialPath, "-vn",
+      ...([driftFilter, ...(normalizedLeadInMs > 0 ? [`adelay=${normalizedLeadInMs}|${normalizedLeadInMs}`] : [])].filter(Boolean).length > 0
+        ? ["-af", [driftFilter, ...(normalizedLeadInMs > 0 ? [`adelay=${normalizedLeadInMs}|${normalizedLeadInMs}`] : [])].filter(Boolean).join(",")] : []),
+      "-c:a", "flac", "-sample_fmt", "s32",
       finalPath
     ]);
     if (!(await isPlayableRecording(finalPath))) throw new Error("Audio track failed validation.");
@@ -422,7 +447,7 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
   const manifest = await readJsonFile<CaptureManifest>(captureManifestPath(safeFolder));
   const session = await readJsonFile<RecordingSession>(path.join(safeFolder, "Session", "recording-session.json"));
   if (!manifest || !session) throw new Error("Recording recovery information is missing.");
-  const sources = Object.values(manifest.sources).filter((source): source is CaptureManifestSource => Boolean(source));
+  const sources = Object.values(manifest.sources).filter((source): source is CaptureManifestSource => Boolean(source)).map((source) => ({ ...source, partialPath: partialMediaPath(safeFolder, source.target, source.mimeType) }));
   const programSource = sources.find((source) => source.target === "program");
   const trackSources = sources.filter((source) => source.target !== "program");
   const { programPath, playable: programPlayable } = await finalizeProgramSource(safeFolder, programSource);
@@ -437,9 +462,18 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
     programAudioLeadInMs,
     tracks: tracks.map((track) => ({ slot: track.slot, kind: track.kind, status: track.status, message: track.message }))
   });
+  const deviceMap = await readJsonFile<{ cameras?: { camera1?: string } }>(path.join(safeFolder, "Session", "device-map.json"));
+  if (programPath && programPlayable && deviceMap?.cameras?.camera1 && !trackSources.some((source) => source.target === "camera1")) {
+    const cameraPath = path.join(safeFolder, "Cameras", "camera-1.webm");
+    await fs.rm(cameraPath, { force: true });
+    try { await fs.link(programPath, cameraPath); } catch { await fs.copyFile(programPath, cameraPath); }
+    tracks.push({ slot: "camera1", kind: "camera", status: "saved", filePath: cameraPath, message: "Camera 1 shares the original Program encode" });
+  }
   const savedTracks = tracks.filter((track) => track.status === "saved");
   let backupPath: string | undefined;
+  const backupWarning = await finishRollingBackup(safeFolder);
   const warnings = tracks.filter((track) => track.status !== "saved").map((track) => `${track.slot}: ${track.message}`);
+  if (backupWarning) warnings.push(backupWarning);
   if (!programPlayable) warnings.unshift("Program recording needs attention; partial source files were preserved.");
   try {
     backupPath = await copyFinalizedRecordingToBackup(session, programPath, tracks);
@@ -454,7 +488,7 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
     playable: programPlayable,
     programPlayable,
     savedSourceCount: savedTracks.length,
-    expectedSourceCount: trackSources.length,
+    expectedSourceCount: tracks.length,
     warnings,
     backupPath
   };
@@ -480,6 +514,7 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
   await Promise.all([
     writeJson(syncMetadataPath, {
       ...syncMetadata,
+      clockCorrections: Object.fromEntries(sources.filter((source) => source.clockRateRatio && Math.abs(source.clockRateRatio - 1) >= 0.0001).map((source) => [source.target, { rateRatio: source.clockRateRatio, driftPpm: Math.round((source.clockRateRatio! - 1) * 1_000_000), sampleFrames: source.sampleFrames }])),
       deviceStartTimestamps,
       sourceStartOffsetsMs,
       savedMediaFiles,
@@ -656,7 +691,7 @@ async function saveCameraTrack(folderPath: string, slot: RecordingTrackSlot, byt
 }
 
 async function saveAudioTrack(folderPath: string, slot: RecordingTrackSlot, bytes: Uint8Array, mimeType?: string) {
-  const fileName = slot === "morganMic" ? "morgan-mic" : slot === "guestMic" ? "guest-mic" : "extra-mic";
+  const fileName = microphoneAssetId(slot);
   const tempExtension = mimeType?.includes("mp4") || mimeType?.includes("m4a") ? "m4a" : "webm";
   const tempPath = path.join(folderPath, "Audio", `${fileName}.source.${tempExtension}`);
   const filePath = path.join(folderPath, "Audio", `${fileName}.m4a`);

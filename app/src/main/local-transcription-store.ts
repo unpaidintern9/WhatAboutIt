@@ -1,3 +1,5 @@
+import { preferredAudioFile } from "./audio-source";
+import { microphoneSlots } from "../shared/audio-tracks";
 import { spawn, execFile } from "node:child_process";
 import crypto from "node:crypto";
 import { createReadStream } from "node:fs";
@@ -239,7 +241,7 @@ function episodeFolder(episodeId: string) {
 }
 
 async function existingSources(folder: string) {
-  const microphoneCandidates = ["morgan-mic.m4a", "guest-mic.m4a", "extra-mic.m4a"].map((name) => path.join(folder, "Audio", name));
+  const microphoneCandidates = microphoneSlots.map(({ assetId }) => preferredAudioFile(folder, assetId));
   const microphones = (await Promise.all(microphoneCandidates.map(async (candidate) => await pathExists(candidate) ? candidate : undefined))).filter((candidate): candidate is string => Boolean(candidate));
   if (microphones.length > 0) return microphones;
   const program = path.join(folder, "Program", "program.webm");

@@ -27,6 +27,7 @@ describe("review media store", () => {
   });
 
   afterEach(async () => {
+    await (await import("./review-proxy-store")).cancelAllReviewProxyWork();
     await fs.rm(mockPaths.episodesRoot, { recursive: true, force: true });
   });
 
@@ -100,7 +101,10 @@ describe("review media store", () => {
     expect(inventory.cameras.find((asset) => asset.id === "camera-2")?.pairedAudioId).toBe("guest-mic");
     expect(inventory.program.reviewProxyPath).toBeUndefined();
     const cameraOne = inventory.cameras.find((asset) => asset.id === "camera-1");
-    expect(cameraOne?.reviewProxyPath).toMatch(/camera-1-review\.webm$/);
+    expect(cameraOne?.reviewProxyPath).toBeUndefined();
+    await (await import("./review-proxy-store")).prepareEpisodeReviewProxies(path.dirname(path.dirname(programPath)));
+    const refreshed = await loadReviewMedia(episodeId);
+    expect(refreshed.cameras.find((asset) => asset.id === "camera-1")?.reviewProxyPath).toMatch(/camera-1-review\.mp4$/);
     expect(cameraOne?.playbackUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(cameraOne?.includesPairedAudio).toBe(false);
     expect(cameraOne?.hasAudio).toBe(false);

@@ -1,8 +1,10 @@
+import { microphoneSlots } from "./audio-tracks";
+import type { MicrophoneSlotKey } from "./types";
 import type { DeviceDefaults } from "./types";
 
 export type RecordingStatus = "idle" | "recording" | "paused" | "stopped" | "interrupted" | "error";
 export type RecordingTrackKind = "camera" | "audio";
-export type RecordingTrackSlot = "camera1" | "camera2" | "camera3" | "morganMic" | "guestMic" | "extraMic";
+export type RecordingTrackSlot = "camera1" | "camera2" | "camera3" | MicrophoneSlotKey;
 export type RecordingMediaTarget = "program" | RecordingTrackSlot;
 export type RecordingTrackSaveStatus = "saved" | "preview-only" | "needs-attention";
 
@@ -45,6 +47,8 @@ export interface RecordingChunkInput {
   mimeType: string;
   sequence: number;
   sourceStartedAt?: string;
+  clockRateRatio?: number;
+  sampleFrames?: number;
   bytes: Uint8Array;
 }
 
@@ -57,6 +61,7 @@ export interface RecordingSourceHealth {
   pendingBytes?: number;
   queueDepth?: number;
   peakPendingBytes?: number;
+  clockDriftPpm?: number;
   lastChunkAt?: string;
   message: string;
 }
@@ -76,6 +81,8 @@ export interface RecordingFinalizeResult {
   tracks: RecordingTrackSaveResult[];
   integrity: RecordingIntegrityReport;
 }
+
+export interface RecordingSaveProgress { episodeFolder: string; progress: number; message: string }
 
 export interface RecordingCheckpointResult {
   session: RecordingSession;
@@ -98,7 +105,7 @@ export interface DeviceMap {
   microphoneChannels?: DeviceDefaults["microphoneChannels"];
   microphoneNames?: DeviceDefaults["microphoneNames"];
   microphoneDeviceLabels?: DeviceDefaults["microphoneDeviceLabels"];
-  microphoneRoutes?: Partial<Record<"morganMic" | "guestMic" | "extraMic", {
+  microphoneRoutes?: Partial<Record<MicrophoneSlotKey, {
     deviceId?: string;
     deviceLabel?: string;
     channel: import("./types").MicrophoneInputChannel;
@@ -114,26 +121,12 @@ export interface DeviceMap {
 }
 
 export interface SyncMetadata {
+  clockCorrections?: Partial<Record<RecordingMediaTarget, { rateRatio?: number; driftPpm: number; sampleFrames?: number }>>;
   sessionStartTime: string;
   deviceStartTimestamps: Record<string, string>;
   sourceStartOffsetsMs?: Partial<Record<RecordingMediaTarget, number>>;
-  savedMediaFiles?: {
-    program?: string;
-    camera1?: string;
-    camera2?: string;
-    camera3?: string;
-    morganMic?: string;
-    guestMic?: string;
-    extraMic?: string;
-  };
-  trackStates?: {
-    camera1?: RecordingTrackSaveResult;
-    camera2?: RecordingTrackSaveResult;
-    camera3?: RecordingTrackSaveResult;
-    morganMic?: RecordingTrackSaveResult;
-    guestMic?: RecordingTrackSaveResult;
-    extraMic?: RecordingTrackSaveResult;
-  };
+  savedMediaFiles?: Partial<Record<RecordingMediaTarget, string>>;
+  trackStates?: Partial<Record<RecordingTrackSlot, RecordingTrackSaveResult>>;
   validation?: {
     programPlayable: boolean;
     validatedAt: string;
@@ -172,11 +165,11 @@ export function createInitialRecordingState(sessionId: string, now = new Date().
 }
 
 export function createDeviceMap(defaults: DeviceDefaults): DeviceMap {
-  const microphoneRoutes = Object.fromEntries((["morganMic", "guestMic", "extraMic"] as const).map((slot) => [slot, {
+  const microphoneRoutes = Object.fromEntries(microphoneSlots.map(({ key: slot, label }) => [slot, {
     deviceId: defaults.microphones[slot],
     deviceLabel: defaults.microphoneDeviceLabels?.[slot],
     channel: defaults.microphoneChannels?.[slot] ?? "mix",
-    displayName: defaults.microphoneNames?.[slot] ?? (slot === "morganMic" ? "Morgan" : slot === "guestMic" ? "Guest" : "Extra"),
+    displayName: defaults.microphoneNames?.[slot] ?? label,
     role: slot === "morganMic" ? "host" : slot === "guestMic" ? "guest" : "extra"
   }])) as DeviceMap["microphoneRoutes"];
   return {

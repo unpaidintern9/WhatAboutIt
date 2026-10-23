@@ -40,6 +40,7 @@ const numberedMicrophoneInputs = microphoneInputChannelOptions
   .filter((channel): channel is Exclude<MicrophoneInputChannel, "mix"> => channel !== "mix");
 
 export const defaultDeviceDefaults: DeviceDefaults = {
+  captureQuality: "balanced",
   cameras: {},
   cameraMicrophones: {
     camera1: "morganMic",
@@ -67,6 +68,7 @@ export function resolveAvailableAudioOutputId(configuredId: string | undefined, 
 
 export function withDeviceDefaults(settings: StudioSettings): StudioSettings {
   const mergedDefaults: DeviceDefaults = {
+    captureQuality: settings.deviceDefaults?.captureQuality ?? "balanced",
     cameras: {
       ...defaultDeviceDefaults.cameras,
       ...settings.deviceDefaults?.cameras

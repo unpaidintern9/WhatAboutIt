@@ -1,3 +1,4 @@
+import { PcmTrackRecorder } from "./pcm-track-recorder";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { BrowserMediaRecorderPlugin } from "./browser-media-recorder-plugin";
 import type { RecordingChunkInput } from "../../../shared/recording";
@@ -5,10 +6,10 @@ import type { RecordingChunkInput } from "../../../shared/recording";
 class FakeTrack {
   readyState: MediaStreamTrackState = "live";
 
-  constructor(readonly kind: "audio" | "video", readonly id: string) {}
+  constructor(readonly kind: "audio" | "video", readonly id: string, readonly channels = 2) {}
 
   clone() {
-    return new FakeTrack(this.kind, `${this.id}-clone`) as unknown as MediaStreamTrack;
+    return new FakeTrack(this.kind, `${this.id}-clone`, this.channels) as unknown as MediaStreamTrack;
   }
 
   stop() {
@@ -16,7 +17,7 @@ class FakeTrack {
   }
 
   getSettings() {
-    return this.kind === "audio" ? { channelCount: 2, sampleRate: 48000 } : {};
+    return this.kind === "audio" ? { channelCount: this.channels, sampleRate: 48000 } : {};
   }
 }
 
@@ -129,6 +130,7 @@ function streamWith(track: FakeTrack) {
 
 describe("BrowserMediaRecorderPlugin", () => {
   beforeEach(() => {
+    vi.spyOn(PcmTrackRecorder, "create").mockImplementation(async (stream) => new FakeMediaRecorder(stream, { mimeType: "audio/x-pcm;rate=48000;channels=1" }) as unknown as PcmTrackRecorder);
     FakeMediaRecorder.streams = [];
     FakeMediaRecorder.emitData = true;
     FakeMediaRecorder.emitStop = true;
@@ -410,7 +412,8 @@ describe("BrowserMediaRecorderPlugin", () => {
     const result = await plugin.stop();
 
     expect(beginRecordingMedia).toHaveBeenCalledWith("C:/recording/episode-disk");
-    expect(appendRecordingChunk.mock.calls.map((call) => call[1].target)).toEqual(expect.arrayContaining(["program", "camera1", "morganMic"]));
+    expect(appendRecordingChunk.mock.calls.map((call) => call[1].target)).toEqual(expect.arrayContaining(["program", "morganMic"]));
+    expect(appendRecordingChunk.mock.calls.some((call) => call[1].target === "camera1")).toBe(false);
     const sourceStarts = new Set(appendRecordingChunk.mock.calls.map((call) => call[1].sourceStartedAt));
     expect(sourceStarts.size).toBe(1);
     expect([...sourceStarts][0]).toMatch(/^\d{4}-\d{2}-\d{2}T/);
@@ -462,4 +465,26 @@ describe("BrowserMediaRecorderPlugin", () => {
 
     await expect(stopping).resolves.toMatchObject({ bytes: expect.any(Uint8Array) });
   });
+  it("captures eight distinct interface routes using one shared device clock", async () => {
+    const { microphoneSlots } = await import("../../../shared/audio-tracks");
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn() } });
+    const targets: string[] = [];
+    Object.defineProperty(window, "studio", { configurable: true, value: {
+      beginRecordingMedia: vi.fn(),
+      appendRecordingChunk: vi.fn(async (_folder: string, chunk: RecordingChunkInput) => { targets.push(chunk.target); return { bytesWritten: chunk.bytes.length, lastChunkAt: new Date().toISOString() }; })
+    } });
+    const input = streamWith(new FakeTrack("audio", "interface-8-channel", 8));
+    const plugin = new BrowserMediaRecorderPlugin({ getCameraStream: () => streamWith(new FakeTrack("video", "cam")), getMicrophoneStream: () => input });
+    await plugin.start({
+      session: { id: "eight", episodeId: "eight", episodeTitle: "Eight", folderPath: "/recordings/eight", startedAt: new Date().toISOString(), status: "recording", practice: false },
+      deviceDefaults: { cameras: { camera1: "cam" }, microphones: Object.fromEntries(microphoneSlots.map(({ key }) => [key, "interface"])), microphoneChannels: Object.fromEntries(microphoneSlots.map(({ key }, index) => [key, `input-${index + 1}`])) }
+    });
+    expect(plugin.getHealth().activeAudioTracks).toBe(8);
+    await plugin.stop();
+    expect(FakeAudioContext.instances).toHaveLength(1);
+    expect(targets).toEqual(expect.arrayContaining(microphoneSlots.map(({ key }) => key)));
+    expect(targets).not.toContain("camera1");
+  });
+
 });

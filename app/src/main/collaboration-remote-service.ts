@@ -1,3 +1,7 @@
+import { prepareEpisodeReviewProxies } from "./review-proxy-store";
+import { waitForMediaBudget } from "./media-work-scheduler";
+import { classifyCollaborationAsset } from "./collaboration-asset-index";
+import { cloudAssetPath } from "../shared/cloud-assets";
 import { app, net, safeStorage } from "electron";
 import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
@@ -16,7 +20,7 @@ import type {
 } from "../shared/collaboration-presence";
 import { collaborationPeople } from "../shared/collaboration-presence";
 import type { CollaborationSyncResult, CollaborationTransferProgress, CollaborationUploadSelection } from "../shared/collaboration";
-import { shouldIncludeCollaborationAsset, transferableCollaborationAssets } from "../shared/collaboration";
+import { isProjectCollaborationAsset, shouldIncludeCollaborationAsset, transferableCollaborationAssets } from "../shared/collaboration";
 import { getEpisodesRoot } from "./config-service";
 import { requestCollaborationWithRetry, uploadCollaborationAsset } from "./collaboration-asset-upload";
 import { getUploadCheckpoint, setUploadCheckpoint } from "./collaboration-upload-journal";
@@ -125,13 +129,17 @@ export async function fetchCollaborationApi(pathname: string, init?: RequestInit
   const abortFromCaller = () => controller.abort(init?.signal?.reason ?? new DOMException("Transfer cancelled", "AbortError"));
   if (init?.signal?.aborted) abortFromCaller();
   else init?.signal?.addEventListener("abort", abortFromCaller, { once: true });
-  const timeout = setTimeout(() => controller.abort(new DOMException("Cloud request timed out", "TimeoutError")), API_REQUEST_TIMEOUT_MS);
+  const length = Number(headers.get("content-length") ?? 0);
+  const deadline = Math.max(API_REQUEST_TIMEOUT_MS, Math.min(3 * 60 * 60 * 1000, length / 16_000 * 1000 + 30_000));
+  const timeout = setTimeout(() => controller.abort(new DOMException("Cloud request timed out", "TimeoutError")), deadline);
+  const request = { ...init, headers, signal: controller.signal, ...(init?.body instanceof ReadableStream ? { duplex: "half" as const } : {}) };
   try {
-    return await net.fetch(url, { ...init, headers, signal: controller.signal });
+    if (init?.body instanceof ReadableStream) return await fetch(url, request);
+    return await net.fetch(url, request);
   } catch (chromiumError) {
     if (controller.signal.aborted) throw controller.signal.reason;
     try {
-      return await fetch(url, { ...init, headers, signal: controller.signal });
+      return await fetch(url, request);
     } catch (nodeError) {
       const chromiumMessage = chromiumError instanceof Error ? chromiumError.message : String(chromiumError);
       const nodeMessage = nodeError instanceof Error ? nodeError.message : String(nodeError);
@@ -281,6 +289,7 @@ function contentType(relativePath: string) {
   if (extension === ".mp4" || extension === ".m4v") return "video/mp4";
   if (extension === ".webm") return "video/webm";
   if (extension === ".mov") return "video/quicktime";
+  if (extension === ".flac") return "audio/flac";
   if (extension === ".wav") return "audio/wav";
   if (extension === ".m4a") return "audio/mp4";
   if (extension === ".mp3") return "audio/mpeg";
@@ -304,18 +313,18 @@ function safeLocalAssetPath(episodeFolder: string, relativePath: string) {
   return resolved;
 }
 
-async function remoteAssetMatches(episodeId: string, relativePath: string, contentHash?: string) {
+async function remoteAssetMatches(episodeId: string, relativePath: string, contentHash?: string, cloudPath?: string) {
   if (!contentHash) return false;
   const response = await requestCollaborationWithRetry(
     `check ${relativePath}`,
-    () => apiFetch(`/episodes/${encodeURIComponent(episodeId)}/assets/${encodeURIComponent(relativePath)}`, { method: "HEAD" }),
+    () => apiFetch(cloudAssetPath(episodeId, { relativePath, cloudPath }), { method: "HEAD" }),
     {
       onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud preflight failure.", { episodeId, relativePath, ...event })
     }
   );
   if (response.status === 404) return false;
   if (!response.ok) throw new Error(`Could not check cloud asset ${relativePath} (${response.status}).`);
-  return response.headers.get("x-content-sha256") === contentHash;
+  return response.headers.get("x-content-sha256") === contentHash && (!cloudPath?.includes("/objects/") || response.headers.get("x-content-verified") === "true");
 }
 
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, task: (item: T) => Promise<R>) {
@@ -346,12 +355,48 @@ export async function uploadEpisodeToCloud(
   if (!config.apiUrl) throw new Error("Connect the What About It collaboration service before uploading.");
   const operationId = options.operationId ?? crypto.randomUUID();
   await options.onProgress?.({ operationId, episodeId: episode.id, direction: "upload", phase: "preparing", completedAssets: 0, totalAssets: 0, transferredBytes: 0, totalBytes: 0, message: selection === "project-only" ? "Indexing changed project files." : "Indexing selected episode files." });
+  let existingAssets = [] as CloudEpisodeManifest["assets"];
+  const existingResponse = await requestCollaborationWithRetry(
+    "read cloud episode manifest",
+    () => apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`),
+    {
+      onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest read failure.", { episodeId: episode.id, ...event })
+    }
+  );
+  let existingEtag: string | undefined;
+  let existingRevisionId: string | undefined;
+  if (existingResponse.ok) {
+    const existing = (await existingResponse.json()) as CloudEpisodeManifest;
+    existingAssets = Array.isArray(existing.assets) ? existing.assets : [];
+    existingEtag = existingResponse.headers.get("etag") ?? undefined;
+    existingRevisionId = existing.revisionId;
+  } else if (existingResponse.status !== 404) {
+    throw new Error(`Could not read the existing cloud episode manifest (${existingResponse.status}).`);
+  }
+  if (selection !== "project-only") {
+    await waitForMediaBudget(options.signal);
+    await prepareEpisodeReviewProxies(episode.folderPath, options.signal, async (message) => {
+      await options.onProgress?.({ operationId, episodeId: episode.id, direction: "upload", phase: "preparing", completedAssets: 0, totalAssets: 0, transferredBytes: 0, totalBytes: 0, message });
+    });
+  }
   const workspace = await refreshCollaborationAssets(episode.folderPath, episode.id, episode.title, selection);
-  const selectedWorkspaceAssets = workspace.assets.filter((asset) => shouldIncludeCollaborationAsset(asset.kind, selection));
+  const hasProgramProxy = workspace.assets.some((asset) => asset.relativePath.endsWith("/program-review.mp4"));
+  const selectedWorkspaceAssets = workspace.assets.filter((asset) => shouldIncludeCollaborationAsset(asset.kind, selection) && !(selection === "project-and-proxies" && hasProgramProxy && asset.kind === "program-video"));
+  const priority = (kind: string) => isProjectCollaborationAsset(kind as import("../shared/collaboration").CollaborationAssetKind) ? 0 : kind === "proxy-video" ? 1 : 2;
+  selectedWorkspaceAssets.sort((a, b) => priority(a.kind) - priority(b.kind));
   const snapshotFolder = await fs.mkdtemp(path.join(app.getPath("temp"), "whataboutit-cloud-upload-"));
   try {
   const uploadSources = await prepareCollaborationUploadSources(episode.folderPath, selectedWorkspaceAssets, snapshotFolder);
-  const selectedAssets = uploadSources.map((source) => source.asset);
+  const selectedAssets = await Promise.all(uploadSources.map(async (source) => {
+    const asset = source.asset;
+    const previous = existingAssets.find((entry) => entry.relativePath === asset.relativePath && entry.contentHash === asset.contentHash);
+    const checkpoint = await getUploadCheckpoint(episode.id, asset.relativePath);
+    const resumePath = checkpoint?.contentHash === asset.contentHash && checkpoint?.pathname
+      ? decodeURIComponent(checkpoint.pathname.split("/assets/")[1] ?? "") : undefined;
+    const objectPath = resumePath?.startsWith("objects/") && !resumePath.split("/").includes("..")
+      ? resumePath : `objects/${crypto.randomUUID()}/${asset.contentHash}/${asset.relativePath}`;
+    return { ...asset, cloudPath: previous?.cloudPath ?? `episodes/${episode.id}/${objectPath}` };
+  }));
   const sourceById = new Map(uploadSources.map((source) => [source.asset.id, source.absolutePath]));
   const totalBytes = selectedAssets.reduce((total, asset) => total + (asset.bytes ?? 0), 0);
   let completedAssets = 0;
@@ -373,7 +418,7 @@ export async function uploadEpisodeToCloud(
   const assetResults = await mapWithConcurrency(selectedAssets, 2, async (asset) => {
     if (options.signal?.aborted) throw options.signal.reason;
     const absolutePath = sourceById.get(asset.id) ?? safeLocalAssetPath(episode.folderPath, asset.relativePath);
-    if (await remoteAssetMatches(episode.id, asset.relativePath, asset.contentHash)) {
+    if (await remoteAssetMatches(episode.id, asset.relativePath, asset.contentHash, asset.cloudPath)) {
       await setUploadCheckpoint(episode.id, asset.relativePath, undefined);
       completedAssets += 1;
       await report("transferring", `Verified ${completedAssets} of ${selectedAssets.length} files.`, asset.relativePath);
@@ -384,7 +429,7 @@ export async function uploadEpisodeToCloud(
     try {
       await uploadCollaborationAsset({
         apiFetch,
-        pathname: `/episodes/${encodeURIComponent(episode.id)}/assets/${encodeURIComponent(asset.relativePath)}`,
+        pathname: cloudAssetPath(episode.id, asset),
         absolutePath,
         bytes,
         contentType: contentType(asset.relativePath),
@@ -421,24 +466,6 @@ export async function uploadEpisodeToCloud(
   const skippedAssets = assetResults.reduce((total, result) => total + result.skipped, 0);
   const uploadedBytes = assetResults.reduce((total, result) => total + result.bytes, 0);
 
-  let existingAssets = [] as CloudEpisodeManifest["assets"];
-  const existingResponse = await requestCollaborationWithRetry(
-    "read cloud episode manifest",
-    () => apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`),
-    {
-      onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest read failure.", { episodeId: episode.id, ...event })
-    }
-  );
-  let existingEtag: string | undefined;
-  let existingRevisionId: string | undefined;
-  if (existingResponse.ok) {
-    const existing = (await existingResponse.json()) as CloudEpisodeManifest;
-    existingAssets = Array.isArray(existing.assets) ? existing.assets : [];
-    existingEtag = existingResponse.headers.get("etag") ?? undefined;
-    existingRevisionId = existing.revisionId;
-  } else if (existingResponse.status !== 404) {
-    throw new Error(`Could not read the existing cloud episode manifest (${existingResponse.status}).`);
-  }
   const mergedByPath = new Map(
     existingAssets
       .filter((asset) => !shouldIncludeCollaborationAsset(asset.kind, selection))
@@ -520,6 +547,7 @@ async function downloadVerifiedAsset(input: {
   destination: string;
   expectedBytes: number;
   expectedHash?: string;
+  cloudPath?: string;
   signal?: AbortSignal;
   onBytes: (bytes: number) => void | Promise<void>;
 }) {
@@ -539,7 +567,7 @@ async function downloadVerifiedAsset(input: {
     try {
       const response = await requestCollaborationWithRetry(
         `download ${input.relativePath}`,
-        () => apiFetch(`/episodes/${encodeURIComponent(input.episodeId)}/assets/${encodeURIComponent(input.relativePath)}`, {
+        () => apiFetch(cloudAssetPath(input.episodeId, input), {
           headers: offset > 0 ? { range: `bytes=${offset}-` } : undefined,
           signal: input.signal
         }),
@@ -576,13 +604,15 @@ async function downloadVerifiedAsset(input: {
   return { partial, downloadedHash };
 }
 
-export async function downloadCloudEpisode(episodeId: string, options: CollaborationTransferOptions = {}): Promise<CloudDownloadResult> {
+export async function downloadCloudEpisode(episodeId: string, options: CollaborationTransferOptions & { reviewOnly?: boolean } = {}): Promise<CloudDownloadResult> {
   const manifest = await requestRemote<CloudEpisodeManifest>(episodeId, "/manifest");
   if (manifest.episode.id !== episodeId) throw new Error("Cloud episode manifest does not match the requested episode.");
   // Sync markers describe this computer's transfer state. Older manifests may
   // contain them, but they are never episode content and can change after a
   // manifest is published, so downloading them would create false checksum failures.
-  const downloadableAssets = transferableCollaborationAssets(manifest.assets);
+  const proxyAssets = manifest.assets.filter((asset) => asset.relativePath.startsWith("Session/Proxies/") && /-review\.(mp4|m4a)$/.test(asset.relativePath));
+  const streamingReview = Boolean(options.reviewOnly && proxyAssets.some((asset) => asset.relativePath.endsWith("program-review.mp4")));
+  const downloadableAssets = transferableCollaborationAssets(manifest.assets).filter((asset) => !streamingReview || isProjectCollaborationAsset(asset.kind));
   const episodeFolder = path.join(getEpisodesRoot(), episodeId);
   await fs.mkdir(episodeFolder, { recursive: true });
   const operationId = options.operationId ?? crypto.randomUUID();
@@ -623,7 +653,7 @@ export async function downloadCloudEpisode(episodeId: string, options: Collabora
       await report("verifying", `Verified ${completedAssets} of ${downloadableAssets.length} files.`, asset.relativePath);
       return { downloaded: 0, skipped: 1, bytes: 0 };
     }
-    if (exists && asset.localOriginal) {
+    if (exists && (asset.localOriginal || classifyCollaborationAsset(asset.relativePath).localOriginal)) {
       // Never overwrite a local original with a cloud copy. The local recording
       // remains the safety source of truth on the machine that recorded it.
       completedAssets += 1;
@@ -637,6 +667,7 @@ export async function downloadCloudEpisode(episodeId: string, options: Collabora
       destination,
       expectedBytes: asset.bytes ?? 0,
       expectedHash: asset.contentHash,
+      cloudPath: asset.cloudPath,
       signal: options.signal,
       onBytes: async (bytes) => {
         assetProgress.set(asset.id, bytes);
@@ -657,6 +688,7 @@ export async function downloadCloudEpisode(episodeId: string, options: Collabora
   const skippedAssets = assetResults.reduce((total, result) => total + result.skipped, 0);
   const downloadedBytes = assetResults.reduce((total, result) => total + result.bytes, 0);
 
+  if (streamingReview) await writeJsonAtomic(path.join(episodeFolder, "Session", "cloud-review.json"), { episodeId, revisionId: manifest.revisionId, assets: proxyAssets });
   const metadataPath = path.join(episodeFolder, "metadata.json");
   let episode: EpisodeMetadata;
   try {
@@ -687,7 +719,7 @@ export async function downloadCloudEpisode(episodeId: string, options: Collabora
     completedAt: new Date().toISOString()
   });
   await recordCollaborationDownloadComplete(episodeFolder, episode.id, episode.title, downloadableAssets);
-  await report("complete", "Cloudflare download is complete and verified.");
+  await report("complete", streamingReview ? "Project ready. Smaller review media streams securely from Cloudflare." : "Cloudflare download is complete and verified.");
 
   return {
     episode,

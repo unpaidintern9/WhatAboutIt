@@ -1,3 +1,4 @@
+import { microphoneSlots } from "../../shared/audio-tracks";
 import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Headphones, HelpCircle, Mic2, RotateCcw, Search, Settings, ShieldCheck, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DeviceDefaults, MicrophoneInputChannel } from "../../shared/types";
@@ -39,11 +40,7 @@ const cameraSlots = [
   { key: "camera3", label: "Camera 3" }
 ] as const;
 
-const microphoneSlots = [
-  { key: "morganMic", label: "Morgan Mic" },
-  { key: "guestMic", label: "Guest Mic" },
-  { key: "extraMic", label: "Extra Mic" }
-] as const;
+
 
 function setupDebugEnabled() {
   try {
@@ -73,7 +70,7 @@ export function DeviceSetupWizard({
 }: DeviceSetupWizardProps) {
   const initiallyVisibleCameraCount = defaults.cameras.camera3 ? 3 : defaults.cameras.camera2 ? 2 : 1;
   const [visibleCameraCount, setVisibleCameraCount] = useState(initiallyVisibleCameraCount);
-  const initiallyVisibleMicrophoneCount = defaults.microphones.extraMic ? 3 : defaults.microphones.guestMic ? 2 : 1;
+  const initiallyVisibleMicrophoneCount = microphoneSlots.reduce((count, slot, index) => defaults.microphones[slot.key] ? index + 1 : count, 1);
   const [visibleMicrophoneCount, setVisibleMicrophoneCount] = useState(initiallyVisibleMicrophoneCount);
   const readyState = getDeviceReadiness(detection, defaults);
   const assignmentConflicts = getDeviceAssignmentConflicts(defaults);
@@ -91,9 +88,9 @@ export function DeviceSetupWizard({
   useEffect(() => {
     const configuredCameraCount = defaults.cameras.camera3 ? 3 : defaults.cameras.camera2 ? 2 : 1;
     setVisibleCameraCount((current) => Math.max(current, configuredCameraCount));
-    const configuredMicrophoneCount = defaults.microphones.extraMic ? 3 : defaults.microphones.guestMic ? 2 : 1;
+    const configuredMicrophoneCount = microphoneSlots.reduce((count, slot, index) => defaults.microphones[slot.key] ? index + 1 : count, 1);
     setVisibleMicrophoneCount((current) => Math.max(current, configuredMicrophoneCount));
-  }, [defaults.cameras.camera2, defaults.cameras.camera3, defaults.microphones.extraMic, defaults.microphones.guestMic]);
+  }, [defaults.cameras.camera2, defaults.cameras.camera3, defaults.microphones]);
 
   function assignMicrophone(slot: (typeof microphoneSlots)[number]["key"], deviceId: string) {
     const routed = saveMicrophoneDeviceRoute(defaults, slot, deviceId);
@@ -188,6 +185,11 @@ export function DeviceSetupWizard({
             <FriendlyState title={getEmptyStateMessage("camera")} message="Plug in a camera, close other camera apps, then choose Find Cameras." />
           ) : (
             <div className="camera-card-grid">
+              <label className="device-select">Recording quality
+                <select aria-label="Recording quality" value={defaults.captureQuality ?? "balanced"} onChange={(event) => onDefaultsChange({ ...defaults, captureQuality: event.target.value === "high" ? "high" : "balanced" })}>
+                  <option value="balanced">Balanced · 8 Mbps per camera</option><option value="high">High · 16 Mbps per camera</option>
+                </select>
+              </label>
               {cameraSlots.slice(0, visibleCameraCount).map((slot) => (
                 <CameraSetupCard
                   key={slot.key}
@@ -256,7 +258,7 @@ export function DeviceSetupWizard({
                     Name
                     <input
                       aria-label={`${slot.label} name`}
-                      value={defaults.microphoneNames?.[slot.key] ?? (slot.key === "morganMic" ? "Morgan" : slot.key === "guestMic" ? "Guest" : "Extra")}
+                      value={defaults.microphoneNames?.[slot.key] ?? slot.label.replace(" Mic", "")}
                       onChange={(event) => onDefaultsChange({ ...defaults, microphoneNames: { ...defaults.microphoneNames, [slot.key]: event.target.value } })}
                     />
                   </label>
@@ -285,7 +287,7 @@ export function DeviceSetupWizard({
               {visibleMicrophoneCount < microphoneSlots.length ? (
                 <button className="optional-device-slot" type="button" onClick={() => setVisibleMicrophoneCount((count) => Math.min(microphoneSlots.length, count + 1))}>
                   <Mic2 size={20} />
-                  <strong>{visibleMicrophoneCount === 1 ? "Add Guest Mic (optional)" : "Add Extra Mic (optional)"}</strong>
+                  <strong>{`Add ${microphoneSlots[visibleMicrophoneCount]?.label ?? "Mic"} (optional)`}</strong>
                   <span>Only add another channel when this episode needs it.</span>
                 </button>
               ) : null}

@@ -1,3 +1,7 @@
+import { runBoundedTasks } from "./bounded-task-pool";
+import { createReadStream } from "node:fs";
+import { Readable } from "node:stream";
+import { scheduleMediaWork, waitForMediaBudget } from "./media-work-scheduler";
 import fs from "node:fs/promises";
 
 const DEFAULT_MULTIPART_THRESHOLD_BYTES = 64 * 1024 * 1024;
@@ -41,6 +45,7 @@ export type MultipartPart = {
 };
 
 export type MultipartUploadCheckpoint = {
+  pathname?: string;
   uploadId: string;
   bytes: number;
   contentHash?: string;
@@ -79,7 +84,7 @@ export async function requestCollaborationWithRetry(
     throwIfAborted(options.signal);
     let response: Response | undefined;
     try {
-      response = await makeRequest();
+      response = await scheduleMediaWork(makeRequest, options.signal);
       if (
         response.ok ||
         !RETRYABLE_STATUSES.has(response.status) ||
@@ -134,6 +139,7 @@ async function readRequestBody(
   if (start === undefined || end === undefined)
     return new Uint8Array(await fs.readFile(absolutePath));
   const length = end - start + 1;
+  if (length > 32 * 1024 * 1024) return Readable.toWeb(createReadStream(absolutePath, { start, end, highWaterMark: 1024 * 1024 })) as ReadableStream<Uint8Array>;
   const handle = await fs.open(absolutePath, "r");
   try {
     const body = new Uint8Array(length);
@@ -160,6 +166,7 @@ async function verifiedAfterFailure(options: UploadOptions) {
     const length = Number(response.headers.get("content-length"));
     return (
       response.headers.get("x-content-sha256") === options.contentHash &&
+      (!decodeURIComponent(options.pathname).includes("/assets/objects/") || response.headers.get("x-content-verified") === "true") &&
       (!Number.isFinite(length) || length === options.bytes)
     );
   } catch {
@@ -189,14 +196,12 @@ async function uploadDirect(options: UploadOptions) {
 }
 
 async function uploadMultipart(options: UploadOptions) {
-  const partSize = Math.max(
-    5 * 1024 * 1024,
-    options.partSizeBytes ?? DEFAULT_PART_SIZE_BYTES,
-  );
+  const partSize = multipartPartSize(options.bytes, options.partSizeBytes);
   const reusableCheckpoint = options.checkpoint
     && options.checkpoint.bytes === options.bytes
     && options.checkpoint.contentHash === options.contentHash
     && options.checkpoint.partSizeBytes === partSize
+    && (!options.checkpoint.pathname || options.checkpoint.pathname === options.pathname)
     ? options.checkpoint
     : undefined;
   let uploadId = reusableCheckpoint?.uploadId;
@@ -221,11 +226,12 @@ async function uploadMultipart(options: UploadOptions) {
         createResponse,
         "Could not start multipart upload",
       );
-    const created = (await createResponse.json()) as { uploadId?: string };
+    const created = (await createResponse.json()) as { uploadId?: string; alreadyExists?: boolean };
+    if (created.alreadyExists) { await options.onProgress?.(options.bytes); await options.onCheckpoint?.(undefined); return; }
     if (!created.uploadId)
       throw new Error("Cloud storage did not return a multipart upload id.");
     uploadId = created.uploadId;
-    await options.onCheckpoint?.({ uploadId, bytes: options.bytes, contentHash: options.contentHash, partSizeBytes: partSize, parts: [], updatedAt: new Date().toISOString() });
+    await options.onCheckpoint?.({ pathname: options.pathname, uploadId, bytes: options.bytes, contentHash: options.contentHash, partSizeBytes: partSize, parts: [], updatedAt: new Date().toISOString() });
   }
 
   const partCount = Math.ceil(options.bytes / partSize);
@@ -236,6 +242,7 @@ async function uploadMultipart(options: UploadOptions) {
 
   const saveCheckpoint = async () => {
     const checkpoint: MultipartUploadCheckpoint = {
+      pathname: options.pathname,
       uploadId,
       bytes: options.bytes,
       contentHash: options.contentHash,
@@ -248,6 +255,7 @@ async function uploadMultipart(options: UploadOptions) {
   };
 
   const uploadPart = async (partNumber: number) => {
+    await waitForMediaBudget(options.signal);
     const offset = (partNumber - 1) * partSize;
     const end = Math.min(offset + partSize, options.bytes) - 1;
     const response = await requestCollaborationWithRetry(
@@ -256,7 +264,7 @@ async function uploadMultipart(options: UploadOptions) {
         const body = await readRequestBody(options.absolutePath, offset, end);
         return options.apiFetch(
           `${options.pathname}?multipart=part&uploadId=${encodeURIComponent(uploadId)}&partNumber=${partNumber}`,
-          { method: "PUT", body, signal: options.signal, headers: { "content-type": "application/octet-stream" } },
+          { method: "PUT", body, signal: options.signal, headers: { "content-type": "application/octet-stream", "content-length": String(end - offset + 1) } },
         );
       },
       options,
@@ -275,14 +283,7 @@ async function uploadMultipart(options: UploadOptions) {
   };
 
   try {
-    let nextIndex = 0;
-    const workers = Array.from({ length: Math.min(concurrency, pendingPartNumbers.length) }, async () => {
-      while (nextIndex < pendingPartNumbers.length) {
-        const partNumber = pendingPartNumbers[nextIndex++];
-        await uploadPart(partNumber);
-      }
-    });
-    await Promise.all(workers);
+    await runBoundedTasks(pendingPartNumbers, concurrency, uploadPart);
 
     const completeResponse = await requestCollaborationWithRetry(
       "complete multipart upload",
@@ -333,4 +334,9 @@ export async function uploadCollaborationAsset(options: UploadOptions) {
     if (await verifiedAfterFailure(options)) return;
     throw error;
   }
+}
+
+export function multipartPartSize(bytes: number, requested = DEFAULT_PART_SIZE_BYTES) {
+  if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > 5 * 1024 ** 4) throw new Error("Cloud asset exceeds the supported 5 TiB size.");
+  return Math.max(5 * 1024 * 1024, requested, Math.ceil(bytes / 10_000 / (1024 * 1024)) * 1024 * 1024);
 }

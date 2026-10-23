@@ -1,3 +1,6 @@
+import { cancelAllReviewProxyWork } from "./review-proxy-store";
+import { fetchCollaborationApi } from "./collaboration-remote-service";
+import { setCapturePriority } from "./media-work-scheduler";
 import { app, BrowserWindow, dialog, ipcMain, powerSaveBlocker, session, shell, systemPreferences } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
@@ -76,6 +79,7 @@ function createWindow() {
   mainWindow.webContents.on("destroyed", () => {
     closeProtectedWebContents.delete(webContentsId);
     recordingPowerProtection.release(webContentsId);
+    setCapturePriority(webContentsId, false);
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -90,8 +94,9 @@ async function ensureBaseFolders() {
 }
 
 async function restartMediaPlaybackServer() {
+  await cancelAllReviewProxyWork();
   await mediaPlaybackServer?.close();
-  mediaPlaybackServer = await startMediaPlaybackServer(getEpisodesRoot());
+  mediaPlaybackServer = await startMediaPlaybackServer(getEpisodesRoot(), (episodeId, relativePath, range, signal) => fetchCollaborationApi(`/episodes/${encodeURIComponent(episodeId)}/assets/${encodeURIComponent(relativePath)}`, { headers: range ? { range } : undefined, signal }));
   configureMediaPlaybackBaseUrl(mediaPlaybackServer.baseUrl);
 }
 
@@ -290,10 +295,10 @@ app.whenReady().then(async () => {
   ipcMain.handle("workspace:reset-layout", () => studioWindowManager.resetLayout());
   ipcMain.handle("recording:create-session", (_event, input) => createRecordingSession(input));
   ipcMain.handle("recording:write-state", (_event, input) => writeRecordingState(input.folderPath, input.state));
-  ipcMain.handle("recording:begin-media", (_event, folderPath) => beginRecordingMedia(folderPath));
+  ipcMain.handle("recording:begin-media", async (event, folderPath) => { const result = await beginRecordingMedia(folderPath); setCapturePriority(event.sender.id, true); return result; });
   ipcMain.handle("recording:append-chunk", (_event, input) => appendRecordingChunk(input.folderPath, input.chunk));
-  ipcMain.handle("recording:checkpoint", (_event, input) => checkpointRecordingSession(input.folderPath, input.paused));
-  ipcMain.handle("recording:finalize-media", (_event, folderPath) => finalizeRecordingMedia(folderPath));
+  ipcMain.handle("recording:checkpoint", (event, input) => { setCapturePriority(event.sender.id, false); return checkpointRecordingSession(input.folderPath, input.paused, (progress, message) => { if (!event.sender.isDestroyed()) event.sender.send("recording:save-progress", { episodeFolder: input.folderPath, progress, message }); }); });
+  ipcMain.handle("recording:finalize-media", (event, folderPath) => { setCapturePriority(event.sender.id, false); return finalizeRecordingMedia(folderPath); });
   ipcMain.handle("recording:recover", (_event, folderPath) => recoverRecordingSession(folderPath));
   ipcMain.handle("recording:open-folder", async (_event, folderPath) => shell.openPath(folderPath));
   ipcMain.handle("recording:choose-primary-folder", async (event) => {
@@ -315,6 +320,7 @@ app.whenReady().then(async () => {
     if (active) closeProtectedWebContents.add(event.sender.id);
     else closeProtectedWebContents.delete(event.sender.id);
     recordingPowerProtection.setActive(event.sender.id, active);
+    if (!active) setCapturePriority(event.sender.id, false);
   });
   ipcMain.handle("recording:save-program", (_event, input) => saveProgramRecording(input.folderPath, input.bytes));
   ipcMain.handle("recording:save-tracks", (_event, input) => saveRecordedTracks(input.folderPath, input.tracks));
@@ -414,6 +420,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  void cancelAllReviewProxyWork();
   recordingPowerProtection.releaseAll();
   void mediaPlaybackServer?.close();
 });

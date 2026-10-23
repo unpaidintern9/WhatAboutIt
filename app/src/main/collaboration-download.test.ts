@@ -181,4 +181,31 @@ describe("cloud episode download", () => {
     expect(await fs.readFile(destination)).toEqual(bytes);
     await expect(fs.access(`${destination}.cloud-download.partial`)).rejects.toThrow();
   });
+  it("opens cloud review using project files and streaming proxy URLs without downloading originals", async () => {
+    const episodeId = "stream-review";
+    const metadata = Buffer.from(JSON.stringify({ id: episodeId, title: "Stream Review", status: "draft" }));
+    const catalog = Buffer.from(JSON.stringify({ version: 1, assets: [{ id: "program", durationMs: 60000 }, { id: "mic-8", durationMs: 60000 }] }));
+    const files = new Map([["metadata.json", metadata], ["Session/proxy-catalog.json", catalog]]);
+    const assets = [...files].map(([relativePath, bytes]) => ({ id: relativePath, kind: "metadata", relativePath, bytes: bytes.length, contentHash: hash(bytes), localOriginal: false }));
+    for (const id of ["program", "mic-8"]) assets.push({ id, kind: "proxy-video", relativePath: `Session/Proxies/${id}-review.${id === "program" ? "mp4" : "m4a"}`, bytes: 1000000, contentHash: "a".repeat(64), localOriginal: false });
+    const requested: string[] = [];
+    electron.fetch.mockImplementation(async (url: string) => {
+      if (url.endsWith("/manifest")) return Response.json({ version: 1, revisionId: "stream-revision", episode: { id: episodeId, title: "Stream Review" }, assets });
+      const relative = decodeURIComponent(url.split("/assets/")[1]); requested.push(relative);
+      const bytes = files.get(relative);
+      if (!bytes) throw new Error(`Unexpected original/proxy download ${relative}`);
+      return new Response(bytes);
+    });
+    await downloadCloudEpisode(episodeId, { reviewOnly: true });
+    expect(requested.sort()).toEqual(["Session/proxy-catalog.json", "metadata.json"]);
+    const { configureMediaPlaybackBaseUrl, loadReviewMedia } = await import("./review-media-store");
+    configureMediaPlaybackBaseUrl("http://127.0.0.1:1234/private-token");
+    const inventory = await loadReviewMedia(episodeId);
+    expect(inventory.hasPlayableProgram).toBe(true);
+    expect(inventory.program.playbackUrl).toMatch(/private-token\/cloud\//);
+    expect(inventory.program.durationMs).toBe(60000);
+    expect(inventory.audio.find((asset) => asset.id === "mic-8")?.status).toBe("ready");
+    configureMediaPlaybackBaseUrl("");
+  });
+
 });

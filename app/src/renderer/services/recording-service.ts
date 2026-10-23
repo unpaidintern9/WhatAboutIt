@@ -309,7 +309,10 @@ export class RecordingService {
   private startStateTimer() {
     this.stopStateTimer();
     this.stateTimer = window.setInterval(() => {
-      void this.persistState();
+      const fatalError = this.plugin.getHealth?.().fatalError;
+      if (fatalError && this.status === "recording") {
+        void this.pause().then(() => { this.friendlyError = fatalError; }).catch(() => { this.friendlyError = fatalError; });
+      } else void this.persistState().catch(() => undefined);
     }, 3000);
   }
 

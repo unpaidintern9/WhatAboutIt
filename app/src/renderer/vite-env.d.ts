@@ -31,10 +31,11 @@ declare global {
       onCloudTransferProgress?: (listener: (progress: CollaborationTransferProgress) => void) => () => void;
       getSettings: () => Promise<StudioSettings>;
       saveSettings: (settings: StudioSettings) => Promise<StudioSettings>;
+      onRecordingSaveProgress?: (listener: (progress: import("../shared/recording").RecordingSaveProgress) => void) => () => void;
       createRecordingSession: (input: RecordingSessionCreateInput) => Promise<RecordingSession>;
       writeRecordingState: (folderPath: string, state: RecordingState) => Promise<RecordingState>;
       beginRecordingMedia?: (folderPath: string) => Promise<void>;
-      appendRecordingChunk?: (folderPath: string, chunk: RecordingChunkInput) => Promise<{ bytesWritten: number; lastChunkAt: string }>;
+      appendRecordingChunk?: (folderPath: string, chunk: RecordingChunkInput) => Promise<{ bytesWritten: number; lastChunkAt: string; warning?: string }>;
       checkpointRecordingSession?: (folderPath: string, paused: boolean) => Promise<RecordingCheckpointResult>;
       finalizeRecordingMedia?: (folderPath: string) => Promise<RecordingFinalizeResult>;
       recoverRecordingSession?: (folderPath: string) => Promise<RecordingFinalizeResult>;

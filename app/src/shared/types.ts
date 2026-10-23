@@ -60,7 +60,7 @@ export const defaultRecordingPreferences: RecordingPreferences = {
 };
 
 export type CameraSlotKey = "camera1" | "camera2" | "camera3";
-export type MicrophoneSlotKey = "morganMic" | "guestMic" | "extraMic";
+export type MicrophoneSlotKey = "morganMic" | "guestMic" | "extraMic" | "mic4" | "mic5" | "mic6" | "mic7" | "mic8";
 export type MicrophoneInputChannel =
   | "mix"
   | "input-1"
@@ -81,6 +81,7 @@ export type MicrophoneInputChannel =
   | "input-16";
 
 export interface DeviceDefaults {
+  captureQuality?: "balanced" | "high";
   cameras: Partial<Record<CameraSlotKey, string>>;
   cameraMicrophones?: Partial<Record<CameraSlotKey, MicrophoneSlotKey>>;
   cameraSettings?: Record<string, import("./camera-config").CameraAdvancedSettings>;

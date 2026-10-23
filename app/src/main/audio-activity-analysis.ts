@@ -1,3 +1,5 @@
+import { preferredAudioFile } from "./audio-source";
+import { microphoneSlots } from "../shared/audio-tracks";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AutoEditActivitySegment, AutoEditSilenceSegment } from "../shared/auto-edit";
@@ -9,16 +11,8 @@ const cameraTrackIds: Record<CameraSlotKey, string> = {
   camera2: "camera-camera2",
   camera3: "camera-camera3"
 };
-const microphoneTrackIds: Record<MicrophoneSlotKey, string> = {
-  morganMic: "mic-morganMic",
-  guestMic: "mic-guestMic",
-  extraMic: "mic-extraMic"
-};
-const microphoneFiles: Record<MicrophoneSlotKey, string> = {
-  morganMic: "morgan-mic.m4a",
-  guestMic: "guest-mic.m4a",
-  extraMic: "extra-mic.m4a"
-};
+const microphoneTrackIds = Object.fromEntries(microphoneSlots.map(({key}) => [key, `mic-${key}`])) as Record<MicrophoneSlotKey, string>;
+const microphoneFiles = Object.fromEntries(microphoneSlots.map(({key, assetId}) => [key, `${assetId}.m4a`])) as Record<MicrophoneSlotKey, string>;
 
 interface DeviceMapFile {
   cameraMicrophones?: Partial<Record<CameraSlotKey, MicrophoneSlotKey>>;
@@ -36,7 +30,7 @@ export async function analyzeEpisodeAudioActivity(episodeFolder: string): Promis
   for (const cameraSlot of ["camera1", "camera2", "camera3"] as CameraSlotKey[]) {
     const microphoneSlot = routes[cameraSlot];
     if (!microphoneSlot) continue;
-    const filePath = path.join(episodeFolder, "Audio", microphoneFiles[microphoneSlot]);
+    const filePath = preferredAudioFile(episodeFolder, microphoneFiles[microphoneSlot]);
     try {
       await fs.access(filePath);
       sources.push({
@@ -60,7 +54,7 @@ export async function analyzeEpisodeAudioActivity(episodeFolder: string): Promis
 }
 
 export async function analyzeEpisodeSilence(episodeFolder: string): Promise<AutoEditSilenceSegment[]> {
-  const microphoneSources = await existingAudioSources((Object.keys(microphoneFiles) as MicrophoneSlotKey[]).map((slot) => path.join(episodeFolder, "Audio", microphoneFiles[slot])));
+  const microphoneSources = await existingAudioSources((Object.keys(microphoneFiles) as MicrophoneSlotKey[]).map((slot) => preferredAudioFile(episodeFolder, microphoneFiles[slot])));
   const sources = microphoneSources.length > 0 ? microphoneSources : await existingAudioSources([path.join(episodeFolder, "Program", "program.webm")]);
   if (sources.length === 0) return [];
   const result = await runFfmpeg(createSilenceAnalysisArguments(sources));

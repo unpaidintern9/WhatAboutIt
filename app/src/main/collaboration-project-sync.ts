@@ -1,3 +1,4 @@
+import { cloudAssetPath } from "../shared/cloud-assets";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -150,11 +151,14 @@ export async function pullLatestProjectChanges(episodeId: string) {
       // Missing project files are materialized directly below.
     }
 
-    const response = await apiFetch(`/episodes/${encodeURIComponent(episodeId)}/assets/${encodeURIComponent(asset.relativePath)}`);
+    const response = await apiFetch(cloudAssetPath(episodeId, asset));
     if (!response?.ok || !response.body) throw new Error(`Could not download changed project file ${asset.relativePath}.`);
     await fs.mkdir(path.dirname(destination), { recursive: true });
     const bytes = new Uint8Array(await response.arrayBuffer());
-    await fs.writeFile(destination, bytes);
+    if (asset.bytes !== bytes.length || (asset.contentHash && crypto.createHash("sha256").update(bytes).digest("hex") !== asset.contentHash)) throw new Error(`Cloud project checksum failed for ${asset.relativePath}.`);
+    const temporary = `${destination}.${crypto.randomUUID()}.tmp`;
+    try { await fs.writeFile(temporary, bytes); await fs.rename(temporary, destination); }
+    finally { await fs.rm(temporary, { force: true }); }
     changed += 1;
   }
 

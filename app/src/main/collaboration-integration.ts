@@ -180,14 +180,14 @@ export function configureCollaboration(preloadPath: string) {
       activeCloudTransfers.delete(operationId);
     }
   });
-  ipcMain.handle("collaboration:cloud:download", async (event, episodeId: string) => {
+  ipcMain.handle("collaboration:cloud:download", async (event, episodeId: string, reviewOnly = false) => {
     validateEpisodeId(episodeId);
     const operationId = crypto.randomUUID();
     const controller = new AbortController();
     activeCloudTransfers.set(operationId, controller);
     const onProgress = (progress: CollaborationTransferProgress) => event.sender.send("collaboration:cloud:progress", progress);
     try {
-      const result = await downloadCloudEpisode(episodeId, { operationId, signal: controller.signal, onProgress });
+      const result = await downloadCloudEpisode(episodeId, { operationId, signal: controller.signal, onProgress, reviewOnly });
       await markProjectMaterialized(episodeId);
       return result;
     } finally {
