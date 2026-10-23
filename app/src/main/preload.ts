@@ -39,7 +39,12 @@ contextBridge.exposeInMainWorld("studio", {
   createRecordingSession: (input: RecordingSessionCreateInput): Promise<RecordingSession> => ipcRenderer.invoke("recording:create-session", input),
   writeRecordingState: (folderPath: string, state: RecordingState): Promise<RecordingState> => ipcRenderer.invoke("recording:write-state", { folderPath, state }),
   beginRecordingMedia: (folderPath: string): Promise<void> => ipcRenderer.invoke("recording:begin-media", folderPath),
-  appendRecordingChunk: (folderPath: string, chunk: RecordingChunkInput): Promise<{ bytesWritten: number; lastChunkAt: string }> => ipcRenderer.invoke("recording:append-chunk", { folderPath, chunk }),
+  appendRecordingChunk: (folderPath: string, chunk: RecordingChunkInput): Promise<{ bytesWritten: number; lastChunkAt: string; warning?: string }> => ipcRenderer.invoke("recording:append-chunk", { folderPath, chunk }),
+  onRecordingSaveProgress: (listener: (progress: import("../shared/recording").RecordingSaveProgress) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, progress: import("../shared/recording").RecordingSaveProgress) => listener(progress);
+    ipcRenderer.on("recording:save-progress", handler);
+    return () => ipcRenderer.removeListener("recording:save-progress", handler);
+  },
   checkpointRecordingSession: (folderPath: string, paused: boolean): Promise<RecordingCheckpointResult> => ipcRenderer.invoke("recording:checkpoint", { folderPath, paused }),
   finalizeRecordingMedia: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:finalize-media", folderPath),
   recoverRecordingSession: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:recover", folderPath),
@@ -222,7 +227,7 @@ function episodeRow(title: string, detail: string, source: "local" | "cloud", ep
   if (source === "local") {
     actions.append(makeActionButton("Review", "review-local", episodeId), makeActionButton("Open Folder", "open-folder", episodeId, true), makeActionButton("Upload / Sync", "upload", episodeId, true));
   } else {
-    actions.append(makeActionButton("Download & Review", "review-cloud", episodeId));
+    actions.append(makeActionButton("Stream Review", "review-cloud", episodeId), makeActionButton("Download All", "download-cloud", episodeId, true));
   }
   row.append(info, actions);
   return row;
@@ -444,7 +449,7 @@ async function openReviewEpisodeLibrary() {
         await populateReviewLibrary(list, status);
         return;
       }
-      if (action === "review-cloud") {
+      if (action === "review-cloud" || action === "download-cloud") {
         setTransferActive(true);
         transfer.hidden = false;
         transferLabel.textContent = "Preparing download";
@@ -452,7 +457,7 @@ async function openReviewEpisodeLibrary() {
         transferBar.value = 0;
         transferDetail.textContent = "Checking local and cloud files…";
         status.textContent = "Syncing this Cloudflare episode to the local episode folder…";
-        const result = (await ipcRenderer.invoke("collaboration:cloud:download", episodeId)) as { episode: EpisodeMetadata; sync: CollaborationSyncResult };
+        const result = (await ipcRenderer.invoke("collaboration:cloud:download", episodeId, action === "review-cloud")) as { episode: EpisodeMetadata; sync: CollaborationSyncResult };
         status.textContent = result.sync.message;
         requestEpisodeActivation(result.episode.id);
       }

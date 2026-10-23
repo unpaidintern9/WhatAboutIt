@@ -1,3 +1,4 @@
+import { microphoneAssetId, microphoneLabel } from "./audio-tracks";
 import type { DeviceDefaults } from "./types";
 import type { LiveMarker } from "./podcast-tools";
 import type { AutoEditChapter, AutoEditClipSuggestion, AutoEditMode } from "./auto-edit";
@@ -234,10 +235,10 @@ export function createTimelineDraft(input: { episodeId?: string; recordingSessio
     .filter(([, deviceId]) => Boolean(deviceId))
     .map(([slot]) => ({
       id: `mic-${slot}`,
-      label: slot === "morganMic" ? "Morgan Mic" : slot === "guestMic" ? "Guest Mic" : "Extra Mic",
+      label: input.deviceDefaults.microphoneNames?.[slot as keyof DeviceDefaults["microphones"]] ?? microphoneLabel(slot),
       kind: "microphone" as const,
       placeholder: "Voice track",
-      sourceAssetId: slot === "morganMic" ? "morgan-mic" : slot === "guestMic" ? "guest-mic" : "extra-mic",
+      sourceAssetId: microphoneAssetId(slot),
       ...defaultTrackControls
     }));
 

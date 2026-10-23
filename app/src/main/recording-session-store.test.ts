@@ -299,7 +299,7 @@ describe("recording session store", () => {
     };
 
     expect(result.integrity.playable).toBe(true);
-    expect(result.integrity.savedSourceCount).toBe(1);
+    expect(result.integrity.savedSourceCount).toBe(2);
     expect(result.integrity.backupPath).toContain("disk-first");
     expect(syncMetadata.deviceStartTimestamps["recording:program"]).toBeTruthy();
     expect(syncMetadata.deviceStartTimestamps["recording:morganMic"]).toBeTruthy();
@@ -307,7 +307,7 @@ describe("recording session store", () => {
     expect(await validatePlayableMedia(result.programPath as string)).toBe(true);
     expect(await validatePlayableMedia(result.tracks[0].filePath as string)).toBe(true);
     await expect(fs.stat(path.join(result.integrity.backupPath as string, "Program", "program.webm"))).resolves.toBeTruthy();
-    await expect(fs.stat(path.join(result.integrity.backupPath as string, "Audio", "morgan-mic.m4a"))).resolves.toBeTruthy();
+    await expect(fs.stat(path.join(result.integrity.backupPath as string, "Audio", "morgan-mic.flac"))).resolves.toBeTruthy();
   }, 30000);
 
   it("pads isolated microphones to the Program audio packet start", async () => {
@@ -401,8 +401,9 @@ describe("recording session store", () => {
 
     expect(result.integrity.programPlayable).toBe(true);
     expect(result.integrity.playable).toBe(true);
-    expect(result.integrity.savedSourceCount).toBe(0);
-    expect(result.integrity.expectedSourceCount).toBe(1);
+    expect(result.integrity.savedSourceCount).toBe(1);
+    expect(result.integrity.expectedSourceCount).toBe(2);
+    expect(result.tracks.find((track) => track.slot === "camera1")?.status).toBe("saved");
     expect(result.integrity.warnings).toContain("guestMic: Saved, but no audible signal was detected");
     expect(result.tracks[0]).toMatchObject({ slot: "guestMic", status: "needs-attention", filePath: expect.any(String) });
   }, 30000);
@@ -503,4 +504,36 @@ describe("recording session store", () => {
       "Program recording could not be validated."
     );
   }, 20000);
+  it("preserves PCM bit-for-bit through lossless finalization and mirrors chunks before Stop", async () => {
+    const store = await import("./recording-session-store");
+    const { runFfmpeg, runFfprobe } = await import("./ffmpeg-tools");
+    const pcmPath = path.join(mockPaths.episodesRoot, "voice.pcm");
+    const videoPath = path.join(mockPaths.episodesRoot, "video.webm");
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=900:sample_rate=48000", "-t", "1", "-f", "s24le", "-c:a", "pcm_s24le", pcmPath]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=size=320x180:rate=30", "-f", "lavfi", "-i", "sine=sample_rate=48000", "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", videoPath]);
+    const backup = path.join(mockPaths.episodesRoot, "second-drive");
+    const session = await store.createRecordingSession({ episodeTitle: "Lossless", backupFolderPath: backup, deviceDefaults: { cameras: { camera1: "camera" }, microphones: { mic8: "interface" }, microphoneChannels: { mic8: "input-8" } } });
+    const folder = session.captureFolderPath!;
+    await store.beginRecordingMedia(folder);
+    const pcm = await fs.readFile(pcmPath);
+    const chunk = { target: "mic8" as const, kind: "audio" as const, mimeType: "audio/x-pcm;rate=48000;channels=1", sequence: 0, sampleFrames: 48000, clockRateRatio: 1, bytes: pcm };
+    await store.appendRecordingChunk(folder, { target: "program", kind: "program", mimeType: "video/webm", sequence: 0, bytes: await fs.readFile(videoPath) });
+    const first = await store.appendRecordingChunk(folder, chunk);
+    const duplicate = await store.appendRecordingChunk(folder, chunk);
+    expect(duplicate.bytesWritten).toBe(first.bytesWritten);
+    await expect(store.appendRecordingChunk(folder, { ...chunk, sequence: 2 })).rejects.toThrow("sequence is incomplete");
+    const { finishRollingBackup } = await import("./recording-disk-writer");
+    expect(await finishRollingBackup(folder)).toBeUndefined();
+    const backupRoot = path.join(backup, `lossless-${session.id.slice(0, 8)}`, "Rolling", path.basename(folder));
+    expect(await fs.readFile(path.join(backupRoot, "Audio", "mic-8.source.partial.pcm"))).toEqual(pcm);
+    const result = await store.checkpointRecordingSession(session.folderPath, false);
+    const audio = result.result!.tracks.find((track) => track.slot === "mic8")!;
+    expect(audio.filePath).toMatch(/mic-8\.flac$/);
+    const probe = JSON.parse((await runFfprobe(["-v", "error", "-show_streams", "-of", "json", audio.filePath!])).stdout);
+    expect(probe.streams[0]).toMatchObject({ codec_name: "flac", channels: 1, sample_rate: "48000", bits_per_raw_sample: "24" });
+    const decoded = path.join(mockPaths.episodesRoot, "decoded.pcm");
+    await runFfmpeg(["-y", "-i", audio.filePath!, "-c:a", "pcm_s24le", "-f", "s24le", decoded]);
+    expect((await fs.readFile(decoded)).subarray(-pcm.length)).toEqual(pcm);
+  }, 30000);
+
 });

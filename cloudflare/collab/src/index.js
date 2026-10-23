@@ -65,10 +65,11 @@ function hex(buffer) {
 }
 
 async function hashObject(object) {
-  if (typeof DigestStream === "undefined") {
+  if (typeof crypto.DigestStream === "undefined") {
+    if (object.size > 8 * 1024 * 1024) throw new Error("Streaming checksum verification is unavailable in this runtime.");
     return hex(await crypto.subtle.digest("SHA-256", await new Response(object.body).arrayBuffer()));
   }
-  const digest = new DigestStream("SHA-256");
+  const digest = new crypto.DigestStream("SHA-256");
   await object.body.pipeTo(digest);
   return hex(await digest.digest);
 }
@@ -324,7 +325,7 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const accessKeys = configuredAccessKeys(env);
-    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256" }, 200, cors);
+    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256", versionedPublication: true, streamingChecksums: true }, 200, cors);
     if (accessKeys.length === 0) return json({ error: "Collaboration authentication is not configured." }, 503, cors);
     const identity = await authorizedIdentity(request, env);
     if (!identity) return json({ error: "Unauthorized" }, 401, cors);
@@ -374,10 +375,23 @@ export default {
           const assets = input.assets.map((asset) => {
             const relativePath = String(asset?.relativePath || "").replaceAll("\\", "/");
             if (!relativePath || relativePath.length > 1024 || relativePath.startsWith("/") || relativePath.split("/").some((part) => !part || part === "..")) throw new Error("Manifest contains an invalid asset path.");
+            if (asset.cloudPath && !String(asset.cloudPath).startsWith(`episodes/${episodeId}/`)) throw new Error("Asset belongs to a different episode.");
             const bytes = Number(asset?.bytes);
             if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("Manifest contains an invalid asset size.");
             return { ...asset, relativePath, bytes, contentHash: cleanSha256(asset?.contentHash) };
           });
+          // Versioned objects are published only after a server-verified receipt.
+          for (const asset of assets) {
+            const prefix = `episodes/${episodeId}/`;
+            if (!asset.cloudPath?.startsWith(prefix + "objects/")) continue;
+            const relative = asset.cloudPath.slice(prefix.length);
+            const objectKey = episodeAssetKey(episodeId, relative);
+            const [object, receiptObject] = await Promise.all([
+              env.EPISODE_MEDIA.head(objectKey), env.EPISODE_MEDIA.get(`verification/${objectKey}`)
+            ]);
+            const receipt = receiptObject ? await receiptObject.json() : undefined;
+            if (!object || !receipt || receipt.etag !== object.httpEtag || receipt.sha256 !== asset.contentHash || object.size !== asset.bytes) throw new Error(`Asset is not verified: ${asset.relativePath}`);
+          }
           const manifest = {
             version: 1,
             revisionId: String(input?.revisionId || crypto.randomUUID()),
@@ -392,15 +406,17 @@ export default {
               updatedAt: String(episode.updatedAt || new Date().toISOString())
             },
             collaborationStatus: String(input?.collaborationStatus || "working"),
-            uploadedAt: new Date().toISOString(),
+            uploadedAt: String(input.uploadedAt || new Date().toISOString()),
             assets
           };
           const conditionalHeaders = new Headers();
           if (request.headers.has("if-match")) conditionalHeaders.set("if-match", request.headers.get("if-match"));
           if (request.headers.has("if-none-match")) conditionalHeaders.set("if-none-match", request.headers.get("if-none-match"));
           const hasCondition = request.headers.has("if-match") || request.headers.has("if-none-match");
+          // Retain revision history for rollback; the current pointer uses compare-and-swap.
           let stored;
           try {
+            await env.EPISODE_MEDIA.put(`episode-history/${episodeId}/${encodeURIComponent(manifest.revisionId)}.json`, JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" } });
             stored = await env.EPISODE_MEDIA.put(key, JSON.stringify(manifest), {
               httpMetadata: { contentType: "application/json" },
               ...(hasCondition ? { onlyIf: conditionalHeaders } : {})
@@ -408,7 +424,12 @@ export default {
           } catch (error) {
             return temporaryStorageFailure(error, cors);
           }
-          if (!stored) return json({ error: "The cloud episode changed before this manifest could be saved." }, 412, cors);
+          if (!stored) {
+            const current = await env.EPISODE_MEDIA.get(key);
+            const saved = current ? await current.json() : undefined;
+            if (!saved || JSON.stringify(saved) !== JSON.stringify(manifest)) return json({ error: "The cloud episode changed before this manifest could be saved." }, 412, cors);
+            stored = current;
+          }
           await env.EPISODE_MEDIA.put(`episode-index/${episodeId}.json`, JSON.stringify(cloudSummary(manifest)), {
             httpMetadata: { contentType: "application/json" }
           });
@@ -432,6 +453,12 @@ export default {
       if (multipartAction === "create" && request.method === "POST") {
         try {
           const contentHash = cleanSha256(request.headers.get("x-content-sha256"));
+          const existing = await env.EPISODE_MEDIA.head(key);
+          if (key.includes("/objects/") && existing) {
+            const receipt = await env.EPISODE_MEDIA.get(`verification/${key}`);
+            if (receipt && (await receipt.json()).sha256 === contentHash) return json({ alreadyExists: true }, 200, cors);
+            return json({ error: "Versioned object already exists; retry with a new object version." }, 409, cors);
+          }
           const upload = await env.EPISODE_MEDIA.createMultipartUpload(key, {
             httpMetadata: { contentType: request.headers.get("content-type") || "application/octet-stream" },
             customMetadata: {
@@ -484,6 +511,7 @@ export default {
             logEvent("error", "checksum-mismatch", { identity, key, expectedHash, actualHash });
             return json({ error: "Uploaded bytes did not match the declared SHA-256 checksum.", code: "checksum-mismatch" }, 422, cors);
           }
+          await env.EPISODE_MEDIA.put(`verification/${key}`, JSON.stringify({ sha256: actualHash, etag: stored.httpEtag, size: stored.size }));
           logEvent("log", "multipart-verified", { identity, key, sha256: actualHash });
           return json({ ok: true, key, etag: object.httpEtag }, 200, cors);
         } catch (error) {
@@ -510,12 +538,22 @@ export default {
         const headers = new Headers(cors);
         if (object.httpEtag) headers.set("etag", object.httpEtag);
         headers.set("x-content-sha256", object.checksums?.sha256 ? hex(object.checksums.sha256) : object.customMetadata?.sha256 || "");
+        if (key.includes("/objects/")) {
+          const receiptObject = await env.EPISODE_MEDIA.get(`verification/${key}`);
+          const receipt = receiptObject ? await receiptObject.json() : undefined;
+          headers.set("x-content-verified", String(Boolean(receipt && receipt.etag === object.httpEtag)));
+        }
         headers.set("content-length", String(object.size || 0));
         return new Response(null, { status: 200, headers });
       }
       if (request.method === "PUT") {
         try {
           const contentHash = cleanSha256(request.headers.get("x-content-sha256"));
+          if (key.includes("/objects/") && await env.EPISODE_MEDIA.head(key)) {
+            const receipt = await env.EPISODE_MEDIA.get(`verification/${key}`);
+            if (receipt && (await receipt.json()).sha256 === contentHash) return json({ ok: true, key, sha256: contentHash }, 200, cors);
+            return json({ error: "Versioned object already exists; retry with a new object version." }, 409, cors);
+          }
           const stored = await env.EPISODE_MEDIA.put(key, request.body, {
             httpMetadata: { contentType: request.headers.get("content-type") || "application/octet-stream" },
             sha256: contentHash,
@@ -525,6 +563,7 @@ export default {
             }
           });
           const verifiedHash = stored?.checksums?.sha256 ? hex(stored.checksums.sha256) : contentHash;
+          await env.EPISODE_MEDIA.put(`verification/${key}`, JSON.stringify({ sha256: verifiedHash, etag: stored.httpEtag }));
           logEvent("log", "direct-upload-verified", { identity, key, sha256: verifiedHash });
           return json({ ok: true, key, sha256: verifiedHash }, 200, cors);
         } catch (error) {
@@ -552,7 +591,9 @@ export default {
         return new Response(object.body, { status: object.range ? 206 : 200, headers });
       }
       if (request.method === "DELETE") {
+        if (key.includes("/objects/")) return json({ error: "Versioned episode objects are retained for revision recovery." }, 409, cors);
         await env.EPISODE_MEDIA.delete(key);
+        await env.EPISODE_MEDIA.delete(`verification/${key}`);
         return json({ ok: true, key }, 200, cors);
       }
     }

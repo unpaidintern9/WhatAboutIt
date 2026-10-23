@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import http from "node:http";
 import path from "node:path";
 import crypto from "node:crypto";
+import { Readable } from "node:stream";
 
 const mediaTypes: Record<string, string> = {
   ".webm": "video/webm",
@@ -10,6 +11,7 @@ const mediaTypes: Record<string, string> = {
   ".m4a": "audio/mp4",
   ".mp3": "audio/mpeg",
   ".wav": "audio/wav",
+  ".flac": "audio/flac",
   ".mkv": "video/x-matroska",
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -21,11 +23,12 @@ export interface MediaPlaybackServer {
   close: () => Promise<void>;
 }
 
-export async function startMediaPlaybackServer(episodesRoot: string): Promise<MediaPlaybackServer> {
+type CloudFetcher = (episodeId: string, relativePath: string, range: string | undefined, signal: AbortSignal) => Promise<Response>;
+export async function startMediaPlaybackServer(episodesRoot: string, cloudFetcher?: CloudFetcher): Promise<MediaPlaybackServer> {
   const root = path.resolve(episodesRoot);
   const accessToken = crypto.randomBytes(24).toString("base64url");
   const server = http.createServer((request, response) => {
-    void serveMediaRequest(root, accessToken, request, response);
+    void serveMediaRequest(root, accessToken, request, response, cloudFetcher);
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -45,12 +48,30 @@ async function serveMediaRequest(
   root: string,
   accessToken: string,
   request: http.IncomingMessage,
-  response: http.ServerResponse
+  response: http.ServerResponse,
+  cloudFetcher?: CloudFetcher
 ) {
   try {
     if (request.method !== "GET" && request.method !== "HEAD") return sendStatus(response, 405);
     const url = new URL(request.url ?? "/", "http://127.0.0.1");
     const parts = url.pathname.split("/").filter(Boolean);
+    if (parts.length === 3 && parts[0] === accessToken && parts[1] === "cloud" && cloudFetcher) {
+      const { episodeId, relativePath } = JSON.parse(Buffer.from(parts[2], "base64url").toString("utf8")) as { episodeId: string; relativePath: string };
+      if (!/^[A-Za-z0-9._-]{1,160}$/.test(episodeId) || !relativePath || relativePath.split("/").some((part) => !part || part === ".." || part === ".")) return sendStatus(response, 404);
+      const controller = new AbortController();
+      const abort = () => controller.abort();
+      request.once("aborted", abort); response.once("close", abort);
+      const upstream = await cloudFetcher(episodeId, relativePath, request.headers.range, controller.signal);
+      const headers: Record<string, string> = { "Cache-Control": "private, no-store" };
+      for (const name of ["content-type", "content-length", "content-range", "accept-ranges"]) { const value = upstream.headers.get(name); if (value) headers[name] = value; }
+      response.writeHead(upstream.status, headers);
+      if (!upstream.body || request.method === "HEAD") { await upstream.body?.cancel(); response.end(); return; }
+      const stream = Readable.fromWeb(upstream.body as never);
+      response.once("close", () => stream.destroy());
+      stream.once("error", () => response.destroy());
+      stream.pipe(response);
+      return;
+    }
     if (parts.length !== 3 || parts[0] !== accessToken || parts[1] !== "media") return sendStatus(response, 404);
 
     const filePath = Buffer.from(parts[2], "base64url").toString("utf8");

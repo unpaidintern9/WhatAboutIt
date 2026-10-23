@@ -2,13 +2,19 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildEpisodeAssetManifest } from "./collaboration-asset-index";
+import { buildEpisodeAssetManifest, classifyCollaborationAsset } from "./collaboration-asset-index";
 
 describe("collaboration asset index", () => {
   let root: string | undefined;
 
   afterEach(async () => {
     if (root) await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it("protects immutable recording parts and recognizes review proxies", () => {
+    expect(classifyCollaborationAsset("Recordings/part-1/Program/program.source.webm")).toEqual({ kind: "original-video", localOriginal: true });
+    expect(classifyCollaborationAsset("Recordings/part-1/Audio/Originals/mic.source.pcm")).toEqual({ kind: "original-audio", localOriginal: true });
+    expect(classifyCollaborationAsset("Session/Proxies/program-review.mp4").kind).toBe("proxy-video");
   });
 
   it("never uploads local sync and download-completion markers", async () => {

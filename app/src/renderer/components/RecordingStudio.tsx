@@ -1,3 +1,4 @@
+import { microphoneSlots } from "../../shared/audio-tracks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import {
@@ -108,18 +109,10 @@ const cameraSlots: Array<{ key: CameraKey; label: string }> = [
 ];
 
 const micSlots: Array<{ key: MicKey | "soundboard" | "music"; label: string }> = [
-  { key: "morganMic", label: "Morgan Mic" },
-  { key: "guestMic", label: "Guest Mic" },
-  { key: "extraMic", label: "Extra Mic" },
-  { key: "soundboard", label: "Soundboard" },
-  { key: "music", label: "Music" }
+  ...microphoneSlots,
+  { key: "soundboard", label: "Soundboard" }, { key: "music", label: "Music" }
 ];
-
-const routableMicSlots: Array<{ key: MicKey; label: string }> = [
-  { key: "morganMic", label: "Morgan Mic" },
-  { key: "guestMic", label: "Guest Mic" },
-  { key: "extraMic", label: "Extra Mic" }
-];
+const routableMicSlots = microphoneSlots;
 
 const fallbackCameraMicRoutes: Record<CameraKey, MicKey> = {
   camera1: "morganMic",
@@ -185,11 +178,16 @@ export function RecordingStudio({
   const [toolsOpen, setToolsOpen] = useState(false);
   const [layoutsOpen, setLayoutsOpen] = useState(false);
   const [recordingAction, setRecordingAction] = useState<RecordingAction>("idle");
+  const [saveProgress, setSaveProgress] = useState("");
+  useEffect(() => window.studio?.onRecordingSaveProgress?.((event) => {
+    if (event.episodeFolder === snapshot.session?.folderPath) setSaveProgress(`${event.message} · ${event.progress}%`);
+  }), [snapshot.session?.folderPath]);
+
   const [micSignals, setMicSignals] = useState<Partial<Record<MicKey, MicSignalState>>>({});
   const [audioDiagnostics, setAudioDiagnostics] = useState<Partial<Record<MicKey, LiveInputDiagnostics>>>({});
   const [recoverySessionId, setRecoverySessionId] = useState<string | undefined>();
   const [mixerChannels, setMixerChannels] = useState<MixerChannelState>(() =>
-    Object.fromEntries(micSlots.map((slot) => [slot.key, { ...defaultMixerChannel }]))
+    Object.fromEntries(micSlots.filter((slot) => !["mic4", "mic5", "mic6", "mic7", "mic8"].includes(slot.key) || Boolean(defaults.microphones[slot.key as MicKey])).map((slot) => [slot.key, { ...defaultMixerChannel }]))
   );
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const markerTimerRef = useRef<number | undefined>(undefined);
@@ -222,7 +220,7 @@ export function RecordingStudio({
   const programMicSignal = micSignals[programMicSlot];
   const programMicSelected = Boolean(findDevice(detection.microphones, defaults.microphones[programMicSlot]));
   const programMicDisconnected = programMicSignal === "disconnected";
-  const liveMicReadyCount = ["morganMic", "guestMic", "extraMic"].filter((key) => {
+  const liveMicReadyCount = microphoneSlots.map(({ key }) => key).filter((key) => {
     if (!findDevice(detection.microphones, defaults.microphones[key as MicKey])) return false;
     const signal = micSignals[key as MicKey];
     return signal !== "no-signal" && signal !== "disconnected";
@@ -812,7 +810,7 @@ export function RecordingStudio({
 
         <div className={`local-save-note live ${recordingAction === "saving" ? "saving" : ""}`} role="status" aria-live="polite">
           {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={20} /> : <Save size={20} />}
-          <span>{recordingAction === "saving" ? "Verifying the program, each camera, each microphone, and the optional backup copy." : `${snapshot.localSaveMessage}. Disk-first protection is on. Saving location: ${savingLocation}`}</span>
+          <span>{recordingAction === "saving" ? (saveProgress || "Verifying the program, each camera, each microphone, and the optional backup copy.") : `${snapshot.localSaveMessage}. Disk-first protection is on. Saving location: ${savingLocation}`}</span>
         </div>
 
         {isComplete && (

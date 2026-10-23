@@ -1610,7 +1610,8 @@ export default function App() {
     status: storageStatus,
     cameraCount: Object.values(settings.deviceDefaults.cameras).filter(Boolean).length,
     microphoneCount: Object.values(settings.deviceDefaults.microphones).filter(Boolean).length,
-    estimatedMinutes: recordingPreferences.plannedDurationMinutes
+    estimatedMinutes: recordingPreferences.plannedDurationMinutes,
+    captureQuality: settings.deviceDefaults.captureQuality
   });
 
   if (popOutPanelId) {

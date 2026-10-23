@@ -58,4 +58,20 @@ describe("media playback server", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
   });
+  it("forwards authenticated cloud review ranges without putting credentials in media URLs", async () => {
+    const calls: string[] = [];
+    root = await fs.mkdtemp(path.join(os.tmpdir(), "wai-cloud-playback-"));
+    server = await startMediaPlaybackServer(root, async (episodeId, relativePath, range) => {
+      calls.push(`${episodeId}:${relativePath}:${range}`);
+      return new Response("2345", { status: 206, headers: { "content-type": "video/mp4", "content-length": "4", "content-range": "bytes 2-5/10", "accept-ranges": "bytes" } });
+    });
+    const token = Buffer.from(JSON.stringify({ episodeId: "episode-a", relativePath: "objects/revision/proxy.mp4" })).toString("base64url");
+    const response = await fetch(`${server.baseUrl}/cloud/${token}`, { headers: { range: "bytes=2-5" } });
+    expect(response.status).toBe(206);
+    expect(response.headers.get("content-range")).toBe("bytes 2-5/10");
+    expect(await response.text()).toBe("2345");
+    expect(calls).toEqual(["episode-a:objects/revision/proxy.mp4:bytes=2-5"]);
+    expect((await fetch(`${server.baseUrl.replace(/[^/]+$/, "wrong-token")}/cloud/${token}`)).status).toBe(404);
+  });
+
 });

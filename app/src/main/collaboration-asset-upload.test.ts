@@ -1,3 +1,4 @@
+import { multipartPartSize } from "./collaboration-asset-upload";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -263,4 +264,9 @@ describe("collaboration asset upload", () => {
       }),
     ).resolves.toBeUndefined();
   });
+});
+
+it("keeps very large master uploads below the multipart count ceiling", () => {
+  for (const bytes of [200 * 1024 ** 3, 5 * 1024 ** 4]) expect(Math.ceil(bytes / multipartPartSize(bytes))).toBeLessThanOrEqual(10_000);
+  expect(() => multipartPartSize(6 * 1024 ** 4)).toThrow("5 TiB");
 });

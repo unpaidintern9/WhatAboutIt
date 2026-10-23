@@ -1,3 +1,4 @@
+import { scheduleMediaWork } from "./media-work-scheduler";
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import { promisify } from "node:util";
@@ -111,7 +112,7 @@ export async function requireMediaTools(): Promise<MediaTools> {
 
 export async function runFfmpeg(args: string[], tools?: MediaTools): Promise<FfmpegRunResult> {
   const resolvedTools = tools ?? (await requireMediaTools());
-  const result = await execFileAsync(resolvedTools.ffmpegPath, args, { maxBuffer: 1024 * 1024 * 8 });
+  const result = await scheduleMediaWork(() => execFileAsync(resolvedTools.ffmpegPath, ["-threads", "2", ...args], { maxBuffer: 1024 * 1024 * 8 }));
   return { stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -122,8 +123,8 @@ export async function runFfmpegWithProgress(
 ): Promise<FfmpegRunResult> {
   const resolvedTools = tools ?? (await requireMediaTools());
 
-  return new Promise((resolve, reject) => {
-    const child = spawn(resolvedTools.ffmpegPath, ["-progress", "pipe:1", "-nostats", ...args], {
+  return scheduleMediaWork(() => new Promise<FfmpegRunResult>((resolve, reject) => {
+    const child = spawn(resolvedTools.ffmpegPath, ["-threads", "2", "-progress", "pipe:1", "-nostats", ...args], {
       windowsHide: true
     });
     let stdout = "";
@@ -139,7 +140,7 @@ export async function runFfmpegWithProgress(
 
     child.stdout.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
-      stdout += text;
+      stdout = (stdout + text).slice(-1024 * 1024);
       progressBuffer += text;
       const lines = progressBuffer.split(/\r?\n/);
       progressBuffer = lines.pop() ?? "";
@@ -152,7 +153,7 @@ export async function runFfmpegWithProgress(
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
+      stderr = (stderr + chunk.toString()).slice(-2 * 1024 * 1024);
       if (stderr.length > 1024 * 1024 * 8) stderr = stderr.slice(-1024 * 1024 * 8);
     });
     child.on("error", reject);
@@ -169,7 +170,7 @@ export async function runFfmpegWithProgress(
         reject(new Error(stderr.trim() || `FFmpeg exited with code ${code ?? "unknown"}`));
       }
     });
-  });
+  }), options.signal);
 }
 
 export async function runFfprobe(args: string[], tools?: MediaTools): Promise<FfmpegRunResult> {

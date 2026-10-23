@@ -1,3 +1,7 @@
+import { createEditorInterchange, type InterchangeSource } from "../shared/editor-interchange";
+import { compatibleVideoArgs, detectVideoEncoder } from "./video-encoder";
+import { preferredAudioFile } from "./audio-source";
+import { microphoneSlots } from "../shared/audio-tracks";
 import path from "node:path";
 import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
@@ -23,11 +27,7 @@ const fallbackCameraMicrophones: Record<CameraSlotKey, MicrophoneSlotKey> = {
   camera2: "guestMic",
   camera3: "extraMic"
 };
-const microphoneFileNames: Record<MicrophoneSlotKey, string> = {
-  morganMic: "morgan-mic.m4a",
-  guestMic: "guest-mic.m4a",
-  extraMic: "extra-mic.m4a"
-};
+const microphoneFileNames = Object.fromEntries(microphoneSlots.map(({key, assetId}) => [key, `${assetId}.m4a`])) as Record<MicrophoneSlotKey, string>;
 
 function exportFolder(episodeId: string) {
   return path.join(getEpisodesRoot(), episodeId, "Exports");
@@ -485,13 +485,9 @@ function sourcePathForTrack(episodeId: string, track: TimelineTrack, originalSou
   if (track.kind === "camera" && /^camera-[123]$/.test(track.sourceAssetId ?? "")) {
     return path.join(episodeFolder(episodeId), "Cameras", `${track.sourceAssetId}.webm`);
   }
-  const audioFiles: Record<string, string> = {
-    "morgan-mic": "morgan-mic.m4a",
-    "guest-mic": "guest-mic.m4a",
-    "extra-mic": "extra-mic.m4a"
-  };
+  const audioFiles: Record<string, string> = Object.fromEntries(microphoneSlots.map(({ assetId }) => [assetId, `${assetId}.m4a`]));
   const audioFile = track.sourceAssetId ? audioFiles[track.sourceAssetId] : undefined;
-  return audioFile ? path.join(episodeFolder(episodeId), "Audio", audioFile) : undefined;
+  return audioFile ? preferredAudioFile(episodeFolder(episodeId), audioFile) : undefined;
 }
 
 function editsForTrack(edits: TimelineEditOperation[], trackId: string) {
@@ -853,7 +849,7 @@ async function createCameraMasters(
     const sourceFile = originalSources[`camera-${cameraNumber}` as keyof typeof originalSources]
       ?? path.join(episodeFolder(request.episodeId), "Cameras", `camera-${cameraNumber}.webm`);
     const microphoneSlot = savedRoutes[cameraSlot] ?? request.deviceDefaults?.cameraMicrophones?.[cameraSlot] ?? fallbackCameraMicrophones[cameraSlot];
-    const audioFile = path.join(episodeFolder(request.episodeId), "Audio", microphoneFileNames[microphoneSlot]);
+    const audioFile = preferredAudioFile(episodeFolder(request.episodeId), microphoneFileNames[microphoneSlot]);
     if (!(await fileExists(sourceFile)) || !(await fileExists(audioFile))) continue;
     const cameraTrack = request.draft.tracks.find((track) => track.sourceAssetId === `camera-${cameraNumber}`);
     const microphoneAssetId = microphoneFileNames[microphoneSlot].replace(".m4a", "");
@@ -968,8 +964,8 @@ async function editorSources(request: ExportRequest): Promise<EditorSource[]> {
     const assetId = `camera-${number}` as keyof typeof originals;
     sources.push({ assetId, kind: "video", label: `Camera ${number}`, sourceFile: originals[assetId] ?? path.join(episodeFolder(request.episodeId), "Cameras", `${assetId}.webm`), relativeOutput: path.join("02 Camera Video", `Camera ${number}.${videoExtension}`) });
   }
-  for (const [assetId, label] of [["morgan-mic", "Morgan Mic"], ["guest-mic", "Guest Mic"], ["extra-mic", "Extra Mic"]] as const) {
-    sources.push({ assetId, kind: "audio", label, sourceFile: originals[assetId] ?? path.join(episodeFolder(request.episodeId), "Audio", `${assetId}.m4a`), relativeOutput: path.join("03 Isolated Audio", `${label}.wav`) });
+  for (const { assetId, label } of microphoneSlots) {
+    sources.push({ assetId, kind: "audio", label, sourceFile: originals[assetId as keyof typeof originals] ?? preferredAudioFile(episodeFolder(request.episodeId), assetId), relativeOutput: path.join("03 Isolated Audio", `${label}.wav`) });
   }
   const existing: EditorSource[] = [];
   for (const source of sources) if (await fileExists(source.sourceFile)) existing.push(source);
@@ -993,15 +989,24 @@ async function createEditorSourceFiles(
     const outputPath = path.join(running.outputFolder, item.relativeOutput);
     await fs.mkdir(path.dirname(outputPath), { recursive: true });
     const durationMs = (await getMediaDurationMs(item.sourceFile)) || sourceDurationMs;
+    const encoder = kind === "video" && request.editorVideoPreset !== "prores" ? await detectVideoEncoder() : "libx264";
     const codecArgs = kind === "audio"
       ? ["-map", "0:a:0", "-ar", "48000", "-c:a", "pcm_s24le"]
       : request.editorVideoPreset === "prores"
         ? ["-map", "0:v:0", "-map", "0:a:0?", "-c:v", "prores_ks", "-profile:v", "2", "-pix_fmt", "yuv422p10le", "-ar", "48000", "-c:a", "pcm_s24le"]
-        : ["-map", "0:v:0", "-map", "0:a:0?", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-pix_fmt", "yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-g", "30", "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"];
-    await runFfmpegWithProgress(
-      ["-y", "-fflags", "+genpts", "-i", item.sourceFile, ...codecArgs, outputPath],
+        : ["-map", "0:v:0", "-map", "0:a:0?", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-pix_fmt", "yuv420p", ...compatibleVideoArgs(encoder), "-g", "30", "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"];
+    const encode = (args: string[]) => runFfmpegWithProgress(
+      ["-y", "-fflags", "+genpts", "-i", item.sourceFile, ...args, outputPath],
       { durationMs, signal, onProgress: (progress) => updateRunningJob(running, start + (progress / 100) * width, `Preparing ${item.label} for outside editors`, report) }
     );
+    try { await encode(codecArgs); }
+    catch (error) {
+      if (signal.aborted || encoder === "libx264") throw error;
+      await logger.warning("ExportService", "Hardware encode failed; retrying the same source in software.", { encoder, source: item.assetId });
+      const codecStart = codecArgs.indexOf("-c:v");
+      const codecEnd = codecArgs.indexOf("-g", codecStart);
+      await encode([...codecArgs.slice(0, codecStart), ...compatibleVideoArgs("libx264"), ...codecArgs.slice(codecEnd)]);
+    }
     if (!(await validatePlayableMedia(outputPath, undefined, { [kind]: true, decode: true }))) throw new Error(`${item.relativeOutput} could not be decoded.`);
     outputs.push(item.relativeOutput);
   }
@@ -1047,7 +1052,7 @@ function editorReadme(request: ExportRequest, cameraOutputs: string[], audioOutp
     "3. If automatic sync needs help, use 04 Project Notes/sync-map.csv. A positive offset means trim that amount from the source start; a negative offset means delay it.",
     "4. Use 01 Reference Edit/what-about-it-reference-edit.mp4 as the visual and pacing reference.",
     "5. Captions follow the edited reference; markers and source sync offsets use the original recording clock. Full-length sources have no draft cuts, treatments, or loudness mastering baked in.",
-    "6. The JSON edit decision list is a What About It draft for reference, not a native Premiere, Resolve, Final Cut, or CapCut project. Rebuild edits using the reference video. Media uses relative paths so the whole folder can move together.",
+    "6. Import 04 Project Notes/Premiere-Resolve.xml in Premiere or Resolve, or Final-Cut.fcpxml in Final Cut, for an editable timeline. Read Timeline Import Notes.txt for supported edits and relinking. CapCut can use the media and reference edit. The Studio JSON retains the full Studio draft.",
     "7. Before copying or uploading, compare files against SHA256SUMS.txt if transfer integrity is in doubt. handoff-manifest.json lists the included files and source timing.",
     "",
     `Episode ID: ${request.episodeId}`,
@@ -1107,6 +1112,17 @@ async function writeEditorHandoffNotes(request: ExportRequest, running: ExportJo
     const track = request.draft.tracks.find((item) => item.sourceAssetId === source?.assetId);
     mediaFiles.push({ file: relativePath.split(path.sep).join("/"), sourceAssetId: source?.assetId, syncOffsetMs: track?.syncOffsetMs ?? 0, bytes: (await fs.stat(filePath)).size, media: JSON.parse(probe.stdout) });
   }
+  const interchangeSources: InterchangeSource[] = mediaFiles.filter((item) => Boolean(item.sourceAssetId)).map((item) => {
+    const video = item.media.streams?.find((stream: { codec_type: string }) => stream.codec_type === "video");
+    const audio = item.media.streams?.find((stream: { codec_type: string }) => stream.codec_type === "audio");
+    return { assetId: item.sourceAssetId!, file: item.file, kind: video ? "video" : "audio", durationMs: Number(item.media.format?.duration ?? 0) * 1000, width: video?.width, height: video?.height, channels: audio?.channels, frameRate: video?.avg_frame_rate };
+  });
+  const interchange = createEditorInterchange(request.draft, interchangeSources);
+  await Promise.all([
+    fs.writeFile(path.join(notesFolder, "Premiere-Resolve.xml"), interchange.premiereXml),
+    fs.writeFile(path.join(notesFolder, "Final-Cut.fcpxml"), interchange.fcpxml),
+    fs.writeFile(path.join(notesFolder, "Timeline Import Notes.txt"), interchange.notes.join("\n"))
+  ]);
   await fs.writeFile(path.join(notesFolder, "handoff-manifest.json"), JSON.stringify({ version: 1, episodeId: request.episodeId, videoPreset: request.editorVideoPreset ?? "compatible", referenceTimebase: "edited-timeline", sourceTimebase: "original-recording", files: mediaFiles }, null, 2), "utf8");
   const files = await packageFiles(running.outputFolder);
   const checksums: string[] = [];
@@ -1120,6 +1136,9 @@ async function writeEditorHandoffNotes(request: ExportRequest, running: ExportJo
     path.join("04 Project Notes", "sync-map.csv"),
     path.join("04 Project Notes", "markers.csv"),
     path.join("04 Project Notes", "handoff-manifest.json"),
+    path.join("04 Project Notes", "Premiere-Resolve.xml"),
+    path.join("04 Project Notes", "Final-Cut.fcpxml"),
+    path.join("04 Project Notes", "Timeline Import Notes.txt"),
     "SHA256SUMS.txt"
   ];
 }

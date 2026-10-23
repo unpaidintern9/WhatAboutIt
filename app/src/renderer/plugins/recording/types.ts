@@ -17,6 +17,7 @@ export interface RecordingEngineResult {
 }
 
 export interface RecordingEngineHealth {
+  fatalError?: string;
   programActive: boolean;
   activeCameraTracks: number;
   activeAudioTracks: number;

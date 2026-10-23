@@ -18,7 +18,7 @@ export function highQualityAudioConstraint(deviceId?: string): MediaTrackConstra
     ...(deviceId ? { deviceId: deviceId === "default" || deviceId === "communications" ? { ideal: deviceId } : { exact: deviceId } } : {}),
     sampleRate: { ideal: 48000 },
     sampleSize: { ideal: 24 },
-    channelCount: { ideal: 2 },
+    channelCount: { ideal: 8 },
     latency: { ideal: 0.01 },
     echoCancellation: false,
     noiseSuppression: false,
