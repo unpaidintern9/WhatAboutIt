@@ -12,6 +12,20 @@ vi.mock("./config-service", () => ({
   getEpisodesRoot: () => mockPaths.episodesRoot
 }));
 
+// These are local filesystem persistence tests. Keep cloud/desktop startup
+// out of the import graph so a cold Electron download cannot outlive a test.
+vi.mock("./collaboration-remote-service", () => ({
+  getCollaborationRemoteConfig: vi.fn(async () => ({ personId: "morgan-owner", accessKeyConfigured: false })),
+  sendCollaborationPresence: vi.fn(async () => undefined),
+  acquireCollaborationEditorLease: vi.fn()
+}));
+
+vi.mock("./collaboration-project-sync", () => ({
+  pullLatestProjectChanges: vi.fn(async () => ({ changed: 0 })),
+  assertProjectRevisionCurrent: vi.fn(async () => undefined),
+  pushProjectChanges: vi.fn(async () => undefined)
+}));
+
 vi.mock("./logger", () => ({
   logger: {
     info: vi.fn(),
