@@ -411,6 +411,7 @@ export default function App() {
   const [deviceDetection, setDeviceDetection] = useState<DeviceDetectionResult>(emptyDetection);
   const [recordingSnapshot, setRecordingSnapshot] = useState<RecordingServiceSnapshot>(getInitialRecordingSnapshot);
   const [unfinishedSessions, setUnfinishedSessions] = useState<RecordingSession[]>([]);
+  const [recordingSessionsReady, setRecordingSessionsReady] = useState(false);
   const [wizardStep, setWizardStep] = useState(() => Number(new URLSearchParams(window.location.search).get("wizard") ?? 0));
   const [microphoneLevel, setMicrophoneLevel] = useState(0);
   const [title, setTitle] = useState("");
@@ -515,6 +516,7 @@ export default function App() {
     }
     if (view === "recording" && activeSavedPause && !recordingService.hasActiveCapture() && (current.status === "idle" || current.session?.id !== activeSavedPause.id)) {
       setRecordingSnapshot(recordingService.restorePaused(activeSavedPause));
+      void loadReviewWorkspace(activeSavedPause.episodeId);
     }
   }, [view, activeEpisode?.id, activeSavedPause, recordingService]);
 
@@ -766,11 +768,23 @@ export default function App() {
     }
 
     setReviewMediaLoading(true);
-    void loadReviewWorkspace(activeEpisode.id, sequence);
-  }, [activeEpisode, studio]);
+    if (recordingSessionsReady) void loadReviewWorkspace(activeEpisode.id, sequence);
+  }, [activeEpisode, studio, recordingSessionsReady]);
 
   async function loadReviewWorkspace(episodeId: string, sequence = ++episodeLoadSequenceRef.current) {
     try {
+      const capture = recordingService.getSnapshot();
+      const savedPause = unfinishedSessions.find((session) => session.episodeId === episodeId && session.durablePaused && session.status === "paused");
+      const unfinished = savedPause ?? (capture.session?.episodeId === episodeId && (capture.status === "recording" || capture.status === "paused") ? capture.session : undefined);
+      if (unfinished) {
+        const tools = withPodcastToolDefaults(await studio.loadPodcastTools(episodeId), episodeId);
+        if (sequence !== episodeLoadSequenceRef.current || activeEpisodeRef.current?.id !== episodeId) return;
+        setPodcastTools(tools);
+        setReviewMedia(undefined);
+        setTimelineDraft(createTimelineDraft({ episodeId, recordingSessionId: unfinished.id, deviceDefaults: settings.deviceDefaults, markers: tools.markers, durationMs: savedPause?.elapsedMs ?? capture.elapsedMs }));
+        setTimelineSaveState("saved");
+        return;
+      }
       const [tools, savedDraft, inventory] = await Promise.all([studio.loadPodcastTools(episodeId), studio.loadTimelineDraft(episodeId), studio.loadReviewMedia(episodeId)]);
       if (sequence !== episodeLoadSequenceRef.current || activeEpisodeRef.current?.id !== episodeId) return;
       const hydratedTools = withPodcastToolDefaults(tools, episodeId);
@@ -1502,7 +1516,8 @@ export default function App() {
   }
 
   async function refreshUnfinishedSessions() {
-    setUnfinishedSessions(await studio.listUnfinishedRecordingSessions());
+    try { setUnfinishedSessions(await studio.listUnfinishedRecordingSessions()); }
+    finally { setRecordingSessionsReady(true); }
   }
 
   async function startRecording(practice = false) {
@@ -1535,7 +1550,8 @@ export default function App() {
     if (snapshot.status !== "paused") throw new Error(snapshot.friendlyError ?? "The recording could not be saved for later.");
     if (snapshot.session?.durablePaused) {
       await studio.savePodcastTools(snapshot.session.episodeId, podcastTools);
-      await studio.saveTimelineDraft(snapshot.session.episodeId, { ...timelineDraft, episodeId: snapshot.session.episodeId, recordingSessionId: snapshot.session.id, durationMs: snapshot.elapsedMs, markers: podcastTools.markers });
+      // The local part journal owns unfinished capture timing. Review saves
+      // can acquire a cloud edit lease, so defer that work until Stop.
       await refreshUnfinishedSessions();
     }
   }
