@@ -10,6 +10,8 @@ export interface EpisodeMetadata {
   guestName?: string;
   description?: string;
   status: EpisodeStatus;
+  resumeAvailable?: boolean;
+  durationMs?: number;
   createdAt: string;
   updatedAt: string;
   folderPath: string;

@@ -56,14 +56,14 @@ export function AutoEditReview({ mode, result, running, error, onModeChange, onR
           <h3>{result ? "Your first draft is ready" : running ? "Working on your first draft" : "Ready when you are"}</h3>
           {result ? <CheckCircle2 size={24} /> : <Sparkles size={24} />}
         </div>
-        <div className="auto-edit-stage-list">
+        {!result ? <div className="auto-edit-stage-list">
           {stages.map((stage) => (
             <span className={stage.status} key={stage.id}>
               <i />
               {stage.label}
             </span>
           ))}
-        </div>
+        </div> : <p className="soft-copy">Your edited draft is ready. Review the changes below, then open edited playback.</p>}
         {error ? <p className="auto-edit-error" role="alert">Auto Edit stopped: {error} Your current draft was not replaced. You can try again.</p> : null}
         <div className="auto-edit-actions">
           <Button variant="primary" icon={<Sparkles size={20} />} disabled={running} onClick={onRun}>

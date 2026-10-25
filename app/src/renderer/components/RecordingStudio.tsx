@@ -187,6 +187,7 @@ export function RecordingStudio({
   const [markerNotice, setMarkerNotice] = useState<string | undefined>();
   const [notesSavedAt, setNotesSavedAt] = useState<string>("Saved");
   const [toolsOpen, setToolsOpen] = useState(false);
+  const [advancedAudio, setAdvancedAudio] = useState(false);
   const [layoutsOpen, setLayoutsOpen] = useState(false);
   const [recordingAction, setRecordingAction] = useState<RecordingAction>("idle");
   const [saveProgress, setSaveProgress] = useState("");
@@ -248,6 +249,7 @@ export function RecordingStudio({
   const captureRate = recordingCaptureBytesPerSecond(Object.values(defaults.cameras).filter(Boolean).length, Object.values(defaults.microphones).filter(Boolean).length, defaults.captureQuality);
   const remainingMinutes = availableBytes === undefined ? undefined : Math.max(0, Math.floor((availableBytes - 2 * 1024 ** 3) / (captureRate * 3) / 60));
   const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
+  const recoveryCandidates = unfinishedSessions.filter((session) => session.id !== snapshot.session?.id || snapshot.status === "idle" || snapshot.status === "error");
   const unhealthyRecordingSources = snapshot.health?.sources.filter((source) => !source.active) ?? [];
   const visibleCameraSlots = cameraSlots.filter((slot) => slot.key === "camera1" || Boolean(defaults.cameras[slot.key]));
   const visibleMicSlots = routableMicSlots.filter((slot) => slot.key === "morganMic" || Boolean(defaults.microphones[slot.key]));
@@ -556,16 +558,16 @@ export function RecordingStudio({
   }, [isPaused, recordingInProgress, studioReady, onPause, onResume]);
 
   return (
-    <section className={`live-studio ${liveMode ? "live-mode" : ""}`} aria-label="Live recording studio">
-      {unfinishedSessions.length > 0 && (
+    <section className={`live-studio ${liveMode ? "live-mode" : ""} ${advancedAudio ? "advanced-audio" : "simple-audio"}`} aria-label="Live recording studio">
+      {recoveryCandidates.length > 0 && (
         <RippedPaperCard className="recovery-banner">
           <AlertTriangle size={28} />
           <div>
-            <h3>We found an unfinished recording</h3>
+            <h3>Saved or interrupted episodes</h3>
             <p>Saved episodes can be resumed in the same folder. Interrupted captures can be recovered before review.</p>
           </div>
           <div className="recovery-actions">
-            {unfinishedSessions.filter((session) => session.id !== snapshot.session?.id || snapshot.status === "idle" || snapshot.status === "error").map((session) => (
+            {recoveryCandidates.map((session) => (
               <div key={session.id}>
                 <small>{session.episodeTitle} · {session.recoverableBytes ? `${Math.max(1, Math.round(session.recoverableBytes / 1024 / 1024))} MB protected` : "recovery data found"}</small>
                 <RusticButton disabled={isRecording || recoverySessionId === session.id} onClick={async () => { setRecoverySessionId(session.id); try { if (session.durablePaused && session.status === "paused") await onResumeSession?.(session); else await onRecoverSession?.(session); } catch (error) { setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "This episode needs attention." }); } finally { setRecoverySessionId(undefined); } }}>{recoverySessionId === session.id ? "Opening..." : session.durablePaused && session.status === "paused" ? "Open Paused Episode" : "Recover Recording"}</RusticButton>
@@ -632,7 +634,7 @@ export function RecordingStudio({
         <section className="reference-workbench" aria-label="Studio command center">
           <div className="reference-main-column">
             <section className="camera-command-panel" aria-label="Camera previews and layouts">
-              <section className="camera-strip" aria-label="Camera previews">
+              <section className="camera-strip" aria-label="Camera previews" data-camera-count={visibleCameraSlots.length}>
                 {visibleCameraSlots.map((slot) => (
                   <CameraCard
                     key={slot.key}
@@ -671,7 +673,7 @@ export function RecordingStudio({
               </section> : null}
             </section>
 
-            {recordingInProgress && unhealthyRecordingSources.length > 0 && (
+            {isRecording && unhealthyRecordingSources.length > 0 && (
               <section className="live-source-health" aria-label="Live source recording health">
                 {unhealthyRecordingSources.map((source) => (
                   <span className="needs-attention" key={source.target}>
@@ -687,6 +689,7 @@ export function RecordingStudio({
             <section className="reference-console-row" aria-label="Audio, sounds, and markers">
               <section className="live-audio-deck" aria-label="Live audio feedback">
                 <VintagePanel title="Microphones" icon={<Mic2 size={20} />} className="mixer-panel">
+                  <button className="audio-details-toggle" type="button" aria-expanded={advancedAudio} onClick={() => setAdvancedAudio(!advancedAudio)}>{advancedAudio ? "Hide advanced audio" : "Advanced audio settings"}</button>
                   <div className="monitor-row">
                     <label>
                       Output
@@ -1611,7 +1614,7 @@ function LiveMicMeter({
       {routeIssue ? <small className="input-route-warning">{routeIssue}</small> : null}
       {trackStatus && <TrackSavePill status={trackStatus} />}
       <DistressedMeter level={level} label={label} />
-      <div className="channel-console">
+      <details className="channel-advanced"><summary>Input and headphone controls</summary><div className="channel-console">
         {onNameChange && (
           <label className="channel-name-control" title="This name is saved with the episode and its separate audio track.">
             <span className="control-caption">Name</span>
@@ -1694,7 +1697,7 @@ function LiveMicMeter({
           {softwareMonitoringDisabled ? "Hardware Direct Monitor prevents headphone echo" : monitorIssue ?? (monitoring ? `${monitorLabel} On -> ${outputLabel}` : `${monitorLabel} Off`)}
         </small>
         <small className={peakLevel >= 98 ? "peak hot" : "peak"}>Peak {peakLevel}%{peakLevel >= 98 ? " - CLIPPING" : ""}</small>
-      </div>
+      </div></details>
     </article>
   );
 }

@@ -924,3 +924,18 @@ describe("RecordingStudio", () => {
     expect(styles).not.toContain("min-width: var(--space-minShellWidth)");
   });
 });
+
+describe("Saved pause and audio controls", () => {
+  it("does not present the active saved pause as a recovery problem", () => {
+    const session = { id: "paused-session", episodeId: "paused-episode", episodeTitle: "Paused interview", folderPath: "C:/episodes/paused", startedAt: "2026-06-27T10:00:00.000Z", status: "paused" as const, practice: false, durablePaused: true, elapsedMs: 12000 };
+    const { host, root } = renderStudio({ snapshot: { session, status: "paused", elapsedMs: 12000, localSaveMessage: "Paused and saved", trackStatuses: [], health: { programActive: false, activeCameraTracks: 0, activeAudioTracks: 0, expectedCameraTracks: 1, expectedAudioTracks: 1, warnings: [], sources: [{ target: "program", kind: "program", active: false, firstChunkReceived: true, bytesWritten: 100, message: "Source stopped" }] } }, unfinishedSessions: [session] });
+    expect(host.querySelector('.recovery-banner')).toBeNull();
+    expect(host.querySelector('.live-source-health')).toBeNull();
+    expect(host.textContent).toContain('Resume');
+    const meter = host.querySelector('.live-meter-card');
+    click(host, 'Advanced audio settings');
+    expect(host.querySelector('.live-meter-card')).toBe(meter);
+    expect(host.querySelector('.audio-details-toggle')?.getAttribute('aria-expanded')).toBe('true');
+    act(() => root.unmount()); host.remove();
+  });
+});

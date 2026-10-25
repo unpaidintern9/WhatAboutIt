@@ -7,6 +7,7 @@ import { addTimelineCaption, removeTimelineCaption, replaceTimelineCaptions, upd
 import { formatRecordingTime } from "../services";
 
 interface TimelineCaptionPanelProps {
+  embedded?: boolean;
   draft: TimelineDraft;
   playheadMs: number;
   rangeStartMs: number;
@@ -20,6 +21,7 @@ interface TimelineCaptionPanelProps {
 }
 
 export const TimelineCaptionPanel = memo(function TimelineCaptionPanel({
+  embedded = false,
   draft,
   playheadMs,
   rangeStartMs,
@@ -97,12 +99,14 @@ export const TimelineCaptionPanel = memo(function TimelineCaptionPanel({
     }
   }
 
+  const Container = embedded ? "section" : "details";
+  const Heading = embedded ? "h3" : "summary";
   return (
-    <details className="editor-caption-panel">
-      <summary>
+    <Container className="editor-caption-panel">
+      <Heading>
         <span><Captions size={18} /> Transcript &amp; captions</span>
         <small>{draft.captions.length} cue{draft.captions.length === 1 ? "" : "s"}{fillerWordCount ? ` · ${fillerWordCount} filler word${fillerWordCount === 1 ? "" : "s"}` : ""}</small>
-      </summary>
+      </Heading>
       <div className="editor-caption-toolbar">
         <p>Transcribe the episode locally, import SRT/VTT, or paste a transcript across {hasSelectedRange ? "the selected range" : "the full episode"}. Captions remain editable and export as SRT.</p>
         <button type="button" onClick={() => onDraftChange(addTimelineCaption(draft, playheadMs, Math.min(draft.durationMs || playheadMs + 3000, playheadMs + 3000)))}>
@@ -147,6 +151,6 @@ export const TimelineCaptionPanel = memo(function TimelineCaptionPanel({
           ))}
         </div>
       )}
-    </details>
+    </Container>
   );
 });

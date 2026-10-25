@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, Brush, Camera, CheckCircle2, Clapperboard, Circle, Compass, Download, FolderOpen, Headphones, HardDrive, Mic2, Plus, RefreshCw, Scissors, Settings, ShieldCheck, Sparkles, ListVideo, Wand2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Brush, Camera, CheckCircle2, Circle, Compass, Download, FolderOpen, HardDrive, Mic2, Plus, RefreshCw, Settings, ShieldCheck, Sparkles, ListVideo, Wand2, X } from "lucide-react";
 import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
 import { defaultRecordingPreferences } from "../shared/types";
 import type { RecordingSession } from "../shared/recording";
@@ -36,8 +36,9 @@ import { checkRecordingInputs } from "./services/recording-preflight";
 import { recordingCaptureBytesPerSecond, type RecordingDriveCheck } from "../shared/diagnostics";
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
+import "./workflow.css";
 
-type View = "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "auto-edit-review" | "export" | "hardware-test" | "settings" | "learn" | "practice" | "theme-editor";
+type View = "tools" | "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "auto-edit-review" | "export" | "hardware-test" | "settings" | "learn" | "practice" | "theme-editor";
 type TimelineSaveState = "saved" | "saving" | "failed";
 type WorkspaceBridge = Required<Pick<Window["studio"], "getWorkspaceState" | "saveWorkspaceState" | "getDisplays" | "openWorkspacePanel" | "closeWorkspacePanel" | "moveWorkspacePanel" | "applyWorkspaceLayout" | "resetWorkspaceLayout">>;
 type StudioBridge = Window["studio"] & WorkspaceBridge;
@@ -45,7 +46,7 @@ type StudioBridge = Window["studio"] & WorkspaceBridge;
 function getInitialView(): View {
   if (typeof window === "undefined") return "home";
   const requestedView = new URLSearchParams(window.location.search).get("view");
-  const views: View[] = ["home", "new-episode", "device-setup", "recording", "timeline-review", "auto-edit-review", "export", "hardware-test", "settings", "learn", "practice", "theme-editor"];
+  const views: View[] = ["tools", "home", "new-episode", "device-setup", "recording", "timeline-review", "auto-edit-review", "export", "hardware-test", "settings", "learn", "practice", "theme-editor"];
   return views.includes(requestedView as View) ? (requestedView as View) : "home";
 }
 
@@ -1079,6 +1080,7 @@ export default function App() {
       destinationFolderPath
     });
     setExportJob(job);
+    if (job.status === "complete" && !practice) await refreshEpisodes();
   }
 
   async function cancelExport() {
@@ -1690,6 +1692,7 @@ export default function App() {
         </button>
 
         <nav className="nav-stack" aria-label="Studio workflow">
+          <button data-label="Episodes" aria-current={view === "home" ? "page" : undefined} className={view === "home" ? "active" : ""} onClick={() => setView("home")}><FolderOpen size={20} /><span>Episodes</span></button>
           <button data-label="Studio Setup" title={effectiveSidebarCollapsed ? "Studio Setup" : undefined} aria-current={view === "device-setup" ? "page" : undefined} className={view === "device-setup" ? "active" : ""} onClick={() => setView("device-setup")}>
             <Camera size={20} /> <span>Studio Setup</span>
           </button>
@@ -1721,9 +1724,9 @@ export default function App() {
           <button
             data-label="More"
             title={effectiveSidebarCollapsed ? "More" : undefined}
-            aria-current={view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "page" : undefined}
-            className={view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "active" : ""}
-            onClick={() => setView("practice")}
+            aria-current={view === "tools" || view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "page" : undefined}
+            className={view === "tools" || view === "practice" || view === "new-episode" || view === "auto-edit-review" || view === "hardware-test" || view === "theme-editor" ? "active" : ""}
+            onClick={() => setView("tools")}
           >
             <Sparkles size={20} /> <span>More</span>
           </button>
@@ -1873,13 +1876,6 @@ export default function App() {
               if (!(await saveApprovedTimelineDraft())) return;
               setView("export");
             }}
-            onCreateCombinedVideo={async () => {
-              const savedDraft = await saveApprovedTimelineDraft();
-              if (!savedDraft) return;
-              setSelectedExportType("full-episode-video");
-              setView("export");
-              await startExport(reviewMode, "full-episode-video", savedDraft);
-            }}
             onOpenEpisodeFolder={() => { if (activeEpisode) void studio.openEpisodeFolder?.(activeEpisode.id); }}
             onAutoEdit={() => void runAutoEditFlow(reviewMode)}
             onImportMedia={importEpisodeMedia}
@@ -1959,10 +1955,12 @@ export default function App() {
           />
         )}
         {view === "theme-editor" && <ThemeEditorView activeThemeId={settings.activeThemeId} changeTheme={changeTheme} />}
-        {view === "learn" && <LearnStudioView />}
-        {view === "practice" && <PracticeModeView />}
+        {view === "learn" && <LearnStudioView onNavigate={(nextView) => setView((nextView === "export" || nextView === "timeline-review") && !reviewReady ? "recording" : nextView)} />}
+        {view === "practice" && <PracticeModeView onNavigate={setView} />}
+        {view === "tools" && <StudioToolsView onNavigate={setView} /> }
         {view === "settings" && (
           <SettingsView
+            onNavigate={setView}
             settings={settings}
             activeThemeName={activeTheme.name}
             displays={displays}
@@ -2091,7 +2089,7 @@ function FirstRunSetup({ onClose, onStartSetup, onHardwareTest }: { onClose: (pr
 
 function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStudioSetup, onOpenEpisode }: { episodes: EpisodeMetadata[]; cameraReady: boolean; microphoneReady: boolean; onNewEpisode: () => void; onStudioSetup: () => void; onOpenEpisode: (episode: EpisodeMetadata) => void }) {
   return (
-    <div className="view-stack">
+    <div className="view-stack episode-home">
       <section className="hero-panel">
         <div>
           <p className="signature">Morgan's offline podcast room</p>
@@ -2126,10 +2124,10 @@ function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStud
                   <div>
                     <h4>{episode.title}</h4>
                     <p>
-                      {episode.guestName || "Solo episode"} - {new Date(episode.createdAt).toLocaleString()}
+                      {episode.guestName || "Solo episode"} · {new Date(episode.updatedAt).toLocaleString()}{episode.durationMs ? ` · ${Math.ceil(episode.durationMs / 60000)} min recorded` : ""}
                     </p>
                   </div>
-                  <span>{episode.status}</span>
+                  <span>{episode.resumeAvailable ? "Paused — resume" : episode.status === "draft" ? "New episode" : episode.status === "recorded" ? "Recorded" : episode.status === "exported" ? "Exported" : "Ready"}</span>
                 </button>
               ))}
             </div>
@@ -2149,7 +2147,7 @@ function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStud
               <Mic2 size={18} /> {microphoneReady ? "Morgan Mic is ready" : "Morgan Mic needs a quick check"}
             </span>
             <span>
-              <Circle size={18} /> One-click recording is ready
+              <Circle size={18} /> Recording checks inputs and drive before capture
             </span>
           </div>
           <p>Next best move: check the studio, record, review, Auto Edit, then export a local finished copy.</p>
@@ -2464,6 +2462,7 @@ function HardwareTestModeView({
 }
 
 function SettingsView({
+  onNavigate,
   settings,
   activeThemeName,
   displays,
@@ -2479,6 +2478,7 @@ function SettingsView({
   onInstallUpdate,
   onOpenLiveLogs
 }: {
+  onNavigate: (view: View) => void;
   settings: StudioSettings;
   activeThemeName: string;
   displays: StudioDisplayInfo[];
@@ -2503,6 +2503,12 @@ function SettingsView({
     <section className="panel settings-panel">
       <p className="signature">Local by default</p>
       <h2>Settings</h2>
+      <div className="settings-shortcuts">
+        <Button onClick={() => onNavigate("device-setup")}>Camera & audio setup</Button>
+        <Button onClick={() => onNavigate("theme-editor")}>Change appearance</Button>
+        <Button onClick={() => onNavigate("hardware-test")}>Hardware test</Button>
+        <Button onClick={() => onNavigate("tools")}>All studio tools</Button>
+      </div>
       <dl>
         <div>
           <dt>Active theme</dt>
@@ -2526,7 +2532,7 @@ function SettingsView({
         </div>
         <div>
           <dt>Storage</dt>
-          <dd>Local Documents folder</dd>
+          <dd>{settings.recordingPreferences?.primaryFolderPath || "Default episode folder in Documents"}</dd>
         </div>
         <div>
           <dt>Default export folder</dt>
@@ -2673,7 +2679,8 @@ function formatExportQualitySetting(quality: ExportQualityPreset) {
   return quality === "standard" ? "Standard" : quality === "high" ? "High" : "Archive";
 }
 
-function LearnStudioView() {
+function LearnStudioView({ onNavigate }: { onNavigate: (view: View) => void }) {
+  const [search, setSearch] = useState("");
   const lessons = [
     "How to connect a camera",
     "How to choose cameras",
@@ -2729,12 +2736,14 @@ function LearnStudioView() {
       <p className="signature">Little lessons, right in the studio</p>
       <h2>Learn Studio</h2>
       <p className="soft-copy">Offline help is ready for device setup. No internet, no tech lecture, just the next helpful step.</p>
+      <label className="lesson-search">Find help<input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Camera, recording, export…" /></label>
       <div className="lesson-grid">
-        {lessons.map((lesson) => (
+        {lessons.filter((lesson) => lesson.toLowerCase().includes(search.toLowerCase())).map((lesson) => (
           <article className="lesson-card" key={lesson}>
             <BookOpen size={22} />
             <h3>{lesson}</h3>
             <p>{getLessonCopy(lesson)}</p>
+            <Button variant="secondary" onClick={() => onNavigate(/export/i.test(lesson) ? "export" : /review|trim|split|cut|undo|edit|chapter|clip/i.test(lesson) ? "timeline-review" : /record|marker|soundboard|teleprompter|notes/i.test(lesson) ? "recording" : "device-setup")}>Open this tool</Button>
           </article>
         ))}
       </div>
@@ -2742,58 +2751,25 @@ function LearnStudioView() {
   );
 }
 
-function PracticeModeView() {
-  return (
-    <section className="panel practice-panel">
-      <p className="signature">Try it without touching real gear</p>
-      <h2>Practice Mode</h2>
-      <p className="soft-copy">Walk through the recording room tools with branded practice screens. No fake people photos and no real media files.</p>
-      <div className="practice-steps">
-        <span>
-          <Plus size={20} /> Practice starting a new episode
-        </span>
-        <span>
-          <Camera size={20} /> Practice Studio Setup with safe sample screens
-        </span>
-        <span>
-          <Circle size={20} /> Press Practice on the Record screen
-        </span>
-        <span>
-          <Mic2 size={20} /> Practice pause and resume
-        </span>
-        <span>
-          <BookOpen size={20} /> Try the teleprompter and sponsor script
-        </span>
-        <span>
-          <Clapperboard size={20} /> Tap soundboard buttons without playing real files
-        </span>
-        <span>
-          <Camera size={20} /> Switch camera layouts safely
-        </span>
-        <span>
-          <Sparkles size={20} /> Mark funny, highlight, and fix-later moments
-        </span>
-        <span>
-          <ListVideo size={20} /> Practice timeline review with fake markers
-        </span>
-        <span>
-          <Sparkles size={20} /> Practice Auto Edit with sample timeline data
-        </span>
-        <span>
-          <Scissors size={20} /> Practice safe trim, split, undo, redo, and restore original
-        </span>
-        <span>
-          <Download size={20} /> Practice exporting a finished copy without real media
-        </span>
-        <span>
-          <Headphones size={20} /> Learn that everything saves locally
-        </span>
-        <span>
-          <Clapperboard size={20} /> Try the recovery message without risking real media
-        </span>
-      </div>
-    </section>
-  );
+function StudioToolsView({ onNavigate }: { onNavigate: (view: View) => void }) {
+  const tools: Array<{ view: View; label: string; detail: string }> = [
+    { view: "home", label: "Episodes", detail: "Open a saved episode or start a new one." },
+    { view: "hardware-test", label: "Hardware test", detail: "Check cameras, microphones and a short test recording." },
+    { view: "theme-editor", label: "Appearance", detail: "Choose a built-in studio theme." },
+    { view: "practice", label: "Getting started", detail: "Learn the recording and editing workflow with a test episode." },
+    { view: "learn", label: "Help & tutorials", detail: "Find clear instructions for the task at hand." },
+    { view: "settings", label: "Settings", detail: "Manage devices, layouts, updates and diagnostics." }
+  ];
+  return <section className="panel"><h2>Studio tools</h2><p>Choose what you want to do.</p><div className="studio-tools-grid">{tools.map((tool) => <button type="button" key={tool.view} onClick={() => onNavigate(tool.view)}><strong>{tool.label}</strong><span>{tool.detail}</span></button>)}</div></section>;
+}
+
+function PracticeModeView({ onNavigate }: { onNavigate: (view: View) => void }) {
+  return <section className="panel practice-panel">
+    <p className="signature">Learn the workflow</p><h2>Getting started</h2>
+    <p>Use a separate test episode to learn the controls. Recording and hardware tests use your real cameras and microphones.</p>
+    <div className="settings-shortcuts"><Button onClick={() => onNavigate("new-episode")}>Create a test episode</Button><Button variant="secondary" onClick={() => onNavigate("hardware-test")}>Run a hardware test</Button><Button variant="secondary" onClick={() => onNavigate("learn")}>Browse help</Button></div>
+    <ol className="getting-started-steps"><li>Create an episode and choose your camera and microphones in Studio Setup.</li><li>Use Setup Test in Record for a short recording, then check the picture and sound.</li><li>Press Record, Pause and Resume. Stop saves the episode for Review.</li><li>In Review, try trim, split, captions and titles. Undo reverses a draft edit; originals stay protected.</li><li>Export a finished copy or build an editor handoff. Each export has its own folder.</li></ol>
+  </section>;
 }
 
 function getLessonCopy(lesson: string) {

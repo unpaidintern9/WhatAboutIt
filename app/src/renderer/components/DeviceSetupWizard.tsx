@@ -129,7 +129,7 @@ export function DeviceSetupWizard({
           {readyState === "ready" ? <CheckCircle2 size={26} /> : <AlertTriangle size={26} />}
           <div>
             <p className="signature">Let's check your studio</p>
-            <h2>{readyState === "ready" ? "Your gear is connected" : "Let's check your gear"}</h2>
+            <h2>{readyState === "ready" ? "Your selected gear is connected" : "Let's check your gear"}</h2>
             <p className="soft-copy">Pick sources, confirm each live preview and mic meter, then go to Record.</p>
           </div>
         </div>
@@ -324,14 +324,14 @@ export function DeviceSetupWizard({
           <div className="readiness-card">
             <CheckCircle2 size={36} />
             <div>
-              <h3>{readyState === "ready" ? getEmptyStateMessage("ready") : "Almost there"}</h3>
-              <p>{getReadinessCopy(readyState)}</p>
+              <h3>{readyState === "ready" ? "Device selections saved" : "Almost there"}</h3>
+              <p>{getReadinessCopy(readyState)} Confirm the live camera and microphone signal. Record checks all assigned inputs and the drive before capture; Setup Test verifies a short recording.</p>
             </div>
           </div>
           <div className="saved-device-list">
             <span>Camera 1: {findDeviceLabel(detection.cameras, defaults.cameras.camera1)}</span>
             <span>Morgan Mic: {findDeviceLabel(detection.microphones, defaults.microphones.morganMic)}</span>
-            <span>Headphones: {findDeviceLabel(detection.speakers, defaults.audioOutputId) || "System default"}</span>
+            <span>Headphones: {defaults.audioOutputId ? findDeviceLabel(detection.speakers, defaults.audioOutputId) : "System default output"}</span>
           </div>
         </div>
       )}

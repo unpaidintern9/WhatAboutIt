@@ -85,7 +85,6 @@ interface TimelineReviewProps {
   onDraftChange: (draft: TimelineDraft) => void;
   onSaveDraft: () => void;
   onExport: () => void;
-  onCreateCombinedVideo?: () => void;
   onOpenEpisodeFolder?: () => void;
   onAutoEdit: () => void;
   onImportMedia?: (slot: ReviewMediaImportSlot) => Promise<string>;
@@ -143,7 +142,6 @@ export function TimelineReview({
   onDraftChange,
   onSaveDraft,
   onExport,
-  onCreateCombinedVideo,
   onOpenEpisodeFolder,
   onAutoEdit,
   onImportMedia,
@@ -176,6 +174,9 @@ export function TimelineReview({
   const [treatmentPreviewBusy, setTreatmentPreviewBusy] = useState(false);
   const [treatmentPreviewError, setTreatmentPreviewError] = useState<string>();
   const [showMulticam, setShowMulticam] = useState(false);
+  const [inspectorPanel, setInspectorPanel] = useState<"video" | "audio" | "captions" | "media">(() => draft.tracks.find((track) => track.id === draft.selectedTrackId)?.kind === "microphone" ? "audio" : "video");
+  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [advancedEditing, setAdvancedEditing] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [stemMixActive, setStemMixActive] = useState(false);
   const [audioRouteMessage, setAudioRouteMessage] = useState("Program audio ready");
@@ -451,6 +452,8 @@ export function TimelineReview({
           });
     onDraftChange(nextDraft);
     const track = nextDraft.tracks.find((candidate) => candidate.id === trackId);
+    setInspectorPanel(track?.kind === "microphone" ? "audio" : "video");
+    setInspectorOpen(true);
     if (track?.kind === "program" || track?.kind === "camera") setSelectedVideoId(track.sourceAssetId ?? "program");
     if (timestampMs !== undefined) seek(timestampMs);
   }
@@ -716,6 +719,8 @@ export function TimelineReview({
     onDraftChange(nextDraft);
     setPlayheadMs(safeStart);
     const track = nextDraft.tracks.find((candidate) => candidate.id === trackId);
+    setInspectorPanel(track?.kind === "microphone" ? "audio" : "video");
+    setInspectorOpen(true);
     if (track?.kind === "program" || track?.kind === "camera") setSelectedVideoId(track.sourceAssetId ?? "program");
     seek(safeStart);
   }
@@ -835,7 +840,7 @@ export function TimelineReview({
   }
 
   return (
-    <section className={`timeline-review edit-studio ${hasPlayableProgram ? "" : "edit-studio--empty"}`} data-episode-id={draft.episodeId}>
+    <section className={`timeline-review edit-studio ${hasPlayableProgram ? "" : "edit-studio--empty"} ${inspectorOpen ? "" : "inspector-hidden"} ${inspectorPanel === "media" || inspectorPanel === "captions" ? "inspector-wide" : ""} ${advancedEditing ? "advanced-editing" : "simple-editing"}`} data-episode-id={draft.episodeId}>
       <header className="edit-studio-bar">
         <div className="edit-studio-title">
           <strong>Episode editor</strong>
@@ -874,7 +879,11 @@ export function TimelineReview({
               </button>
             </div>
           </details>
-          <button type="button" onClick={() => onDraftChange(setTimelineEditMode(draft, "manual"))} className={draft.editMode === "manual" ? "selected" : ""}>
+          <button type="button" className="review-panel-toggle" aria-expanded={inspectorOpen} onClick={() => setInspectorOpen(!inspectorOpen)}>
+            {inspectorOpen ? "Hide panels" : "Show panels"}
+          </button>
+          <button type="button" aria-pressed={advancedEditing} onClick={() => setAdvancedEditing(!advancedEditing)}>{advancedEditing ? "Simple tools" : "Advanced tools"}</button>
+          <button type="button" data-review-advanced onClick={() => onDraftChange(setTimelineEditMode(draft, "manual"))} className={draft.editMode === "manual" ? "selected" : ""}>
             <MousePointer2 size={16} /> Manual
           </button>
           <button type="button" onClick={onAutoEdit} className={draft.editMode === "auto" ? "selected" : ""}>
@@ -883,7 +892,7 @@ export function TimelineReview({
           <button type="button" onClick={onSaveDraft}>
             <Save size={16} /> Save
           </button>
-          <button type="button" className="primary" onClick={onCreateCombinedVideo ?? onExport}>
+          <button type="button" className="primary" onClick={onExport}>
             <Download size={16} /> Export
           </button>
         </div>
@@ -1146,7 +1155,21 @@ export function TimelineReview({
           </div> : null}
         </div>
 
-        {hasPlayableProgram ? <aside className="edit-track-inspector" aria-label="Selected track controls">
+        {hasPlayableProgram ? <aside className="edit-track-inspector" aria-label="Review panels" hidden={!inspectorOpen}>
+          <nav className="review-panel-tabs" aria-label="Review panels">
+            {(["video", "audio", "captions", "media"] as const).map((panel) => (
+              <button type="button" aria-pressed={inspectorPanel === panel} key={panel} onClick={() => {
+                setInspectorPanel(panel);
+                if (panel === "audio" && firstMicrophoneTrack && inspectorTrack.kind !== "microphone") selectTrack(firstMicrophoneTrack.id);
+                if (panel === "video" && inspectorTrack.kind === "microphone") {
+                  const videoTrack = editableTracks.find((candidate) => candidate.kind === "program" || candidate.kind === "camera");
+                  if (videoTrack) selectTrack(videoTrack.id);
+                }
+              }}>{panel[0].toUpperCase() + panel.slice(1)}</button>
+            ))}
+          </nav>
+          <section className="review-panel-content" aria-label="Video and audio controls" hidden={inspectorPanel !== "video" && inspectorPanel !== "audio"}>
+
           {activeTitle ? (
             <section className="title-overlay-inspector" aria-label="Title overlay controls">
               <strong>Title overlay</strong>
@@ -1187,14 +1210,13 @@ export function TimelineReview({
             } : undefined}
             audioAuditionMode={allRecordedMicrophonesSilent ? "unavailable" : useProgramStemMix ? (stemMixActive || !isPlaying ? "live-stems" : "program-fallback") : "program-fallback"}
           />
-          <div className="editor-inspector-drawers">
-            <details>
-              <summary>Sources ready</summary>
-              <TimelineMediaSetup media={media} importProgress={importProgress} onImportMedia={onImportMedia} onCancelImport={onCancelImport} onAutoSync={onAutoSync} onRelinkMedia={onRelinkMedia} onVerifyOriginals={onVerifyOriginals} onGetEpisodeStorage={onGetEpisodeStorage} onCleanupEpisodeStorage={onCleanupEpisodeStorage} />
-            </details>
-            <details>
-              <summary>Captions & transcript</summary>
-              <TimelineCaptionPanel
+          </section>
+          <section className="review-panel-content" aria-label="Media sources" hidden={inspectorPanel !== "media"}>
+            <h3>Episode media</h3>
+            <TimelineMediaSetup media={media} importProgress={importProgress} onImportMedia={onImportMedia} onCancelImport={onCancelImport} onAutoSync={onAutoSync} onRelinkMedia={onRelinkMedia} onVerifyOriginals={onVerifyOriginals} onGetEpisodeStorage={onGetEpisodeStorage} onCleanupEpisodeStorage={onCleanupEpisodeStorage} />
+          </section>
+          <section className="review-panel-content" aria-label="Captions and transcript" hidden={inspectorPanel !== "captions"}>
+            <TimelineCaptionPanel embedded
                 draft={draft}
                 playheadMs={playheadMs}
                 rangeStartMs={rangeStartMs}
@@ -1206,8 +1228,7 @@ export function TimelineReview({
                 onTranscribeLocally={onTranscribeLocally}
                 onCancelTranscription={onCancelTranscription}
               />
-            </details>
-          </div>
+          </section>
         </aside> : null}
       </section>
 
@@ -1240,12 +1261,12 @@ export function TimelineReview({
           </div>
           <div className="timeline-tool-cluster" role="group" aria-label="Edit history">
             <button type="button" disabled={draft.history.length === 0 && draft.editLog.length === 0} onClick={() => onDraftChange(undoTimelineEdit(draft))} title="Undo">
-              <Undo2 size={17} />
+              <Undo2 size={17} /><span>Undo</span>
             </button>
-            <button type="button" disabled={draft.redoHistory.length === 0 && draft.undoneEditLog.length === 0} onClick={() => onDraftChange(redoTimelineEdit(draft))} title="Redo">
-              <Redo2 size={17} />
+            <button type="button" data-review-advanced disabled={draft.redoHistory.length === 0 && draft.undoneEditLog.length === 0} onClick={() => onDraftChange(redoTimelineEdit(draft))} title="Redo">
+              <Redo2 size={17} /><span>Redo</span>
             </button>
-            <button type="button" data-compact-tool onClick={() => onDraftChange(restoreOriginalTimeline(draft))} title="Restore the original timeline">
+            <button type="button" data-review-advanced data-compact-tool onClick={() => onDraftChange(restoreOriginalTimeline(draft))} title="Restore the original timeline">
               <RotateCcw size={16} /> <span>Restore</span>
             </button>
           </div>
@@ -1257,17 +1278,17 @@ export function TimelineReview({
               <ArrowRightToLine size={16} /> <span>Trim end</span>
             </button>
           </div>
-          <div className="timeline-tool-cluster" role="group" aria-label="Audio tools">
+          <div className="timeline-tool-cluster" role="group" aria-label="Audio tools" data-review-advanced>
             <button type="button" className="timeline-audio-tool" data-compact-tool disabled={!firstMicrophoneTrack} onClick={() => firstMicrophoneTrack && selectTrack(firstMicrophoneTrack.id)} title="Open microphone mix and voice filters">
               <Waves size={17} /> <span>Audio Mix</span>
             </button>
           </div>
-          <div className="timeline-tool-cluster" role="group" aria-label="Graphics tools">
-            <button type="button" data-compact-tool onClick={() => onDraftChange(addTimelineTitle(draft, playheadMs))} title="Add an editable four-second title at the playhead">
+          <div className="timeline-tool-cluster" role="group" aria-label="Graphics tools" data-review-advanced>
+            <button type="button" data-compact-tool onClick={() => { setInspectorPanel("video"); setInspectorOpen(true); onDraftChange(addTimelineTitle(draft, playheadMs)); }} title="Add an editable four-second title at the playhead">
               <Type size={17} /> <span>Add Title</span>
             </button>
           </div>
-          <div className="timeline-tool-cluster" role="group" aria-label="Automation tools">
+          <div className="timeline-tool-cluster" role="group" aria-label="Automation tools" data-review-advanced>
             <button type="button" data-compact-tool disabled={!selectedTrack || selectedTrack.kind === "program" || selectedTrack.kind === "markers"} onClick={addAutomationKeyframes} title="Store this track's current controls at the playhead and interpolate to the next keyframe">
               <Gauge size={17} /> <span>Add Keyframe</span>
             </button>
@@ -1760,8 +1781,8 @@ function TrackInspector({
             </select>
             <small>{audioPresetCopy[track.audioPreset].help}</small>
           </label>
-          <details className="editor-tool-group" open>
-            <summary>Voice cleanup</summary>
+          <details className="editor-tool-group">
+            <summary>Voice cleanup · advanced</summary>
             <small>Level and pan update live. Exact cleanup, tone, and compression prepare in the background. Final mix loudness is applied during export.</small>
             <InspectorRange label="Noise cleanup" value={track.noiseReduction} min={0} max={100} suffix="%" onChange={(noiseReduction) => onUpdate(track, { noiseReduction })} />
             <InspectorRange label="Noise gate" value={track.noiseGateDb} min={-80} max={-20} suffix={track.noiseGateDb === -80 ? " Off" : " dB"} onChange={(noiseGateDb) => onUpdate(track, { noiseGateDb })} />
@@ -1797,13 +1818,13 @@ function TrackInspector({
               <Check size={15} /> Fill
             </button>
           </div>
-          <details className="editor-tool-group" open>
+          <details className="editor-tool-group">
             <summary>Frame and position</summary>
             <InspectorRange label="Zoom" value={track.zoom} min={100} max={400} suffix="%" onChange={(zoom) => onUpdate(track, { zoom })} />
             <InspectorRange label="Horizontal" value={track.positionX} min={-100} max={100} onChange={(positionX) => onUpdate(track, { positionX })} />
             <InspectorRange label="Vertical" value={track.positionY} min={-100} max={100} onChange={(positionY) => onUpdate(track, { positionY })} />
           </details>
-          <details className="editor-tool-group" open>
+          <details className="editor-tool-group">
             <summary>Light and color</summary>
             <InspectorRange label="Brightness" value={track.brightness} min={-100} max={100} onChange={(brightness) => onUpdate(track, { brightness })} />
             <InspectorRange label="Contrast" value={track.contrast} min={50} max={200} suffix="%" onChange={(contrast) => onUpdate(track, { contrast })} />

@@ -1,3 +1,4 @@
+import { withEpisodeLibraryStatus } from "./episode-library-status";
 import { cancelAllReviewProxyWork } from "./review-proxy-store";
 import { fetchCollaborationApi } from "./collaboration-remote-service";
 import { setCapturePriority, withRecordingFinalization } from "./media-work-scheduler";
@@ -154,7 +155,7 @@ async function listEpisodes(): Promise<EpisodeMetadata[]> {
         if (!episode.folderPath || path.resolve(episode.folderPath) !== path.resolve(folderPath)) {
           await fs.writeFile(metadataPath, JSON.stringify(localEpisode, null, 2), "utf8");
         }
-        return localEpisode;
+        return withEpisodeLibraryStatus(localEpisode);
       })
   );
 
