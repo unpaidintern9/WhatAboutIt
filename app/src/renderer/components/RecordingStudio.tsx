@@ -623,10 +623,12 @@ export function RecordingStudio({
         )}
 
         <section className="recording-health-strip" aria-label="Recording readiness and live health">
-          <span>{readinessMessage ?? "Check each assigned input before recording."}</span>
-          {remainingMinutes !== undefined && <span>About {remainingMinutes} min of drive space at this profile</span>}
-          {isRecording && <span>{(pendingBytes / 1024 / 1024).toFixed(1)} MB waiting for disk · {snapshot.health?.sources.filter((source) => !source.active).length ?? 0} sources need attention</span>}
-          {driveCheck && <small>Short write test at {new Date(driveCheck.checkedAt).toLocaleTimeString()}</small>}
+          <details className="recording-check-details">
+            <summary>Inputs & storage{remainingMinutes !== undefined ? ` · about ${remainingMinutes} min available` : ""}</summary>
+            <p>{readinessMessage ?? "Check each assigned input before recording."}</p>
+            {isRecording && <p>{(pendingBytes / 1024 / 1024).toFixed(1)} MB waiting for disk · {snapshot.health?.sources.filter((source) => !source.active).length ?? 0} sources need attention</p>}
+            {driveCheck && <small>Short write test at {new Date(driveCheck.checkedAt).toLocaleTimeString()}</small>}
+          </details>
           {invalidChannels && <strong role="alert">A selected microphone input is not exposed by its driver.</strong>}
           {assignedDevices.missingDeviceIds.length > 0 && <strong role="alert">An assigned camera or microphone is disconnected.</strong>}
           {!recordingInProgress && onCheckReadiness && <RusticButton disabled={checkingReadiness || recordingAction !== "idle"} onClick={async () => { setCheckingReadiness(true); try { await onCheckReadiness(); } catch (error) { setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "Check your recording setup." }); } finally { setCheckingReadiness(false); } }}>{checkingReadiness ? "Checking inputs & drive…" : "Check inputs & drive"}</RusticButton>}

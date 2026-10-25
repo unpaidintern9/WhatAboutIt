@@ -134,6 +134,13 @@ function getTimelineTimestampX(viewport: HTMLDivElement, ratio: number) {
   return timelineTrackHeaderWidth + contentWidth * Math.max(0, Math.min(1, ratio));
 }
 
+function closeReviewWorkspaceMenu(control: HTMLElement) {
+  const menu = control.closest("details");
+  if (!menu) return;
+  menu.open = false;
+  menu.querySelector("summary")?.focus();
+}
+
 export function TimelineReview({
   draft,
   media,
@@ -764,6 +771,15 @@ export function TimelineReview({
     function handleEditorKey(event: KeyboardEvent) {
       const target = event.target;
       if (target instanceof Element && (target.closest('[role="dialog"][aria-modal="true"]') || target.matches("input, select, textarea, [contenteditable='true']"))) return;
+      if (event.key === "Escape" && target instanceof Element) {
+        const menu = target.closest<HTMLDetailsElement>(".review-file-menu[open], .review-workspace-menu[open]");
+        if (menu) {
+          menu.open = false;
+          menu.querySelector("summary")?.focus();
+          event.preventDefault();
+          return;
+        }
+      }
       if (event.key === " " && target instanceof Element && target.closest("button, summary, a[href]")) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
@@ -854,7 +870,7 @@ export function TimelineReview({
           </span>
         </div>
         <div className="edit-studio-actions">
-          <details className="review-file-menu" ref={fileMenuRef}>
+          <details className="review-file-menu" name="review-top-menu" ref={fileMenuRef}>
             <summary>File</summary>
             <div className="review-file-menu-popover" role="menu" aria-label="Review file actions">
               <button type="button" role="menuitem" onClick={() => { fileMenuRef.current?.removeAttribute("open"); onSaveDraft(); }}>
@@ -880,18 +896,20 @@ export function TimelineReview({
               </button>
             </div>
           </details>
-          <button type="button" className="review-panel-toggle" aria-expanded={inspectorOpen} onClick={() => setInspectorOpen(!inspectorOpen)}>
-            {inspectorOpen ? "Hide panels" : "Show panels"}
-          </button>
-          <button type="button" aria-pressed={advancedEditing} onClick={() => setAdvancedEditing(!advancedEditing)}>{advancedEditing ? "Simple tools" : "Advanced tools"}</button>
-          <button type="button" data-review-advanced onClick={() => onDraftChange(setTimelineEditMode(draft, "manual"))} className={draft.editMode === "manual" ? "selected" : ""}>
-            <MousePointer2 size={16} /> Manual
-          </button>
+          <details className="review-workspace-menu" name="review-top-menu">
+            <summary>Workspace</summary>
+            <div className="review-workspace-popover">
+              <button type="button" className="review-panel-toggle" aria-expanded={inspectorOpen} onClick={(event) => { setInspectorOpen(!inspectorOpen); closeReviewWorkspaceMenu(event.currentTarget); }}>
+                {inspectorOpen ? "Hide panels" : "Show panels"}
+              </button>
+              <button type="button" aria-pressed={advancedEditing} onClick={(event) => { setAdvancedEditing(!advancedEditing); closeReviewWorkspaceMenu(event.currentTarget); }}>{advancedEditing ? "Simple tools" : "Advanced tools"}</button>
+              <button type="button" data-review-advanced onClick={(event) => { onDraftChange(setTimelineEditMode(draft, "manual")); closeReviewWorkspaceMenu(event.currentTarget); }} className={draft.editMode === "manual" ? "selected" : ""}>
+                <MousePointer2 size={16} /> Manual
+              </button>
+            </div>
+          </details>
           <button type="button" onClick={onAutoEdit} className={draft.editMode === "auto" ? "selected" : ""}>
             <Sparkles size={16} /> Auto Edit
-          </button>
-          <button type="button" onClick={onSaveDraft}>
-            <Save size={16} /> Save
           </button>
           <button type="button" className="primary" onClick={onExport}>
             <Download size={16} /> Export

@@ -477,6 +477,14 @@ function CameraSetupCard({
           </div>
         </details>
       </div>
+      <DeviceSelect
+        label="Choose Camera"
+        value={selectedDeviceId ?? ""}
+        devices={devices}
+        disabledDeviceIds={disabledDeviceIds}
+        emptyLabel="Choose Camera"
+        onChange={onChoose}
+      />
       <div className={`setup-live-preview ${previewStatus}`}>
         <video ref={videoRef} muted playsInline aria-label={`${label} setup live preview`} />
         {previewStatus !== "live" && (
@@ -491,14 +499,6 @@ function CameraSetupCard({
         <span>{getCameraCardSubcopy(selectedDevice, previewStatus, label)}</span>
       </div>
       <p className="camera-name">{selectedDevice?.label ?? "No camera picked yet"}</p>
-      <DeviceSelect
-        label="Choose Camera"
-        value={selectedDeviceId ?? ""}
-        devices={devices}
-        disabledDeviceIds={disabledDeviceIds}
-        emptyLabel="Choose Camera"
-        onChange={onChoose}
-      />
       <div className="camera-button-row">
         <Button variant={selectedDevice ? "secondary" : "primary"} icon={<Camera size={20} />} onClick={() => onChoose(selectedDeviceId ?? firstDevice?.id ?? "")}>
           {buttonLabel}
