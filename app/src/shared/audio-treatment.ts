@@ -32,7 +32,6 @@ function bounded(value: number | undefined, minimum: number, maximum: number, fa
 export function getAudioTreatmentParameters(input: AudioTreatmentInput = {}): AudioTreatmentParameters {
   const preset = input.audioPreset ?? "natural";
   const noiseReduction = bounded(input.noiseReduction, 0, 100);
-  const deEsser = bounded(input.deEsser, 0, 100);
   const explicitCompression = bounded(input.compression, 0, 100);
   const presetLow = preset === "warm" ? 2 : preset === "broadcast" ? 1 : 0;
   const presetMid = preset === "clean" ? 0.8 : preset === "warm" ? 0.6 : preset === "broadcast" ? 1.2 : 0;
@@ -45,7 +44,7 @@ export function getAudioTreatmentParameters(input: AudioTreatmentInput = {}): Au
     lowpassHz: Math.min(preset === "clean" ? 16_000 : 20_000, 20_000 - noiseReduction * 55),
     lowDb: bounded(input.eqLowDb, -12, 12) + presetLow,
     midDb: bounded(input.eqMidDb, -12, 12) + presetMid,
-    highDb: bounded(input.eqHighDb, -12, 12) + presetHigh - deEsser * 0.055,
+    highDb: bounded(input.eqHighDb, -12, 12) + presetHigh,
     compression,
     compressorThreshold,
     compressorThresholdDb: compression === 0 ? 0 : 20 * Math.log10(compressorThreshold),
@@ -56,3 +55,11 @@ export function getAudioTreatmentParameters(input: AudioTreatmentInput = {}): Au
   };
 }
 
+
+/** Only source treatment is baked; gain, pan, fades and edits remain interactive. */
+export function audioTreatmentSignature(input: AudioTreatmentInput = {}) {
+  return JSON.stringify([input.audioPreset ?? "natural", input.noiseReduction ?? 0, input.deEsser ?? 0, input.compression ?? 0, input.eqLowDb ?? 0, input.eqMidDb ?? 0, input.eqHighDb ?? 0, (input as AudioTreatmentInput & { noiseGateDb?: number }).noiseGateDb ?? -80]);
+}
+export function needsExactAudioTreatment(input: AudioTreatmentInput & { noiseGateDb?: number }) {
+  return audioTreatmentSignature(input) !== audioTreatmentSignature();
+}

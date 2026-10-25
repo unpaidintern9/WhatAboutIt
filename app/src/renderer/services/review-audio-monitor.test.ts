@@ -33,7 +33,7 @@ describe("review audio monitor", () => {
     expect(settings.lowpassHz).toBe(17800);
     expect(settings.lowDb).toBe(-1);
     expect(settings.midDb).toBe(4.2);
-    expect(settings.highDb).toBeCloseTo(4.35);
+    expect(settings.highDb).toBeCloseTo(6);
     expect(settings.compressorThresholdDb).toBeCloseTo(-18.344, 2);
     expect(settings.compressorRatio).toBeCloseTo(4.65);
     expect(settings.compressorMakeup).toBe(1.15);

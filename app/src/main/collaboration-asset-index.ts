@@ -1,5 +1,5 @@
 import { durableJson } from "./durable-file";
-import { scheduleMediaWork } from "./media-work-scheduler";
+import { scheduleMediaWork, waitForMediaBudget } from "./media-work-scheduler";
 import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -43,13 +43,12 @@ async function walk(root: string, relative = ""): Promise<string[]> {
 }
 
 async function sha256(filePath: string) {
-  return new Promise<string>((resolve, reject) => {
-    const hash = crypto.createHash("sha256");
-    const stream = createReadStream(filePath);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("error", reject);
-    stream.on("end", () => resolve(hash.digest("hex")));
-  });
+  const hash = crypto.createHash("sha256");
+  for await (const chunk of createReadStream(filePath, { highWaterMark: 256 * 1024 })) {
+    await waitForMediaBudget();
+    hash.update(chunk);
+  }
+  return hash.digest("hex");
 }
 
 export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId: string, selection?: CollaborationUploadSelection): Promise<CollaborationAssetManifestEntry[]> {

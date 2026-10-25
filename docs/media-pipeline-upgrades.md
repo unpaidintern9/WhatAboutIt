@@ -19,7 +19,7 @@ Scope: audit upgrades 1–9. Network cameras and live broadcasting (10) are defe
 
 - Compatible parts use a validated stream-copy concat. Necessary normalization uses lossless VP9 for video and FLAC for isolated audio rather than another 6 Mbps video/AAC generation. Incompatible inputs can still take substantial time to combine.
 - Save progress identifies the source being assembled. All outputs are verified before canonical files are published; part originals remain authoritative if publication is interrupted.
-- A shared two-operation budget coordinates encodes, hashing and network requests. Recording defers new background work; already-running operations are allowed to finish. FFmpeg decoding and progress logs are bounded. This is not OS-level preemption of a running export.
+- A shared two-operation budget coordinates encodes, hashing and network requests. Recording defers new background work. Running FFmpeg derivations now yield and restart after capture/finalization; hashing yields between chunks. In-flight network requests can finish. See [October 25 recording upgrades](recording-readiness-performance.md) for the current behavior and acceptance limits.
 - Immutable media hashes are cached using inode/device/size/mtime/ctime and rechecked for changes. Mutable project files are snapshotted and rehashed for upload.
 - Multipart sizes adapt to the 10,000-part limit. Large parts stream from disk rather than being buffered in full. Transfer checkpoints remain resumable; cancellation and retries remain available.
 - Compatible editor video exports probe actual hardware encoder operation with a one-frame encode, then use it when available. Software remains the fallback. Hardware support and output quality require validation on the recording computer.

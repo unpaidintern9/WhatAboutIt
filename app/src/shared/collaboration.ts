@@ -173,7 +173,7 @@ export function isProjectCollaborationAsset(kind: CollaborationAssetKind) {
 
 export function isInternalCollaborationAssetPath(relativePath: string) {
   const normalized = relativePath.replaceAll("\\", "/").toLowerCase();
-  return normalized === "collaboration/project-sync.json" || normalized === "session/cloud-download-complete.json" || normalized === "session/cloud-review.json" || normalized === "session/asset-hashes.json";
+  return /^session\/review\/audio-treatment-[a-f0-9]+\.flac$/.test(normalized) || normalized === "collaboration/project-sync.json" || normalized === "session/cloud-download-complete.json" || normalized === "session/cloud-review.json" || normalized === "session/asset-hashes.json";
 }
 
 export function transferableCollaborationAssets<T extends { relativePath: string }>(assets: T[]) {

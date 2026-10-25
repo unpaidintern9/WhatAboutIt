@@ -19,6 +19,8 @@ describe("isInternalCollaborationAssetPath", () => {
   it("excludes machine-local sync markers from cloud transfer manifests", () => {
     expect(isInternalCollaborationAssetPath("Collaboration/project-sync.json")).toBe(true);
     expect(isInternalCollaborationAssetPath("Session\\cloud-download-complete.json")).toBe(true);
+    expect(isInternalCollaborationAssetPath("Session/Review/audio-treatment-abcdef.flac")).toBe(true);
+    expect(isInternalCollaborationAssetPath("Audio/morgan-mic.flac")).toBe(false);
     expect(isInternalCollaborationAssetPath("Collaboration/workspace.json")).toBe(false);
     expect(isInternalCollaborationAssetPath("Program/program.webm")).toBe(false);
   });

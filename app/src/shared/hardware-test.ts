@@ -1,6 +1,7 @@
 import type { ExportJobStatus } from "./export";
 import type { RecordingStatus } from "./recording";
-import type { DeviceDefaults } from "./types";
+import type { DeviceDefaults, MicrophoneSlotKey } from "./types";
+import { microphoneSlots } from "./audio-tracks";
 
 export type HardwareTestStep = "cameras" | "microphones" | "recording" | "export" | "results";
 export type HardwareTestStatus = "not-run" | "ready" | "needs-attention" | "disconnected" | "reconnecting";
@@ -28,6 +29,7 @@ export interface HardwareDeviceSummary {
 export interface HardwareDeviceReadiness {
   cameraReady: [boolean | undefined, boolean | undefined, boolean | undefined];
   morganMicReady?: boolean;
+  microphoneReady: Partial<Record<MicrophoneSlotKey, boolean>>;
   summary: "Everything Ready" | "Needs Attention";
   message: string;
   missingDeviceIds: string[];
@@ -118,17 +120,23 @@ export function getHardwareDeviceReadiness(defaults: DeviceDefaults, devices: Ha
   const morganMicReady = defaults.microphones.morganMic
     ? hasDevice(microphoneDevices, defaults.microphones.morganMic)
     : hasAnyDevice(devices, "microphone");
+  const microphoneReady = Object.fromEntries(microphoneSlots.flatMap(({ key }) => {
+    const id = defaults.microphones[key];
+    return id ? [[key, Boolean(hasDevice(microphoneDevices, id))]] : [];
+  })) as Partial<Record<MicrophoneSlotKey, boolean>>;
   const missingDeviceIds = [
     ...cameraSlots.filter((deviceId): deviceId is string => Boolean(deviceId) && !hasDevice(cameraDevices, deviceId)),
-    ...(defaults.microphones.morganMic && !hasDevice(microphoneDevices, defaults.microphones.morganMic)
-      ? [defaults.microphones.morganMic]
-      : [])
+    ...microphoneSlots.flatMap(({ key }) => {
+      const id = defaults.microphones[key];
+      return id && !hasDevice(microphoneDevices, id) ? [id] : [];
+    })
   ];
   const ready = Boolean(cameraReady[0] && morganMicReady && missingDeviceIds.length === 0);
 
   return {
     cameraReady,
     morganMicReady,
+    microphoneReady,
     summary: ready ? "Everything Ready" : "Needs Attention",
     message: ready
       ? "Everything Ready"

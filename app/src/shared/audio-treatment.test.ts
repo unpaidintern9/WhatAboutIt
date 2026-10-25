@@ -13,7 +13,7 @@ describe("shared audio treatment parameters", () => {
     const treatment = getAudioTreatmentParameters({ audioPreset: "clean", noiseReduction: 100, deEsser: 20, eqHighDb: 3, compression: 70 });
     expect(treatment.highpassHz).toBe(120);
     expect(treatment.lowpassHz).toBe(14_500);
-    expect(treatment.highDb).toBeCloseTo(3.1, 3);
+    expect(treatment.highDb).toBeCloseTo(4.2, 3);
     expect(treatment.compression).toBe(70);
   });
 });

@@ -28,6 +28,7 @@ describe("review media store", () => {
 
   afterEach(async () => {
     await (await import("./review-proxy-store")).cancelAllReviewProxyWork();
+    await (await import("./review-media-store")).cancelReviewArtwork();
     await fs.rm(mockPaths.episodesRoot, { recursive: true, force: true });
   });
 
@@ -77,7 +78,7 @@ describe("review media store", () => {
       sourceStartOffsetsMs: { program: 0, camera1: 480, camera2: 0, camera3: 0, morganMic: 620, guestMic: 0, extraMic: 0 }
     }));
 
-    const inventory = await loadReviewMedia(episodeId);
+    const inventory = await loadReviewMedia(episodeId, { waitForArtwork: true });
 
     expect(inventory.hasPlayableProgram).toBe(true);
     expect(inventory.program.status).toBe("ready");
@@ -103,7 +104,7 @@ describe("review media store", () => {
     const cameraOne = inventory.cameras.find((asset) => asset.id === "camera-1");
     expect(cameraOne?.reviewProxyPath).toBeUndefined();
     await (await import("./review-proxy-store")).prepareEpisodeReviewProxies(path.dirname(path.dirname(programPath)));
-    const refreshed = await loadReviewMedia(episodeId);
+    const refreshed = await loadReviewMedia(episodeId, { waitForArtwork: true });
     expect(refreshed.cameras.find((asset) => asset.id === "camera-1")?.reviewProxyPath).toMatch(/camera-1-review\.mp4$/);
     expect(cameraOne?.playbackUrl).toMatch(/^wai-media:\/\/episode\//);
     expect(cameraOne?.includesPairedAudio).toBe(false);
@@ -130,7 +131,7 @@ describe("review media store", () => {
       stderr: ""
     });
 
-    const inventory = await loadReviewMedia(episodeId);
+    const inventory = await loadReviewMedia(episodeId, { waitForArtwork: true });
 
     expect(inventory.program.status).toBe("ready");
     expect(inventory.program.durationMs).toBe(54749);
@@ -159,7 +160,7 @@ describe("review media store", () => {
     const ffmpegSpy = vi.spyOn(ffmpegTools, "runFfmpeg").mockResolvedValue({ stdout: "", stderr: "" });
     const { loadReviewMedia } = await import("./review-media-store");
 
-    const inventory = await loadReviewMedia(episodeId);
+    const inventory = await loadReviewMedia(episodeId, { waitForArtwork: true });
 
     expect(inventory.hasPlayableProgram).toBe(true);
     expect(inventory.program.filmstripUrl).toBe(inventory.program.posterUrl);
@@ -193,7 +194,7 @@ describe("review media store", () => {
       }
     }));
 
-    const inventory = await loadReviewMedia(episodeId);
+    const inventory = await loadReviewMedia(episodeId, { waitForArtwork: true });
     const microphone = inventory.audio.find((asset) => asset.id === "morgan-mic");
     const camera = inventory.cameras.find((asset) => asset.id === "camera-1");
 
@@ -249,7 +250,7 @@ describe("review media store", () => {
       cameraPath
     ]);
 
-    const inventory = await loadReviewMedia(episodeId);
+    const inventory = await loadReviewMedia(episodeId, { waitForArtwork: true });
     const camera = inventory.cameras.find((asset) => asset.id === "camera-1");
 
     expect(camera?.status).toBe("ready");

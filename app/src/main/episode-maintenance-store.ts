@@ -1,4 +1,6 @@
 import { cancelEpisodeReviewProxies } from "./review-proxy-store";
+import { cancelReviewArtwork } from "./review-media-store";
+import { cancelReviewAudioWork } from "./review-audio-store";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { EpisodeCleanupScope, EpisodeStorageBucket, EpisodeStorageSummary } from "../shared/episode-maintenance";
@@ -49,7 +51,7 @@ export async function getEpisodeStorageSummary(episodeId: string): Promise<Episo
 export async function cleanupEpisodeStorage(episodeId: string, scope: EpisodeCleanupScope) {
   if (scope !== "review-cache" && scope !== "exports") throw new Error("That episode cleanup option is not supported.");
   const folder = getEpisodeFolder(episodeId);
-  if (scope === "review-cache") { await cancelEpisodeReviewProxies(folder); await fs.rm(path.join(folder, "Session", "Proxies"), { recursive: true, force: true }); }
+  if (scope === "review-cache") { await cancelReviewArtwork(folder); await cancelReviewAudioWork(folder); await cancelEpisodeReviewProxies(folder); await fs.rm(path.join(folder, "Session", "Proxies"), { recursive: true, force: true }); }
   const target = scope === "review-cache" ? path.join(folder, "Session", "Review") : path.join(folder, "Exports");
   await fs.rm(target, { recursive: true, force: true });
   await fs.mkdir(target, { recursive: true });

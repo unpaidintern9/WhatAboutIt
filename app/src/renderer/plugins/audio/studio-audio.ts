@@ -184,10 +184,8 @@ export function getAudioStreamDiagnostics(stream: MediaStream): AudioStreamDiagn
   const track = stream.getAudioTracks()[0];
   if (!track) return {};
   const settings = typeof track.getSettings === "function" ? track.getSettings() : {};
-  const capabilities = typeof track.getCapabilities === "function" ? track.getCapabilities() : undefined;
-  const channelCapability = capabilities?.channelCount;
-  const channelCount = settings.channelCount
-    ?? (typeof channelCapability === "object" && channelCapability ? channelCapability.max : undefined);
+  // A driver's advertised maximum is not evidence of the active channel count.
+  const channelCount = settings.channelCount;
 
   return {
     deviceId: settings.deviceId,

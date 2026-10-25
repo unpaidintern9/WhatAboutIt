@@ -1,5 +1,6 @@
 import { runInNewContext } from "node:vm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { PcmTrackRecorder } from "./pcm-track-recorder";
 import fs from "node:fs";
 import path from "node:path";
 const pcmWorkletSource = fs.readFileSync(
@@ -8,6 +9,31 @@ const pcmWorkletSource = fs.readFileSync(
 );
 
 describe("lossless audio rendering-thread capture", () => {
+  it("shares the interface context and worklet module without closing other live channels", async () => {
+    const nodes: Array<{ port: { onmessage?: (event: { data: { stopped: boolean } }) => void } }> = [];
+    const audioNode = () => ({ connect(next: unknown) { return next; }, disconnect: vi.fn() });
+    const close = vi.fn(async () => undefined);
+    const addModule = vi.fn(async () => undefined);
+    const context = { sampleRate: 48000, audioWorklet: { addModule }, createMediaStreamSource: () => audioNode(), createGain: () => ({ ...audioNode(), gain: { value: 1 } }), resume: async () => undefined, close, destination: audioNode() } as unknown as AudioContext;
+    vi.stubGlobal("AudioWorkletNode", class {
+      port = { onmessage: undefined as ((event: { data: { stopped: boolean } }) => void) | undefined, postMessage: vi.fn(), close: vi.fn() };
+      constructor() { nodes.push(this); }
+      connect(next: unknown) { return next; }
+      disconnect() {}
+    });
+    try {
+      const input = { getAudioTracks: () => [] } as unknown as MediaStream;
+      const first = await PcmTrackRecorder.create(input, context);
+      const second = await PcmTrackRecorder.create(input, context);
+      first.start(); second.start(); first.stop();
+      nodes[0].port.onmessage?.({ data: { stopped: true } });
+      expect(first.state).toBe("inactive");
+      expect(second.state).toBe("recording");
+      expect(addModule).toHaveBeenCalledTimes(1);
+      expect(close).not.toHaveBeenCalled();
+      second.stop(); nodes[1].port.onmessage?.({ data: { stopped: true } });
+    } finally { vi.unstubAllGlobals(); }
+  });
   it("preserves signed 24-bit samples, flushes before stop, and excludes paused audio", () => {
     const messages: Array<{
       bytes?: Uint8Array;

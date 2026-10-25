@@ -321,7 +321,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       const stream = this.openReadyMicTrackStream(entry.slot, entry.deviceId, entry.channel);
       if (!stream) continue;
       try {
-        this.trackRecorders.push(createTrackRecorder(entry.slot, "audio", stream, pickAudioMimeType(), (track, blob) => this.queueTrackChunk(track, blob), this.diskSession ? await PcmTrackRecorder.create(stream) : undefined));
+        this.trackRecorders.push(createTrackRecorder(entry.slot, "audio", stream, pickAudioMimeType(), (track, blob) => this.queueTrackChunk(track, blob), this.diskSession ? await PcmTrackRecorder.create(stream, this.sharedMicrophoneRouters.get(entry.deviceId)?.audioContext) : undefined));
         preparedSlots.add(entry.slot);
       } catch {
         stopStudioMediaStream(stream);
@@ -378,7 +378,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
         return;
       }
       this.trackResults = this.trackResults.filter((result) => !(result.slot === slot && result.message?.includes("attaching as a separate track")));
-      const trackRecorder = createTrackRecorder(slot, "audio", stream, pickAudioMimeType(), (track, blob) => this.queueTrackChunk(track, blob), this.diskSession ? await PcmTrackRecorder.create(stream) : undefined);
+      const trackRecorder = createTrackRecorder(slot, "audio", stream, pickAudioMimeType(), (track, blob) => this.queueTrackChunk(track, blob), this.diskSession ? await PcmTrackRecorder.create(stream, this.sharedMicrophoneRouters.get(deviceId)?.audioContext) : undefined);
       startTrackRecorder(trackRecorder);
       this.trackRecorders.push(trackRecorder);
     } catch {

@@ -1,5 +1,6 @@
 import { MediaClock } from "../../../shared/media-clock";
 import { createStudioAudioContext } from "../audio/studio-audio";
+const loadedWorklets = new WeakMap<AudioContext, Promise<void>>();
 
 export interface CaptureRecorder extends EventTarget {
   readonly state: RecordingState;
@@ -31,6 +32,7 @@ export class PcmTrackRecorder extends EventTarget implements CaptureRecorder {
     private readonly source: MediaStreamAudioSourceNode,
     private readonly node: AudioWorkletNode,
     private readonly silence: GainNode,
+    private readonly ownsContext: boolean,
   ) {
     super();
     this.mimeType = `audio/x-pcm;rate=${context.sampleRate};channels=1`;
@@ -64,35 +66,47 @@ export class PcmTrackRecorder extends EventTarget implements CaptureRecorder {
     };
   }
 
-  static async create(stream: MediaStream) {
-    const context = createStudioAudioContext(
+  static async create(stream: MediaStream, sharedContext?: AudioContext) {
+    const context = sharedContext ?? createStudioAudioContext(
       undefined,
       stream.getAudioTracks()[0]?.getSettings?.().sampleRate,
     );
     if (!context.audioWorklet || typeof AudioWorkletNode === "undefined") {
-      await context.close();
+      if (!sharedContext) await context.close();
       throw new Error(
         "Lossless audio capture is unavailable. Update the app before recording.",
       );
     }
     const url = new URL("pcm-capture-worklet.js", document.baseURI).href;
+    let source: MediaStreamAudioSourceNode | undefined;
+    let node: AudioWorkletNode | undefined;
+    let silence: GainNode | undefined;
     try {
-      await context.audioWorklet.addModule(url);
-      const source = context.createMediaStreamSource(stream);
-      const node = new AudioWorkletNode(context, "wai-pcm-capture", {
+      let loading = loadedWorklets.get(context);
+      if (!loading) {
+        loading = context.audioWorklet.addModule(url).catch((error) => { loadedWorklets.delete(context); throw error; });
+        loadedWorklets.set(context, loading);
+      }
+      await loading;
+      source = context.createMediaStreamSource(stream);
+      node = new AudioWorkletNode(context, "wai-pcm-capture", {
         channelCount: 1,
         channelCountMode: "explicit",
         numberOfInputs: 1,
         numberOfOutputs: 1,
         outputChannelCount: [1],
       });
-      const silence = context.createGain();
+      silence = context.createGain();
       silence.gain.value = 0;
       source.connect(node).connect(silence).connect(context.destination);
       await context.resume();
-      return new PcmTrackRecorder(context, source, node, silence);
+      return new PcmTrackRecorder(context, source, node, silence, !sharedContext);
     } catch (error) {
-      await context.close();
+      source?.disconnect();
+      node?.disconnect();
+      node?.port.close();
+      silence?.disconnect();
+      if (!sharedContext) await context.close();
       throw error;
     }
   }
@@ -130,6 +144,6 @@ export class PcmTrackRecorder extends EventTarget implements CaptureRecorder {
     this.node.disconnect();
     this.node.port.close();
     this.silence.disconnect();
-    void this.context.close();
+    if (this.ownsContext) void this.context.close();
   }
 }

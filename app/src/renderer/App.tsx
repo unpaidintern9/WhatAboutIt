@@ -10,6 +10,7 @@ import { createTimelineDraft, setTimelineEditOperationEnabled, syncTimelineTrack
 import type { EditorVideoPreset, ExportJob, ExportMasteringMode, ExportQualityPreset, ExportType, MediaToolsStatus } from "../shared/export";
 import { defaultExportSettings } from "../shared/export";
 import type { ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaInventory } from "../shared/review-media";
+import { applyReviewMediaUpdate } from "../shared/review-media";
 import type { AutoEditMode, AutoEditResult } from "../shared/auto-edit";
 import { learnAutoEditProfile, runOfflineAutoEdit } from "../shared/auto-edit";
 import type { StudioDisplayInfo, StudioLayoutProfileId, StudioPanelId, StudioWorkspaceState } from "../shared/studio-workspace";
@@ -31,6 +32,8 @@ import { BrowserMediaRecorderPlugin } from "./plugins/recording/browser-media-re
 import type { DeviceDetectionResult } from "./plugins/devices/types";
 import { DeviceService, ExportService, RecordingService, formatRecordingTime, type RecordingServiceSnapshot } from "./services";
 import { TimelineSaveQueue } from "./services/timeline-save-queue";
+import { checkRecordingInputs } from "./services/recording-preflight";
+import { recordingCaptureBytesPerSecond, type RecordingDriveCheck } from "../shared/diagnostics";
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 
@@ -410,6 +413,8 @@ export default function App() {
   const [workspaceMessage, setWorkspaceMessage] = useState("Window positions restore on launch.");
   const [deviceDetection, setDeviceDetection] = useState<DeviceDetectionResult>(emptyDetection);
   const [recordingSnapshot, setRecordingSnapshot] = useState<RecordingServiceSnapshot>(getInitialRecordingSnapshot);
+  const [recordingDriveCheck, setRecordingDriveCheck] = useState<RecordingDriveCheck>();
+  const [readinessMessage, setReadinessMessage] = useState("Every assigned input and the recording drive are checked before capture.");
   const [unfinishedSessions, setUnfinishedSessions] = useState<RecordingSession[]>([]);
   const [recordingSessionsReady, setRecordingSessionsReady] = useState(false);
   const [wizardStep, setWizardStep] = useState(() => Number(new URLSearchParams(window.location.search).get("wizard") ?? 0));
@@ -576,6 +581,9 @@ export default function App() {
   useEffect(() => exportService.subscribe(setExportJob), [exportService]);
 
   useEffect(() => studio.onReviewMediaImportProgress?.(setMediaImportProgress), [studio]);
+  useEffect(() => studio.onReviewMediaUpdate?.((update) => {
+    setReviewMedia((current) => applyReviewMediaUpdate(current, update));
+  }), [studio]);
 
   useEffect(() => studio.onCollaborationProjectPulled?.((episodeId) => {
     const episode = activeEpisodeRef.current;
@@ -1421,6 +1429,7 @@ export default function App() {
   }
 
   async function startHardwareTestRecording() {
+    await verifyRecordingReady();
     const episode = await createHardwareTestEpisode();
     setHardwareTestMessage("Recording a 30-second hardware test. Everything is saving locally.");
     const snapshot = await recordingService.start(settings.deviceDefaults, {
@@ -1442,6 +1451,7 @@ export default function App() {
   }
 
   async function startQuickTestRecording() {
+    await verifyRecordingReady();
     const episode = await createHardwareTestEpisode();
     setHardwareTestMessage("Recording a 15-second camera and microphone check directly to disk.");
     const snapshot = await recordingService.start(settings.deviceDefaults, {
@@ -1520,7 +1530,27 @@ export default function App() {
     finally { setRecordingSessionsReady(true); }
   }
 
+  async function verifyRecordingReady() {
+    if (!studio.checkRecordingDrive) return;
+    try {
+      setReadinessMessage("Checking every camera, microphone channel, and the recording drive…");
+      await checkRecordingInputs(settings.deviceDefaults, deviceService);
+      const drive = await studio.checkRecordingDrive();
+      setRecordingDriveCheck(drive);
+      setStorageStatus({ message: "Storage check ready", availableBytes: drive.availableBytes });
+      const capacity = assessRecordingStorage({ status: { message: "Storage check ready", availableBytes: drive.availableBytes }, cameraCount: Object.values(settings.deviceDefaults.cameras).filter(Boolean).length, microphoneCount: Object.values(settings.deviceDefaults.microphones).filter(Boolean).length, estimatedMinutes: settings.recordingPreferences?.plannedDurationMinutes ?? defaultRecordingPreferences.plannedDurationMinutes, captureQuality: settings.deviceDefaults.captureQuality });
+      if (!capacity.ready) throw new Error(capacity.message);
+      const target = recordingCaptureBytesPerSecond(Object.values(settings.deviceDefaults.cameras).filter(Boolean).length, Object.values(settings.deviceDefaults.microphones).filter(Boolean).length, settings.deviceDefaults.captureQuality) * 2;
+      if (drive.writeBytesPerSecond < target) throw new Error(`The drive write test was slower than the ${Math.ceil(target / 1024 / 1024)} MB/s safety target. Close background disk work or choose a faster drive, then check again.`);
+      setReadinessMessage(`Assigned inputs checked · short drive test ${(drive.writeBytesPerSecond / 1024 / 1024).toFixed(1)} MB/s. Run a long setup recording to confirm sustained capacity.`);
+    } catch (error) {
+      setReadinessMessage(error instanceof Error ? error.message : "Recording readiness needs attention.");
+      throw error;
+    }
+  }
+
   async function startRecording(practice = false) {
+    if (!practice) await verifyRecordingReady();
     await flushPendingTimelineSave();
     const paused = unfinishedSessions.find((session) => session.episodeId === activeEpisode?.id && session.durablePaused && session.status === "paused");
     const nextSnapshot = await recordingService.start(settings.deviceDefaults, {
@@ -1557,6 +1587,7 @@ export default function App() {
   }
 
   async function resumeRecording() {
+    await verifyRecordingReady();
     const paused = recordingService.getSnapshot().session;
     const snapshot = paused?.durablePaused ? await recordingService.resumeSaved(paused, settings.deviceDefaults) : await recordingService.resume();
     setRecordingSnapshot(snapshot);
@@ -1766,6 +1797,10 @@ export default function App() {
             unfinishedSessions={unfinishedSessions}
             podcastTools={podcastTools}
             storageWarning={recordingStorage.ready ? undefined : recordingStorage.message}
+            availableBytes={storageStatus?.availableBytes}
+            driveCheck={recordingDriveCheck}
+            readinessMessage={readinessMessage}
+            onCheckReadiness={verifyRecordingReady}
             recordingPreferences={recordingPreferences}
             onStart={() => startRecording(false)}
             onQuickTest={() => startQuickTestRecording()}
