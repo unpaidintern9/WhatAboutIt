@@ -184,12 +184,13 @@ export function DeviceSetupWizard({
           {detection.cameras.length === 0 ? (
             <FriendlyState title={getEmptyStateMessage("camera")} message="Plug in a camera, close other camera apps, then choose Find Cameras." />
           ) : (
-            <div className="camera-card-grid">
-              <label className="device-select">Recording quality
+            <div className="camera-setup-content">
+              <label className="device-select capture-quality-control">Recording quality
                 <select aria-label="Recording quality" value={defaults.captureQuality ?? "balanced"} onChange={(event) => onDefaultsChange({ ...defaults, captureQuality: event.target.value === "high" ? "high" : "balanced" })}>
                   <option value="balanced">Balanced · 8 Mbps per camera</option><option value="high">High · 16 Mbps per camera</option>
                 </select>
               </label>
+              <div className="camera-card-grid">
               {cameraSlots.slice(0, visibleCameraCount).map((slot) => (
                 <CameraSetupCard
                   key={slot.key}
@@ -206,6 +207,7 @@ export function DeviceSetupWizard({
                   onReleaseCameraPreview={onReleaseCameraPreview}
                 />
               ))}
+              </div>
             </div>
           )}
           {visibleCameraCount < cameraSlots.length ? (
