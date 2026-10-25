@@ -40,7 +40,7 @@ export async function prepareReviewAudio(client: string, episodeId: string, trac
     const destination = path.join(folder, "Session", "Review", `audio-treatment-${hash}.flac`);
     if (!(await fs.stat(destination).then((stat) => stat.size > 0, () => false))) {
       await fs.mkdir(path.dirname(destination), { recursive: true });
-      const temporary = `${destination}.${randomUUID()}.flac`;
+      const temporary = path.join(path.dirname(destination), `.audio-treatment-${randomUUID()}.flac`);
       try {
         await runFfmpegWithProgress(["-y", "-i", source, "-vn", "-af", filters, "-c:a", "flac", "-sample_fmt", "s32", "-ar", "48000", temporary], { durationMs: await getMediaDurationMs(source), signal: controller.signal });
         controller.signal.throwIfAborted();
