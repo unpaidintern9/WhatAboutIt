@@ -719,3 +719,34 @@ describe("TimelineReview", () => {
     host.remove();
   });
 });
+
+describe("Review panel workflow", () => {
+  it("opens media and captions directly and can return space to the preview", () => {
+    const draft = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 });
+    const host = document.createElement("div"); document.body.appendChild(host); const root = createRoot(host);
+    act(() => root.render(<TimelineReview draft={draft} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />));
+    const tabs = host.querySelector('.review-panel-tabs')!;
+    const mediaButton = Array.from(tabs.querySelectorAll('button')).find((button) => button.textContent === 'Media')!;
+    const captionsButton = Array.from(tabs.querySelectorAll('button')).find((button) => button.textContent === 'Captions')!;
+    act(() => mediaButton.click());
+    expect((host.querySelector('[aria-label="Media sources"]') as HTMLElement).hidden).toBe(false);
+    act(() => captionsButton.click());
+    expect((host.querySelector('[aria-label="Media sources"]') as HTMLElement).hidden).toBe(true);
+    expect((host.querySelector('[aria-label="Captions and transcript"]') as HTMLElement).hidden).toBe(false);
+    expect(host.querySelector('.editor-caption-panel')?.tagName).toBe('SECTION');
+    expect(host.querySelector('.editor-caption-panel textarea[aria-label="Transcript to auto-time"]')).toBeTruthy();
+    act(() => (host.querySelector('.review-panel-toggle') as HTMLButtonElement).click());
+    expect((host.querySelector('[aria-label="Review panels"].edit-track-inspector') as HTMLElement).hidden).toBe(true);
+    act(() => root.unmount()); host.remove();
+  });
+});
+
+it("keeps editor shortcuts out of an open modal dialog", () => {
+  const draft = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: {} }, durationMs: 30000 });
+  const host = document.createElement("div"); document.body.appendChild(host); const root = createRoot(host); const onDraftChange = vi.fn(); const onSave = vi.fn();
+  act(() => root.render(<TimelineReview draft={draft} media={media} onDraftChange={onDraftChange} onSaveDraft={onSave} onExport={vi.fn()} onAutoEdit={vi.fn()} />));
+  const dialog = document.createElement("section"); dialog.setAttribute("role", "dialog"); dialog.setAttribute("aria-modal", "true"); const button = document.createElement("button"); dialog.append(button); document.body.appendChild(dialog);
+  act(() => { button.dispatchEvent(new KeyboardEvent("keydown", { key: "s", bubbles: true })); button.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true })); });
+  expect(onDraftChange).not.toHaveBeenCalled(); expect(onSave).not.toHaveBeenCalled();
+  act(() => root.unmount()); dialog.remove(); host.remove();
+});

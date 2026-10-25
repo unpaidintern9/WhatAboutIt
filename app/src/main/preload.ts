@@ -319,8 +319,12 @@ async function activateRequestedEpisode() {
 async function openReviewEpisodeLibrary() {
   if (reviewLibraryOpen) return;
   reviewLibraryOpen = true;
+  const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
   const overlay = document.createElement("div");
   overlay.dataset.reviewEpisodeLibrary = "true";
+  overlay.setAttribute("role", "dialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "review-library-title");
   overlay.style.cssText = reviewLibraryStyle;
   const panel = document.createElement("section");
   panel.style.cssText = "width:min(920px,96vw);max-height:88vh;overflow:auto;background:#160f10;border:1px solid #5d3a3d;border-radius:18px;padding:20px;box-shadow:0 24px 80px rgba(0,0,0,.5);font-family:Inter,system-ui,sans-serif;color:#f7eee7;";
@@ -329,6 +333,7 @@ async function openReviewEpisodeLibrary() {
   const copy = document.createElement("div");
   const title = document.createElement("h2");
   title.textContent = "Review an Episode";
+  title.id = "review-library-title";
   title.style.cssText = "margin:0;font-size:24px;";
   const subtitle = document.createElement("p");
   subtitle.textContent = "Open a local episode or a shared Cloudflare episode. The selected episode's file folder opens with Review.";
@@ -365,7 +370,10 @@ async function openReviewEpisodeLibrary() {
   const list = document.createElement("div");
   panel.append(header, utilities, status, transfer, list);
   overlay.append(panel);
+  const background = Array.from(document.body.children).filter((node): node is HTMLElement => node instanceof HTMLElement).map((node) => ({ node, inert: node.inert }));
+  background.forEach(({ node }) => { node.inert = true; });
   document.body.append(overlay);
+  close.focus();
 
   let activeOperationId: string | undefined;
   let transferActive = false;
@@ -377,6 +385,7 @@ async function openReviewEpisodeLibrary() {
     });
     cancelTransfer.hidden = !active;
     setLibraryButtonDisabled(cancelTransfer, !active);
+    if (active) cancelTransfer.focus();
   };
   const onTransferProgress = (_event: Electron.IpcRendererEvent, progress: CollaborationTransferProgress) => {
     activeOperationId = progress.operationId;
@@ -401,8 +410,31 @@ async function openReviewEpisodeLibrary() {
   const closeOverlay = () => {
     ipcRenderer.removeListener("collaboration:cloud:progress", onTransferProgress);
     reviewLibraryOpen = false;
+    document.removeEventListener("keydown", handleModalKeyDown, true);
     overlay.remove();
+    background.forEach(({ node, inert }) => { node.inert = inert; });
+    if (previousFocus?.isConnected) previousFocus.focus();
   };
+
+  function handleModalKeyDown(event: KeyboardEvent) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!transferActive) closeOverlay();
+      else status.textContent = "A transfer is active. Cancel the transfer before closing.";
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const controls = Array.from(overlay.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex="0"]')).filter((element) => element.getClientRects().length > 0);
+    const first = controls[0];
+    const last = controls[controls.length - 1];
+    if (!first || !last) { event.preventDefault(); return; }
+    if (!overlay.contains(document.activeElement) || (event.shiftKey && document.activeElement === first) || (!event.shiftKey && document.activeElement === last)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
+  }
+  document.addEventListener("keydown", handleModalKeyDown, true);
 
   overlay.addEventListener("click", async (event) => {
     if (event.target === overlay) {

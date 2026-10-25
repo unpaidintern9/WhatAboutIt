@@ -1,5 +1,5 @@
 import { type ReactElement } from "react";
-import { ArrowLeft, CheckCircle2, ExternalLink, FileArchive, FileAudio, FolderInput, Home, LoaderCircle, PackageOpen, Play, RectangleVertical, ShieldCheck, Square, Video } from "lucide-react";
+import { ArrowLeft, CheckCircle2, ExternalLink, FileArchive, FileAudio, FolderInput, Home, LoaderCircle, PackageOpen, RectangleVertical, ShieldCheck, Square, Video } from "lucide-react";
 import type { EditorVideoPreset, ExportJob, ExportMasteringMode, ExportQualityPreset, ExportType, MediaToolsStatus } from "../../shared/export";
 import { exportFriendlyErrorCopy, exportTypeLabels } from "../../shared/export";
 import { Button } from ".";
@@ -83,6 +83,24 @@ export function ExportEpisode({
   const isEditorHandoff = selectedType === "editor-handoff";
   const handoffNeedsDestination = isEditorHandoff && !destinationFolderPath;
 
+  const renderFormat = (type: ExportType) => {
+    const option = exportTypeLabels[type];
+    const selected = selectedType === type;
+    return (
+      <button
+        type="button"
+        className={`export-option-card ${selected ? "selected" : ""}`}
+        disabled={option.locked || isRunning}
+        onClick={() => onTypeChange(type)}
+        key={type}
+      >
+        {exportIcons[type]}
+        <strong>{option.title}</strong>
+        <span>{option.description}</span>
+      </button>
+    );
+  };
+
   return (
     <section className="export-screen">
       <div className="export-hero">
@@ -98,25 +116,16 @@ export function ExportEpisode({
       </div>
 
       <section className="export-option-grid" aria-label="Export options">
-        {(Object.keys(exportTypeLabels) as ExportType[]).map((type) => {
-          const option = exportTypeLabels[type];
-          const selected = selectedType === type;
-          return (
-            <button
-              type="button"
-              className={`export-option-card ${selected ? "selected" : ""}`}
-              disabled={option.locked}
-              onClick={() => onTypeChange(type)}
-              key={type}
-            >
-              {exportIcons[type]}
-              <strong>{option.title}</strong>
-              <span>{option.description}</span>
-            </button>
-          );
-        })}
+        {(["full-episode-video", "audio-only", "editor-handoff"] as ExportType[]).map(renderFormat)}
       </section>
 
+      <details className="export-more-formats" open={selectedType === "archive-master" || selectedType === "social-clip-placeholder"}><summary>More formats: archive & social clips</summary><div className="export-option-grid">{(["archive-master", "social-clip-placeholder"] as ExportType[]).map(renderFormat)}</div></details>
+
+      <div className="export-ready-summary" role="region" aria-label="Export summary">
+        <div><strong>{exportTypeLabels[selectedType].title}</strong><span>{isEditorHandoff ? `Source format: ${editorVideoPreset === "prores" ? "ProRes MOV" : "Compatible MP4"}` : `Quality: ${qualityPreset}`} · {isEditorHandoff ? destinationFolderPath ?? "Choose a destination below" : "Saved in this episode’s Exports folder"}</span><small>{isEditorHandoff ? "Includes original source channels and a reference edit" : `${includeCameraMasters ? "Camera masters included · " : ""}${includeAudioMasters ? "Audio masters included · " : ""}Originals stay unchanged`}</small></div>
+        {isEditorHandoff && !destinationFolderPath ? <Button onClick={onChooseDestination}>Choose destination</Button> : null}
+        <Button variant="primary" disabled={isRunning || socialClipNeedsRange || handoffNeedsDestination} onClick={onStartExport}>{isRunning ? "Exporting…" : isEditorHandoff ? "Build editor handoff" : isComplete ? "Export again" : "Export"}</Button>
+      </div>
       <section className="export-settings-panel">
         <div>
           <p className="signature">Keep it simple</p>
@@ -162,7 +171,7 @@ export function ExportEpisode({
               <button
                 type="button"
                 className={qualityPreset === preset ? "selected" : ""}
-                onClick={() => onQualityChange(preset)}
+                disabled={isRunning} onClick={() => onQualityChange(preset)}
                 key={preset}
               >
                 <strong>{copy.title}{copy.badge ? <small>{copy.badge}</small> : null}</strong>
@@ -172,24 +181,24 @@ export function ExportEpisode({
           })}
         </div> : null}
         {!isEditorHandoff && (selectedType === "full-episode-video" || selectedType === "archive-master") && (
-          <div className="export-extra-options" aria-label="Additional export files">
+          <details className="export-extra-disclosure"><summary>Advanced: extra source files</summary><div className="export-extra-options" aria-label="Additional export files">
             {selectedType === "full-episode-video" && (
               <label>
-                <input type="checkbox" checked={includeCameraMasters} onChange={(event) => onCameraMastersChange?.(event.target.checked)} />
+                <input type="checkbox" disabled={isRunning} checked={includeCameraMasters} onChange={(event) => onCameraMastersChange?.(event.target.checked)} />
                 <span><strong>Camera masters</strong><small>Separate edited video for every camera and its routed microphone. Slowest and largest.</small></span>
               </label>
             )}
             <label>
-              <input type="checkbox" checked={includeAudioMasters} onChange={(event) => onAudioMastersChange?.(event.target.checked)} />
+              <input type="checkbox" disabled={isRunning} checked={includeAudioMasters} onChange={(event) => onAudioMastersChange?.(event.target.checked)} />
               <span><strong>24-bit audio masters</strong><small>Separate WAV files for later remixing or archiving.</small></span>
             </label>
-          </div>
+          </div></details>
         )}
         {!isEditorHandoff ? <div className="export-mastering-choice">
           <span><strong>Podcast loudness</strong><small>Measured mastering analyzes the complete mix before applying the final level.</small></span>
           <div className="inspector-segmented" aria-label="Podcast loudness processing">
-            <button type="button" className={masteringMode === "measured" ? "selected" : ""} onClick={() => onMasteringModeChange?.("measured")}>Measured</button>
-            <button type="button" className={masteringMode === "fast" ? "selected" : ""} onClick={() => onMasteringModeChange?.("fast")}>Fast</button>
+            <button type="button" className={masteringMode === "measured" ? "selected" : ""} disabled={isRunning} onClick={() => onMasteringModeChange?.("measured")}>Measured</button>
+            <button type="button" className={masteringMode === "fast" ? "selected" : ""} disabled={isRunning} onClick={() => onMasteringModeChange?.("fast")}>Fast</button>
           </div>
         </div> : null}
       </section>
@@ -232,9 +241,6 @@ export function ExportEpisode({
           </div>
         )}
         <div className="export-actions">
-          <Button variant={isComplete ? "secondary" : "primary"} icon={isEditorHandoff ? <PackageOpen size={20} /> : <Play size={20} />} disabled={isRunning || socialClipNeedsRange || handoffNeedsDestination} onClick={onStartExport}>
-            {isRunning ? (isEditorHandoff ? "Building handoff" : "Exporting") : isComplete ? (isEditorHandoff ? "Build another handoff" : "Export again") : isEditorHandoff ? "Build editor handoff" : "Export"}
-          </Button>
           <Button variant="secondary" icon={<Square size={18} />} disabled={!isRunning} onClick={onCancelExport}>
             Cancel export
           </Button>

@@ -192,9 +192,9 @@ describe("Phase 5C flow", () => {
       root.render(<App />);
     });
 
-    expect(host.textContent).toContain("Practice Mode");
-    expect(host.textContent).toContain("Practice safe trim, split, undo, redo, and restore original");
-    expect(host.textContent).toContain("Practice exporting a finished copy without real media");
-    expect(host.textContent).toContain("Practice Auto Edit with sample timeline data");
+    expect(host.textContent).toContain("Getting started");
+    expect(host.textContent).toContain("Undo reverses a draft edit");
+    expect(host.textContent).toContain("Recording and hardware tests use your real cameras and microphones");
+    expect(host.textContent).toContain("Create a test episode");
   });
 });
