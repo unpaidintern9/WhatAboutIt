@@ -740,3 +740,13 @@ describe("Review panel workflow", () => {
     act(() => root.unmount()); host.remove();
   });
 });
+
+it("keeps editor shortcuts out of an open modal dialog", () => {
+  const draft = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: {} }, durationMs: 30000 });
+  const host = document.createElement("div"); document.body.appendChild(host); const root = createRoot(host); const onDraftChange = vi.fn(); const onSave = vi.fn();
+  act(() => root.render(<TimelineReview draft={draft} media={media} onDraftChange={onDraftChange} onSaveDraft={onSave} onExport={vi.fn()} onAutoEdit={vi.fn()} />));
+  const dialog = document.createElement("section"); dialog.setAttribute("role", "dialog"); dialog.setAttribute("aria-modal", "true"); const button = document.createElement("button"); dialog.append(button); document.body.appendChild(dialog);
+  act(() => { button.dispatchEvent(new KeyboardEvent("keydown", { key: "s", bubbles: true })); button.dispatchEvent(new KeyboardEvent("keydown", { key: "s", ctrlKey: true, bubbles: true })); });
+  expect(onDraftChange).not.toHaveBeenCalled(); expect(onSave).not.toHaveBeenCalled();
+  act(() => root.unmount()); dialog.remove(); host.remove();
+});

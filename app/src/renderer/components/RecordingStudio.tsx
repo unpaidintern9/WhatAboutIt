@@ -533,8 +533,9 @@ export function RecordingStudio({
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, [contenteditable='true']")) return;
+      const target = event.target;
+      if (target instanceof Element && (target.closest('[role="dialog"][aria-modal="true"]') || target.matches("input, textarea, select, [contenteditable='true']"))) return;
+      if (event.key === " " && target instanceof Element && target.closest("button, summary, a[href]")) return;
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "r") {
         event.preventDefault();
         if (recordingInProgress) requestStop();

@@ -763,7 +763,8 @@ export function TimelineReview({
   useEffect(() => {
     function handleEditorKey(event: KeyboardEvent) {
       const target = event.target;
-      if (target instanceof Element && target.matches("input, select, textarea, [contenteditable='true']")) return;
+      if (target instanceof Element && (target.closest('[role="dialog"][aria-modal="true"]') || target.matches("input, select, textarea, [contenteditable='true']"))) return;
+      if (event.key === " " && target instanceof Element && target.closest("button, summary, a[href]")) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         event.preventDefault();
         onSaveDraft();
