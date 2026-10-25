@@ -11,7 +11,7 @@ import type { ExportJob, ExportRequest } from "../shared/export";
 import { compactTimelineDraftForPersistence, isTimelineTrackAvailableAt, resolveTimelineTrackAt, type TimelineDraft, type TimelineEditOperation, type TimelineTrack } from "../shared/timeline";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
 import type { ReviewMediaTreatmentPreview } from "../shared/review-media";
-import { getAudioTreatmentParameters } from "../shared/audio-treatment";
+import { createAudioTreatment } from "./audio-treatment-filters";
 import { completeExportJob, createExportJob, createExportSummary, failExportJob, cancelExportJob } from "../shared/export";
 import { getEpisodesRoot } from "./config-service";
 import { detectMediaTools, getMediaDurationMs, requireMediaTools, runFfmpeg, runFfmpegWithProgress, runFfprobe, validatePlayableMedia } from "./ffmpeg-tools";
@@ -635,23 +635,6 @@ function createAudioSyncFilter(syncOffsetMs: number) {
   return "";
 }
 
-function createAudioTreatment(track: TimelineTrack | undefined) {
-  const filters: string[] = [];
-  const treatment = getAudioTreatmentParameters(track);
-  filters.push(`highpass=f=${treatment.highpassHz.toFixed(0)}`, `lowpass=f=${treatment.lowpassHz.toFixed(0)}`);
-  if (track) {
-    if (track.noiseReduction > 0) filters.push(`afftdn=nr=${Math.max(0.01, track.noiseReduction * 0.65).toFixed(2)}:nf=-50:tn=1`);
-    if (track.noiseGateDb > -80) {
-      const threshold = Math.pow(10, track.noiseGateDb / 20);
-      filters.push(`agate=threshold=${threshold.toFixed(5)}:ratio=2.5:attack=15:release=220:range=0.08`);
-    }
-    if (treatment.lowDb !== 0) filters.push(`equalizer=f=120:t=q:w=0.8:g=${treatment.lowDb.toFixed(1)}`);
-    if (treatment.midDb !== 0) filters.push(`equalizer=f=1200:t=q:w=1:g=${treatment.midDb.toFixed(1)}`);
-    if (treatment.highDb !== 0) filters.push(`equalizer=f=6000:t=q:w=0.8:g=${treatment.highDb.toFixed(1)}`);
-    if (treatment.compression > 0) filters.push(`acompressor=threshold=${treatment.compressorThreshold.toFixed(3)}:ratio=${treatment.compressorRatio.toFixed(2)}:attack=${(treatment.compressorAttackSeconds * 1000).toFixed(0)}:release=${(treatment.compressorReleaseSeconds * 1000).toFixed(0)}:makeup=${treatment.compressorMakeup.toFixed(2)}`);
-  }
-  return filters.length > 0 ? `${filters.join(",")},` : "";
-}
 
 function createLimiterFilter(track: TimelineTrack | undefined) {
   return track?.limiterEnabled ? ",alimiter=limit=0.95" : "";

@@ -19,6 +19,19 @@ export interface StorageStatus {
   message: "Storage check ready" | "Storage check unavailable";
 }
 
+export interface RecordingDriveCheck {
+  folder: string;
+  checkedAt: string;
+  testedBytes: number;
+  durationMs: number;
+  writeBytesPerSecond: number;
+  availableBytes: number;
+}
+
+export function recordingCaptureBytesPerSecond(cameraCount: number, microphoneCount: number, quality?: "balanced" | "high") {
+  return (Math.max(1, cameraCount) * (quality === "high" ? 16_000_000 : 8_000_000) + microphoneCount * 48000 * 24) / 8;
+}
+
 export interface RecordingStorageAssessment {
   ready: boolean;
   requiredBytes: number;

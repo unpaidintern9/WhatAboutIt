@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { addCameraDecision, applyTimelineEdit, createTimelineDraft, selectTimelinePoint, setTimelineRange, updateTimelineTrackMix } from "../../shared/timeline";
 import type { ReviewMediaInventory } from "../../shared/review-media";
 import { TimelineReview } from "./TimelineReview";
+import { audioTreatmentSignature } from "../../shared/audio-treatment";
 
 const media: ReviewMediaInventory = {
   episodeId: "episode-a",
@@ -73,6 +74,26 @@ const media: ReviewMediaInventory = {
 };
 
 describe("TimelineReview", () => {
+  it("reuses the audio element when exact cleanup replaces a live source", async () => {
+    vi.useFakeTimers();
+    const originalStudio = window.studio;
+    const draft = updateTimelineTrackMix(createTimelineDraft({ episodeId: "episode-a", deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 }), "mic-morganMic", { deEsser: 70 });
+    const track = draft.tracks.find((track) => track.id === "mic-morganMic")!;
+    window.studio = { ...originalStudio, prepareReviewAudio: vi.fn(async () => ({ trackId: track.id, sourceAssetId: "morgan-mic", signature: audioTreatmentSignature(track), playbackUrl: "http://127.0.0.1/processed.flac" })), cancelPreparedReviewAudio: vi.fn() };
+    const host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      const localMedia = { ...media, audio: media.audio.map((asset) => ({ ...asset, filePath: "C:/episodes/episode-a/Audio/morgan-mic.flac" })) };
+      await act(async () => root.render(<TimelineReview draft={draft} media={localMedia} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />));
+      const element = host.querySelector('audio[data-track-id="mic-morganMic"]');
+      expect(element).not.toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(700); });
+      const processed = host.querySelector('audio[data-track-id="mic-morganMic"]');
+      expect(processed).toBe(element);
+      expect(processed?.getAttribute("src")).toBe("http://127.0.0.1/processed.flac");
+      expect(processed?.getAttribute("data-treatment-baked")).toBe("true");
+    } finally { act(() => root.unmount()); host.remove(); window.studio = originalStudio; vi.useRealTimers(); }
+  });
   it("offers save, import, folder, and export actions from the Review File menu", () => {
     const draft = createTimelineDraft({ episodeId: "episode-a", deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 });
     const markup = renderToStaticMarkup(
@@ -466,8 +487,8 @@ describe("TimelineReview", () => {
     expect(markup).toContain("Compression");
     expect(markup).toContain("Three-band tone");
     expect(markup).toContain("Output protection On");
-    expect(markup).toContain("audio control changes are heard immediately during playback");
-    expect(markup).toContain("Level, pan, cleanup, tone, compression, and output protection update live during Review playback");
+    expect(markup).toContain("Live audio controls ready. Final mix loudness is applied during export.");
+    expect(markup).toContain("Level and pan update live. Exact cleanup, tone, and compression prepare in the background.");
     expect(markup).toContain('aria-label="Voice level" type="range" min="0" max="600"');
     expect(markup).toContain("Render final-quality preview");
     expect(markup).toContain("Apply to all mics");

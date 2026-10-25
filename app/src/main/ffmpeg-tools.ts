@@ -1,4 +1,4 @@
-import { scheduleMediaWork } from "./media-work-scheduler";
+import { runCaptureYieldingWork } from "./media-work-scheduler";
 import { execFile, spawn } from "node:child_process";
 import fs from "node:fs/promises";
 import { promisify } from "node:util";
@@ -30,6 +30,7 @@ export interface MediaValidationRequirements {
   video?: boolean;
   audio?: boolean;
   decode?: boolean;
+  signal?: AbortSignal;
 }
 
 function firstLine(input: string) {
@@ -110,10 +111,8 @@ export async function requireMediaTools(): Promise<MediaTools> {
   };
 }
 
-export async function runFfmpeg(args: string[], tools?: MediaTools): Promise<FfmpegRunResult> {
-  const resolvedTools = tools ?? (await requireMediaTools());
-  const result = await scheduleMediaWork(() => execFileAsync(resolvedTools.ffmpegPath, ["-threads", "2", ...args], { maxBuffer: 1024 * 1024 * 8 }));
-  return { stdout: result.stdout, stderr: result.stderr };
+export async function runFfmpeg(args: string[], tools?: MediaTools, signal?: AbortSignal): Promise<FfmpegRunResult> {
+  return runFfmpegWithProgress(args, { durationMs: 0, signal }, tools);
 }
 
 export async function runFfmpegWithProgress(
@@ -123,7 +122,8 @@ export async function runFfmpegWithProgress(
 ): Promise<FfmpegRunResult> {
   const resolvedTools = tools ?? (await requireMediaTools());
 
-  return scheduleMediaWork(() => new Promise<FfmpegRunResult>((resolve, reject) => {
+  let reportedProgress = 0;
+  return runCaptureYieldingWork((attemptSignal) => new Promise<FfmpegRunResult>((resolve, reject) => {
     const child = spawn(resolvedTools.ffmpegPath, ["-threads", "2", "-progress", "pipe:1", "-nostats", ...args], {
       windowsHide: true
     });
@@ -136,7 +136,8 @@ export async function runFfmpegWithProgress(
       aborted = true;
       child.kill();
     };
-    options.signal?.addEventListener("abort", abort, { once: true });
+    attemptSignal.addEventListener("abort", abort, { once: true });
+    if (attemptSignal.aborted) abort();
 
     child.stdout.on("data", (chunk: Buffer) => {
       const text = chunk.toString();
@@ -149,7 +150,8 @@ export async function runFfmpegWithProgress(
         if (key !== "out_time_us" && key !== "out_time_ms") continue;
         const encodedMicroseconds = Number(rawValue);
         if (!Number.isFinite(encodedMicroseconds) || options.durationMs <= 0) continue;
-        options.onProgress?.(Math.min(99, Math.max(0, (encodedMicroseconds / 1000 / options.durationMs) * 100)));
+        reportedProgress = Math.max(reportedProgress, Math.min(99, Math.max(0, (encodedMicroseconds / 1000 / options.durationMs) * 100)));
+        options.onProgress?.(reportedProgress);
       }
     });
     child.stderr.on("data", (chunk: Buffer) => {
@@ -158,7 +160,7 @@ export async function runFfmpegWithProgress(
     });
     child.on("error", reject);
     child.on("close", (code) => {
-      options.signal?.removeEventListener("abort", abort);
+      attemptSignal.removeEventListener("abort", abort);
       if (aborted) {
         const error = new Error("Export was canceled");
         error.name = "AbortError";
@@ -226,9 +228,10 @@ export async function validatePlayableMedia(
 
   const maps = [requirements.video ? ["-map", "0:v:0"] : [], requirements.audio ? ["-map", "0:a:0"] : []].flat();
   try {
-    await runFfmpeg(["-v", "error", "-i", filePath, ...maps, "-t", "3", "-f", "null", "-"], tools);
+    await runFfmpeg(["-v", "error", "-i", filePath, ...maps, "-t", "3", "-f", "null", "-"], tools, requirements.signal);
     return true;
   } catch {
+    requirements.signal?.throwIfAborted();
     return false;
   }
 }

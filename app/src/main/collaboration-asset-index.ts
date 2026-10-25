@@ -42,14 +42,17 @@ async function walk(root: string, relative = ""): Promise<string[]> {
   return files;
 }
 
-async function sha256(filePath: string) {
-  return new Promise<string>((resolve, reject) => {
-    const hash = crypto.createHash("sha256");
-    const stream = createReadStream(filePath);
-    stream.on("data", (chunk) => hash.update(chunk));
-    stream.on("error", reject);
-    stream.on("end", () => resolve(hash.digest("hex")));
-  });
+export async function hashEpisodeAsset(filePath: string) {
+  return hashEpisodeChunks(createReadStream(filePath, { highWaterMark: 256 * 1024 }));
+}
+export async function hashEpisodeChunks(chunks: AsyncIterable<Buffer>) {
+  const hash = crypto.createHash("sha256");
+  for await (const chunk of chunks) {
+    // Reserve a slot per bounded chunk. Holding a slot while capture pauses a
+    // whole-file hash would deadlock foreground finalization behind two hashes.
+    await scheduleMediaWork(async () => { hash.update(chunk); });
+  }
+  return hash.digest("hex");
 }
 
 export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId: string, selection?: CollaborationUploadSelection): Promise<CollaborationAssetManifestEntry[]> {
@@ -68,7 +71,7 @@ export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId
     const signature = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
     const normalized = relativePath.replaceAll("\\", "/");
     const cached = classified.localOriginal && cache[normalized]?.signature === signature ? cache[normalized].hash : undefined;
-    const hash = cached ?? await scheduleMediaWork(() => sha256(absolutePath));
+    const hash = cached ?? await hashEpisodeAsset(absolutePath);
     const after = await fs.stat(absolutePath);
     if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs) throw new Error(`Wait for recording to finish before uploading ${normalized}.`);
     cache[normalized] = { signature, hash };

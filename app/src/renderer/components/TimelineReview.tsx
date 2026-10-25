@@ -71,6 +71,7 @@ import {
   updateTimelineTitle
 } from "../../shared/timeline";
 import { formatRecordingTime } from "../services";
+import { useExactReviewAudio } from "../services/use-exact-review-audio";
 import { resumeReviewMonitor, setReviewMonitorGain, setReviewMonitorOutput, setReviewMonitorTreatment } from "../services/review-audio-monitor";
 import { needsReviewVideoCompositor, startReviewVideoCompositor } from "../services/review-video-compositor";
 import { TimelineCaptionPanel } from "./TimelineCaptionPanel";
@@ -160,6 +161,7 @@ export function TimelineReview({
   onTranscribeLocally,
   onCancelTranscription
 }: TimelineReviewProps) {
+  const exactAudio = useExactReviewAudio(draft.tracks, media);
   const fileMenuRef = useRef<HTMLDetailsElement>(null);
   const videoAssets = useMemo(() => (media ? [media.program, ...media.cameras] : []), [media]);
   const multicamAssets = useMemo(() => (media ? [media.program, ...media.cameras] : []), [media]);
@@ -204,24 +206,27 @@ export function TimelineReview({
   const selectedVideoTrack = activePreviewLayer?.track ?? draft.tracks.find((track) => track.sourceAssetId === selectedVideo?.id);
   const selectedVideoOffsetMs = selectedVideoTrack?.syncOffsetMs ?? 0;
   const pairedAudio = selectedVideo?.pairedAudioId ? media?.audio.find((asset) => asset.id === selectedVideo.pairedAudioId) : undefined;
+  const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
+  const pairedPlayback = pairedAudio ? exactAudio.playback(pairedAudio, pairedTrack) : undefined;
   const programAudioSources = useMemo(() => {
     const candidates = draft.tracks
       .filter((track) => track.kind === "microphone" && track.includedInProgram)
-      .map((track) => ({
-        track,
-        asset: media?.audio.find((asset) => asset.id === track.sourceAssetId && asset.status === "ready" && asset.audioSignal !== "silent")
-      }))
+      .map((track) => {
+        const asset = media?.audio.find((asset) => asset.id === track.sourceAssetId && asset.status === "ready" && asset.audioSignal !== "silent");
+        const playback = asset ? exactAudio.playback(asset, track) : undefined;
+        return { track, asset: asset ? { ...asset, playbackUrl: playback?.playbackUrl, treatmentBaked: playback?.baked } : undefined };
+      })
       .filter(
         (
           item
         ): item is {
           track: TimelineTrack;
-          asset: ReviewMediaAsset & { playbackUrl: string };
+          asset: ReviewMediaAsset & { playbackUrl: string; treatmentBaked: boolean | undefined };
         } => Boolean(item.asset?.playbackUrl)
       );
     const anySolo = candidates.some(({ track }) => track.solo && !track.muted);
     return candidates.filter(({ track }) => !track.muted && (!anySolo || track.solo));
-  }, [draft.tracks, media?.audio]);
+  }, [draft.tracks, media?.audio, exactAudio.playback]);
   const useProgramStemMix = programMode && programAudioSources.length > 0;
   const mediaAssetsById = useMemo(
     () => new Map([media?.program, ...(media?.cameras ?? []), ...(media?.audio ?? [])].filter((asset): asset is ReviewMediaAsset => Boolean(asset)).map((asset) => [asset.id, asset])),
@@ -353,7 +358,7 @@ export function TimelineReview({
     const suppressEmbeddedCameraAudio = !programMode && pairedAudio?.status === "ready";
     setReviewMonitorGain(videoRef.current, masterMuted || stemMixActive || suppressEmbeddedCameraAudio ? 0 : masterVolume, audioOutputId);
     const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
-    if (pairedTrack) setReviewMonitorTreatment(pairedAudioRef.current, pairedTrack, masterMuted ? 0 : masterVolume, audioOutputId);
+    if (pairedTrack) setReviewMonitorTreatment(pairedAudioRef.current, monitorTreatment(pairedTrack, pairedAudioRef.current), masterMuted ? 0 : masterVolume, audioOutputId);
     else setReviewMonitorGain(pairedAudioRef.current, masterMuted ? 0 : masterVolume, audioOutputId);
     syncProgramAudio(playheadMs, isPlaying && stemMixActive);
     if (stemMixActive && !useProgramStemMix) {
@@ -370,7 +375,7 @@ export function TimelineReview({
         details: { audioOutputId }
       });
     });
-  }, [audioOutputId, draft.tracks, isPlaying, masterMuted, masterVolume, pairedAudio, programAudioSources, programMode, stemMixActive, useProgramStemMix]);
+  }, [audioOutputId, draft.tracks, isPlaying, masterMuted, masterVolume, pairedAudio, pairedPlayback?.playbackUrl, programAudioSources, programMode, stemMixActive, useProgramStemMix]);
 
   useEffect(
     () => () => {
@@ -579,13 +584,17 @@ export function TimelineReview({
     }
   }
 
+  function monitorTreatment(track: TimelineTrack, audio: HTMLMediaElement | null) {
+    return { ...track, bakedTreatment: audio?.dataset.treatmentBaked === "true" };
+  }
+
   function syncProgramAudio(timestampMs: number, play = false) {
     for (const { track, asset } of programAudioSources) {
       const audio = programAudioRefs.current.get(asset.id);
       if (!audio) continue;
       const targetSeconds = Math.max(0, (timestampMs + track.syncOffsetMs) / 1000);
       if (Math.abs(audio.currentTime - targetSeconds) > 0.12) audio.currentTime = targetSeconds;
-      setReviewMonitorTreatment(audio, resolveTimelineTrackAt(draft, track, timestampMs) ?? track, masterMuted ? 0 : masterVolume, audioOutputId);
+      setReviewMonitorTreatment(audio, monitorTreatment(resolveTimelineTrackAt(draft, track, timestampMs) ?? track, audio), masterMuted ? 0 : masterVolume, audioOutputId);
       audio.playbackRate = playbackRate;
       if (play) void audio.play().catch(() => undefined);
     }
@@ -659,7 +668,7 @@ export function TimelineReview({
     const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
     const pairedAudioTime = Math.max(0, (timelineTime + (pairedTrack?.syncOffsetMs ?? 0)) / 1000);
     if (Math.abs(audio.currentTime - pairedAudioTime) > 0.2) audio.currentTime = pairedAudioTime;
-    if (pairedTrack) setReviewMonitorTreatment(audio, pairedTrack, masterMuted ? 0 : masterVolume, audioOutputId);
+    if (pairedTrack) setReviewMonitorTreatment(audio, monitorTreatment(pairedTrack, audio), masterMuted ? 0 : masterVolume, audioOutputId);
     else setReviewMonitorGain(audio, masterMuted ? 0 : masterVolume, audioOutputId);
     audio.playbackRate = playbackRate;
     if (play) void audio.play().catch(() => undefined);
@@ -1073,7 +1082,7 @@ export function TimelineReview({
                   <span>{playbackError}</span>
                 </div>
               ) : null}
-              {!programMode && !selectedVideo.includesPairedAudio && pairedAudio?.status === "ready" && pairedAudio.playbackUrl ? <audio crossOrigin="anonymous" key={pairedAudio.playbackUrl} ref={pairedAudioRef} preload="metadata" src={pairedAudio.playbackUrl} /> : null}
+              {!programMode && !selectedVideo.includesPairedAudio && pairedAudio?.status === "ready" && pairedPlayback?.playbackUrl ? <audio crossOrigin="anonymous" key={pairedAudio.id} data-treatment-baked={pairedPlayback.baked} ref={pairedAudioRef} preload="metadata" src={pairedPlayback.playbackUrl} onLoadedMetadata={() => syncPreviewAudio(isPlaying)} /> : null}
               {useProgramStemMix
                 ? programAudioSources.map(({ track, asset }) => (
                     <audio
@@ -1086,13 +1095,15 @@ export function TimelineReview({
                       preload="metadata"
                       src={asset.playbackUrl}
                       data-track-id={track.id}
+                      data-treatment-baked={asset.treatmentBaked}
+                      onLoadedMetadata={() => syncProgramAudio(playheadMs, isPlaying && stemMixActive)}
                     />
                   ))
                 : null}
               <div className={`review-audio-route ${programIsEmpty || selectedVideo.audioSignal === "silent" || allRecordedMicrophonesSilent ? "needs-attention" : programMode || pairedAudio?.status === "ready" ? "ready" : "needs-attention"}`}>
                 <strong>{programIsEmpty ? "Program is empty — previewing the source recording" : programMode ? audioRouteMessage : pairedAudio?.audioSignal === "silent" ? `${selectedVideo.pairedAudioLabel ?? "Paired mic"} recorded no signal` : (selectedVideo.pairedAudioLabel ?? "No paired mic")}</strong>
                 <span>{programIsEmpty ? "Use Undo or Restore to put video back in the finished episode. Source playback remains available for review." : programMode ? (allRecordedMicrophonesSilent ? "This recording contains silence, so there is no audible waveform to display." : useProgramStemMix ? "Separate microphone tracks are preferred; Program audio is the automatic fallback." : "Recorded Program audio is available.") : pairedAudio?.audioSignal === "silent" ? "Choose another audio source or import replacement audio for this take." : selectedVideo.message}</span>
-                {programMode && useProgramStemMix ? <span>Live mix is on — audio control changes are heard immediately during playback.</span> : null}
+                {programMode && useProgramStemMix ? <span>{exactAudio.message}</span> : null}
                 {programMode && useProgramStemMix && isPlaying && !stemMixActive ? (
                   <button type="button" onClick={() => void startProgramStemMix(playheadMs).then((active) => {
                     if (active) setReviewMonitorGain(videoRef.current, 0, audioOutputId);
@@ -1694,7 +1705,7 @@ function TrackInspector({
           {audioAuditionMode === "live-stems" ? <Volume2 size={17} /> : <VolumeX size={17} />}
           <strong>
             {audioAuditionMode === "live-stems"
-              ? "Live microphone mix — every audio change is heard immediately."
+              ? "Live microphone mix — gain and pan are immediate; exact cleanup prepares in the background."
               : audioAuditionMode === "unavailable"
                 ? "This take has no audible isolated microphone signal."
                 : "Program fallback — changes are saved for export but cannot be auditioned on the baked Program audio."}
@@ -1751,7 +1762,7 @@ function TrackInspector({
           </label>
           <details className="editor-tool-group" open>
             <summary>Voice cleanup</summary>
-            <small>Level, pan, cleanup, tone, compression, and output protection update live during Review playback. Final export uses the full-quality render.</small>
+            <small>Level and pan update live. Exact cleanup, tone, and compression prepare in the background. Final mix loudness is applied during export.</small>
             <InspectorRange label="Noise cleanup" value={track.noiseReduction} min={0} max={100} suffix="%" onChange={(noiseReduction) => onUpdate(track, { noiseReduction })} />
             <InspectorRange label="Noise gate" value={track.noiseGateDb} min={-80} max={-20} suffix={track.noiseGateDb === -80 ? " Off" : " dB"} onChange={(noiseGateDb) => onUpdate(track, { noiseGateDb })} />
             <InspectorRange label="De-ess" value={track.deEsser} min={0} max={100} suffix="%" onChange={(deEsser) => onUpdate(track, { deEsser })} />

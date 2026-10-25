@@ -15,6 +15,14 @@ import type { MediaAccessStatus } from "../shared/media-permissions";
 import type { CloudEpisodeSummary, CollaborationSyncResult, CollaborationTransferProgress, CollaborationUploadSelection } from "../shared/collaboration";
 
 contextBridge.exposeInMainWorld("studio", {
+  prepareReviewAudio: (episodeId: string, track: import("../shared/timeline").TimelineTrack): Promise<import("../shared/review-media").PreparedReviewAudio> => ipcRenderer.invoke("review-audio:prepare", { episodeId, track }),
+  cancelPreparedReviewAudio: () => ipcRenderer.send("review-audio:cancel"),
+  checkRecordingDrive: (): Promise<import("../shared/diagnostics").RecordingDriveCheck> => ipcRenderer.invoke("recording:check-drive"),
+  onReviewMediaUpdate: (listener: (update: import("../shared/review-media").ReviewMediaUpdate) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, update: import("../shared/review-media").ReviewMediaUpdate) => listener(update);
+    ipcRenderer.on("review-media:updated", handler);
+    return () => ipcRenderer.removeListener("review-media:updated", handler);
+  },
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
   createEpisode: (input: { title: string; guestName?: string; description?: string }): Promise<EpisodeMetadata> => ipcRenderer.invoke("episodes:create", input),
   openEpisodeFolder: (episodeId: string): Promise<string> => ipcRenderer.invoke("episodes:open-folder", episodeId),

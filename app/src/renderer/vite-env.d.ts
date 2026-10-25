@@ -18,6 +18,10 @@ import type { CloudEpisodeSummary, CollaborationSyncResult, CollaborationTransfe
 declare global {
   interface Window {
     studio: {
+      prepareReviewAudio?: (episodeId: string, track: import("../shared/timeline").TimelineTrack) => Promise<import("../shared/review-media").PreparedReviewAudio>;
+      cancelPreparedReviewAudio?: () => void;
+      checkRecordingDrive?: () => Promise<import("../shared/diagnostics").RecordingDriveCheck>;
+      onReviewMediaUpdate?: (listener: (update: import("../shared/review-media").ReviewMediaUpdate) => void) => () => void;
       listEpisodes: () => Promise<EpisodeMetadata[]>;
       onCollaborationProjectPulled?: (listener: (episodeId: string) => void) => () => void;
       createEpisode: (input: { title: string; guestName?: string; description?: string }) => Promise<EpisodeMetadata>;

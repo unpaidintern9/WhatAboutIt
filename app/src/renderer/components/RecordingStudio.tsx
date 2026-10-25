@@ -1,3 +1,6 @@
+import { acquireStudioAudioContext, subscribeStudioMeter } from "../plugins/audio/shared-audio-engine";
+import { recordingCaptureBytesPerSecond, type RecordingDriveCheck } from "../../shared/diagnostics";
+import { getHardwareDeviceReadiness } from "../../shared/hardware-test";
 import { microphoneSlots } from "../../shared/audio-tracks";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
@@ -58,6 +61,10 @@ interface RecordingStudioProps {
   unfinishedSessions: RecordingSession[];
   podcastTools: PodcastToolsState;
   storageWarning?: string;
+  availableBytes?: number;
+  driveCheck?: RecordingDriveCheck;
+  readinessMessage?: string;
+  onCheckReadiness?: () => Promise<void>;
   recordingPreferences?: RecordingPreferences;
   onStart: () => Promise<RecordingServiceSnapshot | void> | RecordingServiceSnapshot | void;
   onQuickTest?: () => Promise<void> | void;
@@ -143,6 +150,10 @@ export function RecordingStudio({
   unfinishedSessions,
   podcastTools,
   storageWarning,
+  availableBytes,
+  driveCheck,
+  readinessMessage,
+  onCheckReadiness,
   recordingPreferences: recordingPreferencesProp,
   onStart,
   onQuickTest,
@@ -179,6 +190,7 @@ export function RecordingStudio({
   const [layoutsOpen, setLayoutsOpen] = useState(false);
   const [recordingAction, setRecordingAction] = useState<RecordingAction>("idle");
   const [saveProgress, setSaveProgress] = useState("");
+  const [checkingReadiness, setCheckingReadiness] = useState(false);
   useEffect(() => window.studio?.onRecordingSaveProgress?.((event) => {
     if (event.episodeFolder === snapshot.session?.folderPath) setSaveProgress(`${event.message} · ${event.progress}%`);
   }), [snapshot.session?.folderPath]);
@@ -225,7 +237,16 @@ export function RecordingStudio({
     const signal = micSignals[key as MicKey];
     return signal !== "no-signal" && signal !== "disconnected";
   }).length;
-  const studioReady = cameraReadyCount > 0 && storageReady && deviceAssignmentsHealthy && programMicSelected && (!recordingInProgress || recordingHealthy);
+  const assignedDevices = getHardwareDeviceReadiness(defaults, [...detection.cameras.map((item) => ({ ...item, kind: "camera" as const })), ...detection.microphones.map((item) => ({ ...item, kind: "microphone" as const }))]);
+  const invalidChannels = microphoneSlots.some(({ key }) => {
+    const count = audioDiagnostics[key]?.channelCount;
+    const channel = defaults.microphoneChannels?.[key] ?? "mix";
+    return Boolean(defaults.microphones[key] && channel !== "mix" && count !== undefined && Number(channel.replace("input-", "")) > count);
+  });
+  const studioReady = !checkingReadiness && cameraReadyCount > 0 && storageReady && deviceAssignmentsHealthy && programMicSelected && assignedDevices.missingDeviceIds.length === 0 && !invalidChannels && (!recordingInProgress || recordingHealthy);
+  const pendingBytes = snapshot.health?.sources.reduce((sum, source) => sum + (source.pendingBytes ?? 0), 0) ?? 0;
+  const captureRate = recordingCaptureBytesPerSecond(Object.values(defaults.cameras).filter(Boolean).length, Object.values(defaults.microphones).filter(Boolean).length, defaults.captureQuality);
+  const remainingMinutes = availableBytes === undefined ? undefined : Math.max(0, Math.floor((availableBytes - 2 * 1024 ** 3) / (captureRate * 3) / 60));
   const trackStatusBySlot = Object.fromEntries(snapshot.trackStatuses.map((status) => [status.slot, status]));
   const unhealthyRecordingSources = snapshot.health?.sources.filter((source) => !source.active) ?? [];
   const visibleCameraSlots = cameraSlots.filter((slot) => slot.key === "camera1" || Boolean(defaults.cameras[slot.key]));
@@ -582,7 +603,7 @@ export function RecordingStudio({
                   aria-label="Run 15 second setup test"
                   title="Run a short camera and microphone recording test"
                   disabled={!studioReady || recordingAction !== "idle"}
-                  onClick={() => void onQuickTest()}
+                  onClick={() => void Promise.resolve(onQuickTest()).catch((error) => setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "Setup test needs attention." }))}
                 >
                   <Play size={16} /> <span>Setup Test</span>
                 </RusticButton>
@@ -597,6 +618,16 @@ export function RecordingStudio({
             <span>{snapshot.friendlyError ?? storageWarning ?? "Live checks are ready when your gear is."}</span>
           </div>
         )}
+
+        <section className="recording-health-strip" aria-label="Recording readiness and live health">
+          <span>{readinessMessage ?? "Check each assigned input before recording."}</span>
+          {remainingMinutes !== undefined && <span>About {remainingMinutes} min of drive space at this profile</span>}
+          {isRecording && <span>{(pendingBytes / 1024 / 1024).toFixed(1)} MB waiting for disk · {snapshot.health?.sources.filter((source) => !source.active).length ?? 0} sources need attention</span>}
+          {driveCheck && <small>Short write test at {new Date(driveCheck.checkedAt).toLocaleTimeString()}</small>}
+          {invalidChannels && <strong role="alert">A selected microphone input is not exposed by its driver.</strong>}
+          {assignedDevices.missingDeviceIds.length > 0 && <strong role="alert">An assigned camera or microphone is disconnected.</strong>}
+          {!recordingInProgress && onCheckReadiness && <RusticButton disabled={checkingReadiness || recordingAction !== "idle"} onClick={async () => { setCheckingReadiness(true); try { await onCheckReadiness(); } catch (error) { setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "Check your recording setup." }); } finally { setCheckingReadiness(false); } }}>{checkingReadiness ? "Checking inputs & drive…" : "Check inputs & drive"}</RusticButton>}
+        </section>
 
         <section className="reference-workbench" aria-label="Studio command center">
           <div className="reference-main-column">
@@ -783,6 +814,8 @@ export function RecordingStudio({
           storageReady={storageReady}
           recordingHealthy={recordingHealthy}
           deviceAssignmentsHealthy={deviceAssignmentsHealthy}
+          allCamerasReady={assignedDevices.cameraReady.every((ready) => ready !== false)}
+          allMicrophonesReady={Object.values(assignedDevices.microphoneReady).every(Boolean) && !invalidChannels}
         />
 
         <details className="secondary-studio-tools" open={toolsOpen} onToggle={(event) => setToolsOpen(event.currentTarget.open)}>
@@ -882,17 +915,21 @@ function ReadinessStrip({
   micReadyCount,
   storageReady,
   recordingHealthy,
-  deviceAssignmentsHealthy
+  deviceAssignmentsHealthy,
+  allCamerasReady,
+  allMicrophonesReady
 }: {
   cameraReadyCount: number;
   micReadyCount: number;
   storageReady: boolean;
   recordingHealthy: boolean;
   deviceAssignmentsHealthy: boolean;
+  allCamerasReady: boolean;
+  allMicrophonesReady: boolean;
 }) {
   const items = [
-    { label: cameraReadyCount > 0 ? "Cameras Ready" : "Cameras Need Attention", ready: cameraReadyCount > 0 },
-    { label: micReadyCount > 0 ? "Microphones Ready" : "Microphones Need Attention", ready: micReadyCount > 0 },
+    { label: cameraReadyCount > 0 && allCamerasReady ? "Cameras Ready" : "Cameras Need Attention", ready: cameraReadyCount > 0 && allCamerasReady },
+    { label: micReadyCount > 0 && allMicrophonesReady ? "Microphones Ready" : "Microphones Need Attention", ready: micReadyCount > 0 && allMicrophonesReady },
     { label: storageReady ? "Storage Available" : "Storage Needs Attention", ready: storageReady },
     { label: recordingHealthy ? "Recording Healthy" : "Recording Needs Attention", ready: recordingHealthy },
     { label: deviceAssignmentsHealthy ? "Routes Separate" : "Routes Need Attention", ready: deviceAssignmentsHealthy }
@@ -1212,6 +1249,16 @@ function CameraFeed({
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [state, setState] = useState<"starting" | "live" | "needs-attention" | "busy" | "permission">("starting");
   const [previewAttempt, setPreviewAttempt] = useState(0);
+  const [previewHealth, setPreviewHealth] = useState<string>();
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const video = videoRef.current;
+      const quality = video?.getVideoPlaybackQuality?.();
+      if (quality && quality.totalVideoFrames > 0) setPreviewHealth(`Preview: ${quality.droppedVideoFrames}/${quality.totalVideoFrames} frames skipped`);
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let stream: MediaStream | undefined;
@@ -1219,6 +1266,7 @@ function CameraFeed({
     let reconnectTimer: number | undefined;
 
     async function startPreview() {
+      setPreviewHealth(undefined);
       if (!deviceId) {
         setState("needs-attention");
         onPreviewState("needs-attention");
@@ -1266,6 +1314,7 @@ function CameraFeed({
   return (
     <div className={`live-video-frame ${state}`}>
       <video ref={videoRef} muted playsInline aria-label={`${label} live preview`} />
+      {state === "live" && previewHealth && <small className="preview-frame-health" title="This measures the on-screen preview, not encoded recording frames.">{previewHealth}</small>}
       {state !== "live" && (
         <div>
           <Camera size={26} />
@@ -1392,7 +1441,7 @@ function LiveMicMeter({
     const graph = monitorGraphRef.current;
     monitorGraphRef.current = undefined;
     graph?.chain.disconnect();
-    void graph?.audioContext.close();
+    graph?.release();
   }, []);
 
   const startMonitorPlayback = useCallback(async (stream = streamRef.current) => {
@@ -1401,13 +1450,14 @@ function LiveMicMeter({
       return;
     }
 
-    let pendingContext: AudioContext | undefined;
+    let pendingLease: ReturnType<typeof acquireStudioAudioContext> | undefined;
     try {
       const currentControls = controlsRef.current;
       stopMonitorPlayback();
       const requestId = monitorRequestRef.current;
-      const audioContext = createStudioAudioContext(outputDeviceIdRef.current, getAudioStreamDiagnostics(stream).sampleRate);
-      pendingContext = audioContext;
+      const lease = acquireStudioAudioContext(getAudioStreamDiagnostics(stream).sampleRate, outputDeviceIdRef.current);
+      const audioContext = lease.context;
+      pendingLease = lease;
       const sinkableContext = audioContext as AudioContext & { setSinkId?: (sinkId: string) => Promise<void> };
       const source = audioContext.createMediaStreamSource(stream);
 
@@ -1419,17 +1469,17 @@ function LiveMicMeter({
 
       if (monitorRequestRef.current !== requestId) {
         chain.disconnect();
-        await audioContext.close();
+        lease.release();
         return;
       }
 
-      monitorGraphRef.current = { audioContext, chain };
-      pendingContext = undefined;
+      monitorGraphRef.current = { audioContext, chain, release: lease.release };
+      pendingLease = undefined;
       await audioContext.resume();
       onEchoWarning();
       setMonitorIssue(undefined);
     } catch {
-      void pendingContext?.close();
+      pendingLease?.release();
       stopMonitorPlayback();
       setMonitorIssue("Click again or pick headphones");
     }
@@ -1456,7 +1506,8 @@ function LiveMicMeter({
 
     let audioContext: AudioContext | undefined;
     let stream: MediaStream | undefined;
-    let frame = 0;
+    let stopMeter: (() => void) | undefined;
+    let meterLease: ReturnType<typeof acquireStudioAudioContext> | undefined;
     let centeredMeterSource: ReturnType<typeof connectInputChannelSource> | undefined;
     let canceled = false;
     let lastSignalAt = 0;
@@ -1476,7 +1527,8 @@ function LiveMicMeter({
         if (track && typeof track.addEventListener === "function") {
           track.addEventListener("ended", () => publishSignal("disconnected", diagnostics, 0, 0, "ended"), { once: true });
         }
-        audioContext = createStudioAudioContext(undefined, diagnostics.sampleRate);
+        meterLease = acquireStudioAudioContext(diagnostics.sampleRate);
+        audioContext = meterLease.context;
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
         const samples = new Uint8Array(analyser.frequencyBinCount);
@@ -1505,10 +1557,10 @@ function LiveMicMeter({
           setPeakLevel(nextPeak);
           setHeard(nextLevel > 8);
           publishSignal(nextSignal, diagnostics, nextLevel, nextPeak, track?.readyState);
-          frame = window.requestAnimationFrame(tick);
         };
 
         tick();
+        stopMeter = subscribeStudioMeter(tick);
       } catch (error) {
         setLevel(0);
         setPeakLevel(0);
@@ -1523,12 +1575,12 @@ function LiveMicMeter({
 
     return () => {
       canceled = true;
-      if (frame) window.cancelAnimationFrame(frame);
+      stopMeter?.();
       if (streamRef.current === stream) streamRef.current = undefined;
       stopMonitorPlayback();
       if (stream) onReleaseMicrophoneStream(deviceId, stream);
       centeredMeterSource?.disconnect();
-      void audioContext?.close();
+      meterLease?.release();
     };
   }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream, onReleaseMicrophoneStream, startMonitorPlayback, stopMonitorPlayback]);
 
@@ -1850,6 +1902,7 @@ function connectVoiceMonitorChain(
 
 interface ActiveVoiceMonitor {
   audioContext: AudioContext;
+  release: () => void;
   chain: ReturnType<typeof connectVoiceMonitorChain>;
 }
 

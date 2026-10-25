@@ -10584,3 +10584,28 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
     padding: 0 8px 8px;
   }
 }
+
+/* Recording health is readable independently of optional studio tools. */
+.recording-health-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 18px;
+  padding: 10px 14px;
+  margin: 6px 0;
+  border: 1px solid var(--color-border, #78553a);
+  border-radius: 8px;
+  font: 13px/1.5 system-ui, sans-serif;
+  background: var(--color-surface, #201817);
+  color: var(--color-text, #f7e8d2);
+}
+.recording-health-strip > span:first-child { flex: 1 1 420px; }
+.recording-health-strip strong { color: #ffcd92; }
+.live-video-frame .preview-frame-health {
+  position: absolute; bottom: 6px; left: 8px; padding: 3px 7px;
+  background: #000b; color: #fff; border-radius: 4px; font: 12px/1.4 system-ui, sans-serif;
+}
+.studio-shell--recording .reference-studio-board,
+.studio-shell--recording .live-studio:has(.recovery-banner) .reference-studio-board {
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+}

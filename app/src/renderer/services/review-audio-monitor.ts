@@ -6,6 +6,8 @@ type AudioContextWithOutput = AudioContext & {
 
 type MonitorRoute = {
   context: AudioContextWithOutput;
+  source: MediaElementAudioSourceNode;
+  bakedTreatment: boolean;
   highpass: BiquadFilterNode;
   lowpass: BiquadFilterNode;
   low: BiquadFilterNode;
@@ -25,6 +27,7 @@ type MonitorRoute = {
 };
 
 export type ReviewMonitorTreatment = {
+  bakedTreatment?: boolean;
   volume?: number;
   pan?: number;
   audioPreset?: "natural" | "clean" | "warm" | "broadcast";
@@ -131,7 +134,7 @@ export function getReviewMonitorSettings(treatment: ReviewMonitorTreatment = {})
     compressorMakeup: parameters.compressorMakeup,
     limiterThresholdDb: treatment.limiterEnabled === false ? 0 : -0.45,
     limiterRatio: treatment.limiterEnabled === false ? 1 : 20,
-    noiseGateDb: bounded(treatment.noiseGateDb, -80, -20, -80),
+    noiseGateDb: treatment.bakedTreatment ? -80 : bounded(treatment.noiseGateDb, -80, -20, -80),
     fadeInMs: bounded(treatment.fadeInMs, 0, 10_000),
     fadeOutMs: bounded(treatment.fadeOutMs, 0, 10_000)
   };
@@ -224,6 +227,8 @@ function getMonitorRoute(element: HTMLMediaElement) {
   trackGain.connect(limiter).connect(monitorGain).connect(sharedContext.destination);
   const route: MonitorRoute = {
     context: sharedContext,
+    source,
+    bakedTreatment: false,
     highpass,
     lowpass,
     low,
@@ -247,6 +252,12 @@ function getMonitorRoute(element: HTMLMediaElement) {
 
 function applyTreatment(route: MonitorRoute, element: HTMLMediaElement, treatment: ReviewMonitorTreatment) {
   const settings = getReviewMonitorSettings(treatment);
+  const baked = Boolean(treatment.bakedTreatment);
+  if (baked !== route.bakedTreatment) {
+    route.source.disconnect();
+    route.source.connect(baked ? route.compressorMakeup : route.highpass);
+    route.bakedTreatment = baked;
+  }
   route.settings = settings;
   setParam(route.highpass.frequency, settings.highpassHz, route.context);
   setParam(route.lowpass.frequency, settings.lowpassHz, route.context);
@@ -257,7 +268,7 @@ function applyTreatment(route: MonitorRoute, element: HTMLMediaElement, treatmen
   setParam(route.compressor.ratio, settings.compressorRatio, route.context);
   setParam(route.compressor.attack, settings.compressorAttackSeconds, route.context);
   setParam(route.compressor.release, settings.compressorReleaseSeconds, route.context);
-  setParam(route.compressorMakeup.gain, settings.compressorMakeup, route.context);
+  setParam(route.compressorMakeup.gain, baked ? 1 : settings.compressorMakeup, route.context);
   if (route.pan) setParam(route.pan.pan, settings.pan, route.context);
   setParam(route.limiter.threshold, settings.limiterThresholdDb, route.context);
   setParam(route.limiter.ratio, settings.limiterRatio, route.context);

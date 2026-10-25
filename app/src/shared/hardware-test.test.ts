@@ -11,6 +11,14 @@ import {
 } from "./hardware-test";
 
 describe("hardware test flow", () => {
+  it("checks every configured microphone, including the eighth input", () => {
+    const defaults = { cameras: { camera1: "camera" }, microphones: { morganMic: "interface", guestMic: "missing", mic8: "missing-eight" } };
+    const readiness = getHardwareDeviceReadiness(defaults, [{ id: "camera", kind: "camera", label: "Camera" }, { id: "interface", kind: "microphone", label: "Interface" }]);
+    expect(readiness.microphoneReady).toEqual({ morganMic: true, guestMic: false, mic8: false });
+    expect(readiness.summary).toBe("Needs Attention");
+    expect(readiness.missingDeviceIds).toEqual(["missing", "missing-eight"]);
+    expect(didDeviceDisconnectDuringRecording({ status: "recording", defaults, devices: [{ id: "camera", kind: "camera", label: "Camera" }, { id: "interface", kind: "microphone", label: "Interface" }] })).toBe(true);
+  });
   it("moves through the simple test steps", () => {
     expect(getNextHardwareTestStep("cameras")).toBe("microphones");
     expect(getNextHardwareTestStep("microphones")).toBe("recording");

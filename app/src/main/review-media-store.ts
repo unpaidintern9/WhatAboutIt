@@ -6,7 +6,7 @@ import path from "node:path";
 import fs from "node:fs/promises";
 import { createReadStream } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
-import type { ReviewMediaAsset, ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaIntegrityResult, ReviewMediaInventory, ReviewMediaKind, ReviewMediaSyncResult } from "../shared/review-media";
+import type { ReviewMediaAsset, ReviewMediaUpdate, ReviewMediaImportProgress, ReviewMediaImportSlot, ReviewMediaIntegrityResult, ReviewMediaInventory, ReviewMediaKind, ReviewMediaSyncResult } from "../shared/review-media";
 import type { CameraSlotKey, MicrophoneSlotKey } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
 import { getMediaDurationMs, runFfmpeg, runFfmpegWithProgress, runFfprobe, validatePlayableMedia } from "./ffmpeg-tools";
@@ -55,6 +55,18 @@ const microphoneAssetIds = Object.fromEntries(microphoneSlots.map(({key, assetId
 const microphoneLabels = Object.fromEntries(microphoneSlots.map(({key, label}) => [key, label])) as Record<MicrophoneSlotKey, string>;
 
 let mediaPlaybackBaseUrl: string | undefined;
+type ArtworkJob = { key: string; controller: AbortController; promise: Promise<void>; next?: { episodeId: string; assets: ReviewMediaAsset[] } };
+const artworkJobs = new Map<string, ArtworkJob>();
+const artworkListeners = new Set<(update: ReviewMediaUpdate) => void>();
+export function onReviewMediaUpdate(listener: (update: ReviewMediaUpdate) => void) {
+  artworkListeners.add(listener);
+  return () => { artworkListeners.delete(listener); };
+}
+export async function cancelReviewArtwork(episodeFolder?: string) {
+  const jobs = [...artworkJobs.entries()].filter(([folder]) => !episodeFolder || folder === episodeFolder);
+  for (const [, job] of jobs) { job.next = undefined; job.controller.abort(); }
+  await Promise.allSettled(jobs.map(([, job]) => job.promise));
+}
 
 export function configureMediaPlaybackBaseUrl(baseUrl: string) {
   mediaPlaybackBaseUrl = baseUrl.replace(/\/$/, "");
@@ -88,7 +100,7 @@ const expectedAssets: Array<Omit<ReviewMediaAsset, "status" | "message">> = [
   ...microphoneSlots.map(({ assetId, label }) => ({ id: assetId, label, kind: "audio" as const, relativePath: path.join("Audio", `${assetId}.m4a`) }))
 ];
 
-export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInventory> {
+export async function loadReviewMedia(episodeId: string, options: { waitForArtwork?: boolean } = {}): Promise<ReviewMediaInventory> {
   const episodeFolder = path.join(getEpisodesRoot(), episodeId);
   const originalPaths = await loadImportedOriginalPaths(episodeId);
   const fallbackDurationMs = await loadRecordingDuration(episodeFolder);
@@ -139,13 +151,13 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
         pairedAudioLabel: microphoneLabels[microphoneSlot]
       };
     });
-  const audio = await Promise.all(audioAssets.map((asset) => ensureMediaWaveform(episodeFolder, asset)));
-  const program = await ensureVideoFilmstrip(episodeFolder, await ensureMediaWaveform(episodeFolder, await ensureReviewProxy(episodeFolder, rawProgram)));
-  const cameras: ReviewMediaAsset[] = [];
-  for (const camera of rawCameras) {
-    const pairedAudio = camera.pairedAudioId ? audio.find((asset) => asset.id === camera.pairedAudioId) : undefined;
-    cameras.push(await ensureVideoFilmstrip(episodeFolder, await ensureMediaWaveform(episodeFolder, await ensureReviewProxy(episodeFolder, camera, pairedAudio))));
-  }
+  const prepare = async (asset: ReviewMediaAsset) => options.waitForArtwork
+    ? ensureVideoFilmstrip(episodeFolder, await ensureMediaWaveform(episodeFolder, asset))
+    : cachedReviewArtwork(episodeFolder, asset);
+  const audio = await Promise.all(audioAssets.map(prepare));
+  const program = await prepare(await ensureReviewProxy(episodeFolder, rawProgram));
+  const cameras = await Promise.all(rawCameras.map(async (camera) => prepare(await ensureReviewProxy(episodeFolder, camera, audio.find((asset) => asset.id === camera.pairedAudioId)))));
+  if (!options.waitForArtwork) queueReviewArtwork(episodeId, episodeFolder, [program, ...audio, ...cameras]);
   const hasPlayableProgram = program.status === "ready";
 
   return {
@@ -160,16 +172,78 @@ export async function loadReviewMedia(episodeId: string): Promise<ReviewMediaInv
   };
 }
 
-async function ensureVideoFilmstrip(episodeFolder: string, asset: ReviewMediaAsset): Promise<ReviewMediaAsset> {
+function reviewArtworkPaths(folder: string, asset: ReviewMediaAsset) {
+  const version = createHash("sha256").update(asset.sourceVersion ?? asset.filePath ?? asset.id).digest("hex").slice(0, 16);
+  const directory = path.join(folder, "Session", "Review");
+  return {
+    waveform: path.join(directory, `${asset.id}-${version}-waveform.png`),
+    poster: path.join(directory, `${asset.id}-${version}-poster.jpg`),
+    filmstrip: path.join(directory, `${asset.id}-${version}-filmstrip.jpg`)
+  };
+}
+async function renderReviewArtwork(destination: string, args: string[], signal?: AbortSignal) {
+  const temporary = path.join(path.dirname(destination), `.artwork-${randomUUID()}${path.extname(destination)}`);
+  try {
+    await runFfmpeg([...args, temporary], undefined, signal);
+    signal?.throwIfAborted();
+    await fs.rename(temporary, destination);
+  } finally { await fs.rm(temporary, { force: true }); }
+}
+
+async function cachedReviewArtwork(folder: string, asset: ReviewMediaAsset): Promise<ReviewMediaAsset> {
+  if (asset.status !== "ready" || !asset.filePath) return asset;
+  const { waveform, poster, filmstrip } = reviewArtworkPaths(folder, asset);
+  const [waveformStale, posterStale, filmstripStale] = await Promise.all([waveform, poster, filmstrip].map((file) => proxyNeedsRefresh(file, [asset.filePath!])));
+  return {
+    ...asset,
+    waveformUrl: !waveformStale && asset.hasAudio !== false && asset.audioSignal !== "silent" ? mediaFilePlaybackUrl(waveform) : undefined,
+    posterUrl: !posterStale && asset.kind !== "audio" ? mediaFilePlaybackUrl(poster) : undefined,
+    filmstripUrl: asset.kind !== "audio" ? (!filmstripStale ? mediaFilePlaybackUrl(filmstrip) : !posterStale ? mediaFilePlaybackUrl(poster) : undefined) : undefined
+  };
+}
+
+function queueReviewArtwork(episodeId: string, folder: string, assets: ReviewMediaAsset[]) {
+  const key = JSON.stringify(assets.map((asset) => [asset.id, asset.status, asset.sourceVersion]));
+  const prior = artworkJobs.get(folder);
+  if (prior) {
+    if (prior.key !== key) { prior.next = { episodeId, assets }; prior.controller.abort(); }
+    return;
+  }
+  const controller = new AbortController();
+  const promise = (async () => {
+    // Release the initial inventory before reading/decoding any full track.
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    for (const asset of assets) {
+      if (controller.signal.aborted) return;
+      if (asset.status !== "ready" || !asset.filePath) continue;
+      const before = await fs.stat(asset.filePath).catch(() => undefined);
+      if (!before) continue;
+      const withWaveform = await ensureMediaWaveform(folder, asset, controller.signal);
+      const prepared = await ensureVideoFilmstrip(folder, withWaveform, controller.signal);
+      const after = await fs.stat(asset.filePath).catch(() => undefined);
+      if (controller.signal.aborted || !after || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.size !== after.size) continue;
+      for (const listener of artworkListeners) listener({ episodeId, asset: prepared });
+    }
+  })().catch((error) => {
+    if (!controller.signal.aborted) void logger.warning("ReviewMedia", "Background timeline artwork needs attention.", { episodeId, error: String(error) });
+  }).finally(() => {
+    const job = artworkJobs.get(folder);
+    if (job?.controller !== controller) return;
+    artworkJobs.delete(folder);
+    if (job.next) queueReviewArtwork(job.next.episodeId, folder, job.next.assets);
+  });
+  artworkJobs.set(folder, { key, controller, promise });
+}
+
+async function ensureVideoFilmstrip(episodeFolder: string, asset: ReviewMediaAsset, signal?: AbortSignal): Promise<ReviewMediaAsset> {
   if (asset.status !== "ready" || !asset.filePath || asset.kind === "audio") return asset;
-  const filmstripPath = path.join(episodeFolder, "Session", "Review", `${asset.id}-filmstrip.jpg`);
-  const posterPath = path.join(episodeFolder, "Session", "Review", `${asset.id}-poster.jpg`);
+  const { filmstrip: filmstripPath, poster: posterPath } = reviewArtworkPaths(episodeFolder, asset);
   const durationSeconds = Math.max(1, (asset.durationMs ?? 0) / 1000);
   const framesPerSecond = 12 / durationSeconds;
   try {
     await fs.mkdir(path.dirname(filmstripPath), { recursive: true });
     if (await proxyNeedsRefresh(posterPath, [asset.filePath])) {
-      await runFfmpeg([
+      await renderReviewArtwork(posterPath, [
         "-y",
         "-ss",
         String(Math.min(durationSeconds * 0.15, 5)),
@@ -180,13 +254,12 @@ async function ensureVideoFilmstrip(episodeFolder: string, asset: ReviewMediaAss
         "-frames:v",
         "1",
         "-q:v",
-        "3",
-        posterPath
-      ]);
+        "3"
+      ], signal);
     }
     const generateFullFilmstrip = durationSeconds <= 180;
     if (generateFullFilmstrip && await proxyNeedsRefresh(filmstripPath, [asset.filePath])) {
-      await runFfmpeg([
+      await renderReviewArtwork(filmstripPath, [
         "-y",
         "-i",
         asset.filePath,
@@ -195,9 +268,8 @@ async function ensureVideoFilmstrip(episodeFolder: string, asset: ReviewMediaAss
         "-frames:v",
         "1",
         "-q:v",
-        "4",
-        filmstripPath
-      ]);
+        "4"
+      ], signal);
     }
     return {
       ...asset,
@@ -212,16 +284,16 @@ async function ensureVideoFilmstrip(episodeFolder: string, asset: ReviewMediaAss
   }
 }
 
-async function ensureMediaWaveform(episodeFolder: string, asset: ReviewMediaAsset): Promise<ReviewMediaAsset> {
+async function ensureMediaWaveform(episodeFolder: string, asset: ReviewMediaAsset, signal?: AbortSignal): Promise<ReviewMediaAsset> {
   if (asset.status !== "ready" || !asset.filePath || asset.hasAudio === false) return asset;
   if (asset.audioSignal === "silent") {
     return { ...asset, waveformUrl: undefined, message: "No audible signal was captured from this input" };
   }
-  const waveformPath = path.join(episodeFolder, "Session", "Review", `${asset.id}-waveform.png`);
+  const { waveform: waveformPath } = reviewArtworkPaths(episodeFolder, asset);
   try {
     await fs.mkdir(path.dirname(waveformPath), { recursive: true });
     if (await proxyNeedsRefresh(waveformPath, [asset.filePath])) {
-      await runFfmpeg(["-y", "-i", asset.filePath, "-filter_complex", "aformat=channel_layouts=mono,showwavespic=s=1400x120:colors=white", "-frames:v", "1", waveformPath]);
+      await renderReviewArtwork(waveformPath, ["-y", "-i", asset.filePath, "-filter_complex", "aformat=channel_layouts=mono,showwavespic=s=1400x120:colors=white", "-frames:v", "1"], signal);
     }
     return { ...asset, waveformUrl: mediaFilePlaybackUrl(waveformPath) };
   } catch (error) {
@@ -792,6 +864,7 @@ async function inspectAsset(episodeFolder: string, asset: Omit<ReviewMediaAsset,
       status: "ready",
       durationMs: probedDurationMs ?? fallbackDurationMs,
       sizeBytes: stat.size,
+      sourceVersion: `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`,
       codecSummary: summarizeCodecs(probe, asset.kind),
       hasAudio: probe.streams?.some((stream) => stream.codec_type === "audio") ?? false,
       message: "Ready to review"
