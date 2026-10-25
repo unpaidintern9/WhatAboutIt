@@ -1082,12 +1082,12 @@ export function TimelineReview({
                   <span>{playbackError}</span>
                 </div>
               ) : null}
-              {!programMode && !selectedVideo.includesPairedAudio && pairedAudio?.status === "ready" && pairedPlayback?.playbackUrl ? <audio crossOrigin="anonymous" key={pairedPlayback.playbackUrl} data-treatment-baked={pairedPlayback.baked} ref={pairedAudioRef} preload="metadata" src={pairedPlayback.playbackUrl} onLoadedMetadata={() => syncPreviewAudio(isPlaying)} /> : null}
+              {!programMode && !selectedVideo.includesPairedAudio && pairedAudio?.status === "ready" && pairedPlayback?.playbackUrl ? <audio crossOrigin="anonymous" key={pairedAudio.id} data-treatment-baked={pairedPlayback.baked} ref={pairedAudioRef} preload="metadata" src={pairedPlayback.playbackUrl} onLoadedMetadata={() => syncPreviewAudio(isPlaying)} /> : null}
               {useProgramStemMix
                 ? programAudioSources.map(({ track, asset }) => (
                     <audio
                       crossOrigin="anonymous"
-                      key={`${asset.id}:${asset.playbackUrl}`}
+                      key={asset.id}
                       ref={(element) => {
                         if (element) programAudioRefs.current.set(asset.id, element);
                         else programAudioRefs.current.delete(asset.id);
