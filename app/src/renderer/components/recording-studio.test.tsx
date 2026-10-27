@@ -268,7 +268,8 @@ describe("RecordingStudio", () => {
       await new Promise((resolve) => window.setTimeout(resolve, 0));
     });
 
-    expect(host.textContent).toContain("has no live signal");
+    expect(host.textContent).toContain("Could not open this input");
+    expect(host.textContent).not.toContain("has no measured signal");
     click(host, "Record");
     expect(onStart).toHaveBeenCalledTimes(1);
 
@@ -540,8 +541,10 @@ describe("RecordingStudio", () => {
       createAnalyser() {
         return {
           frequencyBinCount: 8,
+          fftSize: 16,
           getByteTimeDomainData: (samples: Uint8Array) => samples.fill(130),
-          connect: vi.fn(),
+          getFloatTimeDomainData: (samples: Float32Array) => samples.fill(0.015625),
+          connect: (target: unknown) => target,
           disconnect: vi.fn()
         };
       }

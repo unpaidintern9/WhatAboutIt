@@ -275,7 +275,7 @@ export function TimelineReview({
   const hasSelectedRange = draft.selection?.endTimestampMs !== undefined && rangeEndMs > rangeStartMs;
   const activeCaption = draft.captions.find((caption) => playheadMs >= caption.startMs && playheadMs < caption.endMs && caption.text.trim());
   const activeTitle = draft.titles.find((title) => playheadMs >= title.startMs && playheadMs < title.endMs);
-  const saveStatusLabel = saveState === "saving" ? "Saving draft…" : saveState === "failed" ? "Save failed — retry" : draft.hasUnsavedChanges ? "Draft changed" : "Draft saved";
+  const saveStatusLabel = saveState === "saving" ? "Saving draft…" : saveState === "failed" ? "Save failed — retry" : draft.hasUnsavedChanges ? "Draft changed" : "Saved on this computer";
   const getLiveVideoStyle = (track: TimelineTrack | undefined, isActive: boolean): CSSProperties =>
     track?.kind === "camera"
       ? {

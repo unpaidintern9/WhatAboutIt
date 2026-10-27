@@ -10609,3 +10609,17 @@ main.studio-shell.studio-shell--review.sidebar-collapsed {
 .studio-shell--recording .live-studio:has(.recovery-banner) .reference-studio-board {
   grid-template-rows: auto auto auto minmax(0, 1fr);
 }
+
+.live-video-frame .refresh-camera-preview {
+  position: absolute;
+  top: 5px;
+  right: 5px;
+  z-index: 2;
+  padding: 4px 7px;
+  border: 1px solid #ffffff66;
+  border-radius: 5px;
+  background: #151515db;
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+}

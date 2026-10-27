@@ -65,6 +65,7 @@ interface RecordingStudioProps {
   driveCheck?: RecordingDriveCheck;
   readinessMessage?: string;
   onCheckReadiness?: () => Promise<void>;
+  onReconnectInputs?: () => Promise<void>;
   recordingPreferences?: RecordingPreferences;
   onStart: () => Promise<RecordingServiceSnapshot | void> | RecordingServiceSnapshot | void;
   onContinue?: () => Promise<void> | void;
@@ -157,6 +158,7 @@ export function RecordingStudio({
   driveCheck,
   readinessMessage,
   onCheckReadiness,
+  onReconnectInputs,
   recordingPreferences: recordingPreferencesProp,
   onStart,
   onContinue,
@@ -239,7 +241,6 @@ export function RecordingStudio({
   const programMicSlot = defaults.cameraMicrophones?.camera1 ?? "morganMic";
   const programMicSignal = micSignals[programMicSlot];
   const programMicSelected = Boolean(findDevice(detection.microphones, defaults.microphones[programMicSlot]));
-  const programMicDisconnected = programMicSignal === "disconnected";
   const liveMicReadyCount = microphoneSlots.map(({ key }) => key).filter((key) => {
     if (!findDevice(detection.microphones, defaults.microphones[key as MicKey])) return false;
     const signal = micSignals[key as MicKey];
@@ -252,6 +253,14 @@ export function RecordingStudio({
     return Boolean(defaults.microphones[key] && channel !== "mix" && count !== undefined && Number(channel.replace("input-", "")) > count);
   });
   const studioReady = !checkingReadiness && cameraReadyCount > 0 && storageReady && deviceAssignmentsHealthy && programMicSelected && assignedDevices.missingDeviceIds.length === 0 && !invalidChannels && (!recordingInProgress || recordingHealthy);
+  const startBlockedReason = checkingReadiness ? "Checking inputs and storage…"
+    : !storageReady ? storageWarning
+    : !deviceAssignmentsHealthy ? "Choose a separate physical input for each microphone channel."
+    : assignedDevices.missingDeviceIds.length > 0 ? "An assigned camera or microphone is disconnected. Reconnect inputs or change the selection in Setup."
+    : cameraReadyCount === 0 ? "Choose Camera 1 in Setup before recording."
+    : !programMicSelected ? "Choose the microphone assigned to Camera 1 in Setup before recording."
+    : invalidChannels ? "A selected microphone channel is unavailable. Choose a driver-visible input in Input and headphone controls."
+    : undefined;
   const pendingBytes = snapshot.health?.sources.reduce((sum, source) => sum + (source.pendingBytes ?? 0), 0) ?? 0;
   const captureRate = recordingCaptureBytesPerSecond(Object.values(defaults.cameras).filter(Boolean).length, Object.values(defaults.microphones).filter(Boolean).length, defaults.captureQuality);
   const remainingMinutes = availableBytes === undefined ? undefined : Math.max(0, Math.floor((availableBytes - 2 * 1024 ** 3) / (captureRate * 3) / 60));
@@ -321,7 +330,7 @@ export function RecordingStudio({
     if (recordingInProgress || !defaults.microphones[programMicSlot] || programMicSignal !== "no-signal") return;
     setStudioNotice({
       tone: "needs-attention",
-      message: `${getMicSlotLabel(programMicSlot)} has no live signal. Choose the correct input and speak into it before recording.`
+      message: `${getMicSlotLabel(programMicSlot)} has no measured signal. Speak into the selected input; check its numbered channel or use Reconnect inputs.`
     });
   }, [defaults.microphones, programMicSignal, programMicSlot, recordingInProgress]);
 
@@ -468,10 +477,6 @@ export function RecordingStudio({
 
   async function startStudioRecording() {
     if (!studioReady || recordingAction !== "idle") return;
-    if (programMicDisconnected) {
-      setStudioNotice({ tone: "needs-attention", message: `${getMicSlotLabel(programMicSlot)} is disconnected. Choose an available input before recording.` });
-      return;
-    }
     setRecordingAction("starting");
     setStudioNotice({ tone: "recording", message: "Starting the Program recording now..." });
     try {
@@ -639,6 +644,13 @@ export function RecordingStudio({
           </details>
           {inputChangesLocked && <span>Inputs are locked during capture. Pause before changing inputs; Resume uses your updated setup.</span>}
 
+          {!recordingInProgress && startBlockedReason && <strong role="alert">{startBlockedReason}</strong>}
+          {!inputChangesLocked && onReconnectInputs && <RusticButton onClick={async () => {
+            setRecordingAction("starting");
+            try { await onReconnectInputs(); }
+            catch (error) { setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "Inputs could not reconnect. Check USB cables and permissions." }); }
+            finally { setRecordingAction("idle"); }
+          }}>Reconnect inputs</RusticButton>}
           {invalidChannels && <strong role="alert">A selected microphone input is not exposed by its driver.</strong>}
           {assignedDevices.missingDeviceIds.length > 0 && <strong role="alert">An assigned camera or microphone is disconnected.</strong>}
           {!recordingInProgress && onCheckReadiness && <RusticButton disabled={checkingReadiness || recordingAction !== "idle"} onClick={async () => { setCheckingReadiness(true); try { await onCheckReadiness(); } catch (error) { setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "Check your recording setup." }); } finally { setCheckingReadiness(false); } }}>{checkingReadiness ? "Checking inputs & drive…" : "Check inputs & drive"}</RusticButton>}
@@ -1274,13 +1286,21 @@ function CameraFeed({
   const [previewHealth, setPreviewHealth] = useState<string>();
 
   useEffect(() => {
+    let previousFrames = 0;
+    let stalledSamples = 0;
     const timer = window.setInterval(() => {
       const video = videoRef.current;
       const quality = video?.getVideoPlaybackQuality?.();
-      if (quality && quality.totalVideoFrames > 0) setPreviewHealth(`Preview: ${quality.droppedVideoFrames}/${quality.totalVideoFrames} frames skipped`);
+      if (!quality || !video?.srcObject) return;
+      stalledSamples = quality.totalVideoFrames === previousFrames ? stalledSamples + 1 : 0;
+      previousFrames = quality.totalVideoFrames;
+      const track = (video.srcObject as MediaStream).getVideoTracks()[0];
+      const settings = track?.getSettings?.();
+      if (stalledSamples >= 3) setPreviewHealth("Preview stalled — try Refresh preview");
+      else if (quality.totalVideoFrames > 0) setPreviewHealth(`${settings?.width ?? "?"} × ${settings?.height ?? "?"} · ${Math.round(settings?.frameRate ?? 0)} fps · ${quality.droppedVideoFrames} preview frames skipped`);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, []);
+  }, [previewAttempt]);
 
   useEffect(() => {
     let stream: MediaStream | undefined;
@@ -1312,6 +1332,9 @@ function CameraFeed({
           }, { once: true });
         });
         if (videoRef.current) {
+          // Ask Chromium to favor current frames instead of a playback buffer.
+          const lowDelayVideo = videoRef.current as HTMLVideoElement & { latencyHint?: number };
+          if ("latencyHint" in lowDelayVideo) lowDelayVideo.latencyHint = 0;
           videoRef.current.srcObject = stream;
           await videoRef.current.play();
         }
@@ -1329,6 +1352,11 @@ function CameraFeed({
     return () => {
       canceled = true;
       if (reconnectTimer) window.clearTimeout(reconnectTimer);
+      const video = videoRef.current;
+      if (video && stream && video.srcObject === stream) {
+        video.pause();
+        video.srcObject = null;
+      }
       if (stream) onReleaseCameraPreview(deviceId, stream);
     };
   }, [deviceId, onOpenCameraPreview, onPreviewState, onReleaseCameraPreview, previewAttempt]);
@@ -1336,6 +1364,7 @@ function CameraFeed({
   return (
     <div className={`live-video-frame ${state}`}>
       <video ref={videoRef} muted playsInline aria-label={`${label} live preview`} />
+      {deviceId && <button type="button" className="refresh-camera-preview" aria-label={`Refresh ${label} preview`} title="Reconnect this on-screen preview. Recording continues." onClick={() => setPreviewAttempt((attempt) => attempt + 1)}>Refresh preview</button>}
       {state === "live" && previewHealth && <small className="preview-frame-health" title="This measures the on-screen preview, not encoded recording frames.">{previewHealth}</small>}
       {state !== "live" && (
         <div>
@@ -1533,6 +1562,7 @@ function LiveMicMeter({
     let stopMeter: (() => void) | undefined;
     let meterLease: ReturnType<typeof acquireStudioAudioContext> | undefined;
     let centeredMeterSource: ReturnType<typeof connectInputChannelSource> | undefined;
+    let meterSilence: GainNode | undefined;
     let canceled = false;
     let lastSignalAt = 0;
     const startedAt = Date.now();
@@ -1556,9 +1586,14 @@ function LiveMicMeter({
         const analyser = audioContext.createAnalyser();
         analyser.fftSize = 512;
         const source = audioContext.createMediaStreamSource(stream);
-        const samples = new Uint8Array(analyser.frequencyBinCount);
+        const samples = new Uint8Array(analyser.fftSize);
+        const preciseSamples = new Float32Array(analyser.fftSize);
         centeredMeterSource = connectInputChannelSource(audioContext, source, inputChannel, diagnostics.channelCount);
         centeredMeterSource.output.connect(analyser);
+        // Keep the meter graph rendering without sending mic audio to speakers.
+        meterSilence = audioContext.createGain();
+        meterSilence.gain.value = 0;
+        analyser.connect(meterSilence).connect(audioContext.destination);
         await audioContext.resume();
         if (monitoringRef.current && !controlsRef.current.muted) void startMonitorPlayback(stream);
 
@@ -1568,7 +1603,9 @@ function LiveMicMeter({
           const measured = calculateAudioLevel(samples);
           const nextLevel = measured.rms;
           const nextPeak = measured.peak;
-          if (nextLevel > 7) lastSignalAt = Date.now();
+          analyser.getFloatTimeDomainData(preciseSamples);
+          const hasSignal = preciseSamples.some((sample) => Math.abs(sample) > 0.0003);
+          if (hasSignal) lastSignalAt = Date.now();
           const nextSignal: MicSignalState = track?.readyState === "ended"
             ? "disconnected"
             : nextPeak >= 98
@@ -1592,7 +1629,7 @@ function LiveMicMeter({
         setHeard(false);
         const message = String(error);
         setRouteIssue(message.includes("input channel") ? message.replace(/^Error:\s*/, "") : "Could not open this input. Check the cable and Retry Devices.");
-        publishSignal(deviceId ? "no-signal" : "disconnected", undefined, 0, 0);
+        publishSignal(deviceId ? "checking" : "disconnected", undefined, 0, 0);
       }
     }
 
@@ -1605,6 +1642,7 @@ function LiveMicMeter({
       stopMonitorPlayback();
       if (stream) onReleaseMicrophoneStream(deviceId, stream);
       centeredMeterSource?.disconnect();
+      meterSilence?.disconnect();
       meterLease?.release();
     };
   }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream, onReleaseMicrophoneStream, startMonitorPlayback, stopMonitorPlayback]);
