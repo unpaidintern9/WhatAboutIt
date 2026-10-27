@@ -11,7 +11,7 @@ const defaults = { cameras: { camera1: "camera-a" }, microphones: { morganMic: "
 describe("durable episode recording parts", () => {
   beforeEach(async () => { vi.resetModules(); paths.root = await fs.mkdtemp(path.join(os.tmpdir(), "wai-parts-")); });
   afterEach(async () => { await fs.rm(paths.root, { recursive: true, force: true }); });
-  async function capture(session: RecordingSession, camera: boolean | "camera2" = true) {
+  async function capture(session: RecordingSession, camera: boolean | "camera2" = true, misleadingFrameRate = false) {
     const { runFfmpeg } = await import("./ffmpeg-tools");
     const { beginRecordingMedia, appendRecordingChunk } = await import("./recording-session-store");
     const source = path.join(paths.root, "fixture.webm");
@@ -19,6 +19,13 @@ describe("durable episode recording parts", () => {
     const folder = session.captureFolderPath!;
     await beginRecordingMedia(folder);
     const bytes = await fs.readFile(source);
+    if (misleadingFrameRate) {
+      // Keep the actual frame timestamps, but reproduce the millisecond
+      // default-frame duration reported by Chromium VFR recordings.
+      const duration = bytes.indexOf(Buffer.from([0x23, 0xe3, 0x83, 0x84]));
+      expect(duration).toBeGreaterThanOrEqual(0);
+      bytes.writeUInt32BE(1_000_000, duration + 4);
+    }
     const sourceStartedAt = new Date().toISOString();
     await appendRecordingChunk(folder, { target: "program", kind: "program", sourceStartedAt, sequence: 1, mimeType: "video/webm", bytes });
     if (camera) await appendRecordingChunk(folder, { target: camera === "camera2" ? "camera2" : "camera1", kind: "camera", sourceStartedAt, sequence: 1, mimeType: "video/webm", bytes });
@@ -66,6 +73,23 @@ describe("durable episode recording parts", () => {
     expect(complete.result!.tracks.map((track) => track.slot)).not.toContain("camera2");
     expect(complete.result!.integrity.warnings.join(" ")).toContain("camera2 is incomplete");
     await expect(fs.stat(path.join(first.captureFolderPath!, "Cameras", "camera-2.webm"))).resolves.toBeTruthy();
+  }, 40000);
+  it("bounds fallback rendering when resumed video reports a 1000 fps time base", async () => {
+    const store = await import("./recording-session-store");
+    const first = await store.createRecordingSession({ episodeId: "episode-vfr", deviceDefaults: defaults });
+    await capture(first, true, true);
+    await store.checkpointRecordingSession(first.folderPath, true);
+    const original = await fs.readFile(path.join(first.captureFolderPath!, "Program", "program.webm"));
+    const second = await store.createRecordingSession({ episodeId: first.episodeId, deviceDefaults: defaults, resume: true });
+    await capture(second);
+    const result = await store.checkpointRecordingSession(first.folderPath, false);
+    const { runFfprobe } = await import("./ffmpeg-tools");
+    const output = JSON.parse((await runFfprobe(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=avg_frame_rate,r_frame_rate", "-of", "json", result.result!.programPath!])).stdout);
+    const [numerator, denominator] = output.streams[0].avg_frame_rate.split("/").map(Number);
+    expect(numerator / denominator).toBeGreaterThanOrEqual(1);
+    expect(numerator / denominator).toBeLessThanOrEqual(60);
+    expect(result.result?.integrity.programPlayable).toBe(true);
+    expect(await fs.readFile(path.join(first.captureFolderPath!, "Program", "program.webm"))).toEqual(original);
   }, 40000);
   it("recovers after part finalization was interrupted before journal completion", async () => {
     const store = await import("./recording-session-store");
