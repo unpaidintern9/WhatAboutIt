@@ -1794,6 +1794,11 @@ export default function App() {
         {view === "new-episode" && <NewEpisodeView title={title} guestName={guestName} description={description} setTitle={setTitle} setGuestName={setGuestName} setDescription={setDescription} createEpisode={createEpisode} onBack={() => setView("home")} onNext={() => setView("device-setup")} />}
         {view === "device-setup" && (
           <div className="view-stack">
+            {recordingService.hasActiveCapture() && <div role="status">
+              <p>Inputs are locked during capture. Pause before changing inputs; Resume uses your updated setup.</p>
+              <Button variant="secondary" onClick={() => setView("recording")}>Back to Record</Button>
+            </div>}
+            <fieldset disabled={recordingService.hasActiveCapture()} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <DeviceSetupWizard
               key={deviceRefreshKey}
               detection={deviceDetection}
@@ -1813,6 +1818,7 @@ export default function App() {
               onReleaseMicrophoneStream={releaseMicrophoneStream}
               onGoRecord={() => setView("recording")}
             />
+            </fieldset>
           </div>
         )}
         {view === "recording" && (
