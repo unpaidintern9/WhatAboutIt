@@ -450,6 +450,7 @@ export default function App() {
   const timelineAutosaveTimerRef = useRef<number | undefined>(undefined);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const pendingTimelineSaveRef = useRef<{ episodeId: string; draft: TimelineDraft } | undefined>(undefined);
+  const recordingDraftSaveStatesRef = useRef(new Map<string, "saving" | "failed">());
   const episodeLoadSequenceRef = useRef(0);
   const activeEpisodeRef = useRef(activeEpisode);
   activeEpisodeRef.current = activeEpisode;
@@ -489,10 +490,14 @@ export default function App() {
       new TimelineSaveQueue(
         (episodeId, draft) => studio.saveTimelineDraft(episodeId, draft),
         (episodeId, savedDraft) => {
+          recordingDraftSaveStatesRef.current.delete(episodeId);
           if (activeEpisodeRef.current?.id !== episodeId) return;
           const pending = pendingTimelineSaveRef.current;
           if (pending?.episodeId === episodeId && pending.draft.version > savedDraft.version) return;
-          setTimelineDraft((current) => (current.episodeId === episodeId ? savedDraft : current));
+          // A fresh recording can hydrate playable media while its initial
+          // project save is still pending. Keep that hydrated state unless
+          // this response is acknowledging an actual unsaved edit.
+          setTimelineDraft((current) => (current.episodeId === episodeId && current.hasUnsavedChanges ? savedDraft : current));
           setTimelineSaveState("saved");
         }
       ),
@@ -807,8 +812,10 @@ export default function App() {
       });
       setPodcastTools(hydratedTools);
       setReviewMedia(inventory);
-      setTimelineDraft(syncTimelineTracksWithMedia(withTimelineDraftDefaults(savedDraft, fallback), inventory));
-      setTimelineSaveState("saved");
+      const recordingSaveState = recordingDraftSaveStatesRef.current.get(episodeId);
+      const nextDraft = syncTimelineTracksWithMedia(withTimelineDraftDefaults(savedDraft, fallback), inventory);
+      setTimelineDraft(recordingSaveState === "failed" ? { ...nextDraft, hasUnsavedChanges: true } : nextDraft);
+      setTimelineSaveState(recordingSaveState ?? "saved");
     } catch (error) {
       if (sequence !== episodeLoadSequenceRef.current || activeEpisodeRef.current?.id !== episodeId) return;
       setTimelineSaveState("failed");
@@ -907,6 +914,19 @@ export default function App() {
   function enqueueTimelineSave(episodeId: string, nextDraft: TimelineDraft) {
     if (activeEpisodeRef.current?.id === episodeId) setTimelineSaveState("saving");
     return timelineSaveQueue.enqueue(episodeId, nextDraft);
+  }
+
+  function saveRecordedTimelineInBackground(episodeId: string, draft: TimelineDraft) {
+    recordingDraftSaveStatesRef.current.set(episodeId, "saving");
+    void enqueueTimelineSave(episodeId, draft).catch((error) => {
+      const pending = pendingTimelineSaveRef.current;
+      if (pending?.episodeId === episodeId && pending.draft.version > draft.version) return;
+      recordingDraftSaveStatesRef.current.set(episodeId, "failed");
+      if (activeEpisodeRef.current?.id !== episodeId) return;
+      setTimelineSaveState("failed");
+      setTimelineDraft((current) => current.episodeId === episodeId && current.version === draft.version ? { ...current, hasUnsavedChanges: true } : current);
+      setWorkspaceMessage(`Recording saved safely on this computer. The review draft still needs Save: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   function queueTimelineDraftChange(nextDraft: TimelineDraft) {
@@ -1349,6 +1369,10 @@ export default function App() {
   }
 
   async function saveDeviceDefaults(deviceDefaults: DeviceDefaults) {
+    if (recordingService.hasActiveCapture()) {
+      setWorkspaceMessage("Pause recording before changing camera or microphone inputs. Resume uses your updated setup.");
+      return;
+    }
     const resolvePhysicalDeviceId = (deviceId: string | undefined, devices: DeviceDetectionResult["microphones"] | DeviceDetectionResult["speakers"]) => {
       if (!deviceId || (deviceId !== "default" && deviceId !== "communications")) return deviceId;
       const alias = devices.find((device) => device.id === deviceId);
@@ -1486,7 +1510,7 @@ export default function App() {
     });
     setTimelineDraft(draft);
     if (episodeId) {
-      setTimelineDraft(await studio.saveTimelineDraft(episodeId, draft));
+      saveRecordedTimelineInBackground(episodeId, draft);
     }
     await refreshUnfinishedSessions();
     await refreshEpisodes();
@@ -1615,10 +1639,11 @@ export default function App() {
     });
     setTimelineDraft(draft);
     if (episodeId) {
-      setTimelineDraft(await studio.saveTimelineDraft(episodeId, draft));
-      // Stop is complete once capture, disk finalization, and the timeline are
-      // safe. Waveforms, proxies, and library refreshes are derived work and
-      // must not leave the Stop button spinning after the files are protected.
+      // Capture has already been flushed and verified. A cloud lease, project
+      // save, or sync outage must not keep Stop busy or prevent local Review.
+      // Use the normal per-episode queue so a late initial response cannot
+      // replace a newer user edit. Shared-project ownership checks still run.
+      saveRecordedTimelineInBackground(episodeId, draft);
       void (async () => {
         await loadReviewMediaForEpisode(episodeId);
         if (episodeId !== activeEpisodeRef.current?.id) {
@@ -1770,6 +1795,11 @@ export default function App() {
         {view === "new-episode" && <NewEpisodeView title={title} guestName={guestName} description={description} setTitle={setTitle} setGuestName={setGuestName} setDescription={setDescription} createEpisode={createEpisode} onBack={() => setView("home")} onNext={() => setView("device-setup")} />}
         {view === "device-setup" && (
           <div className="view-stack">
+            {recordingService.hasActiveCapture() && <div role="status">
+              <p>Inputs are locked during capture. Pause before changing inputs; Resume uses your updated setup.</p>
+              <Button variant="secondary" onClick={() => setView("recording")}>Back to Record</Button>
+            </div>}
+            <fieldset disabled={recordingService.hasActiveCapture()} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <DeviceSetupWizard
               key={deviceRefreshKey}
               detection={deviceDetection}
@@ -1789,6 +1819,7 @@ export default function App() {
               onReleaseMicrophoneStream={releaseMicrophoneStream}
               onGoRecord={() => setView("recording")}
             />
+            </fieldset>
           </div>
         )}
         {view === "recording" && (

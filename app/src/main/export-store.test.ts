@@ -382,7 +382,7 @@ describe("export store", () => {
     expect(await validatePlayableMedia(cameraMaster, undefined, { video: true, audio: true, decode: true })).toBe(true);
   }, 30000);
 
-  it.each(["compatible", "prores"] as const)("creates a portable %s editor handoff preserving source resolution, rate, and channels", async (editorVideoPreset) => {
+  it.each([["compatible", false], ["prores", false], ["compatible", true]] as const)("creates a portable %s editor handoff preserving frames and channels (misleading rate: %s)", async (editorVideoPreset, misleadingRate) => {
     const { createExport } = await import("./export-store");
     const { runFfmpeg, runFfprobe, validatePlayableMedia } = await import("./ffmpeg-tools");
     const episodeId = "episode-editor-handoff";
@@ -398,6 +398,13 @@ describe("export store", () => {
     ]);
     await runFfmpeg(["-y", "-f", "lavfi", "-i", "testsrc=size=320x180:rate=24", "-f", "lavfi", "-i", "sine=frequency=550:sample_rate=48000", "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", programPath]);
     await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=red:size=640x360:rate=24000/1001", "-f", "lavfi", "-i", "sine=frequency=880:sample_rate=48000", "-t", "1", "-c:v", "libvpx", "-c:a", "libopus", "-shortest", cameraPath]);
+    if (misleadingRate) {
+      const bytes = await fs.readFile(cameraPath);
+      const duration = bytes.indexOf(Buffer.from([0x23, 0xe3, 0x83, 0x84]));
+      expect(duration).toBeGreaterThanOrEqual(0);
+      bytes.writeUInt32BE(1_000_000, duration + 4);
+      await fs.writeFile(cameraPath, bytes);
+    }
     await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "1", "-ac", "2", "-c:a", "aac", microphonePath]);
     const draft = createTimelineDraft({
       episodeId,
@@ -429,11 +436,13 @@ describe("export store", () => {
     expect(checksums).toContain("01 Reference Edit/what-about-it-reference-edit.mp4");
     expect(checksums).toContain(`02 Camera Video/Camera 1.${extension}`);
     expect(checksums).toContain(`02 Camera Video/Program Source.${extension}`);
-    const probe = JSON.parse((await runFfprobe(["-v", "error", "-show_streams", "-of", "json", cameraOutput])).stdout);
+    const probe = JSON.parse((await runFfprobe(["-v", "error", "-count_frames", "-show_streams", "-of", "json", cameraOutput])).stdout);
     const video = probe.streams.find((stream: { codec_type: string }) => stream.codec_type === "video");
     expect(video.width).toBe(640);
     expect(video.height).toBe(360);
-    expect(video.avg_frame_rate).toBe("24000/1001");
+    if (!misleadingRate) expect(video.avg_frame_rate).toBe("24000/1001");
+    const sourceFrames = JSON.parse((await runFfprobe(["-v", "error", "-count_frames", "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames", "-of", "json", cameraPath])).stdout).streams[0].nb_read_frames;
+    expect(video.nb_read_frames).toBe(sourceFrames);
     expect(video.codec_name).toBe(editorVideoPreset === "prores" ? "prores" : "h264");
     const audio = JSON.parse((await runFfprobe(["-v", "error", "-show_streams", "-of", "json", microphoneOutput])).stdout).streams[0];
     expect(audio.channels).toBe(2);

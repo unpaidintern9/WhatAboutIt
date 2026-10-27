@@ -146,6 +146,19 @@ describe("BrowserMediaRecorderPlugin", () => {
     Reflect.deleteProperty(window, "studio");
   });
 
+  it("protects the episode when a writing PCM source loses render time", async () => {
+    const recorder = new FakeMediaRecorder(streamWith(new FakeTrack("audio", "mic")), { mimeType: "audio/x-pcm;rate=48000;channels=1" });
+    Object.assign(recorder, { timingErrorMs: 1500 });
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    vi.mocked(PcmTrackRecorder.create).mockResolvedValue(recorder as unknown as PcmTrackRecorder);
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn(async () => new FakeMediaStream([new FakeTrack("video", "camera"), new FakeTrack("audio", "mic")] as unknown as MediaStreamTrack[]) as unknown as MediaStream) } });
+    window.studio = { beginRecordingMedia: vi.fn(), appendRecordingChunk: vi.fn(async () => ({})) } as unknown as typeof window.studio;
+    const plugin = new BrowserMediaRecorderPlugin();
+    await plugin.start({ deviceDefaults: { cameras: { camera1: "camera" }, microphones: { morganMic: "mic" } }, session: { folderPath: "/episode" } as never });
+    await vi.waitFor(() => expect(plugin.getHealth().fatalError).toContain("Audio capture is falling behind"));
+    await plugin.stop();
+  });
+
   it("records every already-live selected camera without reopening the camera devices", async () => {
     const getUserMedia = vi.fn();
     Object.defineProperty(navigator, "mediaDevices", {

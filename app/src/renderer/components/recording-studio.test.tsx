@@ -181,6 +181,38 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Hardware Direct Monitor prevents headphone echo");
   });
 
+  it("locks source routing during capture and unlocks it after a durable pause", () => {
+    const { host, props, root } = renderStudio({
+      snapshot: { status: "recording", elapsedMs: 1000, localSaveMessage: "Writing to disk", trackStatuses: [] }
+    });
+    const controls = () => [
+      host.querySelector('select[aria-label="Camera 1 audio input"]'),
+      host.querySelector('select[aria-label="Morgan Mic input"]'),
+      host.querySelector('select[aria-label="Morgan Mic interface channel"]'),
+      host.querySelector('input[aria-label="Host name"]')
+    ] as Array<HTMLSelectElement | HTMLInputElement>;
+    expect(controls().every((control) => control?.disabled)).toBe(true);
+    expect(host.textContent).toContain("Pause before changing inputs");
+    expect(host.querySelector<HTMLButtonElement>(".giant-control-row button.pause")?.disabled).toBe(false);
+    expect(host.querySelector<HTMLButtonElement>(".giant-control-row button.stop")?.disabled).toBe(false);
+
+    act(() => {
+      root.render(<RecordingStudio {...props} snapshot={{ ...props.snapshot, status: "paused", session: {
+        id: "paused", episodeId: "episode-a", episodeTitle: props.episodeTitle ?? "Recording", folderPath: "C:/episodes/episode-a",
+        startedAt: "2026-10-27T12:00:00Z", status: "paused", practice: false, durablePaused: true
+      } }} />);
+    });
+    expect(controls().every((control) => control && !control.disabled)).toBe(true);
+    const channel = controls()[2];
+    act(() => {
+      channel.value = "input-2";
+      channel.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(props.onDefaultsChange).toHaveBeenCalledWith(expect.objectContaining({
+      microphoneChannels: expect.objectContaining({ morganMic: "input-2" })
+    }));
+  });
+
   it("opens a saved paused episode without finalizing it as recovery", async () => {
     const onResumeSession = vi.fn();
     const onRecoverSession = vi.fn();

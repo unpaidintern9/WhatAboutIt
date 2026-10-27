@@ -99,7 +99,28 @@ const targetPaths: Array<{ slot: "program" | RecordingTrackSlot; file: string; v
   ...microphoneSlots.map(({ key, assetId }) => ({ slot: key as RecordingTrackSlot, file: `Audio/${assetId}.flac`, video: false }))
 ];
 
-interface StreamInfo { codec_name?: string; sample_rate?: string; pix_fmt?: string; time_base?: string; codec_type: string; width?: number; height?: number; r_frame_rate?: string; channels?: number }
+interface StreamInfo { codec_name?: string; sample_rate?: string; pix_fmt?: string; time_base?: string; codec_type: string; width?: number; height?: number; r_frame_rate?: string; avg_frame_rate?: string; channels?: number }
+function recordingFrameRate(video: StreamInfo) {
+  // Chromium VFR WebM can report its 1 ms time base as 1000 fps. Do not
+  // duplicate every frame to that rate when a resumed part needs rendering.
+  for (const rate of [video.avg_frame_rate, video.r_frame_rate]) {
+    if (!rate) continue;
+    const [numerator, denominator = 1] = rate.split("/").map(Number);
+    const fps = numerator / denominator;
+    if (Number.isFinite(fps) && fps >= 1 && fps <= 60) return rate;
+  }
+  return "30";
+}
+async function cameraOneSharesProgram(folder: string, parts: RecordingPart[]) {
+  for (const part of parts) {
+    const [program, camera] = await Promise.all([
+      fs.stat(path.join(partPath(folder, part), "Program", "program.webm"), { bigint: true }),
+      fs.stat(path.join(partPath(folder, part), "Cameras", "camera-1.webm"), { bigint: true })
+    ]);
+    if (program.ino === 0n || program.ino !== camera.ino || program.dev !== camera.dev) return false;
+  }
+  return true;
+}
 async function assembleTarget(folder: string, parts: RecordingPart[], target: typeof targetPaths[number], output: string) {
   const inputs = parts.map((part) => target.video ? path.join(partPath(folder, part), target.file) : preferredAudioFile(partPath(folder, part), path.basename(target.file)));
   if (parts.length === 1) {
@@ -133,7 +154,7 @@ async function assembleTarget(folder: string, parts: RecordingPart[], target: ty
     const seconds = (part.durationMs ?? 0) / 1000;
     const sync = syncs[index];
     const offset = target.slot === "program" ? 0 : -(sync.sourceStartOffsetsMs?.[target.slot] ?? 0) / 1000;
-    if (video) filters.push(`[${index}:v]trim=start=${Math.max(0, offset)},setpts=PTS-STARTPTS,scale=${video.width}:${video.height}:force_original_aspect_ratio=decrease,pad=${video.width}:${video.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${video.r_frame_rate || "30"},tpad=start_mode=clone:start_duration=${Math.max(0, -offset)}:stop_mode=clone:stop_duration=${seconds},trim=duration=${seconds},setpts=PTS-STARTPTS[v${index}]`);
+    if (video) filters.push(`[${index}:v]trim=start=${Math.max(0, offset)},setpts=PTS-STARTPTS,scale=${video.width}:${video.height}:force_original_aspect_ratio=decrease,pad=${video.width}:${video.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps=${recordingFrameRate(video)},tpad=start_mode=clone:start_duration=${Math.max(0, -offset)}:stop_mode=clone:stop_duration=${seconds},trim=duration=${seconds},setpts=PTS-STARTPTS[v${index}]`);
     if (includeAudio) filters.push(`[${index}:a]atrim=start=${Math.max(0, offset)},asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=${channels === 1 ? "mono" : "stereo"},${offset < 0 ? `adelay=${Array.from({ length: channels === 1 ? 1 : 2 }, () => Math.round(-offset * 1000)).join("|")},` : ""}apad,atrim=duration=${seconds},asetpts=PTS-STARTPTS[a${index}]`);
   }
   filters.push(`${parts.map((_, index) => `${video ? `[v${index}]` : ""}${includeAudio ? `[a${index}]` : ""}`).join("")}concat=n=${parts.length}:v=${video ? 1 : 0}:a=${includeAudio ? 1 : 0}${video ? "[v]" : ""}${includeAudio ? "[a]" : ""}`);
@@ -156,7 +177,13 @@ export async function materializeRecordingParts(folder: string, report?: (progre
         continue;
       }
       const temporary = path.join(staged, path.basename(target.file));
-      await assembleTarget(folder, journal.parts, target, temporary);
+      const assembledProgram = outputs.find((item) => item.target.slot === "program");
+      if (target.slot === "camera1" && assembledProgram && await cameraOneSharesProgram(folder, journal.parts).catch(() => false)) {
+        // Disk-first capture hard-links Camera 1 to Program. Reuse that exact
+        // assembly rather than rendering the same resumed video a second time.
+        try { await fs.link(assembledProgram.temporary, temporary); }
+        catch { await fs.copyFile(assembledProgram.temporary, temporary); }
+      } else await assembleTarget(folder, journal.parts, target, temporary);
       if (!(await validatePlayableMedia(temporary, undefined, { video: target.video, audio: !target.video || target.slot === "program", decode: true }))) throw new Error(`Combined ${target.slot} could not be verified.`);
       outputs.push({ target, temporary, destination: path.join(folder, target.file) });
     }

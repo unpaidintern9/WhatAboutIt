@@ -59,19 +59,19 @@ export async function openAudioStreamWithFallback(
   }
 }
 
-export function createStudioAudioContext(outputDeviceId?: string, inputSampleRate?: number) {
+export function createStudioAudioContext(outputDeviceId?: string, inputSampleRate?: number, latencyHint: AudioContextLatencyCategory = "interactive") {
   const sampleRate = Number.isFinite(inputSampleRate) && (inputSampleRate ?? 0) >= 8000 && (inputSampleRate ?? 0) <= 192000
     ? inputSampleRate
     : 48000;
   const options: AudioContextOptions & { sinkId?: string } = {
-    latencyHint: "interactive",
+    latencyHint,
     sampleRate,
     ...(outputDeviceId ? { sinkId: outputDeviceId } : {})
   };
   try {
     return new AudioContext(options);
   } catch {
-    return new AudioContext({ latencyHint: "interactive" });
+    return new AudioContext({ latencyHint });
   }
 }
 

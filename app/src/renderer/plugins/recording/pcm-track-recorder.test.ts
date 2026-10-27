@@ -34,6 +34,34 @@ describe("lossless audio rendering-thread capture", () => {
       second.stop(); nodes[1].port.onmessage?.({ data: { stopped: true } });
     } finally { vi.unstubAllGlobals(); }
   });
+  it("uses the routed node directly and detects render-clock loss without mistaking message backlog for drift", async () => {
+    const disconnect = vi.fn();
+    const route = { connect(next: unknown) { return next; }, disconnect } as unknown as AudioNode;
+    const now = vi.spyOn(performance, "now").mockReturnValue(1000);
+    const context = { currentTime: 5, sampleRate: 48000, audioWorklet: { addModule: async () => undefined }, createMediaStreamSource: vi.fn(), createGain: () => ({ connect(next: unknown) { return next; }, disconnect: vi.fn(), gain: { value: 1 } }), resume: async () => undefined, destination: {} } as unknown as AudioContext;
+    const nodes: Array<{ port: { onmessage?: (event: { data: { stopped: boolean } }) => void } }> = [];
+    vi.stubGlobal("AudioWorkletNode", class {
+      port = { onmessage: undefined, postMessage: vi.fn(), close: vi.fn() };
+      constructor() { nodes.push(this); }
+      connect(next: unknown) { return next; }
+      disconnect() {}
+    });
+    try {
+      const capture = await PcmTrackRecorder.create({ getAudioTracks: () => [] } as unknown as MediaStream, context, route);
+      capture.start();
+      now.mockReturnValue(21_000);
+      Object.assign(context, { currentTime: 25 });
+      expect(capture.timingErrorMs).toBe(0); // No worklet messages delivered, audio itself kept up.
+      Object.assign(context, { currentTime: 23 });
+      expect(capture.timingErrorMs).toBe(2000);
+      capture.pause(); expect(capture.timingErrorMs).toBe(0);
+      capture.resume(); expect(capture.timingErrorMs).toBe(0);
+      capture.stop(); nodes[0].port.onmessage?.({ data: { stopped: true } });
+      expect(context.createMediaStreamSource).not.toHaveBeenCalled();
+      expect(disconnect).toHaveBeenCalledWith(nodes[0]); // Other mic/Program connections survive.
+    } finally { now.mockRestore(); vi.unstubAllGlobals(); }
+  });
+
   it("preserves signed 24-bit samples, flushes before stop, and excludes paused audio", () => {
     const messages: Array<{
       bytes?: Uint8Array;
@@ -64,6 +92,7 @@ describe("lossless audio rendering-thread capture", () => {
     capture.process([[new Float32Array([0.25])]]);
     capture.port.onmessage({ data: "resume" });
     capture.process([[new Float32Array([-0.5])]]);
+    capture.process([]);
     capture.port.onmessage({ data: "stop" });
     const samples = messages.flatMap((message) =>
       message.bytes ? [...message.bytes] : [],
@@ -75,8 +104,9 @@ describe("lossless audio rendering-thread capture", () => {
         (samples[index * 3 + 2] << 16);
       return value & 0x800000 ? value - 0x1000000 : value;
     });
-    expect(decoded).toEqual([-8388608, 0, 4194304, 8388607, -4194304]);
+    expect(decoded.slice(0, 5)).toEqual([-8388608, 0, 4194304, 8388607, -4194304]);
+    expect(decoded.slice(5)).toEqual(Array(128).fill(0));
     expect(messages.at(-1)).toEqual({ stopped: true });
-    expect(messages.filter((message) => message.bytes).at(-1)?.frames).toBe(5);
+    expect(messages.filter((message) => message.bytes).at(-1)?.frames).toBe(133);
   });
 });

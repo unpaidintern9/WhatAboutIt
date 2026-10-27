@@ -52,7 +52,7 @@ export class RecordingService {
           ? `Program plus ${activeSources} source tracks are writing to disk · ${formatBytes(bytesWritten)} protected`
           : `Program plus ${activeSources} source tracks are starting their disk writers`
       : this.status === "stopped" && this.integrity
-        ? this.integrity.playable ? "Recording saved and verified" : "Recording saved with items that need attention"
+        ? this.integrity.playable && this.integrity.warnings.length === 0 ? "Recording saved and verified" : "Recording saved with items that need attention"
         : this.status === "paused" && this.session?.durablePaused
           ? "Episode saved. You can close the app and resume this recording later"
           : "Ready to save directly to this computer";

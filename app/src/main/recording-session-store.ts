@@ -26,7 +26,7 @@ import {
 } from "../shared/recording";
 import type { EpisodeMetadata } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
-import { getMediaStreamStartMs, runFfmpeg, validatePlayableMedia } from "./ffmpeg-tools";
+import { getMediaDurationMs, getMediaStreamStartMs, runFfmpeg, validatePlayableMedia } from "./ffmpeg-tools";
 import { logger } from "./logger";
 import { allocateRecordingPart, materializeRecordingParts, readActiveRecordingPart, readRecordingJson, recordingSessionPath, retainEmptyRecordingAttempt, saveCompletedRecordingPart, withRecordingOperation, writeRecordingJson } from "./recording-parts-store";
 import type { RecordingCheckpointResult } from "../shared/recording";
@@ -473,6 +473,20 @@ export async function finalizeRecordingMedia(folderPath: string): Promise<Record
   let backupPath: string | undefined;
   const backupWarning = await finishRollingBackup(safeFolder);
   const warnings = tracks.filter((track) => track.status !== "saved").map((track) => `${track.slot}: ${track.message}`);
+  // Byte writes/playability do not establish synchronization. Compare the
+  // completed source durations too; never silently label a shortened mic safe.
+  if (programPlayable && programPath) {
+    const programDuration = await getMediaDurationMs(programPath);
+    for (const track of tracks.filter((item) => item.kind === "audio" && item.filePath)) {
+      const source = sources.find((item) => item.target === track.slot);
+      const attachmentDelay = Math.max(0, (Date.parse(source?.sourceStartedAt ?? "") || 0) - (Date.parse(programSource?.sourceStartedAt ?? "") || 0));
+      const duration = await getMediaDurationMs(track.filePath!);
+      const difference = programDuration - attachmentDelay - duration;
+      if (Math.abs(difference) > Math.max(750, programDuration * 0.002 + 250)) {
+        warnings.push(`${track.slot}: audio/video timing differs by ${(Math.abs(difference) / 1000).toFixed(2)} seconds. Check sync before using this take; original sources were preserved.`);
+      }
+    }
+  }
   if (backupWarning) warnings.push(backupWarning);
   if (!programPlayable) warnings.unshift("Program recording needs attention; partial source files were preserved.");
   try {
