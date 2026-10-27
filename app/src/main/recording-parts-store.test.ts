@@ -84,10 +84,13 @@ describe("durable episode recording parts", () => {
     await capture(second);
     const result = await store.checkpointRecordingSession(first.folderPath, false);
     const { runFfprobe } = await import("./ffmpeg-tools");
-    const output = JSON.parse((await runFfprobe(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=avg_frame_rate,r_frame_rate", "-of", "json", result.result!.programPath!])).stdout);
-    const [numerator, denominator] = output.streams[0].avg_frame_rate.split("/").map(Number);
-    expect(numerator / denominator).toBeGreaterThanOrEqual(1);
-    expect(numerator / denominator).toBeLessThanOrEqual(60);
+    const videoFiles = [result.result!.programPath!, ...result.result!.tracks.filter((track) => track.kind === "camera").map((track) => track.filePath!)];
+    for (const file of videoFiles) {
+      const output = JSON.parse((await runFfprobe(["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=avg_frame_rate,r_frame_rate", "-of", "json", file])).stdout);
+      const [numerator, denominator] = output.streams[0].avg_frame_rate.split("/").map(Number);
+      expect(numerator / denominator).toBeGreaterThanOrEqual(1);
+      expect(numerator / denominator).toBeLessThanOrEqual(60);
+    }
     expect(result.result?.integrity.programPlayable).toBe(true);
     expect(await fs.readFile(path.join(first.captureFolderPath!, "Program", "program.webm"))).toEqual(original);
   }, 40000);
