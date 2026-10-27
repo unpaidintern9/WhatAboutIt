@@ -65,6 +65,7 @@ export type ReviewMonitorSettings = {
 
 const routes = new WeakMap<HTMLMediaElement, MonitorRoute>();
 let sharedContext: AudioContextWithOutput | undefined;
+let masterLimiter: DynamicsCompressorNode | undefined;
 
 export function createReviewOutputRouter(setSinkId: (deviceId: string) => Promise<void>) {
   let desiredOutputId = "";
@@ -185,9 +186,18 @@ function getMonitorRoute(element: HTMLMediaElement) {
   if (existing) return existing;
   const AudioContextConstructor = audioContextConstructor();
   if (!AudioContextConstructor) return undefined;
-  sharedContext ??= new AudioContextConstructor() as AudioContextWithOutput;
+  sharedContext ??= new AudioContextConstructor({ latencyHint: "playback", sampleRate: 48000 }) as AudioContextWithOutput;
   if (!outputRouter && sharedContext.setSinkId) {
     outputRouter = createReviewOutputRouter((deviceId) => sharedContext!.setSinkId!(deviceId));
+  }
+  if (!masterLimiter) {
+    masterLimiter = sharedContext.createDynamicsCompressor();
+    masterLimiter.threshold.value = -6;
+    masterLimiter.knee.value = 0;
+    masterLimiter.ratio.value = 20;
+    masterLimiter.attack.value = 0.001;
+    masterLimiter.release.value = 0.08;
+    masterLimiter.connect(sharedContext.destination);
   }
   const source = sharedContext.createMediaElementSource(element);
   const highpass = sharedContext.createBiquadFilter();
@@ -224,7 +234,8 @@ function getMonitorRoute(element: HTMLMediaElement) {
   if (pan) compressorMakeup.connect(pan).connect(analyser);
   else compressorMakeup.connect(analyser);
   analyser.connect(gateGain).connect(trackGain);
-  trackGain.connect(limiter).connect(monitorGain).connect(sharedContext.destination);
+  // Keep monitor boost inside output protection, then protect the sum of all microphones.
+  trackGain.connect(monitorGain).connect(limiter).connect(masterLimiter);
   const route: MonitorRoute = {
     context: sharedContext,
     source,

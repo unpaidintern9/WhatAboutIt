@@ -6,7 +6,7 @@ export function acquireStudioAudioContext(sampleRate?: number, outputDeviceId?: 
   const key = `${sampleRate ?? 48000}:${outputDeviceId ?? "default"}`;
   let entry = contexts.get(key);
   if (!entry || entry.context.state === "closed") {
-    entry = { context: createStudioAudioContext(outputDeviceId, sampleRate), references: 0 };
+    entry = { context: createStudioAudioContext(outputDeviceId, sampleRate, "playback"), references: 0 };
     contexts.set(key, entry);
   }
   entry.references++;
@@ -31,9 +31,9 @@ let timer: number | undefined;
 function sampleMeters() {
   timer = undefined;
   for (const sample of meters) sample();
-  if (meters.size > 0) timer = window.setTimeout(sampleMeters, document.hidden ? 1000 : 50);
+  if (meters.size > 0) timer = window.setTimeout(sampleMeters, document.hidden ? 1000 : 100);
 }
-/** Twenty updates per second is enough for meters; hidden windows use one. */
+/** Ten updates per second is enough for meters; hidden windows use one. */
 export function subscribeStudioMeter(sample: () => void) {
   meters.add(sample);
   if (timer === undefined) timer = window.setTimeout(sampleMeters, 0);

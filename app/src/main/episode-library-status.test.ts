@@ -18,6 +18,8 @@ it("distinguishes a durable saved pause from a completed recording without rewri
   expect(await withEpisodeLibraryStatus(episode)).toMatchObject({ resumeAvailable: true, durationMs: 12000, status: "draft" });
   await fs.writeFile(path.join(folder, "Session", "recording-state.json"), JSON.stringify({ status: "stopped", elapsedMs: 17000 }));
   expect(await withEpisodeLibraryStatus(episode)).toMatchObject({ resumeAvailable: false, durationMs: 17000, status: "recorded" });
+  await fs.writeFile(path.join(folder, "Session", "recording-session.json"), JSON.stringify({ durablePaused: false, captureFolderPath: "Recordings/part-1" }));
+  expect(await withEpisodeLibraryStatus(episode)).toMatchObject({ resumeAvailable: true, durationMs: 17000, status: "recorded" });
   expect(episode.status).toBe("draft");
 });
 it("uses a completed export, skipping a newer failed job", async () => {

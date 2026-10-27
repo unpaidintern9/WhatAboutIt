@@ -63,7 +63,7 @@ export async function createRecordingSession(input: RecordingSessionCreateInput)
     const folder = assertRecordingFolder(path.join(getEpisodesRoot(), input.episodeId));
     return withRecordingOperation(folder, async () => {
       const session = await readRecordingJson<RecordingSession>(recordingSessionPath(folder));
-      if (session.status !== "paused" || !session.durablePaused) throw new Error("This episode is not saved as a paused recording.");
+      if (!((session.status === "paused" && session.durablePaused) || session.status === "stopped")) throw new Error("Pause or stop and save this episode before resuming it.");
       return allocateRecordingPart(folder, session, input.deviceDefaults, true);
     });
   }

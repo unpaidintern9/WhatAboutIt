@@ -155,7 +155,7 @@ describe("browserDevicePlugin", () => {
     expect(result.cameras).toEqual([expect.objectContaining({ id: "sony-camera", label: "Sony Camera (Imaging Edge)" })]);
   });
 
-  it("opens USB cameras with stable full-HD, 30 fps preferences", async () => {
+  it("opens USB camera previews at bounded 720p and 30 fps", async () => {
     const stream = { getTracks: () => [] } as unknown as MediaStream;
     const getUserMedia = vi.fn().mockResolvedValue(stream);
     setMediaDevices({ getUserMedia });
@@ -164,15 +164,15 @@ describe("browserDevicePlugin", () => {
     expect(getUserMedia).toHaveBeenCalledWith({
       video: {
         deviceId: { exact: "sony-camera" },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
+        width: { ideal: 1280, max: 1280 },
+        height: { ideal: 720, max: 720 },
         frameRate: { ideal: 30, max: 30 }
       },
       audio: false
     });
   });
 
-  it("falls back to a driver-safe camera request when full-HD constraints are rejected", async () => {
+  it("falls back to a driver-safe camera request when bounded preview constraints are rejected", async () => {
     const stream = { getTracks: () => [] } as unknown as MediaStream;
     const getUserMedia = vi.fn()
       .mockRejectedValueOnce(new DOMException("Unsupported mode", "OverconstrainedError"))
