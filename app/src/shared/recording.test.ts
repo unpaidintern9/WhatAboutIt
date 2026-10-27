@@ -4,6 +4,7 @@ import {
   createInitialRecordingState,
   createSyncMetadata,
   friendlyRecordingError,
+  recordingWriteFailureMessage,
   isUnfinishedRecordingState,
   requiredRecordingSessionFiles,
   requiredRecordingSessionFolders
@@ -58,4 +59,13 @@ describe("recording session metadata", () => {
     expect(requiredRecordingSessionFiles).toContain("Session/recording-state.json");
     expect(requiredRecordingSessionFiles).toContain("Logs/errors.log");
   });
+  it("keeps Windows paths and IPC codes out of the host's disk-failure message", () => {
+    const message = recordingWriteFailureMessage(new Error("EPERM: rename C:/Users/host/capture-manifest.json.tmp"));
+    expect(message).toContain("Recording paused");
+    expect(message).toContain("Stop & Save");
+    expect(message).not.toContain("C:/Users");
+    expect(message).not.toContain("EPERM");
+    expect(recordingWriteFailureMessage(new Error("ENOSPC"))).toContain("drive is full");
+  });
+
 });

@@ -27,6 +27,7 @@ describe("recording session store", () => {
   });
 
   afterEach(async () => {
+    vi.restoreAllMocks();
     await fs.rm(mockPaths.episodesRoot, { recursive: true, force: true });
   });
 
@@ -553,5 +554,46 @@ describe("recording session store", () => {
     expect(result.integrity.warnings.join(" ")).toContain("audio/video timing differs by 2.00 seconds");
     expect(await fs.readFile(path.join(folder, "Audio", "Originals", "morgan-mic.source.pcm"))).toEqual(await fs.readFile(pcmPath));
   }, 30000);
+
+  it("commits all concurrent camera and mic chunks exactly once through transient manifest rename locks", async () => {
+    const store = await import("./recording-session-store");
+    const session = await store.createRecordingSession({ episodeTitle: "Windows manifest lock", deviceDefaults: { cameras: { camera1: "one", camera2: "two", camera3: "three" }, microphones: { morganMic: "interface", guestMic: "interface" }, microphoneChannels: { morganMic: "input-1", guestMic: "input-2" } } });
+    const folder = session.captureFolderPath!;
+    await store.beginRecordingMedia(folder);
+    const manifestPath = path.join(folder, "Session/capture-manifest.json");
+    const rename = fs.rename.bind(fs);
+    let failures = 0;
+    vi.spyOn(fs, "rename").mockImplementation(async (source, destination) => {
+      if (destination === manifestPath && failures++ < 4) throw Object.assign(new Error("Windows sharing lock"), { code: "EPERM" });
+      return rename(source, destination);
+    });
+    const targets = ["program", "camera2", "camera3", "morganMic", "guestMic"] as const;
+    const payloads = targets.map((_, index) => Uint8Array.from([index + 1, 10, 20, 30, 40, 50]));
+    await Promise.all(targets.flatMap((target, index) => [0, 1].map((sequence) => store.appendRecordingChunk(folder, { target, kind: target === "program" ? "program" : target.startsWith("camera") ? "camera" : "audio", mimeType: target.includes("Mic") ? "audio/x-pcm;rate=48000;channels=1" : "video/webm", sequence, bytes: payloads[index] }))));
+    const manifest = JSON.parse(await fs.readFile(manifestPath, "utf8"));
+    expect(Object.keys(manifest.sources).sort()).toEqual([...targets].sort());
+    for (const [index, target] of targets.entries()) {
+      const source = manifest.sources[target];
+      expect(source.lastSequence).toBe(1);
+      expect(source.bytesWritten).toBe(12);
+      expect(await fs.readFile(source.partialPath)).toEqual(Buffer.concat([payloads[index], payloads[index]]));
+      // An IPC retry of an already acknowledged chunk must still be idempotent.
+      await store.appendRecordingChunk(folder, { target, kind: source.kind, mimeType: source.mimeType, sequence: 1, bytes: payloads[index] });
+      expect((await fs.stat(source.partialPath)).size).toBe(12);
+    }
+  });
+
+  it("does not append any bytes when the recovery manifest stays unreadable", async () => {
+    const store = await import("./recording-session-store");
+    const session = await store.createRecordingSession({ episodeTitle: "Locked recovery metadata", deviceDefaults: { cameras: {}, microphones: {} } });
+    const folder = session.captureFolderPath!;
+    await store.beginRecordingMedia(folder);
+    const chunk = { target: "program" as const, kind: "program" as const, mimeType: "video/webm", sequence: 0, bytes: new Uint8Array([1, 2, 3]) };
+    await store.appendRecordingChunk(folder, chunk);
+    const read = vi.spyOn(fs, "readFile").mockRejectedValue(Object.assign(new Error("EPERM: manifest read locked"), { code: "EPERM" }));
+    await expect(store.appendRecordingChunk(folder, { ...chunk, sequence: 1 })).rejects.toThrow("EPERM");
+    read.mockRestore();
+    expect(await fs.readFile(path.join(folder, "Program/program.partial.webm"))).toEqual(Buffer.from(chunk.bytes));
+  });
 
 });
