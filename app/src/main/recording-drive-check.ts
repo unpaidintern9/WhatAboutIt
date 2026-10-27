@@ -3,6 +3,7 @@ import path from "node:path";
 import { randomBytes, randomUUID } from "node:crypto";
 import { performance } from "node:perf_hooks";
 import { getEpisodesRoot } from "./config-service";
+import { durableJson } from "./durable-file";
 import { mediaWorkStatus } from "./media-work-scheduler";
 import type { RecordingDriveCheck } from "../shared/diagnostics";
 
@@ -31,12 +32,18 @@ async function measureDrive(): Promise<RecordingDriveCheck> {
       bytes += block.byteLength;
       if (performance.now() - started > 3000) break;
     }
+    // Capture also replaces existing recovery JSON. A new-file append test
+    // alone does not establish that those metadata updates are permitted.
+    for (let sequence = 0; sequence < 3; sequence++) {
+      if (mediaWorkStatus().capturing > 0) throw new Error("Drive test stopped because recording started.");
+      await durableJson(`${target}.json`, { sequence });
+    }
     const durationMs = Math.max(1, performance.now() - started);
     if (getEpisodesRoot() !== folder) throw new Error("The recording drive changed during the test. Check the new drive before capture.");
     const stat = await fs.statfs(folder);
     return { folder, checkedAt: new Date().toISOString(), testedBytes: bytes, durationMs, writeBytesPerSecond: bytes * 1000 / durationMs, availableBytes: Number(stat.bavail) * Number(stat.bsize) };
   } finally {
     await handle.close();
-    await fs.rm(target, { force: true });
+    await Promise.all([fs.rm(target, { force: true }), fs.rm(`${target}.json`, { force: true })]);
   }
 }

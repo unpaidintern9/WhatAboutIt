@@ -1,3 +1,4 @@
+import { recordingWriteFailureMessage } from "../../../shared/recording";
 import { MediaClock } from "../../../shared/media-clock";
 import { microphoneSlots } from "../../../shared/audio-tracks";
 import { PcmTrackRecorder, type CaptureRecorder } from "./pcm-track-recorder";
@@ -775,7 +776,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       if (sequence === 0) logRecorderEvent("info", "Program wrote its first protected chunk.", { bytesWritten: result.bytesWritten, lastChunkAt: result.lastChunkAt });
     }).catch((error) => {
       this.programWriteError = `disk write failed: ${String(error)}`;
-      this.haltCapture(this.programWriteError);
+      this.haltCapture(recordingWriteFailureMessage(error));
       logRecorderEvent("error", "Program disk write failed.", { error: String(error) });
     }).finally(() => {
       this.programPendingBytes = Math.max(0, this.programPendingBytes - blob.size);
@@ -804,7 +805,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       if (sequence === 0) logRecorderEvent("info", "Isolated source wrote its first protected chunk.", { slot: track.slot, kind: track.kind, bytesWritten: result.bytesWritten, lastChunkAt: result.lastChunkAt });
     }).catch((error) => {
       track.writeError = `disk write failed: ${String(error)}`;
-      this.haltCapture(track.writeError);
+      this.haltCapture(recordingWriteFailureMessage(error));
       logRecorderEvent("error", "Isolated source disk write failed.", { slot: track.slot, kind: track.kind, error: String(error) });
     }).finally(() => {
       track.pendingBytes = Math.max(0, track.pendingBytes - blob.size);

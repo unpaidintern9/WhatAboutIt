@@ -224,3 +224,11 @@ export function friendlyRecordingError(reason: "permission" | "camera" | "mic" |
 
   return messages[reason];
 }
+
+/** Keep OS paths/codes in diagnostics while giving the host an actionable stop reason. */
+export function recordingWriteFailureMessage(error: unknown) {
+  const detail = String(error);
+  if (/EPERM|EACCES|EBUSY/i.test(detail)) return "Windows kept a recording file locked. Recording paused. Keep this episode and use Stop & Save to finish or recover the take.";
+  if (/ENOSPC|disk.*full/i.test(detail)) return "The recording drive is full. Recording paused. Keep this episode and free space before saving or recovering the take.";
+  return "The recording drive could not save new data. Recording paused. Keep this episode and use Stop & Save to finish or recover the take.";
+}

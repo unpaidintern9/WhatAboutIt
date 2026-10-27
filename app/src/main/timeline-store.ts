@@ -6,6 +6,7 @@ import { getEpisodesRoot } from "./config-service";
 import { acquireCollaborationEditorLease, getCollaborationRemoteConfig, sendCollaborationPresence } from "./collaboration-remote-service";
 import { assertProjectRevisionCurrent, pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
 import { logger } from "./logger";
+import { renameWithRetry } from "./durable-file";
 import { withLocalProjectSave, markProjectSavePending, readPendingProjectSave, clearPendingProjectSave } from "./local-project-save";
 import { waitForMediaBudget } from "./media-work-scheduler";
 
@@ -140,7 +141,7 @@ export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft)
       } catch (error) {
         if (!isMissingFile(error)) throw error;
       }
-      await fs.rename(temporaryPath, filePath);
+      await renameWithRetry(temporaryPath, filePath);
       await syncDirectory(directory);
     } finally {
       await temporaryHandle?.close().catch(() => undefined);

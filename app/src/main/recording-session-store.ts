@@ -1,6 +1,6 @@
 import { assertRecordingCapacity, configureRollingBackup, finishRollingBackup, queueRollingBackup, rollingBackupWarning, serializeSourceWrite } from "./recording-disk-writer";
 import { microphoneSlots, microphoneAssetId } from "../shared/audio-tracks";
-import { durableAppend, durableJson } from "./durable-file";
+import { durableAppend, durableJson, renameWithRetry, withFileLockRetry } from "./durable-file";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
@@ -45,7 +45,7 @@ async function writeJson(filePath: string, value: unknown) { return durableJson(
 
 async function readJsonFile<T>(filePath: string): Promise<T | null> {
   try {
-    return JSON.parse(await fs.readFile(filePath, "utf8")) as T;
+    return JSON.parse(await withFileLockRetry(() => fs.readFile(filePath, "utf8"))) as T;
   } catch {
     return null;
   }
@@ -332,7 +332,7 @@ async function finalizeProgramSource(folderPath: string, source?: CaptureManifes
   const finalPath = path.join(folderPath, "Program", "program.webm");
   const rawPath = path.join(folderPath, "Program", "program.source.webm");
   if (!(await mediaFileExists(source.partialPath)) && await isPlayableRecording(finalPath)) return { programPath: finalPath, playable: true };
-  if (await mediaFileExists(source.partialPath)) await fs.rename(source.partialPath, rawPath);
+  if (await mediaFileExists(source.partialPath)) await renameWithRetry(source.partialPath, rawPath);
   // Browser WebM streams often omit duration/cues. A lossless remux makes
   // completed parts seekable while retaining the untouched capture for recovery.
   const temporary = path.join(folderPath, "Program", `.remux-${crypto.randomUUID()}.webm`);
@@ -340,7 +340,7 @@ async function finalizeProgramSource(folderPath: string, source?: CaptureManifes
     await runFfmpeg(["-y", "-i", rawPath, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", temporary]);
     const playable = await isPlayableRecording(temporary);
     if (!playable) return { programPath: undefined, playable: false };
-    await fs.rename(temporary, finalPath);
+    await renameWithRetry(temporary, finalPath);
     return { programPath: finalPath, playable };
   } finally { await fs.rm(temporary, { force: true }); }
 }
@@ -352,7 +352,7 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
       const finalPath = path.join(folderPath, "Cameras", `${mediaBaseName(slot)}.webm`);
       if (!(await mediaFileExists(source.partialPath)) && await isPlayableRecording(finalPath)) return { slot, kind: "camera", status: "saved", filePath: finalPath, message: "Saved and verified" };
       await fs.rm(finalPath, { force: true });
-      await fs.rename(source.partialPath, finalPath);
+      await renameWithRetry(source.partialPath, finalPath);
       const ratio = source.clockRateRatio ?? 1;
       if (ratio > 0.998 && ratio < 1.002 && Math.abs(ratio - 1) >= 0.0001) {
         const original = path.join(folderPath, "Cameras", "Originals", `${mediaBaseName(slot)}.webm`);
@@ -362,7 +362,7 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
         try {
           await runFfmpeg(["-y", "-i", original, "-vf", `setpts=PTS/${ratio.toFixed(9)}`, "-af", `atempo=${ratio.toFixed(9)}`, "-c:v", "libvpx-vp9", "-lossless", "1", "-cpu-used", "4", "-c:a", "libopus", temporary]);
           if (!await isPlayableRecording(temporary)) throw new Error("Clock-corrected camera failed validation.");
-          await fs.rename(temporary, finalPath);
+          await renameWithRetry(temporary, finalPath);
         } finally { await fs.rm(temporary, { force: true }); }
       }
       if (!(await isPlayableRecording(finalPath))) throw new Error("Camera track failed validation.");
@@ -392,7 +392,7 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
     if (!(await hasAudibleSignal(finalPath))) {
       await fs.mkdir(path.dirname(originalPath), { recursive: true });
       await fs.rm(originalPath, { force: true });
-      await fs.rename(source.partialPath, originalPath);
+      await renameWithRetry(source.partialPath, originalPath);
       await appendRecordingError(folderPath, `${slot} was saved but contains no audible signal.`);
       return { slot, kind: "audio", status: "needs-attention", filePath: finalPath, message: "Saved, but no audible signal was detected" };
     }
@@ -400,7 +400,7 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
     // preserves the best available source for future restoration/mastering.
     await fs.mkdir(path.dirname(originalPath), { recursive: true });
     await fs.rm(originalPath, { force: true });
-    await fs.rename(source.partialPath, originalPath);
+    await renameWithRetry(source.partialPath, originalPath);
     return { slot, kind: "audio", status: "saved", filePath: finalPath, message: "Saved and verified" };
   } catch (error) {
     await appendRecordingError(folderPath, `${slot} could not be finalized: ${String(error)}`);
