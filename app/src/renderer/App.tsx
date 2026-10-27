@@ -491,7 +491,10 @@ export default function App() {
           if (activeEpisodeRef.current?.id !== episodeId) return;
           const pending = pendingTimelineSaveRef.current;
           if (pending?.episodeId === episodeId && pending.draft.version > savedDraft.version) return;
-          setTimelineDraft((current) => (current.episodeId === episodeId ? savedDraft : current));
+          // A fresh recording can hydrate playable media while its initial
+          // project save is still pending. Keep that hydrated state unless
+          // this response is acknowledging an actual unsaved edit.
+          setTimelineDraft((current) => (current.episodeId === episodeId && current.hasUnsavedChanges ? savedDraft : current));
           setTimelineSaveState("saved");
         }
       ),
@@ -906,6 +909,16 @@ export default function App() {
   function enqueueTimelineSave(episodeId: string, nextDraft: TimelineDraft) {
     if (activeEpisodeRef.current?.id === episodeId) setTimelineSaveState("saving");
     return timelineSaveQueue.enqueue(episodeId, nextDraft);
+  }
+
+  function saveRecordedTimelineInBackground(episodeId: string, draft: TimelineDraft) {
+    void enqueueTimelineSave(episodeId, draft).catch((error) => {
+      const pending = pendingTimelineSaveRef.current;
+      if (activeEpisodeRef.current?.id !== episodeId || (pending?.episodeId === episodeId && pending.draft.version > draft.version)) return;
+      setTimelineSaveState("failed");
+      setTimelineDraft((current) => current.episodeId === episodeId && current.version === draft.version ? { ...current, hasUnsavedChanges: true } : current);
+      setWorkspaceMessage(`Recording saved safely on this computer. The review draft still needs Save: ${error instanceof Error ? error.message : String(error)}`);
+    });
   }
 
   function queueTimelineDraftChange(nextDraft: TimelineDraft) {
@@ -1485,7 +1498,7 @@ export default function App() {
     });
     setTimelineDraft(draft);
     if (episodeId) {
-      setTimelineDraft(await studio.saveTimelineDraft(episodeId, draft));
+      saveRecordedTimelineInBackground(episodeId, draft);
     }
     await refreshUnfinishedSessions();
     await refreshEpisodes();
@@ -1614,10 +1627,11 @@ export default function App() {
     });
     setTimelineDraft(draft);
     if (episodeId) {
-      setTimelineDraft(await studio.saveTimelineDraft(episodeId, draft));
-      // Stop is complete once capture, disk finalization, and the timeline are
-      // safe. Waveforms, proxies, and library refreshes are derived work and
-      // must not leave the Stop button spinning after the files are protected.
+      // Capture has already been flushed and verified. A cloud lease, project
+      // save, or sync outage must not keep Stop busy or prevent local Review.
+      // Use the normal per-episode queue so a late initial response cannot
+      // replace a newer user edit. Shared-project ownership checks still run.
+      saveRecordedTimelineInBackground(episodeId, draft);
       void (async () => {
         await loadReviewMediaForEpisode(episodeId);
         if (episodeId !== activeEpisodeRef.current?.id) {
