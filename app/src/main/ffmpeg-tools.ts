@@ -124,7 +124,7 @@ export async function runFfmpegWithProgress(
 
   let reportedProgress = 0;
   return runCaptureYieldingWork((attemptSignal) => new Promise<FfmpegRunResult>((resolve, reject) => {
-    const child = spawn(resolvedTools.ffmpegPath, ["-threads", "2", "-progress", "pipe:1", "-nostats", ...args], {
+    const child = spawn(resolvedTools.ffmpegPath, ["-threads", "2", "-filter_threads", "1", "-filter_complex_threads", "1", "-progress", "pipe:1", "-nostats", ...args.slice(0, -1), "-threads", "2", ...args.slice(-1)], {
       windowsHide: true
     });
     let stdout = "";

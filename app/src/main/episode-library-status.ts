@@ -27,5 +27,5 @@ export async function withEpisodeLibraryStatus(episode: EpisodeMetadata): Promis
       break;
     }
   } catch { /* A new episode has no Exports folder yet. */ }
-  return { ...episode, status, resumeAvailable: paused, durationMs, updatedAt: activityAt > episode.updatedAt ? activityAt : episode.updatedAt };
+  return { ...episode, status, resumeAvailable: paused || (state?.status === "stopped" && Boolean(session?.captureFolderPath)), durationMs, updatedAt: activityAt > episode.updatedAt ? activityAt : episode.updatedAt };
 }

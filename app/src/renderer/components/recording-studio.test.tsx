@@ -80,6 +80,19 @@ function click(host: HTMLElement, label: string) {
 }
 
 describe("RecordingStudio", () => {
+  it("offers Resume after Stop and a visible New Episode action", async () => {
+    const onContinue = vi.fn(async () => undefined), onNewEpisode = vi.fn(async () => undefined);
+    const { host } = renderStudio({ snapshot: { status: "stopped", elapsedMs: 12000, localSaveMessage: "Saved", trackStatuses: [] }, onContinue, onNewEpisode });
+    const resume = host.querySelector<HTMLButtonElement>("button.pause")!;
+    expect(resume.disabled).toBe(false);
+    expect(resume.textContent).toContain("Resume");
+    expect(host.textContent).toContain("Resume adds more to this episode");
+    await act(async () => resume.click());
+    expect(onContinue).toHaveBeenCalledTimes(1);
+    await act(async () => click(host, "New Episode"));
+    expect(onNewEpisode).toHaveBeenCalledTimes(1);
+  });
+
   it("renders the live control room with camera cards and mic meter states", () => {
     const { host } = renderStudio();
 

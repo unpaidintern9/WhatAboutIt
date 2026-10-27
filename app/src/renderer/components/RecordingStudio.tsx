@@ -67,6 +67,9 @@ interface RecordingStudioProps {
   onCheckReadiness?: () => Promise<void>;
   recordingPreferences?: RecordingPreferences;
   onStart: () => Promise<RecordingServiceSnapshot | void> | RecordingServiceSnapshot | void;
+  onContinue?: () => Promise<void> | void;
+  onNewEpisode?: () => Promise<void> | void;
+  canContinueRecording?: boolean;
   onQuickTest?: () => Promise<void> | void;
   onResumeSession?: (session: RecordingSession) => Promise<void> | void;
   onPause: () => Promise<void> | void;
@@ -156,6 +159,9 @@ export function RecordingStudio({
   onCheckReadiness,
   recordingPreferences: recordingPreferencesProp,
   onStart,
+  onContinue,
+  onNewEpisode,
+  canContinueRecording,
   onQuickTest,
   onResumeSession,
   onPause,
@@ -219,7 +225,7 @@ export function RecordingStudio({
 
   const isRecording = snapshot.status === "recording";
   const isPaused = snapshot.status === "paused";
-  const isComplete = snapshot.status === "stopped";
+  const isComplete = snapshot.status === "stopped" || Boolean(canContinueRecording && !isRecording && !isPaused);
   const hasMedia = Boolean(isComplete && snapshot.session);
   const savingLocation = snapshot.session?.folderPath ?? "Session folder appears after Record starts";
   const cameraReadyCount = cameraSlots.filter((slot) => findDevice(detection.cameras, defaults.cameras[slot.key])).length;
@@ -490,7 +496,7 @@ export function RecordingStudio({
     if (recordingAction !== "idle") return;
     setRecordingAction("saving");
     try {
-      await (isPaused ? onResume() : onPause());
+      await (isComplete ? onContinue?.() : isPaused ? onResume() : onPause());
       setStudioNotice({ tone: "recording", message: isPaused ? "Recording continues in this episode folder." : "Episode paused and saved. You can close the app and return later." });
     } catch (error) {
       setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "The episode needs attention before continuing." });
@@ -520,7 +526,7 @@ export function RecordingStudio({
     setStudioNotice({ tone: "recording", message: "Saving every recorded source safely..." });
     try {
       await onStop();
-      setStudioNotice({ tone: "ready", message: "Recording stopped. Files are saved and verified." });
+      setStudioNotice({ tone: "ready", message: "Take saved. Resume adds to this episode; New Episode starts a separate folder." });
     } catch (error) {
       setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "Recording stopped, but file verification needs attention." });
     } finally {
@@ -587,6 +593,7 @@ export function RecordingStudio({
           eyebrow={isRecording ? "Recording Live" : isPaused ? "Paused" : isComplete ? "Recording Complete" : "Control Room"}
           aside={
             <div className="reference-header-actions">
+              {onNewEpisode && <RusticButton disabled={recordingAction !== "idle"} onClick={async () => { setRecordingAction("saving"); try { await onNewEpisode(); } finally { setRecordingAction("idle"); } }}>New Episode</RusticButton>}
               <div className={`recording-timer ${isRecording ? "recording" : ""}`} aria-label="Recording timer">
                 <span>{isRecording ? "Recording" : isPaused ? "Paused" : "Not Recording"}</span>
                 <strong>{formatRecordingTime(snapshot.elapsedMs)}</strong>
@@ -797,15 +804,15 @@ export function RecordingStudio({
             </StudioControlButton>
             <StudioControlButton
               className="pause"
-              disabled={!recordingInProgress || recordingAction !== "idle"}
+              disabled={(!recordingInProgress && !(isComplete && onContinue)) || recordingAction !== "idle"}
               onClick={() => void pauseOrResume()}
             >
-              {isPaused ? <Play size={28} /> : <Pause size={28} />}
-              <span><strong>{isPaused ? "Resume" : "Pause"}</strong><small>{isPaused ? "Resume recording" : "Pause recording"}</small></span>
+              {isPaused || isComplete ? <Play size={28} /> : <Pause size={28} />}
+              <span><strong>{isPaused || isComplete ? "Resume" : "Pause"}</strong><small>{isComplete ? "Continue this episode" : isPaused ? "Resume recording" : "Pause recording"}</small></span>
             </StudioControlButton>
             <StudioControlButton className="stop" disabled={!recordingInProgress || recordingAction !== "idle"} onClick={requestStop}>
               {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={28} /> : <Square size={28} />}
-              <span><strong>{recordingAction === "saving" ? "Saving" : "Stop"}</strong><small>{recordingAction === "saving" ? "Finalizing files" : "Stop recording"}</small></span>
+              <span><strong>{recordingAction === "saving" ? "Saving" : "Stop & Save"}</strong><small>{recordingAction === "saving" ? "Finalizing files" : "Stop recording"}</small></span>
             </StudioControlButton>
             <StudioControlButton className="auto-edit" disabled={!hasMedia || recordingAction !== "idle"} onClick={goAutoEdit}>
               <Sparkles size={28} />
@@ -819,6 +826,7 @@ export function RecordingStudio({
 
         </section>
 
+        {isComplete && <p role="status" style={{ margin: "8px 0" }}>This take is saved. Resume adds more to this episode. New Episode saves this one and opens a separate episode folder.</p>}
         <ReadinessStrip
           cameraReadyCount={cameraReadyCount}
           micReadyCount={liveMicReadyCount}
@@ -1546,6 +1554,7 @@ function LiveMicMeter({
         meterLease = acquireStudioAudioContext(diagnostics.sampleRate);
         audioContext = meterLease.context;
         const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 512;
         const source = audioContext.createMediaStreamSource(stream);
         const samples = new Uint8Array(analyser.frequencyBinCount);
         centeredMeterSource = connectInputChannelSource(audioContext, source, inputChannel, diagnostics.channelCount);

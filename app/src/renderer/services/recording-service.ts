@@ -166,6 +166,7 @@ export class RecordingService {
   }
 
   async resume() {
+    if (this.status === "stopped" && this.session?.captureFolderPath && this.deviceDefaults) return this.resumeSaved(this.session, this.deviceDefaults);
     if (this.status !== "paused") return this.getSnapshot();
     if (this.session?.durablePaused && this.deviceDefaults) return this.resumeSaved(this.session, this.deviceDefaults);
     await this.plugin.resume();

@@ -730,6 +730,21 @@ export default function App() {
     setActiveEpisode((currentEpisode) => nextEpisodes.find((episode) => episode.id === currentEpisode?.id) ?? nextEpisodes[0]);
   }
 
+  const [newEpisodeBusy, setNewEpisodeBusy] = useState(false);
+  async function startNewEpisode() {
+    if (newEpisodeBusy) return;
+    setNewEpisodeBusy(true);
+    try {
+      if (recordingService.getSnapshot().status === "recording") await pauseRecording();
+      if (recordingService.hasActiveCapture()) throw new Error("The current take is still saving. Try again when saving finishes.");
+      await flushPendingTimelineSave();
+      setTitle(""); setGuestName(""); setDescription("");
+      setView("new-episode");
+      setWorkspaceMessage("Current episode saved in its folder. Create a new episode below.");
+    } catch (error) { setWorkspaceMessage(error instanceof Error ? error.message : "The current episode needs to finish saving."); }
+    finally { setNewEpisodeBusy(false); }
+  }
+
   async function createEpisode() {
     if (recordingService.hasActiveCapture()) { setWorkspaceMessage("Pause and save the current episode before creating another one."); setView("recording"); return; }
     await flushPendingTimelineSave();
@@ -1701,6 +1716,7 @@ export default function App() {
   return (
     <main data-view={view} className={`studio-shell ${effectiveSidebarCollapsed ? "sidebar-collapsed" : ""} ${view === "recording" ? "studio-shell--recording" : ""} ${view === "timeline-review" ? "studio-shell--review" : ""}`.trim()}>
       <aside className="sidebar" aria-label="What About It Studio navigation">
+        <Button variant="primary" disabled={newEpisodeBusy} onClick={() => void startNewEpisode()}>{newEpisodeBusy ? "Saving…" : "New Episode"}</Button>
         <div className="brand-lockup">
           <div className="brand-badge">WAI</div>
           <div>
@@ -1791,7 +1807,7 @@ export default function App() {
             }}
           />
         )}
-        {view === "home" && <HomeView episodes={episodes} cameraReady={selectedCameraReady} microphoneReady={selectedMicrophoneReady} onNewEpisode={() => setView("new-episode")} onStudioSetup={() => setView("device-setup")} onOpenEpisode={(episode) => void openEpisode(episode)} />}
+        {view === "home" && <HomeView episodes={episodes} cameraReady={selectedCameraReady} microphoneReady={selectedMicrophoneReady} onNewEpisode={() => void startNewEpisode()} onStudioSetup={() => setView("device-setup")} onOpenEpisode={(episode) => void openEpisode(episode)} />}
         {view === "new-episode" && <NewEpisodeView title={title} guestName={guestName} description={description} setTitle={setTitle} setGuestName={setGuestName} setDescription={setDescription} createEpisode={createEpisode} onBack={() => setView("home")} onNext={() => setView("device-setup")} />}
         {view === "device-setup" && (
           <div className="view-stack">
@@ -1838,6 +1854,16 @@ export default function App() {
             onCheckReadiness={verifyRecordingReady}
             recordingPreferences={recordingPreferences}
             onStart={() => startRecording(false)}
+            canContinueRecording={Boolean(activeEpisode?.resumeAvailable && reviewMedia?.episodeId === activeEpisode.id && reviewMedia.hasPlayableProgram)}
+            onContinue={async () => {
+              await verifyRecordingReady();
+              await flushPendingTimelineSave();
+              const snapshot = await recordingService.start(settings.deviceDefaults, { episodeId: activeEpisode?.id, episodeTitle: activeEpisode?.title, resume: true });
+              setRecordingSnapshot(snapshot);
+              if (snapshot.status !== "recording") throw new Error(snapshot.friendlyError ?? "This episode could not be continued.");
+              setReviewMedia(undefined);
+            }}
+            onNewEpisode={startNewEpisode}
             onQuickTest={() => startQuickTestRecording()}
             onPause={() => pauseRecording()}
             onResume={() => resumeRecording()}
@@ -2156,7 +2182,7 @@ function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStud
                       {episode.guestName || "Solo episode"} · {new Date(episode.updatedAt).toLocaleString()}{episode.durationMs ? ` · ${Math.ceil(episode.durationMs / 60000)} min recorded` : ""}
                     </p>
                   </div>
-                  <span>{episode.resumeAvailable ? "Paused — resume" : episode.status === "draft" ? "New episode" : episode.status === "recorded" ? "Recorded" : episode.status === "exported" ? "Exported" : "Ready"}</span>
+                  <span>{episode.resumeAvailable ? (episode.status === "recorded" || episode.status === "exported" ? "Saved — can resume" : "Paused — resume") : episode.status === "draft" ? "New episode" : episode.status === "recorded" ? "Recorded" : episode.status === "exported" ? "Exported" : "Ready"}</span>
                 </button>
               ))}
             </div>

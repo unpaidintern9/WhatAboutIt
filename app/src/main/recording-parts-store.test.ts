@@ -134,7 +134,7 @@ describe("durable episode recording parts", () => {
     expect(journal.parts).toHaveLength(1);
     expect(journal.abandonedEmptyParts).toHaveLength(1);
   }, 30000);
-  it("rejects simultaneous resume claims and refuses to resume a finished episode", async () => {
+  it("rejects simultaneous resume claims and safely continues a stopped episode", async () => {
     const store = await import("./recording-session-store");
     const first = await store.createRecordingSession({ episodeId: "episode-exclusive", deviceDefaults: defaults });
     await capture(first);
@@ -144,6 +144,17 @@ describe("durable episode recording parts", () => {
     const second = claims.find((claim) => claim.status === "fulfilled") as PromiseFulfilledResult<RecordingSession>;
     await capture(second.value);
     await store.checkpointRecordingSession(first.folderPath, false);
-    await expect(store.createRecordingSession({ episodeId: first.episodeId, deviceDefaults: defaults, resume: true })).rejects.toThrow("not saved as a paused recording");
+    const original = await fs.readFile(path.join(first.captureFolderPath!, "Program", "program.webm"));
+    const continued = await store.createRecordingSession({ episodeId: first.episodeId, deviceDefaults: defaults, resume: true });
+    expect(continued.id).toBe(first.id);
+    expect(continued.folderPath).toBe(first.folderPath);
+    expect(continued.captureFolderPath).not.toBe(second.value.captureFolderPath);
+    expect(await fs.readFile(path.join(first.captureFolderPath!, "Program", "program.webm"))).toEqual(original);
+    await expect(store.createRecordingSession({ episodeId: first.episodeId, deviceDefaults: defaults, resume: true })).rejects.toThrow("Pause or stop and save");
+    await capture(continued);
+    const saved = await store.checkpointRecordingSession(first.folderPath, false);
+    expect(saved.result?.integrity.programPlayable).toBe(true);
+    const journal = JSON.parse(await fs.readFile(path.join(first.folderPath, "Session", "recording-parts.json"), "utf8"));
+    expect(journal.parts).toHaveLength(3);
   }, 40000);
 });
