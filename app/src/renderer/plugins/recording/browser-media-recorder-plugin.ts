@@ -132,6 +132,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
 
     try {
+      await configureCaptureVideo(this.stream, normalizedRequest.deviceDefaults.captureQuality);
       this.chunks = [];
       this.recorder = new MediaRecorder(this.stream, recorderOptions("video", normalizedRequest.deviceDefaults.captureQuality));
       this.recorder.ondataavailable = (event) => {
@@ -312,6 +313,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       const stream = this.openReadyCameraTrackStream(entry.slot, entry.deviceId);
       if (!stream) continue;
       try {
+        await configureCaptureVideo(stream, request.deviceDefaults.captureQuality);
         this.trackRecorders.push(createTrackRecorder(entry.slot, "camera", stream, pickMimeType(), (track, blob) => this.queueTrackChunk(track, blob), undefined, request.deviceDefaults.captureQuality));
         preparedSlots.add(entry.slot);
       } catch {
@@ -355,6 +357,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
         stopStudioMediaStream(stream);
         return;
       }
+      await configureCaptureVideo(stream, quality);
       const trackRecorder = createTrackRecorder(slot, "camera", stream, pickMimeType(), (track, blob) => this.queueTrackChunk(track, blob), undefined, quality);
       startTrackRecorder(trackRecorder);
       this.trackRecorders.push(trackRecorder);
@@ -808,6 +811,14 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       track.queueDepth = Math.max(0, track.queueDepth - 1);
     });
   }
+}
+
+export async function configureCaptureVideo(stream: MediaStream, quality: "balanced" | "high" = "balanced") {
+  const high = quality === "high";
+  await Promise.all(stream.getVideoTracks().map(async (track) => {
+    if (!track.applyConstraints) return;
+    await track.applyConstraints({ width: { max: high ? 1920 : 1280 }, height: { max: high ? 1080 : 720 }, frameRate: { max: 30 } });
+  }));
 }
 
 function logAudioCapture(route: "program" | "isolated", slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel, stream: MediaStream) {
