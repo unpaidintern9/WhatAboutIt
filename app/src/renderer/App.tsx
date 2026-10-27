@@ -449,6 +449,7 @@ export default function App() {
   const timelineAutosaveTimerRef = useRef<number | undefined>(undefined);
   const workspaceRef = useRef<HTMLElement | null>(null);
   const pendingTimelineSaveRef = useRef<{ episodeId: string; draft: TimelineDraft } | undefined>(undefined);
+  const recordingDraftSaveStatesRef = useRef(new Map<string, "saving" | "failed">());
   const episodeLoadSequenceRef = useRef(0);
   const activeEpisodeRef = useRef(activeEpisode);
   activeEpisodeRef.current = activeEpisode;
@@ -488,6 +489,7 @@ export default function App() {
       new TimelineSaveQueue(
         (episodeId, draft) => studio.saveTimelineDraft(episodeId, draft),
         (episodeId, savedDraft) => {
+          recordingDraftSaveStatesRef.current.delete(episodeId);
           if (activeEpisodeRef.current?.id !== episodeId) return;
           const pending = pendingTimelineSaveRef.current;
           if (pending?.episodeId === episodeId && pending.draft.version > savedDraft.version) return;
@@ -809,8 +811,10 @@ export default function App() {
       });
       setPodcastTools(hydratedTools);
       setReviewMedia(inventory);
-      setTimelineDraft(syncTimelineTracksWithMedia(withTimelineDraftDefaults(savedDraft, fallback), inventory));
-      setTimelineSaveState("saved");
+      const recordingSaveState = recordingDraftSaveStatesRef.current.get(episodeId);
+      const nextDraft = syncTimelineTracksWithMedia(withTimelineDraftDefaults(savedDraft, fallback), inventory);
+      setTimelineDraft(recordingSaveState === "failed" ? { ...nextDraft, hasUnsavedChanges: true } : nextDraft);
+      setTimelineSaveState(recordingSaveState ?? "saved");
     } catch (error) {
       if (sequence !== episodeLoadSequenceRef.current || activeEpisodeRef.current?.id !== episodeId) return;
       setTimelineSaveState("failed");
@@ -912,9 +916,12 @@ export default function App() {
   }
 
   function saveRecordedTimelineInBackground(episodeId: string, draft: TimelineDraft) {
+    recordingDraftSaveStatesRef.current.set(episodeId, "saving");
     void enqueueTimelineSave(episodeId, draft).catch((error) => {
       const pending = pendingTimelineSaveRef.current;
-      if (activeEpisodeRef.current?.id !== episodeId || (pending?.episodeId === episodeId && pending.draft.version > draft.version)) return;
+      if (pending?.episodeId === episodeId && pending.draft.version > draft.version) return;
+      recordingDraftSaveStatesRef.current.set(episodeId, "failed");
+      if (activeEpisodeRef.current?.id !== episodeId) return;
       setTimelineSaveState("failed");
       setTimelineDraft((current) => current.episodeId === episodeId && current.version === draft.version ? { ...current, hasUnsavedChanges: true } : current);
       setWorkspaceMessage(`Recording saved safely on this computer. The review draft still needs Save: ${error instanceof Error ? error.message : String(error)}`);

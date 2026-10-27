@@ -52,5 +52,9 @@ it("finishes Stop and loads playable Review while cloud save is pending, then pr
     await act(async () => { rejectSave(new Error("Cloud edit ownership unavailable")); });
     expect(host.textContent).toContain("Save failed — retry");
     expect(host.querySelector('[aria-label="Synchronized episode timeline"]')).not.toBeNull();
+    await act(async () => { host.querySelector<HTMLButtonElement>('nav[aria-label="Studio workflow"] [data-label="Episodes"]')!.click(); });
+    await act(async () => { host.querySelector<HTMLButtonElement>(".episode-card")!.click(); });
+    expect(host.textContent).toContain("Save failed — retry");
+    expect(host.querySelector('[aria-label="Synchronized episode timeline"]')).not.toBeNull();
   } finally { act(() => root.unmount()); host.remove(); }
 });
