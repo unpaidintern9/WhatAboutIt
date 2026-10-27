@@ -187,7 +187,7 @@ export function DeviceSetupWizard({
             <div className="camera-setup-content">
               <label className="device-select capture-quality-control">Recording quality
                 <select aria-label="Recording quality" value={defaults.captureQuality ?? "balanced"} onChange={(event) => onDefaultsChange({ ...defaults, captureQuality: event.target.value === "high" ? "high" : "balanced" })}>
-                  <option value="balanced">Balanced · 8 Mbps per camera</option><option value="high">High · 16 Mbps per camera</option>
+                  <option value="balanced">Balanced · up to 720p / 30 fps · 8 Mbps</option><option value="high">High · up to 1080p / 30 fps · 16 Mbps</option>
                 </select>
               </label>
               <div className="camera-card-grid">
@@ -477,6 +477,14 @@ function CameraSetupCard({
           </div>
         </details>
       </div>
+      <DeviceSelect
+        label="Choose Camera"
+        value={selectedDeviceId ?? ""}
+        devices={devices}
+        disabledDeviceIds={disabledDeviceIds}
+        emptyLabel="Choose Camera"
+        onChange={onChoose}
+      />
       <div className={`setup-live-preview ${previewStatus}`}>
         <video ref={videoRef} muted playsInline aria-label={`${label} setup live preview`} />
         {previewStatus !== "live" && (
@@ -491,14 +499,6 @@ function CameraSetupCard({
         <span>{getCameraCardSubcopy(selectedDevice, previewStatus, label)}</span>
       </div>
       <p className="camera-name">{selectedDevice?.label ?? "No camera picked yet"}</p>
-      <DeviceSelect
-        label="Choose Camera"
-        value={selectedDeviceId ?? ""}
-        devices={devices}
-        disabledDeviceIds={disabledDeviceIds}
-        emptyLabel="Choose Camera"
-        onChange={onChoose}
-      />
       <div className="camera-button-row">
         <Button variant={selectedDevice ? "secondary" : "primary"} icon={<Camera size={20} />} onClick={() => onChoose(selectedDeviceId ?? firstDevice?.id ?? "")}>
           {buttonLabel}

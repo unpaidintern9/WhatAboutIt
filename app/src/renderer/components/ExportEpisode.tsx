@@ -121,11 +121,6 @@ export function ExportEpisode({
 
       <details className="export-more-formats" open={selectedType === "archive-master" || selectedType === "social-clip-placeholder"}><summary>More formats: archive & social clips</summary><div className="export-option-grid">{(["archive-master", "social-clip-placeholder"] as ExportType[]).map(renderFormat)}</div></details>
 
-      <div className="export-ready-summary" role="region" aria-label="Export summary">
-        <div><strong>{exportTypeLabels[selectedType].title}</strong><span>{isEditorHandoff ? `Source format: ${editorVideoPreset === "prores" ? "ProRes MOV" : "Compatible MP4"}` : `Quality: ${qualityPreset}`} · {isEditorHandoff ? destinationFolderPath ?? "Choose a destination below" : "Saved in this episode’s Exports folder"}</span><small>{isEditorHandoff ? "Includes original source channels and a reference edit" : `${includeCameraMasters ? "Camera masters included · " : ""}${includeAudioMasters ? "Audio masters included · " : ""}Originals stay unchanged`}</small></div>
-        {isEditorHandoff && !destinationFolderPath ? <Button onClick={onChooseDestination}>Choose destination</Button> : null}
-        <Button variant="primary" disabled={isRunning || socialClipNeedsRange || handoffNeedsDestination} onClick={onStartExport}>{isRunning ? "Exporting…" : isEditorHandoff ? "Build editor handoff" : isComplete ? "Export again" : "Export"}</Button>
-      </div>
       <section className="export-settings-panel">
         <div>
           <p className="signature">Keep it simple</p>
@@ -203,7 +198,13 @@ export function ExportEpisode({
         </div> : null}
       </section>
 
-      <section className="export-progress-panel">
+      <div className="export-ready-summary" role="region" aria-label="Export summary">
+        <div><strong>{exportTypeLabels[selectedType].title}</strong><span>{isEditorHandoff ? `Source format: ${editorVideoPreset === "prores" ? "ProRes MOV" : "Compatible MP4"}` : `Quality: ${qualityPreset}`} · {isEditorHandoff ? destinationFolderPath ?? "Choose a destination" : "Saved in this episode’s Exports folder"}</span><small>{isEditorHandoff ? "Includes original source channels and a reference edit" : `${includeCameraMasters ? "Camera masters included · " : ""}${includeAudioMasters ? "Audio masters included · " : ""}Originals stay unchanged`}</small></div>
+        {isEditorHandoff && !destinationFolderPath ? <Button onClick={onChooseDestination}>Choose destination</Button> : null}
+        <Button variant="primary" disabled={isRunning || socialClipNeedsRange || handoffNeedsDestination} onClick={onStartExport}>{isRunning ? "Exporting…" : isEditorHandoff ? "Build editor handoff" : isComplete ? "Export again" : "Export"}</Button>
+      </div>
+
+      <section className={`export-progress-panel ${!job && mediaToolsStatus?.ready ? "ready-state" : ""}`}>
         <div className="panel-heading">
           <h3>{isComplete ? "Export complete" : isRunning ? "Exporting your episode" : isError ? "Something needs attention before export" : "Ready to export"}</h3>
           {isComplete ? <CheckCircle2 size={24} /> : isRunning ? <LoaderCircle className="export-spinner" size={24} /> : <ShieldCheck size={24} />}

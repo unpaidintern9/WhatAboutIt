@@ -1,6 +1,6 @@
 import { PcmTrackRecorder } from "./pcm-track-recorder";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { BrowserMediaRecorderPlugin } from "./browser-media-recorder-plugin";
+import { BrowserMediaRecorderPlugin, configureCaptureVideo } from "./browser-media-recorder-plugin";
 import type { RecordingChunkInput } from "../../../shared/recording";
 
 class FakeTrack {
@@ -144,6 +144,30 @@ describe("BrowserMediaRecorderPlugin", () => {
     vi.restoreAllMocks();
     vi.useRealTimers();
     Reflect.deleteProperty(window, "studio");
+  });
+
+  it("caps encoder input dimensions and frame rate for each capture profile", async () => {
+    const applyConstraints = vi.fn(async () => undefined);
+    const stream = { getVideoTracks: () => [{ applyConstraints }] } as unknown as MediaStream;
+    await configureCaptureVideo(stream, "balanced");
+    expect(applyConstraints).toHaveBeenLastCalledWith({ width: { max: 1280 }, height: { max: 720 }, frameRate: { max: 30 } });
+    await configureCaptureVideo(stream, "high");
+    expect(applyConstraints).toHaveBeenLastCalledWith({ width: { max: 1920 }, height: { max: 1080 }, frameRate: { max: 30 } });
+    applyConstraints.mockRejectedValueOnce(new Error("unsupported camera mode"));
+    await expect(configureCaptureVideo(stream, "balanced")).rejects.toThrow("unsupported camera mode");
+  });
+
+  it("protects the episode when a writing PCM source loses render time", async () => {
+    const recorder = new FakeMediaRecorder(streamWith(new FakeTrack("audio", "mic")), { mimeType: "audio/x-pcm;rate=48000;channels=1" });
+    Object.assign(recorder, { timingErrorMs: 1500 });
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    vi.mocked(PcmTrackRecorder.create).mockResolvedValue(recorder as unknown as PcmTrackRecorder);
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn(async () => new FakeMediaStream([new FakeTrack("video", "camera"), new FakeTrack("audio", "mic")] as unknown as MediaStreamTrack[]) as unknown as MediaStream) } });
+    window.studio = { beginRecordingMedia: vi.fn(), appendRecordingChunk: vi.fn(async () => ({})) } as unknown as typeof window.studio;
+    const plugin = new BrowserMediaRecorderPlugin();
+    await plugin.start({ deviceDefaults: { cameras: { camera1: "camera" }, microphones: { morganMic: "mic" } }, session: { folderPath: "/episode" } as never });
+    await vi.waitFor(() => expect(plugin.getHealth().fatalError).toContain("Audio capture is falling behind"));
+    await plugin.stop();
   });
 
   it("records every already-live selected camera without reopening the camera devices", async () => {

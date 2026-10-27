@@ -26,10 +26,14 @@ class PcmCapture extends AudioWorkletProcessor {
     this.port.postMessage({ bytes, frames: this.frames }, [bytes.buffer]);
     this.used = 0;
   }
-  process(inputs) {
+  process(inputs, outputs) {
     const samples = inputs[0] && inputs[0][0];
-    if (!this.active || !samples) return true;
-    for (const value of samples) {
+    if (!this.active) return true;
+    // An empty input is a real silent render quantum, not time to remove from
+    // the episode. Keep its samples so a disconnect cannot compress the track.
+    const length = samples?.length ?? outputs?.[0]?.[0]?.length ?? 128;
+    for (let index = 0; index < length; index++) {
+      const value = samples?.[index] ?? 0;
       const sample = Math.max(
         -8388608,
         Math.min(8388607, Math.round(value * 8388608)),

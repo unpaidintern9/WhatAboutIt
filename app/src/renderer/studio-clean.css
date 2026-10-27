@@ -1,0 +1,356 @@
+/* Functional menus are shared by every theme. The quieter visual treatment below
+   belongs to the default theme; other saved themes keep their own appearance. */
+.review-workspace-menu { position: relative; }
+.review-workspace-menu > summary { cursor: pointer; list-style: none; padding: 8px 12px; min-height: 36px; border: 1px solid #76656a; border-radius: 6px; }
+.review-workspace-menu > summary::after { content: "⌄"; margin-left: 8px; }
+.review-workspace-popover { position: absolute; top: calc(100% + 8px); right: 0; z-index: 40; display: grid; width: 210px; gap: 4px; padding: 8px; background: #29272b; border: 1px solid #62565b; border-radius: 10px; box-shadow: 0 12px 32px #0004; }
+.review-workspace-popover > button { width: 100%; justify-content: flex-start; }
+.recording-check-details > summary { cursor: pointer; padding: 8px 0; }
+.recording-check-details p { margin: 8px 0; max-width: 70ch; }
+
+body[data-studio-theme="what-about-it"] {
+  --color-primary: #a83732;
+  --color-secondary: #25282c;
+  --color-accent: #a83732;
+  --color-success: #37735a;
+  --color-warning: #946526;
+  --color-danger: #aa352e;
+  --color-background: #f5f5f4;
+  --color-surface: #ffffff;
+  --color-cards: #ffffff;
+  --color-text: #242628;
+  --color-mutedText: #696d72;
+  --color-inverseText: #ffffff;
+  --color-border: #dedfdf;
+  --color-icons: #73777b;
+  --color-focus: #a8373250;
+  --font-display: system-ui, sans-serif;
+  --font-heading: system-ui, sans-serif;
+  --font-body: system-ui, sans-serif;
+  --font-accent: system-ui, sans-serif;
+  --component-shadow: none;
+  --component-button-shadow: none;
+  --component-border-style: solid;
+  --component-border-width: 1px;
+  --component-border-radius: 8px;
+  --component-card-radius: 12px;
+  --animation-hover-lift: none;
+  --animation-disabled-opacity: .42;
+  --texture-active: none;
+  color: var(--color-text);
+  background: var(--color-background);
+  font: 14px/1.5 system-ui, sans-serif;
+  letter-spacing: normal;
+
+  & .studio-shell { background: #f5f5f4; color: #242628; }
+  & main.studio-shell { grid-template-columns: 196px minmax(0, 1fr); }
+  & main.studio-shell.sidebar-collapsed { grid-template-columns: 88px minmax(0, 1fr); }
+  & .studio-shell :is(h1,h2,h3,h4) { font-family: system-ui, sans-serif; font-weight: 650; text-transform: none; line-height: 1.2; color: inherit; }
+  & .studio-shell :is(button,summary,input,select,textarea) { font-family: system-ui, sans-serif; text-transform: none; letter-spacing: normal; box-shadow: none; }
+  & .studio-shell :is(button,summary):focus-visible { outline: 3px solid #ca7169; outline-offset: 3px; }
+  & .studio-shell button:not(:disabled):hover { transform: none; }
+  & .studio-shell button:disabled { opacity: .42; }
+  & .studio-shell button svg { flex-shrink: 0; }
+  & .studio-shell :is(.wai-button,.rustic-button) { min-height: 42px; padding: 10px 16px; border: 1px solid #dedfdf; border-radius: 8px; background: #fff; color: #35383c; font: 600 13px/1.4 system-ui,sans-serif; }
+  & .studio-shell .wai-button-primary { background: #a83732; border-color: #a83732; color: #fff; }
+  & .studio-shell :is(.wai-button,.rustic-button)::before,
+  & .studio-shell :is(.wai-button,.rustic-button)::after { display: none; }
+  & .studio-shell :where(input:not([type="range"]):not([type="checkbox"]),select,textarea) { border: 1px solid #d8dadd; border-radius: 7px; color: #292b2f; background: #fff; font-size: 14px; min-height: 40px; }
+  & .studio-shell input[type="range"] { accent-color: #ac4a43; }
+  & .studio-shell .signature { color: #777b80; font: 600 12px/1.5 system-ui,sans-serif; letter-spacing: .04em; margin-bottom: 10px; }
+  & .studio-shell .soft-copy { color: #696d72; font-size: 14px; line-height: 1.6; }
+  & .studio-shell :is(.hero-panel,.panel,.form-panel,.placeholder-panel,.tour-card,.success-panel,.empty-state-card,.recording-complete-card,.export-hero,.export-settings-panel,.hardware-test-hero,.hardware-test-panel) { background: #fff; border: 1px solid #e0e1e2; border-radius: 12px; box-shadow: none; }
+  & .studio-shell :is(.panel,.form-panel,.export-settings-panel) { padding: 24px; }
+  & .studio-shell :is(.panel-heading,.vintage-panel-heading) { color: #404449; }
+  & .studio-shell .panel-heading h3 { color: #36393d; font-size: 17px; margin: 0; }
+  & .studio-shell .panel-heading svg { color: #656b71; }
+  & .studio-shell :is(.hero-panel,.panel,.torn-edge-header,.ripped-paper-card,.vintage-panel)::before,
+  & .studio-shell :is(.hero-panel,.panel,.torn-edge-header,.ripped-paper-card,.vintage-panel)::after { display: none; }
+
+  /* One navigation rail replaces the duplicated progress strip. */
+  & main.studio-shell .sidebar { padding: 24px 12px; gap: 22px; color: #6c7075; background: #fafafa; border: 0; border-right: 1px solid #e4e5e6; border-radius: 0; box-shadow: none; }
+  & .sidebar::after { display: none; }
+  & .sidebar .brand-lockup { display: flex; padding: 0 8px; gap: 10px; justify-content: flex-start; }
+  & .sidebar .brand-lockup > div:last-child { display: none; }
+  & .studio-shell .sidebar .brand-lockup .brand-badge { display: grid; width: 38px; height: 38px; color: #a83732; background: #f5e8e6; border: 0; border-radius: 11px; box-shadow: none; font: 750 12px/1 system-ui,sans-serif; }
+  & .studio-shell .sidebar .sidebar-persona { display: none; }
+  & .sidebar-collapsed .sidebar .brand-lockup { justify-content: center; padding: 0; }
+  & .sidebar .sidebar-toggle { min-height: 28px; align-self: flex-start; padding: 4px 8px; color: #909399; border: 0; background: none; }
+  & .sidebar .sidebar-toggle span { display: none; }
+  & .sidebar-collapsed .sidebar .sidebar-toggle { align-self: center; }
+  & main.studio-shell .sidebar .nav-stack { gap: 6px; }
+  & main.studio-shell .sidebar .nav-stack button { min-height: 44px; gap: 12px; padding: 11px 12px; background: transparent; color: #75797e; border: 0; border-radius: 8px; text-align: left; }
+  & main.studio-shell .sidebar .nav-stack button span { color: #62666c; font: 550 13px/1.35 system-ui,sans-serif; }
+  & main.studio-shell .sidebar .nav-stack button:hover { background: #eee; }
+  & main.studio-shell .sidebar .nav-stack button.active { color: #a83732; background: #f4e8e6; }
+  & main.studio-shell .sidebar .nav-stack button.active span { color: #9a342f; }
+  & main.studio-shell .sidebar .nav-stack.secondary { margin-top: auto; border: 0; padding-top: 24px; }
+  & main.studio-shell.sidebar-collapsed .sidebar .nav-stack button { flex-direction: column; justify-content: center; gap: 5px; padding: 9px 1px; min-height: 62px; }
+  & main.studio-shell.sidebar-collapsed .sidebar .nav-stack button span { font-size: 11px; }
+  & .studio-shell .workspace > .journey-progress { display: none; }
+  & main.studio-shell .workspace { padding: 36px; gap: 24px; background: #f5f5f4; border: 0; }
+  & main.studio-shell .view-stack { gap: 24px; }
+  & .studio-shell .workspace > :is(.view-stack,.export-screen,.form-panel,.settings-panel,.learning-panel,.hardware-test-screen) { width: 100%; max-width: 1160px; margin-inline: auto; }
+
+  /* Home is a library, with a single create action. */
+  & .episode-home .hero-panel { position: relative; padding: 20px 0 32px; border: 0; background: transparent; }
+  & .episode-home .hero-panel h2 { font-size: 36px; letter-spacing: -.04em; margin-bottom: 12px; }
+  & .episode-home .hero-copy { margin: 0; color: #6c7075; max-width: 52ch; font-size: 14px; }
+  & .episode-home .hero-panel .wai-button { position: absolute; right: 0; top: 45px; }
+  & .episode-home .hero-panel .wai-button svg { width: 17px; height: 17px; }
+  & .episode-home .split-row { grid-template-columns: minmax(0,1.7fr) minmax(280px,1fr); gap: 24px; }
+  & .episode-home .empty-state-card { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 260px; margin-top: 20px; padding: 30px; text-align: center; background: #fafafa; border: 1px dashed #d9dcdf; }
+  & .episode-home .empty-state-card > svg { color: #9c9fa3; margin-bottom: 18px; }
+  & .episode-home .empty-state-card h4 { font-size: 16px; margin-bottom: 8px; }
+  & .episode-home .empty-state-card p { color: #656b71; font-size: 13px; }
+  & .episode-home .locked-tools { gap: 0; margin-block: 16px; }
+  & .episode-home .locked-tools span { padding: 12px 0; background: transparent; border: 0; border-bottom: 1px solid #eee; color: #62686d; font-size: 13px; }
+  & .episode-home .locked-tools .ready svg { color: #37735a; }
+  & .episode-home .locked-panel > p { font-size: 13px; color: #656b71; }
+  & .episode-home .episode-card { border: 0; border-bottom: 1px solid #eee; border-radius: 0; box-shadow: none; background: #fff; padding: 20px 0; gap: 20px; }
+  & .episode-home .episode-card h4 { font-size: 16px; margin-bottom: 8px; }
+  & .episode-home .episode-card p { color: #656b71; font-size: 12px; }
+  & .episode-home .episode-card > span { color: #3d725c; background: #eaf3ee; font: 550 11px/1.4 system-ui,sans-serif; padding: 5px 9px; border-radius: 5px; }
+
+  /* Recording puts the picture and the transport first. */
+  & main.studio-shell--recording .workspace { padding: 24px 32px 0; }
+  & .studio-shell--recording .live-studio { background: transparent; border: 0; }
+  & .studio-shell--recording .reference-studio-board { gap: 16px; border: 0; background: transparent; min-height: calc(100vh - 24px); }
+  & .studio-shell--recording .reference-studio-board .torn-edge-header { padding: 0 0 8px; min-height: 54px; border: 0; background: transparent; border-radius: 0; clip-path: none; }
+  & .studio-shell--recording .torn-edge-header h2 { font: 650 22px/1.2 system-ui,sans-serif; letter-spacing: -.03em; }
+  & .studio-shell--recording .reference-header-actions { gap: 10px; }
+  & .studio-shell--recording .recording-timer { min-height: 36px; border: 0; background: #eaecea; color: #5f6666; font: 500 12px/1.4 system-ui,sans-serif; }
+  & .studio-shell--recording .recording-timer strong { font: 650 14px/1.4 ui-monospace,monospace; }
+  & .studio-shell--recording .recording-timer span { text-transform: none; font-weight: 500; }
+  & .studio-shell--recording .recording-timer:not(.recording) span::before { background: #939a96; }
+  & .studio-shell--recording .recording-timer.recording { background: #f5e5e3; color: #a83732; }
+  & .studio-shell--recording .reference-header-actions .rustic-button { min-height: 36px; padding: 8px 12px; color: #747a7f; font-size: 12px; }
+  & .studio-shell--recording .studio-notice { min-height: 0; padding: 0; border: 0; background: transparent; color: #787d81; font: 12px/1.5 system-ui,sans-serif; box-shadow: none; }
+  & .studio-shell--recording .studio-notice strong { color: #62686d; font-weight: 500; }
+  & .studio-shell--recording .studio-notice:not(.needs-attention) > span { display: none; }
+  & .studio-shell--recording .studio-notice.needs-attention { padding: 12px; background: #fff1dc; border: 1px solid #d8ba86; color: #6a461f; }
+  & .studio-shell--recording .recording-health-strip { display: flex; flex-wrap: wrap; gap: 8px 20px; margin: 0; padding: 0 0 12px; border: 0; border-bottom: 1px solid #e1e3e4; border-radius: 0; background: transparent; color: #656b71; font: 12px/1.6 system-ui,sans-serif; }
+  & .studio-shell--recording .recording-check-details { flex: 1; }
+  & .studio-shell--recording .recording-check-details summary { min-height: 36px; }
+  & .studio-shell--recording .recording-health-strip .rustic-button { background: transparent; border-color: #d9dcde; color: #5c6369; min-height: 34px; font-size: 12px; padding: 6px 12px; }
+  & .studio-shell--recording .camera-command-panel { border: 0; background: transparent; box-shadow: none; }
+  & .studio-shell--recording .camera-live-card { border: 0; border-radius: 10px; background: #1b1e22; box-shadow: none; overflow: hidden; }
+  & .studio-shell--recording .camera-live-card .live-video-frame { height: clamp(200px,40vh,480px); border: 0; background: #16181b; border-radius: 0; }
+  & .studio-shell--recording .camera-live-card .live-video-frame::before,
+  & .studio-shell--recording .camera-live-card .live-video-frame::after { display: none; }
+  & .studio-shell--recording .camera-live-card :is(.camera-live-heading,.camera-card-title) { color: #c2c6cb; font: 550 12px/1.5 system-ui,sans-serif; background: #202328; border: 0; }
+  & .studio-shell--recording .camera-live-card :is(.camera-label,.camera-status,.live-video-overlay) { color: #bbc0c6; font: 500 11px/1.4 system-ui,sans-serif; }
+  & .studio-shell--recording .camera-live-top { padding: 9px 12px; background: #202328; }
+  & .studio-shell--recording .camera-live-top h3 { color: #b9c0c8; font: 550 11px/1.5 system-ui,sans-serif; letter-spacing: .03em; }
+  & .studio-shell--recording .camera-identity-row { background: #202328; padding: 7px 12px; }
+  & .studio-shell--recording .camera-identity-row p { color: #949da6; font: 500 11px/1.4 system-ui,sans-serif; }
+  & .studio-shell--recording .camera-audio-route { padding: 9px 12px; color: #969ca4; background: #202328; border: 0; font-size: 11px; }
+  & .studio-shell--recording .camera-audio-route select { background: #272b31; color: #b9bec5; border-color: #363b42; min-height: 28px; font-size: 11px; }
+  & .studio-shell--recording .mixer-panel { display: flex; flex-wrap: wrap; position: relative; padding: 12px 0 0; background: transparent; border: 0; border-radius: 0; box-shadow: none; }
+  & .studio-shell--recording .vintage-panel-heading { flex: 1; margin: 0; padding: 0; background: transparent; border: 0; }
+  & .studio-shell--recording .vintage-panel-heading h3 { font: 650 14px/1.5 system-ui,sans-serif; color: #5a6065; text-transform: none; }
+  & .studio-shell--recording .audio-details-toggle { margin: 0; min-height: 30px; padding: 4px 0; border: 0; background: transparent; color: #656b71; font: 500 12px/1.5 system-ui,sans-serif; }
+  & .studio-shell--recording .reference-console-row .meter-list { width: 100%; gap: 10px; padding: 12px 0; }
+  & .studio-shell--recording .reference-console-row .live-meter-card { padding: 14px 16px; background: #fff; color: #565d62; border: 1px solid #e1e3e5; border-radius: 9px; box-shadow: none; }
+  & .studio-shell--recording .channel-topline strong { color: #4c5359; font: 600 12px/1.5 system-ui,sans-serif; }
+  & .studio-shell--recording .channel-topline :is(span,small) { color: #859089; font: 500 10px/1.5 system-ui,sans-serif; }
+  & .studio-shell--recording .reference-console-row .distressed-meter { height: 7px; background: #edf0ed; border: 0; border-radius: 4px; box-shadow: none; }
+  & .studio-shell--recording .channel-advanced { margin-top: 6px; color: #656b71; }
+  & .studio-shell--recording .channel-advanced summary { min-height: 26px; padding: 5px 0; font-size: 11px; }
+  & .studio-shell--recording .reference-console-row :is(.channel-console label,.control-caption) { color: #696f75; }
+  & .studio-shell--recording .reference-studio-board .giant-control-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: auto; padding: 18px 0; background: #f5f5f4; border: 0; border-top: 1px solid #e0e2e3; border-radius: 0; box-shadow: none; }
+  & .studio-shell--recording .reference-studio-board .studio-control-button { flex: 0 1 156px; min-height: 46px; height: auto; padding: 10px 18px; color: #60676d; background: #fff; border: 1px solid #d9dddf; border-radius: 8px; box-shadow: none; }
+  & .studio-shell--recording .reference-studio-board .studio-control-button.record { color: #fff; background: #a83732; border-color: #a83732; }
+  & .studio-shell--recording .reference-studio-board .studio-control-button strong { font: 600 14px/1.4 system-ui,sans-serif; }
+  & .studio-shell--recording .reference-studio-board .studio-control-button small { display: none; }
+  & .studio-shell--recording .reference-studio-board .studio-control-button svg { width: 19px; height: 19px; }
+  & .studio-shell--recording .giant-control-row :is(.auto-edit,.export):disabled { display: none; }
+  & .studio-shell--recording .live-hotkey-hint { color: #656b71; font: 11px/1.5 system-ui,sans-serif; margin: 0; }
+
+  /* The editor uses quiet dark chrome around the media. */
+  & main.studio-shell--review .workspace { grid-template-rows: minmax(0,1fr); padding: 0; background: #1b1e22; }
+  & .studio-shell--review .edit-studio { color: #d4d8dd; background: #1b1e22; grid-template-rows: auto minmax(240px,1fr) auto minmax(200px,.58fr); }
+  & .studio-shell--review .edit-studio-bar { min-height: 68px; gap: 12px; padding: 14px 20px; color: #d4d8dd; background: #22252a; border: 0; border-bottom: 1px solid #34383e; }
+  & .studio-shell--review .edit-studio-status { gap: 8px; color: #9aafa3; font-size: 11px; }
+  & .studio-shell--review .edit-studio-status .ready { color: #8d9a92; }
+  & .studio-shell--review .edit-studio-actions { gap: 8px; align-items: center; width: auto; margin-left: auto; }
+  & .studio-shell--review .edit-studio-actions > button,
+  & .studio-shell--review .edit-studio-actions > details > summary { min-height: 36px; padding: 8px 12px; color: #bcc2c9; background: transparent; border: 1px solid transparent; border-radius: 7px; font: 550 12px/1.4 system-ui,sans-serif; }
+  & .studio-shell--review .edit-studio-actions > button:hover,
+  & .studio-shell--review .edit-studio-actions > details[open] > summary { background: #30343b; color: #f0f1f3; }
+  & .studio-shell--review .edit-studio-actions > button.primary { color: #fff; background: #aa4039; padding-inline: 18px; }
+  & .studio-shell--review :is(.review-file-menu-popover,.review-workspace-popover) { background: #292d33; border: 1px solid #41464e; color: #d4d8dd; border-radius: 10px; }
+  & .studio-shell--review .review-workspace-popover button { color: #d4d8dd; background: #30353c; border-color: #454b55; }
+  & .studio-shell--review .edit-studio-workspace { gap: 0; background: #1b1e22; grid-template-columns: minmax(0,1fr) 310px; }
+  & .studio-shell--review .inspector-wide .edit-studio-workspace { grid-template-columns: minmax(0,1fr) minmax(350px,35%); }
+  & .studio-shell--review .inspector-hidden .edit-studio-workspace { grid-template-columns: minmax(0,1fr); }
+  & .studio-shell--review .edit-source-monitor { padding: 14px 20px 10px; gap: 12px; }
+  & .studio-shell--review .program-camera-switcher { background: transparent; border: 0; padding: 0; color: #939ca6; }
+  & .studio-shell--review .program-camera-switcher-label strong { color: #c4cbd2; }
+  & .studio-shell--review :is(.program-camera-buttons button,.program-multicam-toggle) { background: #292e35; border: 1px solid #424952; color: #aeb8c4; border-radius: 6px; font-size: 11px; }
+  & .studio-shell--review .program-camera-buttons button.active { background: #3b424c; color: #f2f3f5; border-color: #646e7a; box-shadow: none; }
+  & .studio-shell--review .program-camera-buttons kbd { background: transparent; border: 0; color: inherit; }
+  & .studio-shell--review :is(.review-player-stage,.review-player-frame) { background: #111315; border: 0; border-radius: 8px; box-shadow: none; }
+  & .studio-shell--review .edit-transport { color: #8d99a5; background: transparent; padding: 0; gap: 10px; }
+  & .studio-shell--review .edit-transport button { color: #b4bfc9; background: #292e35; border: 0; border-radius: 6px; }
+  & .studio-shell--review .edit-transport .transport-play { color: #e1e5eb; background: #3c444f; }
+  & .studio-shell--review :is(.transport-time,.transport-gain-value) { color: #a5aeb8; font: 11px/1.5 ui-monospace,monospace; }
+  & .studio-shell--review .edit-track-inspector { padding: 0 18px 18px; background: #24282e; border: 0; border-left: 1px solid #333941; }
+  & .studio-shell--review .review-panel-tabs { margin-bottom: 14px; gap: 0; padding: 10px 0 0; background: #24282e; border-bottom: 1px solid #3c424a; }
+  & .studio-shell--review .review-panel-tabs button { color: #8e99a6; background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; min-height: 42px; font-size: 12px; }
+  & .studio-shell--review .review-panel-tabs button[aria-pressed="true"] { color: #f0f1f3; background: transparent; border-color: #c56d64; }
+  & .studio-shell--review .review-panel-content { gap: 16px; }
+  & .studio-shell--review .review-panel-content h3 { color: #d9dfe5; font-size: 15px; }
+  & .studio-shell--review .edit-track-inspector :is(label,small,p,summary) { color: #9ba5b1; font: 12px/1.6 system-ui,sans-serif; }
+  & .studio-shell--review .edit-track-inspector :is(input,select,textarea):not([type="range"]) { color: #d2dae3; background: #30353d; border-color: #454d58; font-size: 12px; }
+  & .studio-shell--review .edit-track-inspector button { color: #bfc9d4; background: #313841; border-color: #48515d; border-radius: 6px; font-size: 12px; }
+  & .studio-shell--review .edit-track-inspector button.selected { color: #e6eaf0; background: #465360; border-color: #748698; }
+  & .studio-shell--review .edit-track-inspector .review-panel-tabs button { color: #8e99a6; background: transparent; border: 0; border-bottom: 2px solid transparent; border-radius: 0; }
+  & .studio-shell--review .edit-track-inspector .review-panel-tabs button[aria-pressed="true"] { color: #f0f1f3; border-bottom-color: #c56d64; }
+  & .studio-shell--review .edit-track-inspector .inspector-primary { background: #414e5c; border-color: #627487; color: #f0f4f8; }
+  & .studio-shell--review :is(.inspector-status,.program-inspector-copy,.program-mastering-controls,.editor-tool-group) { padding-block: 12px; background: transparent; border-color: #414750; color: #a4afba; }
+  & .studio-shell--review :is(.inspector-status span,.program-mastering-controls > span,.timeline-view-controls strong) { color: #a4afba; }
+  & .studio-shell--review .inspector-heading > div { color: #9aa8b8; background: #353e49; border: 0; }
+  & .studio-shell--review .program-mastering-controls > small { color: #9ba5b1; }
+  & .studio-shell--review .program-inspector-copy { font-weight: 450; line-height: 1.6; }
+  & .studio-shell--review :is(.editor-media-setup,.editor-caption-panel) { padding: 0; background: transparent; border: 0; color: #c8d1db; }
+  & .studio-shell--review .editor-media-setup-heading h3 { color: #d9dfe5; font-size: 15px; }
+  & .studio-shell--review .editor-media-setup-actions { padding: 0; background: transparent; border: 0; box-shadow: none; }
+  & .studio-shell--review .editor-media-slots { gap: 12px; }
+  & .studio-shell--review .editor-media-slots > div { padding: 14px; background: #2c3138; border: 1px solid #414851; border-radius: 8px; }
+  & .studio-shell--review .editor-media-slots :is(strong,small) { color: #a7b2be; }
+  & .studio-shell--review :is(.editor-caption-toolbar,.editor-caption-importer,.editor-local-transcription,.editor-caption-cue) { background: #2c3138; border: 1px solid #414851; border-radius: 8px; padding: 14px; }
+  & .studio-shell--review .edit-direct-toolbar { min-height: 56px; gap: 8px; padding: 10px 16px; background: #24282e; border: 0; border-block: 1px solid #363d46; }
+  & .studio-shell--review .timeline-tool-group { flex: 1 1 auto; }
+  & .studio-shell--review .timeline-tool-cluster { gap: 4px; border-color: #444b55; }
+  & .studio-shell--review .edit-direct-toolbar button { min-height: 32px; padding: 6px 9px; color: #aab5c1; background: transparent; border-color: transparent; border-radius: 5px; font-size: 11px; }
+  & .studio-shell--review .edit-direct-toolbar button.selected { color: #e6ebf1; background: #414b58; border-color: #5c6978; }
+  & .studio-shell--review .pro-timeline-viewport,
+  & .studio-shell--review .pro-timeline-viewport .pro-timeline { background: #1b1e22; border: 0; }
+  & .studio-shell--review :is(.timeline-time-ruler,.edit-track-header,.timeline-marker-lane) { background: #20242a; border-color: #373e47; color: #84909c; }
+  & .studio-shell--review .timeline-time-ruler span { color: #84909c; }
+  & .studio-shell--review .edit-track-lane { border-color: #333a43; }
+  & .studio-shell--review .edit-track-lane.selected { background: #2b323c; }
+  & .studio-shell--review .edit-track-header :is(strong,small) { color: #aeb9c5; }
+  & .studio-shell--review .edit-track-clips { background-color: #252c35; border-color: #394655; }
+  & .studio-shell--review .timeline-clip { background-color: #33496080; border: 1px solid #536e89; border-radius: 4px; color: #d1deec; }
+  & .studio-shell--review .edit-track-lane.program .timeline-clip { background-color: #43566caa; border-color: #8297af; }
+  & .studio-shell--review .edit-track-lane.microphone .timeline-clip { background-color: #305b4a99; border-color: #668e7a; }
+  & .studio-shell--review .timeline-clip span { color: #c5d4e4; }
+  & .studio-shell--review .timeline-playhead { background: #d7887f; }
+  & .studio-shell--review :is(.pro-timeline-viewport,.edit-track-inspector) { scrollbar-color: #58636f #22272e; scrollbar-width: thin; }
+  & .studio-shell--review .timeline-marker-lane > strong { background: transparent; color: #929dab; }
+  & .studio-shell--review .track-quick-controls button { color: #95a5b5; border-color: #46515e; }
+
+  /* Export reads as choices, settings, then one primary action. */
+  & .export-screen { gap: 20px; padding-bottom: 32px; }
+  & .studio-shell .export-hero { padding: 0 0 16px; background: transparent; border: 0; }
+  & .export-hero h2 { font-size: 32px; letter-spacing: -.035em; margin-bottom: 12px; }
+  & .export-hero .original-safe-badge { color: #5c7867; background: transparent; border: 0; font-size: 12px; padding: 0; max-width: 180px; }
+  & .export-hero .original-safe-badge svg { width: 20px; }
+  & .export-option-grid { padding: 0; gap: 16px; background: transparent; border: 0; box-shadow: none; }
+  & .export-option-card { display: grid; gap: 12px; min-height: 154px; padding: 22px; border: 1px solid #dfe2e4; border-radius: 10px; background: #fff; color: #656b71; box-shadow: none; }
+  & .export-option-card strong { color: #343a40; font-size: 16px; }
+  & .export-option-card span { color: #656b71; font: 12px/1.6 system-ui,sans-serif; }
+  & .export-option-card.selected { border-color: #b45d55; background: #fcf7f6; box-shadow: 0 0 0 1px #b45d55; }
+  & .export-option-card.selected svg { color: #a83732; }
+  & .export-more-formats { margin: 0; padding: 0; border: 0; background: transparent; color: #656b71; font-size: 12px; }
+  & .export-more-formats > summary { padding: 6px 0; }
+  & .export-more-formats .export-option-grid { margin-top: 12px; }
+  & .export-ready-summary { position: sticky; top: auto; bottom: 0; padding: 20px 24px; gap: 20px; background: #fff; color: #626a72; border: 1px solid #dfe2e4; border-radius: 10px; box-shadow: 0 -6px 20px #24262808; }
+  & .export-ready-summary strong { color: #3b4248; font-size: 14px; }
+  & .export-ready-summary span { font-size: 12px; }
+  & .export-ready-summary small { color: #656b71; font-size: 11px; }
+  & .export-settings-panel { padding: 24px; }
+  & .export-settings-panel .signature { display: none; }
+  & .export-settings-panel h3 { font-size: 16px; margin-bottom: 10px; }
+  & .export-settings-panel .soft-copy { font-size: 12px; }
+  & .quality-preset-row { gap: 12px; }
+  & .quality-preset-row button { color: #656b71; background: #fff; border: 1px solid #e0e3e5; border-radius: 7px; box-shadow: none; padding: 16px; font-size: 12px; }
+  & .quality-preset-row button strong { color: #3e454d; font: 600 13px/1.4 system-ui,sans-serif; }
+  & .quality-preset-row button.selected { color: #6b5855; background: #faf2f0; border-color: #ba726a; }
+  & .quality-preset-row button.selected strong { color: #953c35; }
+  & .quality-preset-row button > span { font: 12px/1.6 system-ui,sans-serif; color: #656b71; }
+  & .quality-preset-row button.selected > span { color: #85625c; }
+  & .quality-preset-row button strong small { font-size: 10px; font-weight: 500; padding: 3px 6px; color: #3e735a; background: #eaf3ed; }
+  & .export-screen .export-progress-panel { padding: 24px; border: 1px solid #e0e3e5; border-radius: 12px; box-shadow: none; background: #fff; }
+  & .export-screen .export-progress-panel.ready-state { padding: 0; background: transparent; border: 0; }
+  & .export-progress-panel.ready-state > :not(.export-actions) { display: none; }
+  & .export-progress-panel.ready-state .export-actions { margin: 0; }
+  & .export-progress-panel.ready-state .export-actions button:disabled { display: none; }
+  & .export-stage-strip span { font-weight: 500; color: #76808b; border-color: #e1e5e8; background: #fff; box-shadow: none; }
+  & :is(.export-extra-options label,.export-mastering-choice,.editor-handoff-summary,.editor-handoff-destination) { color: #69737d; background: #f7f8f8; border-color: #e0e4e6; }
+  & :is(.export-extra-options,.export-mastering-choice) :is(strong,small) { color: #69737d; }
+  & .export-extra-disclosure { color: #656b71; font-size: 12px; }
+
+  /* Setup and utility screens follow the same restrained surfaces. */
+  & :is(.device-card,.camera-card,.microphone-card,.hardware-result-card,.workspace-toggle-grid label,.studio-tools-grid button,.lesson-card,.theme-editor-status) { color: #4b535b; background: #fff; border: 1px solid #e0e3e5; border-radius: 10px; box-shadow: none; }
+  & .studio-shell:not(.studio-shell--recording) .device-wizard :is(.wizard-intro,.wizard-panel,.setup-guide-card,.setup-next-action) { color: #4b535b; background: #fff; border: 1px solid #e0e3e5; border-radius: 10px; box-shadow: none; }
+  & .studio-shell .device-wizard { gap: 16px; }
+  & .studio-shell .device-wizard .wizard-intro { padding: 0 0 12px; background: transparent; border: 0; }
+  & .device-wizard .setup-intro-status { background: transparent; border: 0; }
+  & .device-wizard .setup-intro-status h2 { font-size: 26px; letter-spacing: -.025em; }
+  & .device-wizard .setup-intro-status .signature { font-size: 12px; }
+  & .device-wizard .wizard-panel { padding: 24px; }
+  & .device-wizard .wizard-heading h3 { font-size: 20px; margin-bottom: 10px; }
+  & .device-wizard .wizard-heading p { color: #6b7279; font-size: 13px; }
+  & .device-wizard .wizard-steps { gap: 12px; }
+  & .studio-shell:not(.studio-shell--recording) .device-wizard .wizard-steps button { min-height: 48px; padding: 12px 14px; border: 1px solid #dfe3e6; border-radius: 8px; background: #fff; color: #6c747d; font: 500 12px/1.4 system-ui,sans-serif; }
+  & .studio-shell:not(.studio-shell--recording) .device-wizard .wizard-steps button.active { background: #f6eae8; color: #983c35; border-color: #d9aaa3; }
+  & .studio-shell:not(.studio-shell--recording) .device-wizard .wizard-steps button span { color: inherit; font-size: 10px; font-weight: 500; }
+  & .device-wizard .setup-guide-card { padding: 8px 16px; }
+  & .device-wizard .setup-guide-card summary { font-size: 12px; font-weight: 500; color: #707980; }
+  & .studio-shell:not(.studio-shell--recording) .device-wizard .setup-guide-card span { background: #f4f7f5; border: 0; color: #52715f; font-weight: 500; }
+  & .device-wizard :is(.camera-setup-card,.device-slot,.device-test-card,.readiness-card) { padding: 18px; background: #fafbfb; border: 1px solid #e0e4e7; border-radius: 10px; box-shadow: none; }
+  & .device-wizard .camera-setup-card :is(.device-select,.camera-card-status,.camera-name) { font-size: 12px; color: #68737d; }
+  & .device-wizard .camera-card-topline h4 { font-size: 16px; }
+  & .device-wizard .camera-card-topline .camera-gear-menu summary { color: #7c8791; border: 0; background: transparent; }
+  & .device-wizard .setup-live-preview { border: 0; border-radius: 8px; background: #1b1e22; }
+  & .device-wizard .camera-card-status strong { color: #37735a; font: 600 12px/1.5 system-ui,sans-serif; }
+  & .device-wizard .camera-button-row .wai-button { min-height: 34px; padding: 6px 10px; font-size: 11px; }
+  & .device-wizard :is(.camera-capacity-strip,.audio-interface-strip,.setup-mic-feedback,.physical-input-assignment,.friendly-state) { border: 1px solid #dbe4dd; background: #f0f5f1; color: #55715c; box-shadow: none; font-size: 12px; }
+  & .device-wizard .device-select { color: #626e78; font: 500 12px/1.5 system-ui,sans-serif; }
+  & .studio-shell :is(.settings-panel,.learning-panel,.form-panel) > h2 { font-size: 32px; letter-spacing: -.03em; }
+  & .device-wizard .setup-next-action { padding: 16px 20px; background: #fff; }
+  & .wizard-steps button { background: transparent; color: #656b71; border-color: #dee2e5; box-shadow: none; }
+  & .wizard-steps button.active { background: #f5e9e7; color: #9b4037; border-color: #d6a29a; }
+  & .studio-tools-grid strong { color: #444d55; }
+  & .theme-editor-status { padding: 14px; }
+  & .hardware-test-hero h2 { font-size: 30px; }
+
+  @media (max-width:1150px) {
+    & main.studio-shell { grid-template-columns: 88px minmax(0,1fr); }
+    & main.studio-shell .sidebar .nav-stack button { flex-direction: column; justify-content: center; gap: 5px; padding: 9px 1px; min-height: 62px; }
+    & main.studio-shell .sidebar .nav-stack button span { font-size: 11px; }
+    & main.studio-shell .workspace { padding: 24px; }
+    & main.studio-shell--review .workspace { padding: 0; }
+    & .episode-home .split-row { grid-template-columns: 1fr; }
+    & .studio-shell--review .edit-studio-status { display: none; }
+    & .studio-shell--review .edit-studio-bar { min-height: 60px; padding: 10px 12px; }
+    & .studio-shell--review .edit-studio-actions { width: auto; flex-wrap: wrap; justify-content: flex-end; }
+    & .studio-shell--review .edit-direct-toolbar { padding-inline: 10px; }
+    & .studio-shell--review .edit-studio-workspace { grid-template-columns: minmax(0,1fr) 285px; }
+    & .studio-shell--review .inspector-wide .edit-studio-workspace { grid-template-columns: minmax(0,1fr) 330px; }
+    & .studio-shell--review .inspector-hidden .edit-studio-workspace { grid-template-columns: minmax(0,1fr); }
+    & .studio-shell--recording .torn-edge-header h2 { font-size: 19px; }
+  }
+  @media (max-height:800px) {
+    & .studio-shell--recording .reference-studio-board .live-video-frame { height: 220px; }
+    & .studio-shell--recording .reference-studio-board { gap: 10px; }
+    & .studio-shell--recording .reference-studio-board .giant-control-row { padding-block: 12px; }
+    & .studio-shell--review .edit-studio { grid-template-rows: auto minmax(200px,1fr) auto minmax(150px,.58fr); }
+  }
+  @media (max-width:800px) {
+    & main.studio-shell .workspace { padding: 20px; }
+    & .episode-home .hero-panel .wai-button { position: static; margin-top: 24px; }
+    & main.studio-shell--review .workspace { padding: 0; }
+    & .studio-shell--review .edit-studio { height: auto; min-height: 1000px; grid-template-rows: auto auto auto minmax(200px,1fr); }
+    & .studio-shell--review .edit-studio-workspace,
+    & .studio-shell--review .inspector-wide .edit-studio-workspace { grid-template-columns: minmax(0,1fr); overflow: visible; }
+    & .studio-shell--review .edit-track-inspector { border-left: 0; border-top: 1px solid #414750; max-height: 350px; }
+    & .studio-shell--review .review-player-stage { min-height: 230px; }
+    & .studio-shell--recording .reference-header-actions { justify-content: flex-start; }
+    & .studio-shell--recording .reference-studio-board .giant-control-row { gap: 8px; }
+    & .studio-shell--recording .reference-studio-board .studio-control-button { flex: 1 1 120px; }
+  }
+}

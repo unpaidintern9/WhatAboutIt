@@ -132,6 +132,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
 
     try {
+      await configureCaptureVideo(this.stream, normalizedRequest.deviceDefaults.captureQuality);
       this.chunks = [];
       this.recorder = new MediaRecorder(this.stream, recorderOptions("video", normalizedRequest.deviceDefaults.captureQuality));
       this.recorder.ondataavailable = (event) => {
@@ -156,6 +157,8 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   }
 
   getHealth(): RecordingEngineHealth {
+    const timingFailure = this.trackRecorders.find((track) => (track.recorder.timingErrorMs ?? 0) > 750);
+    if (timingFailure) this.fatalError = "Audio capture is falling behind the recording clock. Recording was paused to protect your episode. Close other apps and run a short setup test before resuming.";
     const activeStates = new Set(["recording", "paused"]);
     const now = Date.now();
     const programRecorderActive = Boolean(this.recorder && activeStates.has(this.recorder.state) && streamIsLive(this.stream));
@@ -310,6 +313,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       const stream = this.openReadyCameraTrackStream(entry.slot, entry.deviceId);
       if (!stream) continue;
       try {
+        await configureCaptureVideo(stream, request.deviceDefaults.captureQuality);
         this.trackRecorders.push(createTrackRecorder(entry.slot, "camera", stream, pickMimeType(), (track, blob) => this.queueTrackChunk(track, blob), undefined, request.deviceDefaults.captureQuality));
         preparedSlots.add(entry.slot);
       } catch {
@@ -321,7 +325,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       const stream = this.openReadyMicTrackStream(entry.slot, entry.deviceId, entry.channel);
       if (!stream) continue;
       try {
-        this.trackRecorders.push(createTrackRecorder(entry.slot, "audio", stream, pickAudioMimeType(), (track, blob) => this.queueTrackChunk(track, blob), this.diskSession ? await PcmTrackRecorder.create(stream, this.sharedMicrophoneRouters.get(entry.deviceId)?.audioContext) : undefined));
+        this.trackRecorders.push(createTrackRecorder(entry.slot, "audio", stream, pickAudioMimeType(), (track, blob) => this.queueTrackChunk(track, blob), this.diskSession ? await this.createPcmRecorder(stream, entry.deviceId, entry.channel) : undefined));
         preparedSlots.add(entry.slot);
       } catch {
         stopStudioMediaStream(stream);
@@ -353,6 +357,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
         stopStudioMediaStream(stream);
         return;
       }
+      await configureCaptureVideo(stream, quality);
       const trackRecorder = createTrackRecorder(slot, "camera", stream, pickMimeType(), (track, blob) => this.queueTrackChunk(track, blob), undefined, quality);
       startTrackRecorder(trackRecorder);
       this.trackRecorders.push(trackRecorder);
@@ -378,7 +383,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
         return;
       }
       this.trackResults = this.trackResults.filter((result) => !(result.slot === slot && result.message?.includes("attaching as a separate track")));
-      const trackRecorder = createTrackRecorder(slot, "audio", stream, pickAudioMimeType(), (track, blob) => this.queueTrackChunk(track, blob), this.diskSession ? await PcmTrackRecorder.create(stream, this.sharedMicrophoneRouters.get(deviceId)?.audioContext) : undefined);
+      const trackRecorder = createTrackRecorder(slot, "audio", stream, pickAudioMimeType(), (track, blob) => this.queueTrackChunk(track, blob), this.diskSession ? await this.createPcmRecorder(stream, deviceId, channel) : undefined);
       startTrackRecorder(trackRecorder);
       this.trackRecorders.push(trackRecorder);
     } catch {
@@ -619,6 +624,11 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     return this.cloneSharedMicrophoneRoute(await opening, channel);
   }
 
+  private createPcmRecorder(stream: MediaStream, deviceId: string, channel: MicrophoneInputChannel) {
+    const router = this.sharedMicrophoneRouters.get(deviceId);
+    return PcmTrackRecorder.create(stream, router?.audioContext, router?.routes.get(channel)?.route.output);
+  }
+
   private createSharedMicrophoneRouter(deviceId: string, inputStream: MediaStream) {
     const existing = this.sharedMicrophoneRouters.get(deviceId);
     if (existing) {
@@ -627,7 +637,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
     if (typeof window === "undefined" || !window.AudioContext) throw new Error("Web Audio is unavailable");
     const diagnostics = getAudioStreamDiagnostics(inputStream);
-    const audioContext = createStudioAudioContext(undefined, diagnostics.sampleRate);
+    const audioContext = createStudioAudioContext(undefined, diagnostics.sampleRate, "playback");
     const router: SharedMicrophoneRouter = {
       audioContext,
       inputStream,
@@ -801,6 +811,14 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       track.queueDepth = Math.max(0, track.queueDepth - 1);
     });
   }
+}
+
+export async function configureCaptureVideo(stream: MediaStream, quality: "balanced" | "high" = "balanced") {
+  const high = quality === "high";
+  await Promise.all(stream.getVideoTracks().map(async (track) => {
+    if (!track.applyConstraints) return;
+    await track.applyConstraints({ width: { max: high ? 1920 : 1280 }, height: { max: high ? 1080 : 720 }, frameRate: { max: 30 } });
+  }));
 }
 
 function logAudioCapture(route: "program" | "isolated", slot: RecordingTrackSlot, deviceId: string, channel: MicrophoneInputChannel, stream: MediaStream) {

@@ -536,4 +536,22 @@ describe("recording session store", () => {
     expect((await fs.readFile(decoded)).subarray(-pcm.length)).toEqual(pcm);
   }, 30000);
 
+  it("reports shortened isolated audio even when all source files are playable", async () => {
+    const store = await import("./recording-session-store");
+    const { runFfmpeg } = await import("./ffmpeg-tools");
+    const pcmPath = path.join(mockPaths.episodesRoot, "short.pcm");
+    const videoPath = path.join(mockPaths.episodesRoot, "long.webm");
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=sample_rate=48000", "-t", "1", "-f", "s24le", "-c:a", "pcm_s24le", pcmPath]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=size=160x90:rate=10", "-t", "3", "-c:v", "libvpx", videoPath]);
+    const session = await store.createRecordingSession({ episodeTitle: "Timing regression", deviceDefaults: { cameras: { camera1: "camera" }, microphones: { morganMic: "mic" } } });
+    const folder = session.captureFolderPath!;
+    await store.beginRecordingMedia(folder);
+    await store.appendRecordingChunk(folder, { target: "program", kind: "program", mimeType: "video/webm", sequence: 0, bytes: await fs.readFile(videoPath) });
+    await store.appendRecordingChunk(folder, { target: "morganMic", kind: "audio", mimeType: "audio/x-pcm;rate=48000;channels=1", sequence: 0, bytes: await fs.readFile(pcmPath) });
+    const result = await store.finalizeRecordingMedia(folder);
+    expect(result.integrity.programPlayable).toBe(true);
+    expect(result.integrity.warnings.join(" ")).toContain("audio/video timing differs by 2.00 seconds");
+    expect(await fs.readFile(path.join(folder, "Audio", "Originals", "morgan-mic.source.pcm"))).toEqual(await fs.readFile(pcmPath));
+  }, 30000);
+
 });

@@ -37,6 +37,7 @@ import { recordingCaptureBytesPerSecond, type RecordingDriveCheck } from "../sha
 import { applyTheme, builtInThemes, findTheme } from "./theme/themes";
 import "./styles.css";
 import "./workflow.css";
+import "./studio-clean.css";
 
 type View = "tools" | "home" | "new-episode" | "device-setup" | "recording" | "timeline-review" | "auto-edit-review" | "export" | "hardware-test" | "settings" | "learn" | "practice" | "theme-editor";
 type TimelineSaveState = "saved" | "saving" | "failed";
@@ -1698,7 +1699,7 @@ export default function App() {
   const effectiveSidebarCollapsed = sidebarCollapsed;
 
   return (
-    <main className={`studio-shell ${effectiveSidebarCollapsed ? "sidebar-collapsed" : ""} ${view === "recording" ? "studio-shell--recording" : ""} ${view === "timeline-review" ? "studio-shell--review" : ""}`.trim()}>
+    <main data-view={view} className={`studio-shell ${effectiveSidebarCollapsed ? "sidebar-collapsed" : ""} ${view === "recording" ? "studio-shell--recording" : ""} ${view === "timeline-review" ? "studio-shell--review" : ""}`.trim()}>
       <aside className="sidebar" aria-label="What About It Studio navigation">
         <div className="brand-lockup">
           <div className="brand-badge">WAI</div>
@@ -2123,9 +2124,9 @@ function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStud
     <div className="view-stack episode-home">
       <section className="hero-panel">
         <div>
-          <p className="signature">Morgan's offline podcast room</p>
+          <p className="signature">What About It · Studio</p>
           <h2>Ready when you are.</h2>
-          <p className="hero-copy">Start with a new episode. Then I will walk you through setup, recording, and what comes next.</p>
+          <p className="hero-copy">Your episodes, from the first take to the finished edit.</p>
           <Button variant="primary" icon={<Plus size={24} />} onClick={onNewEpisode}>
             New Episode
           </Button>
@@ -2141,12 +2142,9 @@ function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStud
           </div>
           {episodes.length === 0 ? (
             <div className="empty-state-card">
-              <p className="signature">Looks like this is your first episode.</p>
-              <h4>Let's create something awesome.</h4>
-              <p>Start a local episode and this list will fill itself in.</p>
-              <Button variant="primary" icon={<Plus size={20} />} onClick={onNewEpisode}>
-                New Episode
-              </Button>
+              <FolderOpen size={28} aria-hidden="true" />
+              <h4>No episodes yet</h4>
+              <p>Create your first episode using New Episode above.</p>
             </div>
           ) : (
             <div className="episode-list">
@@ -2172,16 +2170,13 @@ function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStud
           </div>
           <div className="locked-tools">
             <span className={cameraReady ? "ready" : "needs-attention"}>
-              <Camera size={18} /> {cameraReady ? "Camera 1 is ready" : "Camera 1 needs a quick check"}
+              <Camera size={18} /> {cameraReady ? "Camera 1 is connected" : "Camera 1 needs a quick check"}
             </span>
             <span className={microphoneReady ? "ready" : "needs-attention"}>
-              <Mic2 size={18} /> {microphoneReady ? "Morgan Mic is ready" : "Morgan Mic needs a quick check"}
-            </span>
-            <span>
-              <Circle size={18} /> Recording checks inputs and drive before capture
+              <Mic2 size={18} /> {microphoneReady ? "Morgan Mic is connected" : "Morgan Mic needs a quick check"}
             </span>
           </div>
-          <p>Next best move: check the studio, record, review, Auto Edit, then export a local finished copy.</p>
+          <p>Device selections are saved. Recording checks your inputs and storage before capture.</p>
           <Button variant="secondary" icon={<ArrowRight size={20} />} onClick={onStudioSetup}>
             {cameraReady && microphoneReady ? "Review Studio Setup" : "Check Studio Setup"}
           </Button>

@@ -85,6 +85,7 @@ export function findTheme(themeId: string) {
 
 export function applyTheme(theme: ThemeTokens) {
   const root = document.documentElement;
+  document.body.dataset.studioTheme = theme.id;
 
   Object.entries(theme.colors).forEach(([key, value]) => root.style.setProperty(`--color-${key}`, value));
   Object.entries(theme.spacing).forEach(([key, value]) => root.style.setProperty(`--space-${key}`, value));
