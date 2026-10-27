@@ -192,10 +192,10 @@ function getMonitorRoute(element: HTMLMediaElement) {
   }
   if (!masterLimiter) {
     masterLimiter = sharedContext.createDynamicsCompressor();
-    masterLimiter.threshold.value = -1;
+    masterLimiter.threshold.value = -6;
     masterLimiter.knee.value = 0;
     masterLimiter.ratio.value = 20;
-    masterLimiter.attack.value = 0.002;
+    masterLimiter.attack.value = 0.001;
     masterLimiter.release.value = 0.08;
     masterLimiter.connect(sharedContext.destination);
   }

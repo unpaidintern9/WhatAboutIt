@@ -497,7 +497,7 @@ export function RecordingStudio({
     setRecordingAction("saving");
     try {
       await (isComplete ? onContinue?.() : isPaused ? onResume() : onPause());
-      setStudioNotice({ tone: "recording", message: isPaused ? "Recording continues in this episode folder." : "Episode paused and saved. You can close the app and return later." });
+      setStudioNotice({ tone: "recording", message: isPaused || isComplete ? "Recording continues in this episode folder." : "Episode paused and saved. You can close the app and return later." });
     } catch (error) {
       setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "The episode needs attention before continuing." });
     } finally { setRecordingAction("idle"); }
@@ -590,7 +590,7 @@ export function RecordingStudio({
       <main className="live-studio-board reference-studio-board">
         <TornEdgeHeader
           title={snapshot.session?.episodeTitle ?? episodeTitle ?? "Untitled episode"}
-          eyebrow={isRecording ? "Recording Live" : isPaused ? "Paused" : isComplete ? "Recording Complete" : "Control Room"}
+          eyebrow={isRecording ? "Recording Live" : isPaused ? "Paused" : isComplete ? "Take Saved" : "Control Room"}
           aside={
             <div className="reference-header-actions">
               {onNewEpisode && <RusticButton disabled={recordingAction !== "idle"} onClick={async () => { setRecordingAction("saving"); try { await onNewEpisode(); } finally { setRecordingAction("idle"); } }}>New Episode</RusticButton>}
