@@ -111,6 +111,16 @@ function recordingFrameRate(video: StreamInfo) {
   }
   return "30";
 }
+async function cameraOneSharesProgram(folder: string, parts: RecordingPart[]) {
+  for (const part of parts) {
+    const [program, camera] = await Promise.all([
+      fs.stat(path.join(partPath(folder, part), "Program", "program.webm"), { bigint: true }),
+      fs.stat(path.join(partPath(folder, part), "Cameras", "camera-1.webm"), { bigint: true })
+    ]);
+    if (program.ino === 0n || program.ino !== camera.ino || program.dev !== camera.dev) return false;
+  }
+  return true;
+}
 async function assembleTarget(folder: string, parts: RecordingPart[], target: typeof targetPaths[number], output: string) {
   const inputs = parts.map((part) => target.video ? path.join(partPath(folder, part), target.file) : preferredAudioFile(partPath(folder, part), path.basename(target.file)));
   if (parts.length === 1) {
@@ -167,7 +177,13 @@ export async function materializeRecordingParts(folder: string, report?: (progre
         continue;
       }
       const temporary = path.join(staged, path.basename(target.file));
-      await assembleTarget(folder, journal.parts, target, temporary);
+      const assembledProgram = outputs.find((item) => item.target.slot === "program");
+      if (target.slot === "camera1" && assembledProgram && await cameraOneSharesProgram(folder, journal.parts).catch(() => false)) {
+        // Disk-first capture hard-links Camera 1 to Program. Reuse that exact
+        // assembly rather than rendering the same resumed video a second time.
+        try { await fs.link(assembledProgram.temporary, temporary); }
+        catch { await fs.copyFile(assembledProgram.temporary, temporary); }
+      } else await assembleTarget(folder, journal.parts, target, temporary);
       if (!(await validatePlayableMedia(temporary, undefined, { video: target.video, audio: !target.video || target.slot === "program", decode: true }))) throw new Error(`Combined ${target.slot} could not be verified.`);
       outputs.push({ target, temporary, destination: path.join(folder, target.file) });
     }

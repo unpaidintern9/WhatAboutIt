@@ -74,6 +74,20 @@ describe("durable episode recording parts", () => {
     expect(complete.result!.integrity.warnings.join(" ")).toContain("camera2 is incomplete");
     await expect(fs.stat(path.join(first.captureFolderPath!, "Cameras", "camera-2.webm"))).resolves.toBeTruthy();
   }, 40000);
+  it("reuses the assembled Program when every paused Camera 1 source shares that original", async () => {
+    const store = await import("./recording-session-store");
+    const first = await store.createRecordingSession({ episodeId: "episode-shared-camera", deviceDefaults: defaults });
+    await capture(first, false);
+    await store.checkpointRecordingSession(first.folderPath, true);
+    const second = await store.createRecordingSession({ episodeId: first.episodeId, deviceDefaults: defaults, resume: true });
+    await capture(second, false);
+    const complete = await store.checkpointRecordingSession(first.folderPath, false);
+    const camera = complete.result!.tracks.find((track) => track.slot === "camera1")!;
+    expect(await fs.readFile(camera.filePath!)).toEqual(await fs.readFile(complete.result!.programPath!));
+    const [programStat, cameraStat] = await Promise.all([fs.stat(complete.result!.programPath!), fs.stat(camera.filePath!)]);
+    expect(cameraStat.ino).toBe(programStat.ino);
+    expect(complete.result?.integrity.programPlayable).toBe(true);
+  }, 40000);
   it("bounds fallback rendering when resumed video reports a 1000 fps time base", async () => {
     const store = await import("./recording-session-store");
     const first = await store.createRecordingSession({ episodeId: "episode-vfr", deviceDefaults: defaults });
