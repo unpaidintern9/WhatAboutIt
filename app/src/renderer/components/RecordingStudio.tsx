@@ -225,6 +225,7 @@ export function RecordingStudio({
   const cameraReadyCount = cameraSlots.filter((slot) => findDevice(detection.cameras, defaults.cameras[slot.key])).length;
   const storageReady = !storageWarning;
   const recordingInProgress = isRecording || isPaused;
+  const inputChangesLocked = isRecording || recordingAction !== "idle";
   const recordingPreferences = { ...defaultRecordingPreferences, ...recordingPreferencesProp };
   const liveMode = isRecording && recordingPreferences.liveModeEnabled;
   const recordingHealthy = snapshot.status !== "error" && (!isRecording || Boolean(snapshot.health?.programActive));
@@ -624,6 +625,7 @@ export function RecordingStudio({
 
         <section className="recording-health-strip" aria-label="Recording readiness and live health">
           <span>{readinessMessage ?? "Check each assigned input before recording."}</span>
+          {inputChangesLocked && <span>Inputs are locked during capture. Pause before changing inputs; Resume uses your updated setup.</span>}
           {remainingMinutes !== undefined && <span>About {remainingMinutes} min of drive space at this profile</span>}
           {isRecording && <span>{(pendingBytes / 1024 / 1024).toFixed(1)} MB waiting for disk · {snapshot.health?.sources.filter((source) => !source.active).length ?? 0} sources need attention</span>}
           {driveCheck && <small>Short write test at {new Date(driveCheck.checkedAt).toLocaleTimeString()}</small>}
@@ -643,6 +645,7 @@ export function RecordingStudio({
                     device={findDevice(detection.cameras, defaults.cameras[slot.key])}
                     deviceId={defaults.cameras[slot.key]}
                     isRecording={isRecording}
+                    inputChangesLocked={inputChangesLocked}
                     cameraSlot={slot.key}
                     micRoute={defaults.cameraMicrophones?.[slot.key] ?? fallbackCameraMicRoutes[slot.key]}
                     micRoutes={visibleMicSlots}
@@ -694,7 +697,7 @@ export function RecordingStudio({
                   <div className="monitor-row">
                     <label>
                       Output
-                      <select value={defaults.audioOutputId ?? ""} onChange={(event) => setOutput(event.target.value)}>
+                      <select disabled={inputChangesLocked} value={defaults.audioOutputId ?? ""} onChange={(event) => setOutput(event.target.value)}>
                         <option value="">System output</option>
                         {detection.speakers.map((speaker) => (
                           <option value={speaker.id} key={speaker.id}>{speaker.label}</option>
@@ -730,6 +733,7 @@ export function RecordingStudio({
                           monitorLabel={getMonitorLabel(slot.label)}
                           monitoring={controls.monitor && !controls.muted && (soloedChannels.length === 0 || soloedChannels.includes(slot.key))}
                           softwareMonitoringDisabled={recordingInProgress}
+                          inputChangesLocked={inputChangesLocked}
                           outputDeviceId={defaults.audioOutputId}
                           fallbackLevel={0}
                           trackStatus={trackStatusBySlot[slot.key as RecordingTrackSlot]}
@@ -1144,6 +1148,7 @@ function CameraCard({
   device,
   deviceId,
   isRecording,
+  inputChangesLocked,
   cameraSlot,
   micRoute,
   micRoutes,
@@ -1158,6 +1163,7 @@ function CameraCard({
   device?: StudioDevice;
   deviceId?: string;
   isRecording: boolean;
+  inputChangesLocked: boolean;
   cameraSlot: CameraKey;
   micRoute: MicKey;
   micRoutes: Array<{ key: MicKey; label: string }>;
@@ -1206,6 +1212,7 @@ function CameraCard({
         Audio input
         <select
           aria-label={`${label} audio input`}
+          disabled={inputChangesLocked}
           value={micRoute}
           onChange={(event) => onMicRouteChange(event.target.value as MicKey)}
         >
@@ -1359,6 +1366,7 @@ function LiveMicMeter({
   monitorLabel,
   monitoring,
   softwareMonitoringDisabled,
+  inputChangesLocked,
   outputDeviceId,
   fallbackLevel,
   fallbackLabel,
@@ -1387,6 +1395,7 @@ function LiveMicMeter({
   monitorLabel: string;
   monitoring: boolean;
   softwareMonitoringDisabled: boolean;
+  inputChangesLocked: boolean;
   outputDeviceId?: string;
   fallbackLevel?: number;
   fallbackLabel?: string;
@@ -1619,13 +1628,13 @@ function LiveMicMeter({
         {onNameChange && (
           <label className="channel-name-control" title="This name is saved with the episode and its separate audio track.">
             <span className="control-caption">Name</span>
-            <input aria-label={`${roleLabel ?? label} name`} value={label} onChange={(event) => onNameChange(event.target.value)} />
+            <input disabled={inputChangesLocked} aria-label={`${roleLabel ?? label} name`} value={label} onChange={(event) => onNameChange(event.target.value)} />
           </label>
         )}
         {onInputChange && (
           <label className="channel-input-control" title="Choose which physical mic feeds this mixer channel.">
             <span className="control-caption">Input</span>
-            <select aria-label={`${label} input`} value={selectedInputId ?? ""} onChange={(event) => onInputChange(event.target.value)}>
+            <select disabled={inputChangesLocked} aria-label={`${label} input`} value={selectedInputId ?? ""} onChange={(event) => onInputChange(event.target.value)}>
               <option value="">Pick input</option>
               {inputOptions.map((device) => {
                 const owner = findAssignedMicSlot(inputAssignments, inputChannelAssignments, device.id, inputChannel, micSlot);
@@ -1641,7 +1650,7 @@ function LiveMicMeter({
         {onInputChannelChange && (
           <label className="channel-route-control" title="Choose the physical input jack when the Windows audio driver exposes it.">
             <span className="control-caption">Physical Jack</span>
-            <select aria-label={`${label} interface channel`} value={inputChannel} onChange={(event) => onInputChannelChange(event.target.value as MicrophoneInputChannel)}>
+            <select disabled={inputChangesLocked} aria-label={`${label} interface channel`} value={inputChannel} onChange={(event) => onInputChannelChange(event.target.value as MicrophoneInputChannel)}>
               {microphoneInputChannelOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
             </select>
             <span className={`physical-input-assignment compact ${inputChannel === "mix" ? "automatic" : "routed"}`}>

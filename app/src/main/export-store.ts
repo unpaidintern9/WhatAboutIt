@@ -979,7 +979,7 @@ async function createEditorSourceFiles(
         ? ["-map", "0:v:0", "-map", "0:a:0?", "-c:v", "prores_ks", "-profile:v", "2", "-pix_fmt", "yuv422p10le", "-ar", "48000", "-c:a", "pcm_s24le"]
         : ["-map", "0:v:0", "-map", "0:a:0?", "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2", "-pix_fmt", "yuv420p", ...compatibleVideoArgs(encoder), "-g", "30", "-ar", "48000", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart"];
     const encode = (args: string[]) => runFfmpegWithProgress(
-      ["-y", "-fflags", "+genpts", "-i", item.sourceFile, ...args, outputPath],
+      ["-y", "-fflags", "+genpts", "-i", item.sourceFile, ...(kind === "video" ? ["-vsync", "0"] : []), ...args, outputPath],
       { durationMs, signal, onProgress: (progress) => updateRunningJob(running, start + (progress / 100) * width, `Preparing ${item.label} for outside editors`, report) }
     );
     try { await encode(codecArgs); }
