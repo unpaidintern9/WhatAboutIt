@@ -583,4 +583,17 @@ describe("recording session store", () => {
     }
   });
 
+  it("does not append any bytes when the recovery manifest stays unreadable", async () => {
+    const store = await import("./recording-session-store");
+    const session = await store.createRecordingSession({ episodeTitle: "Locked recovery metadata", deviceDefaults: { cameras: {}, microphones: {} } });
+    const folder = session.captureFolderPath!;
+    await store.beginRecordingMedia(folder);
+    const chunk = { target: "program" as const, kind: "program" as const, mimeType: "video/webm", sequence: 0, bytes: new Uint8Array([1, 2, 3]) };
+    await store.appendRecordingChunk(folder, chunk);
+    const read = vi.spyOn(fs, "readFile").mockRejectedValue(Object.assign(new Error("EPERM: manifest read locked"), { code: "EPERM" }));
+    await expect(store.appendRecordingChunk(folder, { ...chunk, sequence: 1 })).rejects.toThrow("EPERM");
+    read.mockRestore();
+    expect(await fs.readFile(path.join(folder, "Program/program.partial.webm"))).toEqual(Buffer.from(chunk.bytes));
+  });
+
 });

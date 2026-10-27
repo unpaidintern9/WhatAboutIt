@@ -290,7 +290,9 @@ async function appendSourceChunk(folderPath: string, chunk: RecordingChunkInput)
   const safeFolder = assertRecordingFolder(folderPath);
   if (chunk.bytes.length === 0) return { bytesWritten: 0, lastChunkAt: new Date().toISOString() };
   const partialPath = partialMediaPath(safeFolder, chunk.target, chunk.mimeType);
-  const manifestBefore = await readJsonFile<CaptureManifest>(captureManifestPath(safeFolder));
+  // Sequence verification is mandatory before appending bytes. A locked or
+  // unreadable manifest must never be treated as a new, untracked source.
+  const manifestBefore = JSON.parse(await withFileLockRetry(() => fs.readFile(captureManifestPath(safeFolder), "utf8"))) as CaptureManifest;
   const previous = manifestBefore?.sources[chunk.target];
   if (previous && chunk.sequence <= previous.lastSequence) return { bytesWritten: previous.bytesWritten, lastChunkAt: previous.lastChunkAt };
   if (previous && chunk.sequence !== previous.lastSequence + 1) throw new Error("Recording chunk sequence is incomplete. Recovery files were preserved.");
@@ -303,8 +305,7 @@ async function appendSourceChunk(folderPath: string, chunk: RecordingChunkInput)
   {
     await enqueueManifestWrite(safeFolder, async () => {
       const manifestPath = captureManifestPath(safeFolder);
-      const current = await readJsonFile<CaptureManifest>(manifestPath);
-      if (!current) throw new Error("Recording capture manifest is missing.");
+      const current = JSON.parse(await withFileLockRetry(() => fs.readFile(manifestPath, "utf8"))) as CaptureManifest;
       current.updatedAt = lastChunkAt;
       const previousSource = current.sources[chunk.target];
       current.sources[chunk.target] = {
