@@ -1368,6 +1368,10 @@ export default function App() {
   }
 
   async function saveDeviceDefaults(deviceDefaults: DeviceDefaults) {
+    if (recordingService.hasActiveCapture()) {
+      setWorkspaceMessage("Pause recording before changing camera or microphone inputs. Resume uses your updated setup.");
+      return;
+    }
     const resolvePhysicalDeviceId = (deviceId: string | undefined, devices: DeviceDetectionResult["microphones"] | DeviceDetectionResult["speakers"]) => {
       if (!deviceId || (deviceId !== "default" && deviceId !== "communications")) return deviceId;
       const alias = devices.find((device) => device.id === deviceId);
