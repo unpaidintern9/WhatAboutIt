@@ -218,7 +218,7 @@ describe("TimelineReview", () => {
     expect(markup).toContain('aria-label="Playback speed"');
     expect(markup).toContain("Edit history");
     expect(markup).toContain("Manual</button>");
-    expect(markup).toContain("Draft saved");
+    expect(markup).toContain("Saved on this computer");
     expect(markup).toContain("Selected track");
     expect(markup).toContain('<select aria-label="Selected track"');
     expect(markup).toContain("Program cuts remove time from every source");
@@ -541,7 +541,7 @@ describe("TimelineReview", () => {
     const markup = renderToStaticMarkup(<TimelineReview draft={{ ...draft, hasUnsavedChanges: true }} saveState="failed" onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />);
 
     expect(markup).toContain("Save failed — retry");
-    expect(markup).not.toContain("Draft saved");
+    expect(markup).not.toContain("Saved on this computer");
     expect(markup).toContain('role="status"');
   });
 

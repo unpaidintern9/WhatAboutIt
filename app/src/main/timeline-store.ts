@@ -6,6 +6,37 @@ import { getEpisodesRoot } from "./config-service";
 import { acquireCollaborationEditorLease, getCollaborationRemoteConfig, sendCollaborationPresence } from "./collaboration-remote-service";
 import { assertProjectRevisionCurrent, pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
 import { logger } from "./logger";
+import { withLocalProjectSave, markProjectSavePending, readPendingProjectSave, clearPendingProjectSave } from "./local-project-save";
+import { waitForMediaBudget } from "./media-work-scheduler";
+
+const cloudSaves = new Map<string, Promise<void>>();
+/** Cloud work can fail or wait for recording without delaying the durable local Save. */
+export function syncSavedTimelineInBackground(episodeId: string) {
+  if (cloudSaves.has(episodeId)) return cloudSaves.get(episodeId)!;
+  const task = (async () => {
+    while (true) {
+      await waitForMediaBudget();
+      const token = await withLocalProjectSave(episodeId, () => readPendingProjectSave(episodeId));
+      if (!token) return;
+      const remoteConfig = await getCollaborationRemoteConfig();
+      if (remoteConfig.apiUrl) {
+        const collaboration = await acquireCollaborationEditorLease(episodeId);
+        if (!collaboration.connected) throw new Error("Cloud collaboration is unavailable. The draft is saved on this computer.");
+        if (collaboration.activeEditor && collaboration.activeEditor.memberId !== collaboration.self.memberId) {
+          throw new Error(`${collaboration.activeEditor.displayName} is editing the shared episode. Your local draft is safe; cloud sync is waiting.`);
+        }
+        await assertProjectRevisionCurrent(episodeId);
+        await waitForMediaBudget();
+        await pushProjectChanges(episodeId);
+      }
+      await clearPendingProjectSave(episodeId, token);
+    }
+  })().catch(async (error) => {
+    await logger.warning("TimelineReview", "Draft saved on this computer; cloud sync is pending.", { episodeId, error: String(error) });
+  }).finally(() => { cloudSaves.delete(episodeId); });
+  cloudSaves.set(episodeId, task);
+  return task;
+}
 
 function timelinePath(episodeId: string) {
   if (!episodeId || path.basename(episodeId) !== episodeId || episodeId === "." || episodeId === "..") {
@@ -42,7 +73,10 @@ async function syncDirectory(directory: string) {
 export async function loadTimelineDraft(episodeId: string): Promise<TimelineDraft | null> {
   void sendCollaborationPresence(episodeId, "viewing").catch(() => undefined);
   try {
-    const pulled = await pullLatestProjectChanges(episodeId);
+    const pending = await withLocalProjectSave(episodeId, () => readPendingProjectSave(episodeId));
+    // Never replace unsynced local work with a cloud copy, including after restart.
+    const pulled = pending ? { changed: 0 } : await pullLatestProjectChanges(episodeId);
+    if (pending) void syncSavedTimelineInBackground(episodeId);
     if (pulled.changed > 0) {
       await logger.info("TimelineReview", "Applied newer collaborative project files before opening Review.", {
         episodeId,
@@ -82,68 +116,39 @@ export async function saveTimelineDraft(episodeId: string, draft: TimelineDraft)
     throw new Error(`Refusing to save draft for ${draft.episodeId} into episode ${episodeId}.`);
   }
 
-  const remoteConfig = await getCollaborationRemoteConfig();
-  let collaboration;
-  if (remoteConfig.apiUrl) {
+  const saved = await withLocalProjectSave(episodeId, async () => {
+    const filePath = timelinePath(episodeId);
+    const directory = path.dirname(filePath);
+    const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+    await fs.mkdir(directory, { recursive: true });
+    await markProjectSavePending(episodeId);
+    const nextDraft = markTimelineSaved({
+      ...draft,
+      episodeId,
+      nonDestructive: true as const
+    });
+    const persistedDraft = compactTimelineDraftForPersistence(nextDraft);
+    let temporaryHandle: Awaited<ReturnType<typeof fs.open>> | undefined;
     try {
-      collaboration = await acquireCollaborationEditorLease(episodeId);
-    } catch (error) {
-      throw new Error("Cloud collaboration is configured but edit ownership could not be verified. Your local changes are still open, but the shared timeline was not overwritten.", { cause: error });
+      temporaryHandle = await fs.open(temporaryPath, "wx");
+      await temporaryHandle.writeFile(JSON.stringify(persistedDraft, null, 2), "utf8");
+      await temporaryHandle.sync();
+      await temporaryHandle.close();
+      temporaryHandle = undefined;
+      try {
+        await fs.copyFile(filePath, backupPath(filePath));
+      } catch (error) {
+        if (!isMissingFile(error)) throw error;
+      }
+      await fs.rename(temporaryPath, filePath);
+      await syncDirectory(directory);
+    } finally {
+      await temporaryHandle?.close().catch(() => undefined);
+      await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
     }
-    if (!collaboration.connected) {
-      throw new Error("Cloud collaboration is temporarily unavailable. Your local changes are still open, but the shared timeline was not overwritten.");
-    }
-    if (collaboration.activeEditor && collaboration.activeEditor.memberId !== collaboration.self.memberId) {
-      throw new Error(`${collaboration.activeEditor.displayName} is editing this episode right now. Your local changes were not written over their timeline.`);
-    }
-    await assertProjectRevisionCurrent(episodeId);
-  }
 
-  const filePath = timelinePath(episodeId);
-  const directory = path.dirname(filePath);
-  const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  await fs.mkdir(directory, { recursive: true });
-  const nextDraft = markTimelineSaved({
-    ...draft,
-    episodeId,
-    nonDestructive: true as const
+    return nextDraft;
   });
-  const persistedDraft = compactTimelineDraftForPersistence(nextDraft);
-  let temporaryHandle: Awaited<ReturnType<typeof fs.open>> | undefined;
-  try {
-    temporaryHandle = await fs.open(temporaryPath, "wx");
-    await temporaryHandle.writeFile(JSON.stringify(persistedDraft, null, 2), "utf8");
-    await temporaryHandle.sync();
-    await temporaryHandle.close();
-    temporaryHandle = undefined;
-    try {
-      await fs.copyFile(filePath, backupPath(filePath));
-    } catch (error) {
-      if (!isMissingFile(error)) throw error;
-    }
-    await fs.rename(temporaryPath, filePath);
-    await syncDirectory(directory);
-  } finally {
-    await temporaryHandle?.close().catch(() => undefined);
-    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
-  }
-
-  if (remoteConfig.apiUrl) {
-    try {
-      await pushProjectChanges(episodeId);
-    } catch (error) {
-      await logger.warning("TimelineReview", "Timeline is safe locally but automatic cloud project sync failed.", {
-        episodeId,
-        error: String(error)
-      });
-      throw new Error("Your edit was saved safely on this computer, but Cloudflare sync did not finish. Retry Save before handing the episode to the other editor.", { cause: error });
-    }
-  }
-
-  await logger.info("TimelineReview", "Saved local draft timeline.", {
-    episodeId,
-    collaborationEditor: collaboration?.self.displayName,
-    automaticCloudSync: Boolean(remoteConfig.apiUrl)
-  });
-  return nextDraft;
+  void syncSavedTimelineInBackground(episodeId);
+  return saved;
 }

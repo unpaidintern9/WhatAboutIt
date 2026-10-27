@@ -9,6 +9,8 @@ import type { EpisodeMetadata } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
 import { fetchCollaborationApi, getCollaborationRemoteConfig, uploadEpisodeToCloud } from "./collaboration-remote-service";
 
+import { readPendingProjectSave } from "./local-project-save";
+
 interface ProjectSyncMarker {
   episodeId: string;
   remoteUploadedAt?: string;
@@ -84,6 +86,7 @@ async function localFileMatches(filePath: string, contentHash?: string) {
 }
 
 async function hasLocalProjectChangesSinceMarker(episodeId: string, marker: ProjectSyncMarker | undefined, manifest: CloudEpisodeManifest | undefined) {
+  if (await readPendingProjectSave(episodeId)) return true;
   if (!marker?.syncedAt || !manifest) return false;
   const syncedAt = Date.parse(marker.syncedAt);
   if (!Number.isFinite(syncedAt)) return false;

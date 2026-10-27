@@ -731,9 +731,11 @@ export default function App() {
   }
 
   const [newEpisodeBusy, setNewEpisodeBusy] = useState(false);
+  const [episodeActionError, setEpisodeActionError] = useState<string>();
   async function startNewEpisode() {
     if (newEpisodeBusy) return;
     setNewEpisodeBusy(true);
+    setEpisodeActionError(undefined);
     try {
       if (recordingService.getSnapshot().status === "recording") await pauseRecording();
       if (recordingService.hasActiveCapture()) throw new Error("The current take is still saving. Try again when saving finishes.");
@@ -741,7 +743,7 @@ export default function App() {
       setTitle(""); setGuestName(""); setDescription("");
       setView("new-episode");
       setWorkspaceMessage("Current episode saved in its folder. Create a new episode below.");
-    } catch (error) { setWorkspaceMessage(error instanceof Error ? error.message : "The current episode needs to finish saving."); }
+    } catch (error) { setEpisodeActionError(error instanceof Error ? error.message : "The current episode needs to finish saving."); }
     finally { setNewEpisodeBusy(false); }
   }
 
@@ -1356,7 +1358,7 @@ export default function App() {
   }
 
   async function requestStudioPermissions(resetConnections = true) {
-    if (resetConnections && recordingService.getSnapshot().status !== "recording" && recordingService.getSnapshot().status !== "paused") {
+    if (resetConnections && !recordingService.hasActiveCapture()) {
       deviceService.releaseAll();
       setDeviceRefreshKey((current) => current + 1);
     }
@@ -1365,7 +1367,7 @@ export default function App() {
   }
 
   async function refreshStudioDevices(resetConnections = true) {
-    if (resetConnections && recordingService.getSnapshot().status !== "recording" && recordingService.getSnapshot().status !== "paused") {
+    if (resetConnections && !recordingService.hasActiveCapture()) {
       deviceService.releaseAll();
       setDeviceRefreshKey((current) => current + 1);
     }
@@ -1807,6 +1809,7 @@ export default function App() {
             }}
           />
         )}
+        {episodeActionError && <div role="alert" className="studio-notice needs-attention">{episodeActionError}</div>}
         {view === "home" && <HomeView episodes={episodes} cameraReady={selectedCameraReady} microphoneReady={selectedMicrophoneReady} onNewEpisode={() => void startNewEpisode()} onStudioSetup={() => setView("device-setup")} onOpenEpisode={(episode) => void openEpisode(episode)} />}
         {view === "new-episode" && <NewEpisodeView title={title} guestName={guestName} description={description} setTitle={setTitle} setGuestName={setGuestName} setDescription={setDescription} createEpisode={createEpisode} onBack={() => setView("home")} onNext={() => setView("device-setup")} />}
         {view === "device-setup" && (
@@ -1852,6 +1855,10 @@ export default function App() {
             driveCheck={recordingDriveCheck}
             readinessMessage={readinessMessage}
             onCheckReadiness={verifyRecordingReady}
+            onReconnectInputs={async () => {
+              if (recordingService.hasActiveCapture()) throw new Error("Pause and save before reconnecting inputs.");
+              await refreshStudioDevices();
+            }}
             recordingPreferences={recordingPreferences}
             onStart={() => startRecording(false)}
             canContinueRecording={Boolean(activeEpisode?.resumeAvailable && reviewMedia?.episodeId === activeEpisode.id && reviewMedia.hasPlayableProgram)}
