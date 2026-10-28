@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   defaultDeviceDefaults,
+  getMicrophoneInputOptions,
+  assignTwoInputInterface,
+  getMicrophoneRoutingIssue,
   getDeviceAssignmentConflicts,
   saveCameraMicrophoneSlot,
   saveCameraSlot,
@@ -126,4 +129,28 @@ describe("device config", () => {
     expect(routed.cameraMicrophones?.camera2).toBe("morganMic");
     expect(routed.cameraMicrophones?.camera3).toBe("extraMic");
   });
+  it("shows only the two mono ports on an M-Track Duo, bounded by the active Windows channels", () => {
+    expect(getMicrophoneInputOptions("M-Audio M-Track Duo").map((item) => item.value)).toEqual(["input-1", "input-2"]);
+    expect(getMicrophoneInputOptions("M-Track Solo and Duo", 1).map((item) => item.value)).toEqual(["input-1"]);
+    expect(getMicrophoneInputOptions("USB Audio Interface", 8, true)).toHaveLength(8);
+    expect(getMicrophoneInputOptions("USB Audio Interface", 8, true).at(-1)?.value).toBe("input-8");
+  });
+  it("assigns two voices atomically without changing cameras, names or another interface", () => {
+    const defaults = { ...defaultDeviceDefaults, cameras: { camera1: "sony" }, microphones: { extraMic: "other-interface" } };
+    const next = assignTwoInputInterface(defaults, "duo", "M-Track Duo");
+    expect(next.microphones).toEqual({ morganMic: "duo", guestMic: "duo", extraMic: "other-interface" });
+    expect(next.microphoneChannels).toMatchObject({ morganMic: "input-1", guestMic: "input-2" });
+    expect(next.cameras).toBe(defaults.cameras);
+    expect(getMicrophoneRoutingIssue(next)).toBeUndefined();
+  });
+  it("starts the first known Duo microphone on Input 1 rather than a combined mix", () => {
+    expect(saveMicrophoneDeviceRoute(defaultDeviceDefaults, "morganMic", "duo", "M-Track Duo").microphoneChannels?.morganMic).toBe("input-1");
+  });
+  it("rejects impossible Duo ports and combined-plus-isolated overlap", () => {
+    const next = assignTwoInputInterface(defaultDeviceDefaults, "duo", "M-Track Duo");
+    expect(getMicrophoneRoutingIssue({ ...next, microphoneChannels: { morganMic: "input-3", guestMic: "input-2" } })).toContain("has two inputs");
+    const conflicts = getDeviceAssignmentConflicts({ ...next, microphoneChannels: { morganMic: "mix", guestMic: "input-2" } });
+    expect(conflicts).toContainEqual({ kind: "microphone-route", deviceId: "duo", channel: "mix", slots: ["morganMic", "guestMic"] });
+  });
+
 });

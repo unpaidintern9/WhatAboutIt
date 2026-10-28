@@ -7,6 +7,24 @@
 .review-workspace-popover > button { width: 100%; justify-content: flex-start; }
 .recording-check-details > summary { cursor: pointer; padding: 8px 0; }
 .recording-check-details p { margin: 8px 0; max-width: 70ch; }
+.interface-quick-setup { padding: 18px; margin-block: 14px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); color: var(--color-text); }
+.interface-quick-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.interface-quick-heading h3 { margin: 0 0 6px; font-size: 17px; }
+.interface-quick-heading p, .interface-check-copy { margin: 0; color: var(--color-mutedText); font-size: 13px; line-height: 1.5; }
+.interface-quick-heading > span { padding: 5px 9px; border-radius: 6px; font-size: 12px; white-space: nowrap; }
+.routing-ready { background: #37735a18; color: var(--color-success); }
+.routing-pending { background: #94652618; color: var(--color-warning); }
+.interface-quick-controls { display: flex; align-items: end; gap: 12px; margin-block: 14px; }
+.interface-quick-controls label { display: grid; gap: 6px; flex: 1; min-width: 0; font-size: 13px; font-weight: 600; }
+.interface-quick-controls select, .visible-input-routing select { width: 100%; min-width: 0; height: 38px; padding: 6px 9px; border: 1px solid var(--color-border); border-radius: 6px; color: var(--color-text); background: var(--color-surface); }
+.interface-quick-controls button { min-height: 38px; padding: 8px 14px; border: 0; border-radius: 6px; background: var(--color-primary); color: var(--color-inverseText); cursor: pointer; font-weight: 600; }
+.interface-quick-controls button:disabled { opacity: .55; cursor: default; }
+.interface-route-map { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 10px; margin-block: 10px; }
+.interface-route-map > span { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 6px; font-size: 13px; }
+.visible-input-routing { display: grid; grid-template-columns: minmax(0,1.4fr) minmax(0,1fr); gap: 10px; margin-block: 12px; }
+.visible-input-routing label { display: grid; gap: 5px; min-width: 0; font-size: 12px; }
+.visible-input-routing .physical-input-assignment { font-size: 11px; }
+@media (max-width: 800px) { .interface-quick-heading, .interface-quick-controls { flex-direction: column; align-items: stretch; } .interface-route-map, .visible-input-routing { grid-template-columns: minmax(0,1fr); } }
 
 body[data-studio-theme="what-about-it"] {
   --color-primary: #a83732;

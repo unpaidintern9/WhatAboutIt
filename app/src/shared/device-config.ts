@@ -9,8 +9,8 @@ export interface DeviceAssignmentConflict {
 
 export const microphoneInputChannelOptions: Array<{ value: MicrophoneInputChannel; label: string }> = [
   { value: "mix", label: "Automatic / combined input" },
-  { value: "input-1", label: "Physical Input 1 (left channel)" },
-  { value: "input-2", label: "Physical Input 2 (right channel)" },
+  { value: "input-1", label: "Input 1 · Mono" },
+  { value: "input-2", label: "Input 2 · Mono" },
   { value: "input-3", label: "Input 3" },
   { value: "input-4", label: "Input 4" },
   { value: "input-5", label: "Input 5" },
@@ -28,11 +28,53 @@ export const microphoneInputChannelOptions: Array<{ value: MicrophoneInputChanne
 ];
 
 export function getMicrophoneInputDisplay(channel: MicrophoneInputChannel) {
-  if (channel === "input-1") return { short: "Jack 1 / Left", detail: "Physical Input 1 on the interface" };
-  if (channel === "input-2") return { short: "Jack 2 / Right", detail: "Physical Input 2 on the interface" };
+  if (channel === "input-1") return { short: "Input 1 · Mono", detail: "Physical Input 1 on the interface" };
+  if (channel === "input-2") return { short: "Input 2 · Mono", detail: "Physical Input 2 on the interface" };
   if (channel === "mix") return { short: "Automatic / Combined", detail: "All browser-visible channels combined" };
   const number = channel.replace("input-", "");
   return { short: `Input ${number}`, detail: `Physical Input ${number} on the interface` };
+}
+
+export function isTwoInputAudioInterface(label = "") {
+  return /m[\s-]*track\s*(?:solo\s*(?:and|&|\/)?\s*)?duo|m[\s-]*audio.*duo/i.test(label);
+}
+
+export function getMicrophoneInputOptions(label = "", activeChannelCount?: number, sharedDevice = false) {
+  const count = Number.isInteger(activeChannelCount) && (activeChannelCount ?? 0) > 0
+    ? Math.min(16, activeChannelCount!) : undefined;
+  const knownTwo = isTwoInputAudioInterface(label);
+  const maximum = knownTwo ? Math.min(2, count ?? 2) : count ?? 2;
+  return microphoneInputChannelOptions.filter((option) => option.value === "mix"
+    ? !knownTwo && !sharedDevice : Number(option.value.replace("input-", "")) <= maximum);
+}
+
+export function microphoneRoutesOverlap(first: MicrophoneInputChannel, second: MicrophoneInputChannel) {
+  return first === "mix" || second === "mix" || first === second;
+}
+
+export function distinctAudioDeviceChoices<T extends { id: string; groupId?: string }>(devices: T[], selectedId?: string) {
+  return devices.filter((device) => device.id === selectedId || !["default", "communications"].includes(device.id) || !device.groupId
+    || !devices.some((other) => !["default", "communications"].includes(other.id) && other.groupId === device.groupId));
+}
+
+export function assignTwoInputInterface(defaults: DeviceDefaults, deviceId: string, label: string): DeviceDefaults {
+  return { ...defaults,
+    microphones: { ...defaults.microphones, morganMic: deviceId, guestMic: deviceId },
+    microphoneChannels: { ...defaults.microphoneChannels, morganMic: "input-1", guestMic: "input-2" },
+    microphoneDeviceLabels: { ...defaults.microphoneDeviceLabels, morganMic: label, guestMic: label }
+  };
+}
+
+export function getMicrophoneRoutingIssue(defaults: DeviceDefaults) {
+  for (const [slot, deviceId] of Object.entries(defaults.microphones)) {
+    if (!deviceId) continue;
+    const label = defaults.microphoneDeviceLabels?.[slot as MicrophoneSlotKey] ?? "";
+    const channel = defaults.microphoneChannels?.[slot as MicrophoneSlotKey] ?? "mix";
+    if (isTwoInputAudioInterface(label) && !["input-1", "input-2"].includes(channel)) {
+      return `${label} has two inputs. Choose Input 1 or Input 2 for ${defaults.microphoneNames?.[slot as MicrophoneSlotKey] || slot}.`;
+    }
+  }
+  return undefined;
 }
 
 const numberedMicrophoneInputs = microphoneInputChannelOptions
@@ -179,6 +221,13 @@ export function getDeviceAssignmentConflicts(defaults: DeviceDefaults): DeviceAs
     const [deviceId, channel] = route.split("\u0000");
     conflicts.push({ kind: "microphone-route", deviceId, channel, slots });
   }
+  // A combined route overlaps every numbered input on the same device.
+  for (const [route, slots] of microphoneOwners) {
+    const [deviceId, channel] = route.split("\u0000");
+    if (channel !== "mix") continue;
+    const numbered = [...microphoneOwners.entries()].filter(([key]) => key.startsWith(`${deviceId}\u0000`) && !key.endsWith("\u0000mix")).flatMap(([, owners]) => owners);
+    if (numbered.length) conflicts.push({ kind: "microphone-route", deviceId, channel, slots: [...slots, ...numbered] });
+  }
   return conflicts;
 }
 
@@ -199,9 +248,11 @@ export function saveMicrophoneSlot(
 export function saveMicrophoneDeviceRoute(
   defaults: DeviceDefaults,
   slot: MicrophoneSlotKey,
-  deviceId: string
+  deviceId: string,
+  deviceLabel?: string
 ) {
-  const next = saveMicrophoneSlot(defaults, slot, deviceId);
+  const next = { ...saveMicrophoneSlot(defaults, slot, deviceId),
+    microphoneDeviceLabels: { ...defaults.microphoneDeviceLabels, ...(deviceLabel ? { [slot]: deviceLabel } : {}) } };
   const microphoneChannels = {
     ...defaultDeviceDefaults.microphoneChannels,
     ...defaults.microphoneChannels
@@ -212,7 +263,7 @@ export function saveMicrophoneDeviceRoute(
     .filter(([candidate, assignedDeviceId]) => candidate !== slot && assignedDeviceId === deviceId)
     .map(([candidate]) => candidate);
   if (siblingSlots.length === 0) {
-    return { ...next, microphoneChannels: { ...microphoneChannels, [slot]: "mix" as const } };
+    return { ...next, microphoneChannels: { ...microphoneChannels, [slot]: isTwoInputAudioInterface(deviceLabel) ? "input-1" as const : "mix" as const } };
   }
 
   const used = new Set<MicrophoneInputChannel>();
