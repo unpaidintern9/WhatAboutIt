@@ -50,14 +50,22 @@ describe("durable metadata replacement", () => {
   it.skipIf(process.platform !== "win32")("survives a real Windows file-sharing lock until its reader releases the manifest", async () => {
     await durableJson(file(), { sequence: 1 });
     const script = "$h=[System.IO.File]::Open($env:WAI_ATOMIC_LOCK_FILE,[System.IO.FileMode]::Open,[System.IO.FileAccess]::Read,[System.IO.FileShare]::Read); [Console]::WriteLine('LOCKED'); [Console]::Out.Flush(); try { [Console]::ReadLine() | Out-Null } finally { $h.Dispose() }";
-    const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { env: { ...process.env, WAI_ATOMIC_LOCK_FILE: file() }, stdio: ["pipe", "pipe", "pipe"] });
+    const child = spawn("powershell.exe", ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script], { env: { ...process.env, WAI_ATOMIC_LOCK_FILE: file() }, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     let release: ReturnType<typeof setTimeout> | undefined;
     try {
       await new Promise<void>((resolve, reject) => {
-        const timeout = setTimeout(() => reject(new Error("Windows lock helper did not start")), 8000);
+        let output = "";
+        let errors = "";
+        // A loaded Windows runner can take time to start PowerShell/.NET.
+        // Pipe chunks are not line boundaries, so retain a split readiness token.
+        child.stderr.on("data", (data) => { errors += String(data); });
+        const timeout = setTimeout(() => reject(new Error(`Windows lock helper did not start. ${errors}`)), 30000);
         child.once("error", (error) => { clearTimeout(timeout); reject(error); });
         child.once("exit", (code) => { clearTimeout(timeout); reject(new Error(`Windows lock helper exited: ${code}`)); });
-        child.stdout.on("data", (data) => { if (String(data).includes("LOCKED")) { clearTimeout(timeout); resolve(); } });
+        child.stdout.on("data", (data) => {
+          output += String(data);
+          if (output.includes("LOCKED")) { clearTimeout(timeout); resolve(); }
+        });
       });
       const rename = fs.rename.bind(fs);
       const lockCodes: string[] = [];
@@ -81,5 +89,5 @@ describe("durable metadata replacement", () => {
         child.once("exit", () => { clearTimeout(timeout); resolve(); });
       });
     }
-  }, 15000);
+  }, 45000);
 });
