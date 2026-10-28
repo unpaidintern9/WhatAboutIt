@@ -21,6 +21,26 @@ vi.mock("./logger", () => ({
 }));
 
 describe("recording session store", () => {
+  it("adds seekable duration metadata to isolated streaming cameras without changing video samples", async () => {
+    const { runFfmpeg, getMediaDurationMs } = await import("./ffmpeg-tools");
+    const { createRecordingSession, beginRecordingMedia, appendRecordingChunk, finalizeRecordingMedia } = await import("./recording-session-store");
+    const raw = path.join(mockPaths.episodesRoot, "live-camera.webm");
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "testsrc=size=160x90:rate=10", "-t", "2", "-c:v", "libvpx", "-deadline", "realtime", "-live", "1", raw]);
+    expect(await getMediaDurationMs(raw)).toBe(0);
+    const session = await createRecordingSession({ episodeId: "seekable-camera", episodeTitle: "Seekable camera", deviceDefaults: { cameras: { camera1: "one", camera2: "two" }, microphones: {} } });
+    await beginRecordingMedia(session.folderPath);
+    const bytes = await fs.readFile(raw);
+    await appendRecordingChunk(session.folderPath, { target: "program", kind: "program", mimeType: "video/webm", sequence: 0, bytes });
+    await appendRecordingChunk(session.folderPath, { target: "camera2", kind: "camera", mimeType: "video/webm", sequence: 0, bytes });
+    const result = await finalizeRecordingMedia(session.folderPath);
+    const camera = result.tracks.find((track) => track.slot === "camera2")!;
+    expect(camera.status).toBe("saved");
+    expect(await getMediaDurationMs(camera.filePath!)).toBeGreaterThanOrEqual(1900);
+    const hash = (file: string) => runFfmpeg(["-v", "error", "-i", file, "-map", "0:v:0", "-f", "hash", "-hash", "sha256", "-"]);
+    expect((await hash(camera.filePath!)).stdout.match(/^SHA256=\w+/m)?.[0]).toBe((await hash(raw)).stdout.match(/^SHA256=\w+/m)?.[0]);
+    expect(await fs.readFile(path.join(session.folderPath, "Cameras", "Originals", "camera-2.source.webm"))).toEqual(bytes);
+    await expect(runFfmpeg(["-v", "error", "-ss", "1", "-i", camera.filePath!, "-frames:v", "1", "-f", "null", "-"])).resolves.toBeTruthy();
+  }, 30000);
   beforeEach(async () => {
     vi.resetModules();
     mockPaths.episodesRoot = await fs.mkdtemp(path.join(os.tmpdir(), "wai-recording-"));
