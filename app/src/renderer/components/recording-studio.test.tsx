@@ -93,6 +93,12 @@ describe("RecordingStudio", () => {
     expect(onNewEpisode).toHaveBeenCalledTimes(1);
   });
 
+  it("offers Retry Save after a save error without starting a different take", async () => {
+    const onStop = vi.fn(async () => undefined); const { host } = renderStudio({ onStop, snapshot: { status: "error", elapsedMs: 1000, session: { id: "failed", episodeId: "episode-a", folderPath: "/episode" } as never, friendlyError: "Disk write failed", localSaveMessage: "Needs recovery", trackStatuses: [] } });
+    expect(host.querySelector<HTMLButtonElement>("button.stop")?.disabled).toBe(false);
+    expect(host.querySelector<HTMLButtonElement>("button.record")?.disabled).toBe(true);
+    await act(async () => click(host, "Retry Save")); expect(onStop).toHaveBeenCalledTimes(1);
+  });
   it("renders the live control room with camera cards and mic meter states", () => {
     const { host } = renderStudio();
 

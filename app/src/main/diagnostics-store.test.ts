@@ -146,5 +146,20 @@ describe("diagnostics bundle", () => {
     expect(log).not.toContain("old-secret"); expect(log).not.toContain("old-token");
     expect(JSON.parse(await fs.readFile(path.join(result.folderPath, "session/recording-parts.json"), "utf8")).parts).toHaveLength(80);
   });
+  it("always includes the support inventory and instructions when logs fill the normal budget", async () => {
+    const { createDiagnosticsBundle } = await import("./diagnostics-store");
+    const request = { devices: [], results: {}, appVersion: "test" } as unknown as Parameters<typeof createDiagnosticsBundle>[0];
+    const first = await createDiagnosticsBundle(request);
+    let prefix = 0; for (const name of ["app-info.json", "device-list.json", "hardware-test-results.json", "logs/memory-recent.ndjson"]) prefix += (await fs.stat(path.join(first.folderPath, name))).size;
+    await fs.rm(path.join(mockPaths.logsRoot, "today.log"));
+    const fallback = path.join(mockPaths.appDataRoot, "fallback-logs"); await fs.mkdir(fallback, { recursive: true });
+    for (let index = 0; index < 6; index++) {
+      await fs.writeFile(path.join(mockPaths.logsRoot, `p${index}.log`), "x".repeat(2 * 1024 * 1024));
+      await fs.writeFile(path.join(fallback, `f${index}.log`), "x".repeat(2 * 1024 * 1024 - (index === 5 ? prefix + 16 : 0)));
+    }
+    const full = await createDiagnosticsBundle(request);
+    expect(full.files).toContain(path.join(full.folderPath, "bundle-manifest.json")); expect(full.files).toContain(path.join(full.folderPath, "README.txt"));
+    expect(JSON.parse(await fs.readFile(path.join(full.folderPath, "bundle-manifest.json"), "utf8")).includedMedia).toBe(false);
+  });
 
 });

@@ -97,6 +97,11 @@ export class RecordingService {
     if (this.status === "recording" || (this.status === "paused" && !this.session?.durablePaused)) return this.getSnapshot();
     if (this.status === "paused" && this.session?.episodeId === options.episodeId) options = { ...options, resume: true };
 
+    this.session = undefined;
+    this.elapsedBeforePause = 0;
+    this.trackStatuses = [];
+    this.integrity = undefined;
+    setRuntimeDiagnosticContext({ episodeId: options.episodeId, recordingStatus: "starting" });
     try {
       logRecordingEvent("info", "Recording start requested.", {
         episodeId: options.episodeId,
@@ -117,7 +122,7 @@ export class RecordingService {
         capturePart: this.session.captureFolderPath?.split(/[\\/]/).pop(), recordingStatus: "starting" });
       await this.plugin.start({ deviceDefaults, practice: options.practice, session: this.session });
       this.status = "recording";
-      this.startedAt = Date.now();
+      this.startedAt = performance.now();
       this.elapsedBeforePause = this.session.elapsedMs ?? 0;
       this.deviceDefaults = deviceDefaults;
       this.friendlyError = undefined;
@@ -139,8 +144,8 @@ export class RecordingService {
         : message.includes("Mic needs attention")
         ? friendlyRecordingError("mic")
         : friendlyRecordingError("device");
+      if (this.session) { try { await this.plugin.stop(); } catch { /* Preserve startup recovery. */ } }
       if (this.session?.captureFolderPath && window.studio.checkpointRecordingSession) {
-        await this.plugin.stop().catch(() => undefined);
         try {
           const checkpoint = await window.studio.checkpointRecordingSession(this.session.folderPath, true);
           this.session = checkpoint.session;
@@ -148,8 +153,9 @@ export class RecordingService {
           this.elapsedBeforePause = checkpoint.session.elapsedMs ?? this.elapsedBeforePause;
         } catch { /* Keep partial media available through recovery. */ }
       }
-      if (this.session) await window.studio.appendRecordingError(this.session.folderPath, `${this.friendlyError} Startup detail: ${message}`);
-      await this.persistState();
+      this.stopStateTimer();
+      if (this.session) await this.appendErrorSafely(`${this.friendlyError} Startup detail: ${message}`);
+      await this.persistState().catch(() => undefined);
       window.studio?.setRecordingCloseProtection?.(false);
       logRecordingEvent("error", "Recording start failed.", { error: message, sessionId: this.session?.id });
     }
@@ -158,6 +164,7 @@ export class RecordingService {
   }
 
   async pause() {
+    if (this.starting) await this.starting;
     if (this.status !== "recording") return this.getSnapshot();
     if (this.session?.captureFolderPath && window.studio.checkpointRecordingSession && !this.session.practice) return this.finishCapture(true);
     this.stopStartupHealthGate();
@@ -174,7 +181,7 @@ export class RecordingService {
     if (this.status !== "paused") return this.getSnapshot();
     if (this.session?.durablePaused && this.deviceDefaults) return this.resumeSaved(this.session, this.deviceDefaults);
     await this.plugin.resume();
-    this.startedAt = Date.now();
+    this.startedAt = performance.now();
     this.status = "recording";
     await this.persistState();
     this.startStartupHealthGate();
@@ -188,7 +195,7 @@ export class RecordingService {
   }
 
   restorePaused(session: RecordingSession) {
-    if (this.status === "recording") throw new Error("Pause the active episode first.");
+    if (this.hasActiveCapture()) throw new Error("Pause and save the active episode first.");
     this.session = session;
     this.status = "paused";
     this.elapsedBeforePause = session.elapsedMs ?? 0;
@@ -199,6 +206,7 @@ export class RecordingService {
   }
 
   async stop() {
+    if (this.starting) await this.starting;
     return this.finishCapture(false);
   }
 
@@ -214,7 +222,7 @@ export class RecordingService {
   }
 
   private async stopActiveSession(paused = false) {
-    if (!this.session || (this.status !== "recording" && this.status !== "paused")) return this.getSnapshot();
+    if (!this.session || (this.status !== "recording" && this.status !== "paused" && this.status !== "error")) return this.getSnapshot();
     const session = this.session;
     const finalElapsed = this.elapsedMs();
     this.stopStartupHealthGate();
@@ -222,7 +230,7 @@ export class RecordingService {
     logRecordingEvent("info", "Stop requested; flushing browser recorders.", { sessionId: session.id, elapsedMs: finalElapsed });
 
     try {
-      await this.stateWrites;
+      await this.stateWrites.catch(() => undefined);
       if (session.captureFolderPath && window.studio.checkpointRecordingSession && !session.practice) {
         if (!session.durablePaused) await this.plugin.stop();
         const checkpoint = await window.studio.checkpointRecordingSession(session.folderPath, paused);
@@ -270,10 +278,12 @@ export class RecordingService {
         }
       }
     } catch (error) {
+      try { await this.plugin.pause(); } catch { /* Preserve the original save failure. */ }
+      this.elapsedBeforePause = finalElapsed;
       this.status = "error";
       this.friendlyError = "The recording stopped, but some files still need recovery.";
-      await window.studio.appendRecordingError(session.folderPath, `${this.friendlyError} ${String(error)}`);
-      await this.persistState(finalElapsed);
+      await this.appendErrorSafely(`${this.friendlyError} ${String(error)}`);
+      await this.persistState(finalElapsed).catch(() => undefined);
       window.studio?.setRecordingCloseProtection?.(false);
       logRecordingEvent("error", "Recording finalization failed; recovery data was preserved.", { sessionId: session.id, error: String(error) });
       return this.getSnapshot();
@@ -295,6 +305,8 @@ export class RecordingService {
   }
 
   async shutdown() {
+    if (this.starting) await this.starting.catch(() => undefined);
+    if (this.stopPromise) await this.stopPromise.catch(() => undefined);
     this.stopStateTimer();
     this.stopStartupHealthGate();
     if (this.status === "recording" || (this.status === "paused" && !this.session?.durablePaused)) {
@@ -302,12 +314,12 @@ export class RecordingService {
       this.status = "interrupted";
       await this.persistState(this.elapsedBeforePause).catch(() => undefined);
     }
-    await this.plugin.shutdown?.();
-    window.studio?.setRecordingCloseProtection?.(false);
+    try { await this.plugin.shutdown?.(); }
+    finally { window.studio?.setRecordingCloseProtection?.(false); }
   }
 
   private elapsedMs() {
-    if (this.status === "recording") return this.elapsedBeforePause + (Date.now() - this.startedAt);
+    if (this.status === "recording") return this.elapsedBeforePause + (performance.now() - this.startedAt);
     return this.elapsedBeforePause;
   }
 
@@ -337,7 +349,7 @@ export class RecordingService {
   private startStartupHealthGate() {
     this.stopStartupHealthGate();
     if (this.session?.practice) return;
-    const remainingMs = Math.max(0, FIRST_CHUNK_TIMEOUT_MS - (Date.now() - this.startedAt));
+    const remainingMs = Math.max(0, FIRST_CHUNK_TIMEOUT_MS - (performance.now() - this.startedAt));
     this.startupHealthTimer = window.setTimeout(() => {
       void this.enforceStartupHealth();
     }, remainingMs);
@@ -373,6 +385,12 @@ export class RecordingService {
     await this.persistState().catch(() => undefined);
   }
 
+  private async appendErrorSafely(message: string) {
+    if (!this.session) return;
+    try { await window.studio.appendRecordingError(this.session.folderPath, message); }
+    catch (error) { logRecordingEvent("error", "Recording error file could not be written.", { error, originalMessage: message }); }
+  }
+
   private async persistState(elapsedMs = this.elapsedMs()) {
     if (!this.session) return;
     const state: RecordingState = {
@@ -383,7 +401,8 @@ export class RecordingService {
     const folder = this.session.folderPath;
     const next = this.stateWrites.catch(() => undefined).then(() => window.studio.writeRecordingState(folder, state));
     this.stateWrites = next;
-    await next;
+    try { await next; }
+    catch (error) { logRecordingEvent("warning", "Recording state file could not be written.", { error, status: this.status }); throw error; }
   }
 }
 

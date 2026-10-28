@@ -74,6 +74,20 @@ describe("durable episode recording parts", () => {
     expect(complete.result!.integrity.warnings.join(" ")).toContain("camera2 is incomplete");
     await expect(fs.stat(path.join(first.captureFolderPath!, "Cameras", "camera-2.webm"))).resolves.toBeTruthy();
   }, 40000);
+  it("removes stale canonical camera files after Stop, Resume and an incomplete new part", async () => {
+    const store = await import("./recording-session-store");
+    const first = await store.createRecordingSession({ episodeId: "stale-camera", deviceDefaults: defaults });
+    await capture(first, "camera2"); await store.checkpointRecordingSession(first.folderPath, false);
+    const canonical = path.join(first.folderPath, "Cameras", "camera-2.webm"); const original = await fs.readFile(canonical);
+    const second = await store.createRecordingSession({ episodeId: first.episodeId, deviceDefaults: defaults, resume: true });
+    await capture(second, false); const complete = await store.checkpointRecordingSession(first.folderPath, false);
+    expect(complete.result!.tracks.map((track) => track.slot)).not.toContain("camera2");
+    await expect(fs.stat(canonical)).rejects.toMatchObject({ code: "ENOENT" });
+    const archives = await fs.readdir(path.join(first.folderPath, "Backup"));
+    const archived = archives.find((name) => name.startsWith("previous-assembly-")); expect(archived).toBeTruthy();
+    expect(await fs.readFile(path.join(first.folderPath, "Backup", archived!, "Cameras", "camera-2.webm"))).toEqual(original);
+    expect(await fs.readFile(path.join(first.captureFolderPath!, "Cameras", "camera-2.webm"))).toEqual(original);
+  }, 40000);
   it("reuses the assembled Program when every paused Camera 1 source shares that original", async () => {
     const store = await import("./recording-session-store");
     const first = await store.createRecordingSession({ episodeId: "episode-shared-camera", deviceDefaults: defaults });

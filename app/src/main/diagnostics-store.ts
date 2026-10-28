@@ -41,7 +41,7 @@ export async function createDiagnosticsBundle(input: DiagnosticsBundleRequest): 
   let totalBytes = 0;
   const writeText = async (relative: string, text: string) => {
     const safe = redactDiagnosticText(text), bytes = Buffer.byteLength(safe);
-    if (bytes > 2 * 1024 * 1024 || totalBytes + bytes > 24 * 1024 * 1024) { warnings.push(`${relative}: omitted because the support size limit was reached.`); return; }
+    if (bytes > 2 * 1024 * 1024 || totalBytes + bytes > (relative === "README.txt" || relative === "bundle-manifest.json" ? 26 : 24) * 1024 * 1024) { warnings.push(`${relative}: omitted because the support size limit was reached.`); return; }
     const file = path.join(folderPath, relative); await fs.mkdir(path.dirname(file), { recursive: true }); await fs.writeFile(file, safe, { encoding: "utf8", mode: 0o600 }); files.push(file); totalBytes += bytes;
   };
   const writeJson = (name: string, value: unknown) => writeText(name, JSON.stringify(value, null, 2));

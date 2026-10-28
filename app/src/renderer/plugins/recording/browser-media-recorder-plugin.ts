@@ -30,6 +30,7 @@ interface ActiveTrackRecorder {
   peakPendingBytes: number;
   lastChunkAt?: string;
   writeError?: string;
+  pendingWriteTimedOut?: boolean;
   clock: MediaClock;
 }
 
@@ -259,6 +260,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const programWriteTimedOut = await waitForQueue(this.programWriteQueue);
     if (programWriteTimedOut) this.programWriteError = appendWarning(this.programWriteError, "final disk write timed out; recovery chunks were preserved");
     this.stopStream();
+    if (programWriteTimedOut || this.trackRecorders.some((track) => track.pendingWriteTimedOut)) throw new Error(PENDING_DISK_WRITES_MESSAGE);
     const previewResults = [...this.trackResults];
 
     if (this.diskSession) {
@@ -296,11 +298,12 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
         this.programWriteError = appendWarning(this.programWriteError, `shutdown finalization failed: ${String(error)}`);
       }
     }
-    await Promise.all([
+    const waiting = await Promise.all([
       waitForQueue(this.programWriteQueue),
       ...this.trackRecorders.map((track) => waitForQueue(track.writeQueue))
     ]);
     this.stopStream();
+    if (waiting.some(Boolean)) throw new Error(PENDING_DISK_WRITES_MESSAGE);
     this.resetRecorder();
   }
 
@@ -775,15 +778,18 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     this.programPeakPendingBytes = Math.max(this.programPeakPendingBytes, this.programPendingBytes);
     this.programWriteQueue = this.programWriteQueue.then(async () => {
       const result = await persistChunk(session, "program", "program", mimeType, sequence, this.programStartedAtMs, blob);
+      if (this.diskSession !== session) return;
       if (result.warning) this.backupWarning = result.warning;
       this.programBytesWritten = result.bytesWritten;
       this.programLastChunkAt = result.lastChunkAt;
       if (sequence === 0) logRecorderEvent("info", "Program wrote its first protected chunk.", { bytesWritten: result.bytesWritten, lastChunkAt: result.lastChunkAt });
     }).catch((error) => {
+      if (this.diskSession !== session) return;
       this.programWriteError = `disk write failed: ${String(error)}`;
       this.haltCapture(recordingWriteFailureMessage(error));
       logRecorderEvent("error", "Program disk write failed.", { error: String(error) });
     }).finally(() => {
+      if (this.diskSession !== session) return;
       this.programPendingBytes = Math.max(0, this.programPendingBytes - blob.size);
       this.programQueueDepth = Math.max(0, this.programQueueDepth - 1);
     });
@@ -804,11 +810,13 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     track.peakPendingBytes = Math.max(track.peakPendingBytes, track.pendingBytes);
     track.writeQueue = track.writeQueue.then(async () => {
       const result = await persistChunk(session, track.slot, track.kind, track.recorder.mimeType, sequence, track.startedAtMs, blob, (track.recorder.clockRateRatio ?? track.clock.rateRatio) / this.programClock.rateRatio, track.recorder.sampleFrames);
+      if (this.diskSession !== session) return;
       if (result.warning) this.backupWarning = result.warning;
       track.bytesWritten = result.bytesWritten;
       track.lastChunkAt = result.lastChunkAt;
       if (sequence === 0) logRecorderEvent("info", "Isolated source wrote its first protected chunk.", { slot: track.slot, kind: track.kind, bytesWritten: result.bytesWritten, lastChunkAt: result.lastChunkAt });
     }).catch((error) => {
+      if (this.diskSession !== session) return;
       track.writeError = `disk write failed: ${String(error)}`;
       this.haltCapture(recordingWriteFailureMessage(error));
       logRecorderEvent("error", "Isolated source disk write failed.", { slot: track.slot, kind: track.kind, error: String(error) });
@@ -916,7 +924,8 @@ async function stopTrackRecorder(trackRecorder: ActiveTrackRecorder, persisted: 
     trackRecorder.writeError = appendWarning(trackRecorder.writeError, "recorder stop event timed out; protected chunks were finalized");
     logRecorderEvent("warning", "Isolated recorder stop event timed out; continuing with protected chunks.", { slot: trackRecorder.slot, kind: trackRecorder.kind });
   }
-  if (await waitForQueue(trackRecorder.writeQueue)) {
+  trackRecorder.pendingWriteTimedOut = await waitForQueue(trackRecorder.writeQueue);
+  if (trackRecorder.pendingWriteTimedOut) {
     trackRecorder.writeError = appendWarning(trackRecorder.writeError, "final disk write timed out; recovery chunks were preserved");
   }
   recorder.ondataavailable = null;
@@ -1038,6 +1047,7 @@ const FIRST_CHUNK_GRACE_MS = 8000;
 const PROGRAM_AUDIO_SYNC_WAIT_MS = 1500;
 const RECORDER_STOP_TIMEOUT_MS = 5000;
 const FINAL_WRITE_TIMEOUT_MS = 10000;
+const PENDING_DISK_WRITES_MESSAGE = "Recording writes are still pending. Wait for the drive, then use Retry Save. Recovery files remain in place.";
 
 function sourceIsWriting(recorderActive: boolean, firstChunkReceived: boolean, lastChunkAt: string | undefined, startedAtMs: number, now: number) {
   if (!recorderActive) return false;

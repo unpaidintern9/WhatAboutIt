@@ -489,6 +489,18 @@ describe("BrowserMediaRecorderPlugin", () => {
 
     await expect(stopping).resolves.toMatchObject({ bytes: expect.any(Uint8Array) });
   });
+  it("keeps pending disk writes recoverable instead of reporting them finalized", async () => {
+    vi.useFakeTimers(); const finish: Array<() => void> = [];
+    window.studio = { beginRecordingMedia: vi.fn(async () => ({})), appendRecordingChunk: vi.fn((_folder, chunk) => new Promise((resolve) => { finish.push(() => resolve({ bytesWritten: chunk.bytes.length, lastChunkAt: new Date().toISOString() })); })) } as unknown as Window["studio"];
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn() } });
+    const plugin = new BrowserMediaRecorderPlugin({ getCameraStream: () => streamWith(new FakeTrack("video", "camera")), getMicrophoneStream: () => streamWith(new FakeTrack("audio", "mic")) });
+    await plugin.start({ deviceDefaults: { cameras: { camera1: "camera" }, microphones: { morganMic: "mic" } }, session: { id: "session", folderPath: "/episode" } as never });
+    const stopping = plugin.stop(); const rejected = expect(stopping).rejects.toThrow("writes are still pending");
+    await vi.advanceTimersByTimeAsync(21000); await rejected;
+    expect(plugin.getHealth().programActive).toBe(false);
+    finish.forEach((resolve) => resolve()); await vi.advanceTimersByTimeAsync(1);
+    await expect(plugin.stop()).resolves.toMatchObject({ persisted: true });
+  });
   it("captures eight distinct interface routes using one shared device clock", async () => {
     const { microphoneSlots } = await import("../../../shared/audio-tracks");
     vi.stubGlobal("AudioContext", FakeAudioContext);

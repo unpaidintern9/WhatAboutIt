@@ -98,8 +98,7 @@ describe("RecordingService", () => {
 
     const firstStop = service.stop();
     const secondStop = service.stop();
-    await Promise.resolve();
-    expect(plugin.stop).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(plugin.stop).toHaveBeenCalledTimes(1));
 
     finishStop?.({ bytes: new Uint8Array([1]), mimeType: "video/webm" });
     const [firstSnapshot, secondSnapshot] = await Promise.all([firstStop, secondStop]);
@@ -167,6 +166,51 @@ describe("RecordingService", () => {
     );
   });
 
+  it("still stops media after a prior state-file write failed", async () => {
+    vi.useFakeTimers(); installStudioMock(); const plugin = createPlugin(); const service = new RecordingService(plugin);
+    await service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } });
+    vi.mocked(window.studio.writeRecordingState).mockRejectedValueOnce(new Error("EPERM state file"));
+    await vi.advanceTimersByTimeAsync(3000);
+    const result = await service.stop();
+    expect(plugin.stop).toHaveBeenCalledTimes(1);
+    expect(result.status).toBe("stopped");
+    await service.shutdown();
+  });
+  it("returns a recoverable error even when both error and state logs cannot write, then permits retry", async () => {
+    installStudioMock(); const plugin = createPlugin(); const service = new RecordingService(plugin);
+    window.studio.setRecordingCloseProtection = vi.fn();
+    await service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } });
+    vi.mocked(plugin.stop).mockRejectedValueOnce(new Error("disk stalled"));
+    vi.mocked(window.studio.appendRecordingError).mockRejectedValue(new Error("disk full"));
+    vi.mocked(window.studio.writeRecordingState).mockRejectedValueOnce(new Error("disk full"));
+    await expect(service.stop()).resolves.toMatchObject({ status: "error" });
+    expect(window.studio.setRecordingCloseProtection).toHaveBeenLastCalledWith(false);
+    await expect(service.stop()).resolves.toMatchObject({ status: "stopped" });
+  });
+  it("waits for an in-progress Start before honoring Stop", async () => {
+    installStudioMock(); let ready!: () => void; const plugin = createPlugin();
+    vi.mocked(plugin.start).mockImplementation(() => new Promise<void>((resolve) => { ready = resolve; }));
+    const service = new RecordingService(plugin); const starting = service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } });
+    await Promise.resolve(); const stopping = service.stop(); ready();
+    await starting; await stopping;
+    expect(plugin.stop).toHaveBeenCalledTimes(1); expect(service.getSnapshot().status).toBe("stopped");
+  });
+  it("does not write a failed new Start into the previous episode", async () => {
+    installStudioMock(); const plugin = createPlugin(); const service = new RecordingService(plugin);
+    await service.start({ cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }); await service.stop();
+    vi.mocked(window.studio.writeRecordingState).mockClear();
+    vi.mocked(window.studio.createRecordingSession).mockRejectedValueOnce(new Error("new episode unavailable"));
+    const result = await service.start({ cameras: {}, microphones: {} }, { episodeId: "new-episode" });
+    expect(result.session).toBeUndefined(); expect(window.studio.writeRecordingState).not.toHaveBeenCalled();
+    expect(window.studio.appendRecordingError).not.toHaveBeenCalled();
+  });
+
+  it("keeps elapsed recording time monotonic when the Windows clock changes", async () => {
+    vi.useFakeTimers(); installStudioMock(); const service = new RecordingService(createPlugin());
+    await service.start({ cameras: { camera1: "camera" }, microphones: { morganMic: "mic" } });
+    vi.setSystemTime(Date.now() - 300000); await vi.advanceTimersByTimeAsync(1000);
+    expect(service.getSnapshot().elapsedMs).toBe(1000); await service.stop();
+  });
   it("reports the active program and source recorder health", async () => {
     installStudioMock();
     const plugin: RecordingEnginePlugin = {
