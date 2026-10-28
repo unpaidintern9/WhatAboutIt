@@ -14,7 +14,7 @@ describe("studio audio capture", () => {
 
   it("requests the native two-channel input for the M-Audio Solo/Duo without changing other interfaces", () => {
     expect(highQualityAudioConstraint("duo", "Line 1/2 (3- M-Audio M-Track Solo and Duo)")).toMatchObject({
-      channelCount: { ideal: 2 }, sampleSize: { ideal: 16 }, sampleRate: { ideal: 48000 },
+      channelCount: { ideal: 2 }, sampleSize: { ideal: 16 }, sampleRate: { exact: 48000 },
       echoCancellation: false, noiseSuppression: false, autoGainControl: false
     });
     expect(highQualityAudioConstraint("other", "Eight channel USB interface")).toMatchObject({ channelCount: { ideal: 8 } });
@@ -28,7 +28,7 @@ describe("studio audio capture", () => {
 
     await expect(openAudioStreamWithFallback(openStream, "interface-a")).resolves.toBe(stream);
     expect(openStream).toHaveBeenCalledTimes(2);
-    expect(openStream.mock.calls[0][0]).toMatchObject({ deviceId: { exact: "interface-a" }, sampleRate: { ideal: 48000 } });
+    expect(openStream.mock.calls[0][0]).toMatchObject({ deviceId: { exact: "interface-a" }, sampleRate: { exact: 48000 } });
     expect(openStream.mock.calls[1][0]).toMatchObject({
       deviceId: { exact: "interface-a" },
       channelCount: { ideal: 2 },
@@ -47,13 +47,13 @@ describe("studio audio capture", () => {
 
     await expect(openAudioStreamWithFallback(openStream, "interface-a")).resolves.toBe(stream);
     expect(openStream).toHaveBeenCalledTimes(3);
-    expect(openStream.mock.calls[2][0]).toEqual({ deviceId: { exact: "interface-a" }, echoCancellation: false, noiseSuppression: false, autoGainControl: false });
+    for (const [constraints] of openStream.mock.calls) expect(constraints).toMatchObject({ sampleRate: { exact: 48000 } });
+    expect(openStream.mock.calls[2][0]).toEqual({ deviceId: { exact: "interface-a" }, sampleRate: { exact: 48000 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false });
   });
 
-  it("requests a stable recording buffer without forcing a device clock", () => {
+  it("requires 48 kHz with a stable recording buffer", () => {
     const constraints = highQualityAudioConstraint("interface-a") as MediaTrackConstraints;
-    expect(constraints).toMatchObject({ latency: { ideal: 0.04 }, sampleRate: { ideal: 48000 } });
-    expect(constraints.sampleRate).not.toHaveProperty("exact");
+    expect(constraints).toMatchObject({ latency: { ideal: 0.04 }, sampleRate: { exact: 48000 } });
   });
 
   it("maps every supported numbered interface route", () => {
@@ -88,6 +88,16 @@ describe("studio audio capture", () => {
     createStudioAudioContext(undefined, 44100);
 
     expect(receivedOptions).toMatchObject({ latencyHint: "interactive", sampleRate: 44100 });
+  });
+
+  it("keeps the requested sample rate when retrying without an unsupported output selector", () => {
+    const calls: AudioContextOptions[] = [];
+    vi.stubGlobal("AudioContext", function FakeContext(options: AudioContextOptions) {
+      calls.push(options);
+      if (calls.length === 1) throw new Error("Unsupported sinkId");
+    });
+    createStudioAudioContext("speaker", 48000, "playback");
+    expect(calls[1]).toEqual({ sampleRate: 48000, latencyHint: "playback" });
   });
 
   it("calculates independent RMS and clipping peaks", () => {

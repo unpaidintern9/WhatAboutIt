@@ -19,7 +19,7 @@ export function highQualityAudioConstraint(deviceId?: string, deviceLabel = ""):
   const mTrack = /m[- ]?audio.*m[- ]?track.*(?:solo|duo)/i.test(deviceLabel);
   const constraints: MediaTrackConstraints & { latency?: { ideal: number } } = {
     ...(deviceId ? { deviceId: deviceId === "default" || deviceId === "communications" ? { ideal: deviceId } : { exact: deviceId } } : {}),
-    sampleRate: { ideal: 48000 },
+    sampleRate: { exact: 48000 },
     sampleSize: { ideal: mTrack ? 16 : 24 },
     channelCount: { ideal: mTrack ? 2 : 8 },
     // Recording must tolerate USB scheduling jitter with several live cameras.
@@ -44,12 +44,13 @@ export async function openAudioStreamWithFallback(
     : {};
   const unprocessedDevice: MediaTrackConstraints = {
     ...deviceOnly,
+    sampleRate: { exact: 48000 },
     echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false
   };
   const channelPreserving: MediaTrackConstraints = {
-    ...deviceOnly,
+    ...unprocessedDevice,
     channelCount: { ideal: 2 },
     echoCancellation: false,
     noiseSuppression: false,
@@ -83,7 +84,7 @@ export function createStudioAudioContext(outputDeviceId?: string, inputSampleRat
   try {
     return new AudioContext(options);
   } catch {
-    return new AudioContext({ latencyHint });
+    return new AudioContext({ latencyHint, sampleRate });
   }
 }
 

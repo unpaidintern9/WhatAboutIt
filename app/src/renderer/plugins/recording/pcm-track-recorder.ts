@@ -86,9 +86,13 @@ export class PcmTrackRecorder extends EventTarget implements CaptureRecorder {
   static async create(stream: MediaStream, sharedContext?: AudioContext, routedSource?: AudioNode) {
     const context = sharedContext ?? createStudioAudioContext(
       undefined,
-      stream.getAudioTracks()[0]?.getSettings?.().sampleRate,
+      48000,
       "playback",
     );
+    if (context.sampleRate !== 48000) {
+      if (!sharedContext) await context.close();
+      throw new Error("Recording requires 48 kHz audio. Reconnect the microphone inputs before recording.");
+    }
     if (!context.audioWorklet || typeof AudioWorkletNode === "undefined") {
       if (!sharedContext) await context.close();
       throw new Error(
