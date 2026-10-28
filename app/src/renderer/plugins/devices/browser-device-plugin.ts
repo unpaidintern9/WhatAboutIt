@@ -373,10 +373,13 @@ export const browserDevicePlugin: DevicePlugin = {
   }
 };
 
-function openBrowserAudioStream(deviceId?: string) {
+async function openBrowserAudioStream(deviceId?: string) {
   if (!navigator.mediaDevices?.getUserMedia) throw new Error("Mic needs attention");
+  const devices = await navigator.mediaDevices.enumerateDevices?.().catch(() => []) ?? [];
+  const label = devices.find((device) => device.kind === "audioinput" && device.deviceId === deviceId)?.label;
   return openAudioStreamWithFallback(
     (audio) => navigator.mediaDevices.getUserMedia({ audio, video: false }),
-    deviceId
+    deviceId,
+    label
   );
 }
