@@ -360,8 +360,18 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
     if (source.kind === "camera") {
       const finalPath = path.join(folderPath, "Cameras", `${mediaBaseName(slot)}.webm`);
       if (!(await mediaFileExists(source.partialPath)) && await isPlayableRecording(finalPath)) return { slot, kind: "camera", status: "saved", filePath: finalPath, message: "Saved and verified" };
-      await fs.rm(finalPath, { force: true });
-      await renameWithRetry(source.partialPath, finalPath);
+      // Isolated cameras need the same duration/cue finalization as Program.
+      // Renaming a MediaRecorder stream alone leaves some desktop players unable to seek.
+      const remuxed = path.join(folderPath, "Cameras", `.remux-${crypto.randomUUID()}.webm`);
+      const captureOriginal = path.join(folderPath, "Cameras", "Originals", `${mediaBaseName(slot)}.source.webm`);
+      try {
+        await runFfmpeg(["-y", "-i", source.partialPath, "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", remuxed]);
+        if (!(await isPlayableRecording(remuxed))) throw new Error("Camera remux failed validation.");
+        await fs.mkdir(path.dirname(captureOriginal), { recursive: true });
+        await fs.rm(finalPath, { force: true });
+        await renameWithRetry(remuxed, finalPath);
+        await renameWithRetry(source.partialPath, captureOriginal);
+      } finally { await fs.rm(remuxed, { force: true }); }
       const ratio = source.clockRateRatio ?? 1;
       if (ratio > 0.998 && ratio < 1.002 && Math.abs(ratio - 1) >= 0.0001) {
         const original = path.join(folderPath, "Cameras", "Originals", `${mediaBaseName(slot)}.webm`);
