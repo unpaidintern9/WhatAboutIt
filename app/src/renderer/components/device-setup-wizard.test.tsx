@@ -84,6 +84,16 @@ describe("DeviceSetupWizard", () => {
     expect(markup).not.toContain("Assign Extra Mic");
   });
 
+  it("shows two assigned Duo inputs without an unused third mic or combined check meter", () => {
+    const markup = renderToStaticMarkup(<DeviceSetupWizard {...baseProps} currentStep={1}
+      defaults={{ ...defaultDeviceDefaults, microphones: { morganMic: "duo", guestMic: "duo" }, microphoneChannels: { morganMic: "input-1", guestMic: "input-2" } }}
+      detection={{ cameras: [], speakers: [], permissionNeeded: false, microphones: [{ id: "duo", label: "M-Track Duo", kind: "microphone", audio: { interfaceLike: true } }] }} />);
+    expect(markup).toContain("two-input-device-grid");
+    expect(markup).not.toContain("Add Extra Mic");
+    expect(markup).not.toContain("Say something!");
+    expect(markup).toContain("Check each voice separately");
+  });
+
   it("reveals saved optional gear when settings hydrate after the wizard mounts", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);

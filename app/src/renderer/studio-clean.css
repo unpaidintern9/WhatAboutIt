@@ -7,6 +7,9 @@
 .review-workspace-popover > button { width: 100%; justify-content: flex-start; }
 .recording-check-details > summary { cursor: pointer; padding: 8px 0; }
 .recording-check-details p { margin: 8px 0; max-width: 70ch; }
+.device-wizard .two-input-device-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.device-wizard .two-input-device-grid .device-test-card { grid-column: 1 / -1; }
+@media (max-width: 800px) { .device-wizard .two-input-device-grid { grid-template-columns: minmax(0,1fr); } }
 .interface-quick-setup { padding: 18px; margin-block: 14px; border: 1px solid var(--color-border); border-radius: 10px; background: var(--color-surface); color: var(--color-text); }
 .interface-quick-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .interface-quick-heading h3 { margin: 0 0 6px; font-size: 17px; }

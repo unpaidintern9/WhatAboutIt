@@ -2,7 +2,7 @@ import { microphoneSlots } from "../../shared/audio-tracks";
 import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Headphones, HelpCircle, Mic2, RotateCcw, Search, Settings, ShieldCheck, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DeviceDefaults, MicrophoneInputChannel } from "../../shared/types";
-import { getDeviceAssignmentConflicts, getMicrophoneInputDisplay, getMicrophoneInputOptions, distinctAudioDeviceChoices, getMicrophoneRoutingIssue, microphoneRoutesOverlap, saveCameraSlot, saveMicrophoneDeviceRoute, saveMicrophoneInputChannel } from "../../shared/device-config";
+import { getDeviceAssignmentConflicts, getMicrophoneInputDisplay, getMicrophoneInputOptions, distinctAudioDeviceChoices, isTwoInputAudioInterface, getMicrophoneRoutingIssue, microphoneRoutesOverlap, saveCameraSlot, saveMicrophoneDeviceRoute, saveMicrophoneInputChannel } from "../../shared/device-config";
 import { AudioMeter, Button } from ".";
 import { acquireStudioAudioContext, subscribeStudioMeter } from "../plugins/audio/shared-audio-engine";
 import { AudioInterfaceQuickSetup } from "./AudioInterfaceQuickSetup";
@@ -83,6 +83,7 @@ export function DeviceSetupWizard({
   const interfaceDevice = selectedAudioDevice?.audio?.interfaceLike ? selectedAudioDevice : distinctAudioDeviceChoices(detection.microphones).find((device) => device.audio?.interfaceLike);
   const audioInputAvailable = detection.microphones.length > 0;
   const sharedInterface = Boolean(defaults.microphones.morganMic && defaults.microphones.morganMic === defaults.microphones.guestMic);
+  const twoInputSetup = sharedInterface && (isTwoInputAudioInterface(selectedAudioDevice?.rawLabel ?? selectedAudioDevice?.label) || inputCounts[defaults.microphones.morganMic ?? ""] === 2) && visibleMicrophoneCount <= 2;
   const setupItems = [
     { label: "Camera 1 selected", ready: Boolean(defaults.cameras.camera1) },
     { label: "Morgan Mic selected", ready: Boolean(defaults.microphones.morganMic) },
@@ -253,14 +254,14 @@ export function DeviceSetupWizard({
             {audioInputAvailable ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
             <div>
               <strong>{interfaceDevice ? "Audio interface" : "Audio inputs"}</strong>
-              <span>{interfaceDevice?.label ?? selectedAudioDevice?.label ?? (audioInputAvailable ? "Windows microphone inputs detected" : "No microphone input detected")}</span>
+              <span>{selectedAudioDevice?.label ?? (audioInputAvailable ? "Windows microphone inputs detected" : "No microphone input detected")}</span>
             </div>
             <b>{audioInputAvailable ? "Connected" : "Check cable and Windows sound settings"}</b>
           </div> : null}
           {detection.microphones.length === 0 ? (
             <FriendlyState title={getEmptyStateMessage("microphone")} message="Plug in a mic, make sure it is on, then check again." />
           ) : (
-            <div className="device-slot-grid">
+            <div className={`device-slot-grid ${twoInputSetup ? "two-input-device-grid" : ""}`}>
               {microphoneSlots.slice(0, visibleMicrophoneCount).map((slot) => (
                 <DeviceSlot key={slot.key} label={slot.label}>
                   <label className="device-select input-name-control">
@@ -307,7 +308,7 @@ export function DeviceSetupWizard({
                   />
                 </DeviceSlot>
               ))}
-              {visibleMicrophoneCount < microphoneSlots.length ? (
+              {visibleMicrophoneCount < microphoneSlots.length && !twoInputSetup ? (
                 <button className="optional-device-slot" type="button" onClick={() => setVisibleMicrophoneCount((count) => Math.min(microphoneSlots.length, count + 1))}>
                   <Mic2 size={20} />
                   <strong>{`Add ${microphoneSlots[visibleMicrophoneCount]?.label ?? "Mic"} (optional)`}</strong>
