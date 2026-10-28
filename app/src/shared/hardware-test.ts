@@ -47,6 +47,8 @@ export interface DiagnosticsBundleRequest {
 export interface DiagnosticsBundleResult {
   folderPath: string;
   files: string[];
+  archivePath?: string;
+  warnings?: string[];
 }
 
 const stepOrder: HardwareTestStep[] = ["cameras", "microphones", "recording", "export", "results"];

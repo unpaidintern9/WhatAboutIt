@@ -26,6 +26,8 @@ vi.mock("./config-service", () => ({
 }));
 
 vi.mock("./logger", () => ({
+  flushLogs: vi.fn(async () => undefined),
+  getLogSnapshot: () => ({ runId: "test-run", activeFile: undefined, fallbackRoot: path.join(mockPaths.appDataRoot, "fallback-logs"), pendingEntries: 0, droppedEntries: 0, primaryFailures: 0, fallbackFailures: 0, memoryLines: [] }),
   getCurrentLogFilePath: () => path.join(mockPaths.logsRoot, "today.log"),
   logger: {
     info: vi.fn(),
@@ -92,11 +94,57 @@ describe("diagnostics bundle", () => {
   it("exposes and opens the persistent live log folder", async () => {
     const { getLiveLogInfo, openLiveLogs } = await import("./diagnostics-store");
 
-    await expect(getLiveLogInfo()).resolves.toEqual({
+    await expect(getLiveLogInfo()).resolves.toMatchObject({
       folderPath: mockPaths.logsRoot,
       filePath: path.join(mockPaths.logsRoot, "today.log")
     });
     await expect(openLiveLogs()).resolves.toMatchObject({ folderPath: mockPaths.logsRoot });
     expect(openPath).toHaveBeenCalledWith(mockPaths.logsRoot);
   });
+  it("includes every recording part's manifests and errors in one text-only ZIP", async () => {
+    const episode = path.join(mockPaths.appDataRoot, "episodes", "episode-parts");
+    for (const part of ["part-0001", "part-0002"]) {
+      const folder = path.join(episode, "Recordings", part);
+      await fs.mkdir(path.join(folder, "Session"), { recursive: true }); await fs.mkdir(path.join(folder, "Logs"));
+      await fs.writeFile(path.join(folder, "Session/capture-manifest.json"), JSON.stringify({ sessionId: "session", sources: { morganMic: { lastSequence: 20 } } }));
+      await fs.writeFile(path.join(folder, "Logs/errors.log"), "EPERM capture-manifest.json");
+      await fs.writeFile(path.join(folder, "private-audio.pcm"), "never include audio");
+    }
+    await fs.mkdir(path.join(episode, "Session"));
+    await fs.writeFile(path.join(episode, "Session/recording-parts.json"), JSON.stringify({ parts: [1, 2] }));
+    const { createDiagnosticsBundle } = await import("./diagnostics-store");
+    const result = await createDiagnosticsBundle({ activeEpisodeId: "episode-parts", devices: [], results: {} as never, appVersion: "wrong-renderer-version", message: "support" });
+    expect(result.files.filter((file) => file.endsWith("capture-manifest.json"))).toHaveLength(2);
+    expect(result.files.filter((file) => file.endsWith("errors.log"))).toHaveLength(2);
+    const zip = await fs.readFile(result.archivePath!);
+    expect(zip.readUInt32LE(0)).toBe(0x04034b50); expect(zip.readUInt32LE(zip.length - 22)).toBe(0x06054b50);
+    expect(zip.toString()).not.toContain("never include audio"); expect(zip.toString()).not.toContain("private-audio.pcm");
+    expect(JSON.parse(await fs.readFile(path.join(result.folderPath, "app-info.json"), "utf8")).appVersion).toBe("0.1.0");
+    expect(result.files.some((file) => file.endsWith("recording-parts.json"))).toBe(true);
+    expect(JSON.parse(await fs.readFile(path.join(result.folderPath, "bundle-manifest.json"), "utf8")).includedMedia).toBe(false);
+  });
+
+  it("makes incomplete file collection visible rather than silently reporting success", async () => {
+    const episode = path.join(mockPaths.appDataRoot, "episodes", "episode-unreadable"); await fs.mkdir(episode, { recursive: true });
+    const stat = vi.spyOn(fs, "lstat").mockRejectedValueOnce(Object.assign(new Error("Access denied"), { code: "EACCES" }));
+    try {
+      const { createDiagnosticsBundle } = await import("./diagnostics-store");
+      const result = await createDiagnosticsBundle({ activeEpisodeId: "episode-unreadable", devices: [], results: {} as never, appVersion: "test", message: "support" });
+      expect(result.warnings?.some((warning) => warning.includes("Access denied"))).toBe(true);
+      expect(JSON.parse(await fs.readFile(path.join(result.folderPath, "bundle-manifest.json"), "utf8")).warnings.length).toBeGreaterThan(0);
+    } finally { stat.mockRestore(); }
+  });
+
+  it("redacts legacy structured logs and retains complete recording-part arrays", async () => {
+    const episode = path.join(mockPaths.appDataRoot, "episodes", "episode-many-parts");
+    await fs.mkdir(path.join(episode, "Session"), { recursive: true });
+    await fs.writeFile(path.join(episode, "Session/recording-parts.json"), JSON.stringify({ parts: Array.from({ length: 80 }, (_, index) => ({ index })) }));
+    await fs.writeFile(path.join(mockPaths.logsRoot, "legacy.log"), JSON.stringify({ message: 'Server replied {"accessKey":"old-secret"}', details: { token: "old-token" } }));
+    const { createDiagnosticsBundle } = await import("./diagnostics-store");
+    const result = await createDiagnosticsBundle({ activeEpisodeId: "episode-many-parts", devices: [], results: {} as never, appVersion: "test", message: "support" });
+    const log = await fs.readFile(path.join(result.folderPath, "logs/primary/legacy.log"), "utf8");
+    expect(log).not.toContain("old-secret"); expect(log).not.toContain("old-token");
+    expect(JSON.parse(await fs.readFile(path.join(result.folderPath, "session/recording-parts.json"), "utf8")).parts).toHaveLength(80);
+  });
+
 });

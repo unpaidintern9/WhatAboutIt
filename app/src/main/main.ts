@@ -16,7 +16,8 @@ import { defaultStudioConfiguration } from "../shared/config";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import { defaultExportSettings } from "../shared/export";
 import { configureEpisodesRoot, getAppDataRoot, getEpisodesRoot, getSettingsPath, getWorkspaceStatePath } from "./config-service";
-import { logger } from "./logger";
+import { logger, flushLogs, writeEmergencyLog, withLogContext } from "./logger";
+import { registerRecordingContext, forgetRecordingContext, markRecordingActive, inRecordingContext, observeChunk, finishRecordingTelemetry, recordingTelemetryContexts } from "./recording-telemetry";
 import { appendRecordingChunk, appendRecordingError, beginRecordingMedia, checkpointRecordingSession, createRecordingSession, finalizeRecordingMedia, listUnfinishedRecordingSessions, recoverRecordingSession, saveProgramRecording, saveRecordedTracks, writeRecordingState } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
 import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
@@ -36,6 +37,29 @@ import { isStudioMediaPermission } from "../shared/media-permissions";
 import { configureCollaboration } from "./collaboration-integration";
 
 app.setName("What About It Studio");
+process.on("warning", (warning) => { void logger.warning("MainProcess", "Runtime warning.", { warning }); });
+process.on("uncaughtExceptionMonitor", (error, origin) => {
+  writeEmergencyLog({ level: "error", source: "MainProcess", message: "Fatal main-process exception.", details: { error, origin } });
+});
+app.on("web-contents-created", (_event, contents) => {
+  contents.on("render-process-gone", (_event, details) => {
+    void logger[details.reason === "clean-exit" ? "info" : "error"]("RendererProcess", "Renderer process exited.", { webContentsId: contents.id, ...details });
+    void flushLogs();
+  });
+  contents.on("preload-error", (_event, preloadPath, error) => { void logger.error("RendererProcess", "Preload failed.", { webContentsId: contents.id, preloadPath, error }); });
+  contents.on("did-fail-load", (_event, code, description, url, isMainFrame) => {
+    if (isMainFrame) void logger.error("RendererProcess", "Main page failed to load.", { webContentsId: contents.id, code, description, url });
+  });
+});
+app.on("child-process-gone", (_event, details) => { void logger[details.reason === "clean-exit" ? "info" : "error"]("ChildProcess", "Child process exited.", { ...details }); });
+let logsFlushedOnQuit = false;
+app.on("will-quit", (event) => {
+  if (logsFlushedOnQuit) return;
+  event.preventDefault(); logsFlushedOnQuit = true;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  void Promise.race([flushLogs(), new Promise<void>((resolve) => { timeout = setTimeout(resolve, 1000); })])
+    .finally(() => { clearTimeout(timeout); app.quit(); });
+});
 
 const appDataRoot = getAppDataRoot();
 const settingsPath = getSettingsPath();
@@ -81,6 +105,7 @@ function createWindow() {
   });
 
   mainWindow.webContents.on("destroyed", () => {
+    forgetRecordingContext(webContentsId);
     cancelPreparedReviewAudio(String(webContentsId));
     closeProtectedWebContents.delete(webContentsId);
     recordingPowerProtection.release(webContentsId);
@@ -272,7 +297,17 @@ app.whenReady().then(async () => {
     configureEpisodesRoot();
   }
   await ensureBaseFolders();
-  await logger.info("App", "What About It Studio launched.");
+  await logger.info("App", "What About It Studio launched.", { appVersion: app.getVersion(), platform: process.platform, arch: process.arch, versions: process.versions });
+  let previousHealthSample = performance.now();
+  const healthTimer = setInterval(() => {
+    const now = performance.now(), intervalDelayMs = Math.max(0, now - previousHealthSample - 15000); previousHealthSample = now;
+    const recordings = recordingTelemetryContexts();
+    if (!recordings.length) return;
+    try { void logger.info("SystemHealth", "Recording process performance summary.", { recordings,
+      intervalDelayMs: Math.round(intervalDelayMs), processes: app.getAppMetrics().map(({ pid, type, cpu, memory }) => ({ pid, type, cpu, memory })) }); }
+    catch (error) { void logger.warning("SystemHealth", "Performance sample unavailable.", { error }); }
+  }, 15000);
+  healthTimer.unref();
   await restartMediaPlaybackServer();
   studioWindowManager = new StudioWindowManager({
     preloadPath: path.join(__dirname, "preload.js"),
@@ -300,15 +335,26 @@ app.whenReady().then(async () => {
   ipcMain.handle("workspace:move-panel", (_event, input: { panelId: StudioPanelId; displayId: number }) => studioWindowManager.movePanel(input.panelId, input.displayId));
   ipcMain.handle("workspace:apply-layout", (_event, input: { layoutId: StudioLayoutProfileId; episodeId?: string }) => studioWindowManager.applyLayout(input.layoutId, input.episodeId));
   ipcMain.handle("workspace:reset-layout", () => studioWindowManager.resetLayout());
-  ipcMain.handle("recording:create-session", (_event, input) => createRecordingSession(input));
+  ipcMain.handle("recording:create-session", async (event, input) => {
+    const recording = await createRecordingSession(input); registerRecordingContext(event.sender.id, recording);
+    inRecordingContext(event.sender.id, () => { void logger.info("RecordingService", "Recording session selected."); });
+    return recording;
+  });
   ipcMain.handle("recording:write-state", (_event, input) => writeRecordingState(input.folderPath, input.state));
   ipcMain.handle("recording:begin-media", async (event, folderPath) => {
     setCapturePriority(event.sender.id, true);
-    try { return await beginRecordingMedia(folderPath); }
-    catch (error) { setCapturePriority(event.sender.id, false); throw error; }
+    markRecordingActive(event.sender.id, true);
+    try { return await inRecordingContext(event.sender.id, () => beginRecordingMedia(folderPath)); }
+    catch (error) { markRecordingActive(event.sender.id, false); setCapturePriority(event.sender.id, false); throw error; }
   });
-  ipcMain.handle("recording:append-chunk", (_event, input) => appendRecordingChunk(input.folderPath, input.chunk));
-  ipcMain.handle("recording:checkpoint", (event, input) => { setCapturePriority(event.sender.id, false); return withRecordingFinalization(() => checkpointRecordingSession(input.folderPath, input.paused, (progress, message) => { if (!event.sender.isDestroyed()) event.sender.send("recording:save-progress", { episodeFolder: input.folderPath, progress, message }); })); });
+  ipcMain.handle("recording:append-chunk", (event, input) => observeChunk(event.sender.id, input.folderPath, input.chunk, () => appendRecordingChunk(input.folderPath, input.chunk)));
+  ipcMain.handle("recording:checkpoint", async (event, input) => {
+    setCapturePriority(event.sender.id, false); markRecordingActive(event.sender.id, false);
+    try { return await inRecordingContext(event.sender.id, () => withRecordingFinalization(() => checkpointRecordingSession(input.folderPath, input.paused, (progress, message) => {
+      if (!event.sender.isDestroyed()) event.sender.send("recording:save-progress", { episodeFolder: input.folderPath, progress, message });
+    }))); }
+    finally { finishRecordingTelemetry(input.folderPath); }
+  });
   ipcMain.handle("recording:finalize-media", (event, folderPath) => { setCapturePriority(event.sender.id, false); return withRecordingFinalization(() => finalizeRecordingMedia(folderPath)); });
   ipcMain.handle("recording:recover", (_event, folderPath) => withRecordingFinalization(() => recoverRecordingSession(folderPath)));
   ipcMain.handle("recording:open-folder", async (_event, folderPath) => shell.openPath(folderPath));
@@ -404,14 +450,18 @@ app.whenReady().then(async () => {
   ipcMain.handle("export:media-tools-status", detectMediaTools);
   ipcMain.handle("export:cancel", (_event, input) => cancelExport(input.episodeId, input.job));
   ipcMain.handle("export:open-folder", (_event, input) => openExportFolder(input.episodeId, input.outputFolder));
-  ipcMain.handle("diagnostics:create", (_event, input) => createDiagnosticsBundle(input));
+  ipcMain.handle("diagnostics:create", async (_event, input) => {
+    const bundle = await createDiagnosticsBundle(input);
+    if (bundle.archivePath) shell.showItemInFolder(bundle.archivePath);
+    return bundle;
+  });
   ipcMain.handle("diagnostics:get-live-log-info", getLiveLogInfo);
   ipcMain.handle("diagnostics:open-live-logs", openLiveLogs);
   ipcMain.handle("diagnostics:write-runtime-log", (_event, entry: RuntimeLogEntry) => {
     const level = ["info", "warning", "error", "debug"].includes(entry?.level) ? entry.level : "info";
     const source = String(entry?.source ?? "Renderer").slice(0, 80);
     const message = String(entry?.message ?? "Runtime event").slice(0, 500);
-    return logger[level](source, message, entry?.details);
+    return withLogContext({ webContentsId: _event.sender.id }, () => logger[level](source, message, entry?.details));
   });
   ipcMain.handle("storage:status", getStorageStatus);
   ipcMain.handle("recording:check-drive", checkRecordingDrive);

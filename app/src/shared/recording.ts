@@ -62,6 +62,7 @@ export interface RecordingSourceHealth {
   queueDepth?: number;
   peakPendingBytes?: number;
   clockDriftPpm?: number;
+  audioClockLagMs?: number;
   lastChunkAt?: string;
   message: string;
 }

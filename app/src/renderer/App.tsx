@@ -1,3 +1,4 @@
+import { setRuntimeDiagnosticContext } from "./services/runtime-diagnostics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, ArrowRight, BookOpen, Brush, Camera, CheckCircle2, Circle, Compass, Download, FolderOpen, HardDrive, Mic2, Plus, RefreshCw, Settings, ShieldCheck, Sparkles, ListVideo, Wand2, X } from "lucide-react";
 import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
@@ -459,6 +460,13 @@ export default function App() {
   const [hardwareTestMessage, setHardwareTestMessage] = useState("Real hardware only. Nothing passes until the studio can actually see it.");
   const [deviceChangeState, setDeviceChangeState] = useState<"ready" | "disconnected" | "reconnecting" | "needs-attention">("ready");
   const [deviceRefreshKey, setDeviceRefreshKey] = useState(0);
+  useEffect(() => {
+    const session = recordingSnapshot.session?.episodeId === activeEpisode?.id ? recordingSnapshot.session : undefined;
+    setRuntimeDiagnosticContext({ episodeId: activeEpisode?.id, sessionId: session?.id,
+      capturePart: session?.captureFolderPath?.split(/[\\/]/).pop(), recordingStatus: recordingSnapshot.status });
+  }, [activeEpisode?.id, recordingSnapshot.session?.id, recordingSnapshot.session?.captureFolderPath, recordingSnapshot.status]);
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState(false);
+  const [diagnosticsMessage, setDiagnosticsMessage] = useState("");
   const [diagnosticsBundle, setDiagnosticsBundle] = useState<DiagnosticsBundleResult | undefined>();
   const [liveLogInfo, setLiveLogInfo] = useState<LiveLogInfo | undefined>();
   const [storageStatus, setStorageStatus] = useState<StorageStatus | undefined>();
@@ -1537,16 +1545,21 @@ export default function App() {
   }
 
   async function createHardwareDiagnostics() {
-    const bundle = await studio.createDiagnosticsBundle({
-      devices: summarizeDevices(),
-      results: hardwareTestResults,
-      appVersion: "0.1.0",
-      activeEpisodeId: recordingSnapshot.session?.episodeId ?? activeEpisode?.id,
-      recordingSessionFolder: recordingSnapshot.session?.folderPath,
-      message: hardwareTestMessage
-    });
-    setDiagnosticsBundle(bundle);
-    setHardwareTestMessage("Diagnostics are saved locally and ready to share with support.");
+    if (diagnosticsBusy) return;
+    setDiagnosticsBusy(true); setDiagnosticsMessage("Saving support diagnostics…");
+    try {
+      const episodeId = activeEpisode?.id ?? recordingSnapshot.session?.episodeId;
+      const bundle = await studio.createDiagnosticsBundle({ devices: summarizeDevices(), results: hardwareTestResults,
+        appVersion: appUpdateStatus.currentVersion, activeEpisodeId: episodeId,
+        recordingSessionFolder: recordingSnapshot.session?.episodeId === episodeId ? recordingSnapshot.session?.folderPath : undefined,
+        message: hardwareTestMessage });
+      setDiagnosticsBundle(bundle);
+      const message = `Support diagnostics saved: ${bundle.archivePath ?? bundle.folderPath}${bundle.warnings?.length ? ` · ${bundle.warnings.length} items need attention; see bundle-manifest.json.` : ""}`;
+      setDiagnosticsMessage(message); setHardwareTestMessage(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Support diagnostics could not be saved.";
+      setDiagnosticsMessage(message); setHardwareTestMessage(message);
+    } finally { setDiagnosticsBusy(false); }
   }
 
   async function exportHardwareTestRecording() {
@@ -2033,6 +2046,9 @@ export default function App() {
             workspaceMessage={workspaceMessage}
             appUpdateStatus={appUpdateStatus}
             liveLogInfo={liveLogInfo}
+            diagnosticsBusy={diagnosticsBusy}
+            diagnosticsMessage={diagnosticsMessage}
+            onSaveDiagnostics={() => void createHardwareDiagnostics()}
             onWorkspaceSettingsChange={(patch) => void saveWorkspaceSettings(patch)}
             onApplyLayout={(layoutId) => void applyWorkspaceLayout(layoutId)}
             onResetLayout={() => void resetWorkspaceLayout()}
@@ -2535,7 +2551,10 @@ function SettingsView({
   onCheckForUpdate,
   onDownloadUpdate,
   onInstallUpdate,
-  onOpenLiveLogs
+  onOpenLiveLogs,
+  onSaveDiagnostics,
+  diagnosticsBusy,
+  diagnosticsMessage
 }: {
   onNavigate: (view: View) => void;
   settings: StudioSettings;
@@ -2552,6 +2571,9 @@ function SettingsView({
   onDownloadUpdate: () => void;
   onInstallUpdate: () => void;
   onOpenLiveLogs: () => void;
+  onSaveDiagnostics: () => void;
+  diagnosticsBusy: boolean;
+  diagnosticsMessage: string;
 }) {
   const workspaceSettings = {
     ...defaultStudioWorkspaceState.settings,
@@ -2704,6 +2726,12 @@ function SettingsView({
           </button>
         </div>
       </div>
+      <section aria-label="Support diagnostics">
+        <h3>Support diagnostics</h3>
+        <p>Logs collect automatically while the app runs. After stopping or pausing, save one support ZIP with device details, recording events and input-level summaries. Audio and video recordings are excluded.</p>
+        <Button variant="secondary" disabled={diagnosticsBusy} onClick={onSaveDiagnostics}>{diagnosticsBusy ? "Saving support diagnostics…" : "Save Support Diagnostics"}</Button>
+        {diagnosticsMessage && <p role="status">{diagnosticsMessage}</p>}
+      </section>
       <details className="advanced-diagnostics-settings">
         <summary>Advanced diagnostics</summary>
         <div>
@@ -2712,6 +2740,8 @@ function SettingsView({
             <div>
               <dt>Current log</dt>
               <dd>{liveLogInfo?.filePath ?? "Preparing live log path…"}</dd>
+              {liveLogInfo?.runId && <dd>App run: {liveLogInfo.runId}</dd>}
+              {liveLogInfo?.loggingWarning && <dd>{liveLogInfo.loggingWarning}</dd>}
             </div>
           </dl>
           <Button variant="secondary" icon={<FolderOpen size={18} />} onClick={onOpenLiveLogs}>

@@ -5,6 +5,10 @@ export type { DiagnosticsBundleRequest, DiagnosticsBundleResult };
 export interface LiveLogInfo {
   folderPath: string;
   filePath: string;
+  runId?: string;
+  fallback?: boolean;
+  droppedEntries?: number;
+  loggingWarning?: string;
 }
 
 export interface RuntimeLogEntry {

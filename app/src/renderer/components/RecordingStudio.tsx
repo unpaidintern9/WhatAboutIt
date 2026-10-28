@@ -1,3 +1,5 @@
+import { AudioSignalDiagnostics } from "../services/audio-signal-diagnostics";
+import { writeRuntimeDiagnostic } from "../services/runtime-diagnostics";
 import { acquireStudioAudioContext, subscribeStudioMeter } from "../plugins/audio/shared-audio-engine";
 import { recordingCaptureBytesPerSecond, type RecordingDriveCheck } from "../../shared/diagnostics";
 import { getHardwareDeviceReadiness } from "../../shared/hardware-test";
@@ -1288,6 +1290,7 @@ function CameraFeed({
   useEffect(() => {
     let previousFrames = 0;
     let stalledSamples = 0;
+    let lastPreviewLogAt = 0;
     const timer = window.setInterval(() => {
       const video = videoRef.current;
       const quality = video?.getVideoPlaybackQuality?.();
@@ -1296,11 +1299,17 @@ function CameraFeed({
       previousFrames = quality.totalVideoFrames;
       const track = (video.srcObject as MediaStream).getVideoTracks()[0];
       const settings = track?.getSettings?.();
+      if (Date.now() - lastPreviewLogAt >= 15000) {
+        lastPreviewLogAt = Date.now();
+        writeRuntimeDiagnostic(stalledSamples >= 3 ? "warning" : "info", "CameraPreview", "Camera preview summary.", {
+          label, deviceId, settings, totalFrames: quality.totalVideoFrames, droppedFrames: quality.droppedVideoFrames,
+          stalledSeconds: stalledSamples, trackState: track?.readyState, muted: track?.muted });
+      }
       if (stalledSamples >= 3) setPreviewHealth("Preview stalled — try Refresh preview");
       else if (quality.totalVideoFrames > 0) setPreviewHealth(`${settings?.width ?? "?"} × ${settings?.height ?? "?"} · ${Math.round(settings?.frameRate ?? 0)} fps · ${quality.droppedVideoFrames} preview frames skipped`);
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [previewAttempt]);
+  }, [previewAttempt, deviceId, label]);
 
   useEffect(() => {
     let stream: MediaStream | undefined;
@@ -1566,6 +1575,15 @@ function LiveMicMeter({
     let canceled = false;
     let lastSignalAt = 0;
     const startedAt = Date.now();
+    let meterStreamDiagnostics: AudioStreamDiagnostics | undefined;
+    const meterContext = () => ({ label, micSlot, deviceId, inputChannel, measurementPoint: "selected-input-meter",
+      meterTrim: inputChannel === "mix" ? 1 : 0.95, audioContextState: audioContext?.state,
+      trackState: stream?.getAudioTracks()[0]?.readyState, sourceMuted: stream?.getAudioTracks()[0]?.muted,
+      diagnostics: meterStreamDiagnostics,
+      headphoneGainPercent: controlsRef.current.gain, headphonesMuted: controlsRef.current.muted,
+      voicePreset: controlsRef.current.voicePreset, softwareHear: monitoringRef.current });
+    const signalDiagnostics = new AudioSignalDiagnostics((summary) => writeRuntimeDiagnostic("info", "AudioSignal", "Audio input signal summary.", { ...meterContext(), ...summary }),
+      () => performance.now(), inputChannel === "mix" ? 0.98 : 0.931);
 
     async function startMeter() {
       try {
@@ -1577,9 +1595,13 @@ function LiveMicMeter({
         streamRef.current = stream;
         const track = stream.getAudioTracks()[0];
         const diagnostics = getAudioStreamDiagnostics(stream);
+        meterStreamDiagnostics = diagnostics;
         setRouteIssue(undefined);
         if (track && typeof track.addEventListener === "function") {
-          track.addEventListener("ended", () => publishSignal("disconnected", diagnostics, 0, 0, "ended"), { once: true });
+          track.addEventListener("ended", () => {
+            publishSignal("disconnected", diagnostics, 0, 0, "ended");
+            writeRuntimeDiagnostic("warning", "AudioSignal", "Microphone track ended.", meterContext());
+          }, { once: true });
         }
         meterLease = acquireStudioAudioContext(diagnostics.sampleRate);
         audioContext = meterLease.context;
@@ -1595,6 +1617,7 @@ function LiveMicMeter({
         meterSilence.gain.value = 0;
         analyser.connect(meterSilence).connect(audioContext.destination);
         await audioContext.resume();
+        writeRuntimeDiagnostic("info", "AudioSignal", "Microphone meter opened.", meterContext());
         if (monitoringRef.current && !controlsRef.current.muted) void startMonitorPlayback(stream);
 
         const tick = () => {
@@ -1604,6 +1627,7 @@ function LiveMicMeter({
           const nextLevel = measured.rms;
           const nextPeak = measured.peak;
           analyser.getFloatTimeDomainData(preciseSamples);
+          signalDiagnostics.observe(preciseSamples);
           const hasSignal = preciseSamples.some((sample) => Math.abs(sample) > 0.0003);
           if (hasSignal) lastSignalAt = Date.now();
           const nextSignal: MicSignalState = track?.readyState === "ended"
@@ -1627,6 +1651,7 @@ function LiveMicMeter({
         setLevel(0);
         setPeakLevel(0);
         setHeard(false);
+        writeRuntimeDiagnostic("error", "AudioSignal", "Microphone meter failed to open.", { ...meterContext(), error });
         const message = String(error);
         setRouteIssue(message.includes("input channel") ? message.replace(/^Error:\s*/, "") : "Could not open this input. Check the cable and Retry Devices.");
         publishSignal(deviceId ? "checking" : "disconnected", undefined, 0, 0);
@@ -1638,6 +1663,7 @@ function LiveMicMeter({
     return () => {
       canceled = true;
       stopMeter?.();
+      signalDiagnostics.flush();
       if (streamRef.current === stream) streamRef.current = undefined;
       stopMonitorPlayback();
       if (stream) onReleaseMicrophoneStream(deviceId, stream);
