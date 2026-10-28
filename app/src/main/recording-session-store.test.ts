@@ -613,5 +613,23 @@ describe("recording session store", () => {
     await expect(store.appendRecordingChunk(folder, { target: "program", kind: "program", mimeType: "video/webm", sequence: 1, bytes })).rejects.toThrow("saved files are protected");
     expect(await fs.readFile(result.programPath!)).toEqual(original);
   });
+  it("keeps absent microphone tracks and recorder warnings in the durable integrity report", async () => {
+    const store = await import("./recording-session-store"); const tools = await import("./ffmpeg-tools");
+    const session = await store.createRecordingSession({ episodeId: "missing-mic-report", deviceDefaults: { cameras: { camera1: "camera" }, microphones: { morganMic: "duo", guestMic: "duo" } } });
+    const folder = session.captureFolderPath!; await store.beginRecordingMedia(folder);
+    const fixture = path.join(mockPaths.episodesRoot, "warning.webm");
+    await tools.runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=blue:size=160x90:rate=10", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "0.3", "-c:v", "libvpx", "-c:a", "libopus", fixture]);
+    await store.appendRecordingChunk(folder, { target: "program", kind: "program", mimeType: "video/webm", sequence: 0, bytes: await fs.readFile(fixture) });
+    const result = await store.checkpointRecordingSession(session.folderPath, false, undefined, ["Recorder stop event timed out"]);
+    expect(result.result!.integrity).toMatchObject({ programPlayable: true, savedSourceCount: 1, expectedSourceCount: 3 });
+    expect(result.result!.integrity.warnings).toContain("Recorder stop event timed out");
+    const journal = JSON.parse(await fs.readFile(path.join(session.folderPath, "Session/recording-parts.json"), "utf8"));
+    expect(journal.parts[0].result.tracks.filter((track: { kind: string; status: string }) => track.kind === "audio" && track.status === "needs-attention")).toHaveLength(2);
+    const again = await store.checkpointRecordingSession(session.folderPath, false);
+    expect(again.result!.integrity.warnings).toContain("Recorder stop event timed out");
+    await fs.rm(path.join(folder, "Session/device-map.json"));
+    const missingMetadata = await store.finalizeRecordingMedia(folder);
+    expect(missingMetadata.integrity.warnings).toContain("Input assignment metadata could not be read. Source completeness could not be verified.");
+  });
 
 });

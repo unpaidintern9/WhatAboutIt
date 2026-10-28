@@ -53,7 +53,7 @@ contextBridge.exposeInMainWorld("studio", {
     ipcRenderer.on("recording:save-progress", handler);
     return () => ipcRenderer.removeListener("recording:save-progress", handler);
   },
-  checkpointRecordingSession: (folderPath: string, paused: boolean): Promise<RecordingCheckpointResult> => ipcRenderer.invoke("recording:checkpoint", { folderPath, paused }),
+  checkpointRecordingSession: (folderPath: string, paused: boolean, captureWarnings?: string[]): Promise<RecordingCheckpointResult> => ipcRenderer.invoke("recording:checkpoint", { folderPath, paused, captureWarnings }),
   finalizeRecordingMedia: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:finalize-media", folderPath),
   recoverRecordingSession: (folderPath: string): Promise<RecordingFinalizeResult> => ipcRenderer.invoke("recording:recover", folderPath),
   openRecordingFolder: (folderPath: string): Promise<string> => ipcRenderer.invoke("recording:open-folder", folderPath),
