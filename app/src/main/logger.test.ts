@@ -54,4 +54,18 @@ describe("recording-safe diagnostic logger", () => {
     expect((await fs.readdir(path.join(root, "primary"))).length).toBeLessThanOrEqual(2);
     expect(await fs.readFile(log.snapshot().activeFile!, "utf8")).toContain("event 4");
   });
+  it("persists buffered exit/crash evidence separately and falls back without throwing", async () => {
+    await fs.writeFile(path.join(root, "blocked"), "blocked");
+    const log = make({ root: () => path.join(root, "blocked") });
+    await log.write(entry("buffered at quit"));
+    expect(() => log.flushOnExit()).not.toThrow();
+    log.emergency({ level: "error", source: "MainProcess", message: "fatal test", details: { error: Object.assign(new Error("crash"), { code: "TEST" }) } });
+    const [name] = await fs.readdir(path.join(root, "fallback"));
+    expect(name).toMatch(/-exit\.log$/);
+    const rows = (await fs.readFile(path.join(root, "fallback", name), "utf8")).trim().split("\n").map((line) => JSON.parse(line));
+    expect(rows.map((row) => row.message)).toEqual(["buffered at quit", "fatal test"]);
+    expect(rows[1].details.error.code).toBe("TEST");
+    await log.flush();
+  });
+
 });

@@ -16,7 +16,7 @@ import { defaultStudioConfiguration } from "../shared/config";
 import { defaultDeviceDefaults, withDeviceDefaults } from "../shared/device-config";
 import { defaultExportSettings } from "../shared/export";
 import { configureEpisodesRoot, getAppDataRoot, getEpisodesRoot, getSettingsPath, getWorkspaceStatePath } from "./config-service";
-import { logger, flushLogs, writeEmergencyLog, withLogContext } from "./logger";
+import { logger, flushLogs, writeEmergencyLog, flushLogsOnExit, withLogContext } from "./logger";
 import { registerRecordingContext, forgetRecordingContext, markRecordingActive, inRecordingContext, observeChunk, finishRecordingTelemetry, recordingTelemetryContexts } from "./recording-telemetry";
 import { appendRecordingChunk, appendRecordingError, beginRecordingMedia, checkpointRecordingSession, createRecordingSession, finalizeRecordingMedia, listUnfinishedRecordingSessions, recoverRecordingSession, saveProgramRecording, saveRecordedTracks, writeRecordingState } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
@@ -52,14 +52,8 @@ app.on("web-contents-created", (_event, contents) => {
   });
 });
 app.on("child-process-gone", (_event, details) => { void logger[details.reason === "clean-exit" ? "info" : "error"]("ChildProcess", "Child process exited.", { ...details }); });
-let logsFlushedOnQuit = false;
-app.on("will-quit", (event) => {
-  if (logsFlushedOnQuit) return;
-  event.preventDefault(); logsFlushedOnQuit = true;
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  void Promise.race([flushLogs(), new Promise<void>((resolve) => { timeout = setTimeout(resolve, 1000); })])
-    .finally(() => { clearTimeout(timeout); app.quit(); });
-});
+// Persist the bounded recent ring without intercepting Electron's quit/update lifecycle.
+app.on("will-quit", () => { flushLogsOnExit(); });
 
 const appDataRoot = getAppDataRoot();
 const settingsPath = getSettingsPath();

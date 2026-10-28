@@ -89,17 +89,24 @@ export function createDiagnosticLogger(options: {
     // Awaited logging calls must never delay or fail media operations.
     return Promise.resolve();
   }
-  function emergency(entry: LogEntry) {
-    try {
-      const line = lineFor(entry); remember(line);
-      for (const root of [() => options.root(), () => options.fallbackRoot]) {
-        try { const directory = root(); mkdirSync(directory, { recursive: true }); const handle = openSync(path.join(directory, filename()), "a", 0o600);
-          try { writeSync(handle, line); fsyncSync(handle); } finally { closeSync(handle); } return; }
-        catch { /* Preserve the memory event and the original crash behavior. */ }
-      }
-    } catch { /* Do not recurse into logging. */ }
+  function persistExitEvidence(text: string) {
+    if (!text) return;
+    for (const root of [() => options.root(), () => options.fallbackRoot]) {
+      try { const directory = root(); mkdirSync(directory, { recursive: true });
+        // A separate file avoids racing an asynchronous append during shutdown.
+        const handle = openSync(path.join(directory, filename().replace(/\.log$/, "-exit.log")), "a", 0o600);
+        try { writeSync(handle, text); fsyncSync(handle); } finally { closeSync(handle); } return; }
+      catch { /* Keep the normal quit/crash behavior if storage is unavailable. */ }
+    }
   }
-  return { write: enqueue, flush, emergency, primaryFile,
+  function emergency(entry: LogEntry) {
+    try { const line = lineFor(entry); remember(line); persistExitEvidence(line); }
+    catch { /* Do not recurse into logging. */ }
+  }
+  function flushOnExit() {
+    try { persistExitEvidence(ring.join("")); } catch { /* Never prevent quitting. */ }
+  }
+  return { write: enqueue, flush, flushOnExit, emergency, primaryFile,
     snapshot: () => ({ runId, activeFile, fallbackRoot: options.fallbackRoot, pendingEntries: pending.length,
       droppedEntries: dropped, memoryEvictedEntries: memoryEvicted, primaryFailures, fallbackFailures, lastFailure, memoryLines: [...ring] }) };
 }
@@ -108,6 +115,7 @@ const diagnosticLogger = createDiagnosticLogger({ root: () => getLogsRoot(),
   fallbackRoot: path.join(os.tmpdir(), "WhatAboutItStudio", "logs"), context: () => logContext.getStore() });
 export const writeLog = diagnosticLogger.write;
 export const flushLogs = diagnosticLogger.flush;
+export const flushLogsOnExit = diagnosticLogger.flushOnExit;
 export const writeEmergencyLog = diagnosticLogger.emergency;
 export const getLogSnapshot = diagnosticLogger.snapshot;
 export const getCurrentLogFilePath = diagnosticLogger.primaryFile;
