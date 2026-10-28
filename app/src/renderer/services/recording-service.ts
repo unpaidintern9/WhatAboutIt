@@ -232,8 +232,9 @@ export class RecordingService {
     try {
       await this.stateWrites.catch(() => undefined);
       if (session.captureFolderPath && window.studio.checkpointRecordingSession && !session.practice) {
-        if (!session.durablePaused) await this.plugin.stop();
-        const checkpoint = await window.studio.checkpointRecordingSession(session.folderPath, paused);
+        const stopped = session.durablePaused ? undefined : await this.plugin.stop();
+        const captureWarnings = [...(stopped?.warning ? [stopped.warning] : []), ...(stopped?.tracks ?? []).filter((track) => track.status && track.status !== "saved").map((track) => `${track.slot}: ${track.message ?? "Source needs attention"}`)];
+        const checkpoint = await window.studio.checkpointRecordingSession(session.folderPath, paused, captureWarnings);
         this.session = checkpoint.session;
         this.elapsedBeforePause = checkpoint.session.elapsedMs ?? finalElapsed;
         this.status = paused ? "paused" : "stopped";

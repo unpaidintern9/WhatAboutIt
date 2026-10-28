@@ -346,7 +346,7 @@ app.whenReady().then(async () => {
     setCapturePriority(event.sender.id, false); markRecordingActive(event.sender.id, false);
     try { return await inRecordingContext(event.sender.id, () => withRecordingFinalization(() => checkpointRecordingSession(input.folderPath, input.paused, (progress, message) => {
       if (!event.sender.isDestroyed()) event.sender.send("recording:save-progress", { episodeFolder: input.folderPath, progress, message });
-    }))); }
+    }, input.captureWarnings))); }
     finally { finishRecordingTelemetry(input.folderPath); }
   });
   ipcMain.handle("recording:finalize-media", (event, folderPath) => { setCapturePriority(event.sender.id, false); return withRecordingFinalization(() => finalizeRecordingMedia(folderPath)); });

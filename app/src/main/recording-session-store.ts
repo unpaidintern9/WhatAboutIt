@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import crypto from "node:crypto";
 import type {
   RecordingSession,
+  DeviceMap,
   RecordingChunkInput,
   RecordingFinalizeResult,
   RecordingMediaTarget,
@@ -131,13 +132,13 @@ export async function createRecordingSession(input: RecordingSessionCreateInput)
   return allocateRecordingPart(folderPath, session, input.deviceDefaults);
 }
 
-export async function checkpointRecordingSession(folderPath: string, paused: boolean, report?: (progress: number, message: string) => void): Promise<RecordingCheckpointResult> {
+export async function checkpointRecordingSession(folderPath: string, paused: boolean, report?: (progress: number, message: string) => void, captureWarnings: string[] = []): Promise<RecordingCheckpointResult> {
   const folder = assertRecordingFolder(folderPath);
   return withRecordingOperation(folder, async () => {
     await retainEmptyRecordingAttempt(folder);
     const { session, part, captureFolder } = await readActiveRecordingPart(folder);
     report?.(0, "Flushing and verifying recording sources");
-    if (!part.result) await saveCompletedRecordingPart(folder, await finalizeRecordingMedia(captureFolder));
+    if (!part.result) await saveCompletedRecordingPart(folder, await finalizeRecordingMedia(captureFolder, captureWarnings));
     const { journal } = await readActiveRecordingPart(folder);
     const result = paused ? undefined : await materializeRecordingParts(folder, report);
     const next = { ...session, captureFolderPath: captureFolder, status: paused ? "paused" as const : "stopped" as const, durablePaused: paused, elapsedMs: journal.parts.reduce((sum, item) => sum + (item.durationMs ?? 0), 0) };
@@ -448,18 +449,18 @@ async function copyFinalizedRecordingToBackup(session: RecordingSession, program
   return backupPath;
 }
 
-export async function finalizeRecordingMedia(folderPath: string): Promise<RecordingFinalizeResult> {
+export async function finalizeRecordingMedia(folderPath: string, captureWarnings: string[] = []): Promise<RecordingFinalizeResult> {
   const safeFolder = assertRecordingFolder(folderPath);
   if (finalizingCaptures.has(safeFolder)) throw new Error("This recording is already saving. Wait for it to finish.");
   finalizingCaptures.add(safeFolder);
   try {
     await waitForRecordingWrites(safeFolder);
     sealedCaptures.add(safeFolder);
-    return await finalizeDrainedRecordingMedia(safeFolder);
+    return await finalizeDrainedRecordingMedia(safeFolder, captureWarnings);
   } finally { finalizingCaptures.delete(safeFolder); }
 }
 
-async function finalizeDrainedRecordingMedia(safeFolder: string): Promise<RecordingFinalizeResult> {
+async function finalizeDrainedRecordingMedia(safeFolder: string, captureWarnings: string[]): Promise<RecordingFinalizeResult> {
   await logger.info("RecordingService", "Finalization started.", { folderPath: safeFolder });
   await captureManifestQueues.get(safeFolder)?.catch(() => undefined);
   const manifest = await readJsonFile<CaptureManifest>(captureManifestPath(safeFolder));
@@ -480,17 +481,23 @@ async function finalizeDrainedRecordingMedia(safeFolder: string): Promise<Record
     programAudioLeadInMs,
     tracks: tracks.map((track) => ({ slot: track.slot, kind: track.kind, status: track.status, message: track.message }))
   });
-  const deviceMap = await readJsonFile<{ cameras?: { camera1?: string } }>(path.join(safeFolder, "Session", "device-map.json"));
+  const deviceMap = await readJsonFile<DeviceMap>(path.join(safeFolder, "Session", "device-map.json"));
   if (programPath && programPlayable && deviceMap?.cameras?.camera1 && !trackSources.some((source) => source.target === "camera1")) {
     const cameraPath = path.join(safeFolder, "Cameras", "camera-1.webm");
     await fs.rm(cameraPath, { force: true });
     try { await fs.link(programPath, cameraPath); } catch { await fs.copyFile(programPath, cameraPath); }
     tracks.push({ slot: "camera1", kind: "camera", status: "saved", filePath: cameraPath, message: "Camera 1 shares the original Program encode" });
   }
+  const expected = [
+    ...Object.entries(deviceMap?.cameras ?? {}).filter(([, id]) => id).map(([slot]) => ({ slot: slot as RecordingTrackSlot, kind: "camera" as const })),
+    ...Object.entries(deviceMap?.microphones ?? {}).filter(([, id]) => id).map(([slot]) => ({ slot: slot as RecordingTrackSlot, kind: "audio" as const }))
+  ];
+  for (const source of expected) if (!tracks.some((track) => track.slot === source.slot)) tracks.push({ ...source, status: "needs-attention", message: "No isolated recording was received from this assigned input. Check the input before recording again." });
   const savedTracks = tracks.filter((track) => track.status === "saved");
   let backupPath: string | undefined;
   const backupWarning = await finishRollingBackup(safeFolder);
-  const warnings = tracks.filter((track) => track.status !== "saved").map((track) => `${track.slot}: ${track.message}`);
+  const warnings = [...new Set([...(Array.isArray(captureWarnings) ? captureWarnings.filter((item): item is string => typeof item === "string").slice(0, 40).map((item) => item.slice(0, 2000)) : []), ...tracks.filter((track) => track.status !== "saved").map((track) => `${track.slot}: ${track.message}`)])];
+  if (!deviceMap) warnings.unshift("Input assignment metadata could not be read. Source completeness could not be verified.");
   // Byte writes/playability do not establish synchronization. Compare the
   // completed source durations too; never silently label a shortened mic safe.
   if (programPlayable && programPath) {

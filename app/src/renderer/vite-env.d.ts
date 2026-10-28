@@ -40,7 +40,7 @@ declare global {
       writeRecordingState: (folderPath: string, state: RecordingState) => Promise<RecordingState>;
       beginRecordingMedia?: (folderPath: string) => Promise<void>;
       appendRecordingChunk?: (folderPath: string, chunk: RecordingChunkInput) => Promise<{ bytesWritten: number; lastChunkAt: string; warning?: string }>;
-      checkpointRecordingSession?: (folderPath: string, paused: boolean) => Promise<RecordingCheckpointResult>;
+      checkpointRecordingSession?: (folderPath: string, paused: boolean, captureWarnings?: string[]) => Promise<RecordingCheckpointResult>;
       finalizeRecordingMedia?: (folderPath: string) => Promise<RecordingFinalizeResult>;
       recoverRecordingSession?: (folderPath: string) => Promise<RecordingFinalizeResult>;
       openRecordingFolder?: (folderPath: string) => Promise<string>;

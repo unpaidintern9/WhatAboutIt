@@ -133,6 +133,15 @@ describe("RecordingService", () => {
     await reopened.shutdown();
   });
 
+  it("passes recorder warnings and unavailable tracks into durable checkpointing", async () => {
+    installStudioMock(); const session = { id: "warning-session", episodeId: "warning-episode", folderPath: "/episode", captureFolderPath: "/episode/Recordings/part-1" };
+    window.studio.createRecordingSession = vi.fn(async () => session as never);
+    window.studio.checkpointRecordingSession = vi.fn(async () => ({ session: { ...session, status: "stopped", elapsedMs: 1000 } } as never));
+    const plugin = createPlugin(); vi.mocked(plugin.stop).mockResolvedValue({ persisted: true, warning: "Recorder stop event timed out", tracks: [{ slot: "guestMic", kind: "audio", status: "needs-attention", message: "Guest mic never opened" }] });
+    const service = new RecordingService(plugin); await service.start({ cameras: {}, microphones: {} }); await service.stop();
+    expect(window.studio.checkpointRecordingSession).toHaveBeenLastCalledWith("/episode", false, ["Recorder stop event timed out", "guestMic: Guest mic never opened"]);
+  });
+
   it("prevents episode switches during capture and save transitions", async () => {
     installStudioMock();
     const plugin = createPlugin();
