@@ -1,3 +1,4 @@
+import { logger } from "./logger";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -7,18 +8,27 @@ const lockRetryDelaysMs = [20, 40, 80, 160, 320, 400, 400, 400];
  * Retry only lock-like failures, for less than two seconds; never delete the
  * destination or replay a media append to work around a failed replacement.
  */
-export async function withFileLockRetry<T>(operation: () => Promise<T>): Promise<T> {
+export async function withFileLockRetry<T>(operation: () => Promise<T>, details: Record<string, unknown> = {}): Promise<T> {
+  let previousError: unknown;
   for (let attempt = 0; ; attempt++) {
-    try { return await operation(); }
+    try {
+      const result = await operation();
+      if (attempt) void logger.warning("FileAccess", "Temporary file lock recovered.", { ...details, attempts: attempt + 1, retryDelayMs: lockRetryDelaysMs.slice(0, attempt).reduce((a, b) => a + b, 0), error: previousError });
+      return result;
+    }
     catch (error) {
+      previousError = error;
       const code = (error as NodeJS.ErrnoException).code;
-      if (!code || !["EPERM", "EACCES", "EBUSY"].includes(code) || attempt >= lockRetryDelaysMs.length) throw error;
+      if (!code || !["EPERM", "EACCES", "EBUSY"].includes(code) || attempt >= lockRetryDelaysMs.length) {
+        if (code !== "ENOENT") void logger.error("FileAccess", "File operation failed after retry handling.", { ...details, attempts: attempt + 1, error });
+        throw error;
+      }
       await new Promise<void>((resolve) => setTimeout(resolve, lockRetryDelaysMs[attempt]));
     }
   }
 }
 export function renameWithRetry(source: string, destination: string) {
-  return withFileLockRetry(() => fs.rename(source, destination));
+  return withFileLockRetry(() => fs.rename(source, destination), { operation: "rename", sourcePath: source, destinationPath: destination });
 }
 
 export async function durableAppend(file: string, bytes: Uint8Array) {

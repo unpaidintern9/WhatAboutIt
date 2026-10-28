@@ -1,3 +1,4 @@
+import { setRuntimeDiagnosticContext, writeRuntimeDiagnostic } from "./runtime-diagnostics";
 import type { DeviceDefaults } from "../../shared/types";
 import type { RecordingIntegrityReport, RecordingSession, RecordingState, RecordingStatus, RecordingTrackSaveResult } from "../../shared/recording";
 import { createInitialRecordingState, friendlyRecordingError } from "../../shared/recording";
@@ -30,6 +31,7 @@ export class RecordingService {
   private stateTimer?: number;
   private startupHealthTimer?: number;
   private friendlyError?: string;
+  private lastHealthLogAt = 0;
   private trackStatuses: RecordingTrackSaveResult[] = [];
   private integrity?: RecordingIntegrityReport;
   private stopPromise?: Promise<RecordingServiceSnapshot>;
@@ -111,6 +113,8 @@ export class RecordingService {
         backupFolderPath: options.backupFolderPath,
         resume: options.resume
       });
+      setRuntimeDiagnosticContext({ episodeId: this.session.episodeId, sessionId: this.session.id,
+        capturePart: this.session.captureFolderPath?.split(/[\\/]/).pop(), recordingStatus: "starting" });
       await this.plugin.start({ deviceDefaults, practice: options.practice, session: this.session });
       this.status = "recording";
       this.startedAt = Date.now();
@@ -310,8 +314,16 @@ export class RecordingService {
   private startStateTimer() {
     this.stopStateTimer();
     this.stateTimer = window.setInterval(() => {
-      const fatalError = this.plugin.getHealth?.().fatalError;
+      const health = this.plugin.getHealth?.();
+      const fatalError = health?.fatalError;
+      if (health && Date.now() - this.lastHealthLogAt >= 15000) {
+        this.lastHealthLogAt = Date.now();
+        logRecordingEvent(fatalError ? "error" : "info", "Recording source health summary.", { sessionId: this.session?.id,
+          episodeId: this.session?.episodeId, elapsedMs: this.elapsedMs(), status: this.status, health });
+      }
       if (fatalError && this.status === "recording") {
+        logRecordingEvent("error", "Recording paused by capture protection.", { episodeId: this.session?.episodeId,
+          sessionId: this.session?.id, elapsedMs: this.elapsedMs(), reason: fatalError, health });
         void this.pause().then(() => { this.friendlyError = fatalError; }).catch(() => { this.friendlyError = fatalError; });
       } else void this.persistState().catch(() => undefined);
     }, 3000);
@@ -384,7 +396,7 @@ function formatBytes(bytes: number) {
 }
 
 function logRecordingEvent(level: "info" | "warning" | "error", message: string, details?: Record<string, unknown>) {
-  void window.studio?.writeRuntimeLog?.({ level, source: "RecordingService", message, details }).catch(() => undefined);
+  writeRuntimeDiagnostic(level, "RecordingService", message, details);
 }
 
 export function formatRecordingTime(elapsedMs: number) {

@@ -1,3 +1,4 @@
+import { writeRuntimeDiagnostic } from "../../services/runtime-diagnostics";
 import { recordingWriteFailureMessage } from "../../../shared/recording";
 import { MediaClock } from "../../../shared/media-clock";
 import { microphoneSlots } from "../../../shared/audio-tracks";
@@ -193,6 +194,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
           peakPendingBytes: track.peakPendingBytes,
           lastChunkAt: track.lastChunkAt,
           message: track.writeError ?? sourceHealthMessage(recorderActive, firstChunkReceived, active),
+          audioClockLagMs: track.kind === "audio" ? Math.round(track.recorder.timingErrorMs ?? 0) : undefined,
           clockDriftPpm: Math.round(((track.recorder.clockRateRatio ?? track.clock.rateRatio) / this.programClock.rateRatio - 1) * 1_000_000)
         };
       })
@@ -991,7 +993,7 @@ function formatBytes(bytes: number) {
 }
 
 function logRecorderEvent(level: "info" | "warning" | "error", message: string, details?: Record<string, unknown>) {
-  void window.studio?.writeRuntimeLog?.({ level, source: "BrowserMediaRecorder", message, details }).catch(() => undefined);
+  writeRuntimeDiagnostic(level, "BrowserMediaRecorder", message, details);
 }
 
 async function persistChunk(
