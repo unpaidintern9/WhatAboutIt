@@ -738,7 +738,9 @@ export function RecordingStudio({
                       <Volume2 size={16} /> Play Test Sound
                     </RusticButton>
                   </div>
-                  <AudioInterfaceQuickSetup devices={detection.microphones} defaults={defaults} disabled={inputChangesLocked} onChange={onDefaultsChange} />
+                  <details className="record-interface-setup"><summary>Audio interface setup</summary>
+                    <AudioInterfaceQuickSetup devices={detection.microphones} defaults={defaults} disabled={inputChangesLocked} onChange={onDefaultsChange} />
+                  </details>
                   <div className="meter-list pro-tools-mixer">
                     {visibleMicSlots.map((slot) => {
                       const deviceId = defaults.microphones[slot.key];
