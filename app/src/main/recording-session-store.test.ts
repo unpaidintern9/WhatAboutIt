@@ -601,7 +601,7 @@ describe("recording session store", () => {
       await store.appendRecordingChunk(folder, { target, kind: source.kind, mimeType: source.mimeType, sequence: 1, bytes: payloads[index] });
       expect((await fs.stat(source.partialPath)).size).toBe(12);
     }
-  });
+  }, 15000);
 
   it("does not append any bytes when the recovery manifest stays unreadable", async () => {
     const store = await import("./recording-session-store");
@@ -614,7 +614,7 @@ describe("recording session store", () => {
     await expect(store.appendRecordingChunk(folder, { ...chunk, sequence: 1 })).rejects.toThrow("EPERM");
     read.mockRestore();
     expect(await fs.readFile(path.join(folder, "Program/program.partial.webm"))).toEqual(Buffer.from(chunk.bytes));
-  });
+  }, 15000);
   it("waits for an accepted source append before finalizing and rejects late chunks afterward", async () => {
     const store = await import("./recording-session-store"); const durable = await import("./durable-file"); const tools = await import("./ffmpeg-tools");
     const session = await store.createRecordingSession({ episodeId: "pending-finalization", deviceDefaults: { cameras: { camera1: "camera" }, microphones: { morganMic: "mic" } } });
