@@ -518,6 +518,26 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("inputs were assigned to separate mixer channels");
   });
 
+  it("blocks recording when Windows exposes only one channel for a selected Input 2", async () => {
+    const original = window.AudioContext;
+    class MonoContext {
+      state = "running";
+      createAnalyser() { return { fftSize: 512 }; }
+      createMediaStreamSource() { return { connect: vi.fn(), disconnect: vi.fn() }; }
+      createGain() { return { gain: { value: 1 }, disconnect: vi.fn() }; }
+      close = vi.fn(async () => undefined);
+    }
+    Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: MonoContext });
+    const track = { readyState: "live", stop: vi.fn(), getSettings: () => ({ channelCount: 1, sampleRate: 48000 }) };
+    const stream = { getTracks: () => [track], getAudioTracks: () => [track] } as unknown as MediaStream;
+    const { host, root } = renderStudio({ defaults: { ...defaults, microphoneChannels: { morganMic: "input-2" } }, onOpenMicrophoneStream: vi.fn(async () => stream) });
+    try {
+      await act(async () => { await new Promise((resolve) => window.setTimeout(resolve, 0)); });
+      expect(host.textContent).toContain("Only 1 input channel is available from Windows");
+      expect(host.querySelector<HTMLButtonElement>(".giant-control-row button.record")?.disabled).toBe(true);
+    } finally { act(() => root.unmount()); Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: original }); }
+  });
+
   it("does not reopen the mic stream when mixer controls change", async () => {
     const OriginalAudioContext = window.AudioContext;
     const audioParam = (value = 0) => ({ value, setTargetAtTime: vi.fn() });

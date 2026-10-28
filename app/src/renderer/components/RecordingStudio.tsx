@@ -1663,7 +1663,7 @@ function LiveMicMeter({
         writeRuntimeDiagnostic("error", "AudioSignal", "Microphone meter failed to open.", { ...meterContext(), error });
         const message = String(error);
         setRouteIssue(message.includes("input channel") ? message.replace(/^Error:\s*/, "") : "Could not open this input. Check the cable and Retry Devices.");
-        publishSignal(deviceId ? "checking" : "disconnected", undefined, 0, 0);
+        publishSignal(deviceId ? "checking" : "disconnected", meterStreamDiagnostics, 0, 0);
       }
     }
 
