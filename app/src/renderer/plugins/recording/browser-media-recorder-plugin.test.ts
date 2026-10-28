@@ -500,6 +500,7 @@ describe("BrowserMediaRecorderPlugin", () => {
     expect(plugin.getHealth().programActive).toBe(false);
     finish.forEach((resolve) => resolve()); await vi.advanceTimersByTimeAsync(1);
     await expect(plugin.stop()).resolves.toMatchObject({ persisted: true });
+    await expect(plugin.stop()).resolves.not.toHaveProperty("warning");
   });
   it("captures eight distinct interface routes using one shared device clock", async () => {
     const { microphoneSlots } = await import("../../../shared/audio-tracks");

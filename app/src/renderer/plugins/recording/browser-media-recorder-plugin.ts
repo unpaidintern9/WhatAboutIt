@@ -242,10 +242,10 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   async stop() {
     this.captureGeneration += 1;
     if (!this.recorder) {
+      const practice = this.practiceActive;
       this.stopStream();
-      return {
-        warning: "Practice recording stopped without writing media."
-      };
+      this.resetRecorder();
+      return practice ? { warning: "Practice recording stopped without writing media." } : {};
     }
 
     const recorder = this.recorder;
