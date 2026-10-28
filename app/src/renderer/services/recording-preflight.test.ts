@@ -22,5 +22,10 @@ describe("real recording input preflight", () => {
     finishCamera(stream(0, "video"));
     await result;
     expect(devices.releaseStream).toHaveBeenCalledTimes(2);
+  });  it("rejects impossible Duo inputs before opening any capture devices", async () => {
+    const devices = { openCameraPreview: vi.fn(), openMicrophoneStream: vi.fn(), releaseStream: vi.fn() };
+    await expect(checkRecordingInputs({ cameras: { camera1: "camera" }, microphones: { morganMic: "duo" }, microphoneChannels: { morganMic: "input-3" }, microphoneDeviceLabels: { morganMic: "M-Track Duo" } }, devices)).rejects.toThrow("has two inputs");
+    expect(devices.openCameraPreview).not.toHaveBeenCalled(); expect(devices.openMicrophoneStream).not.toHaveBeenCalled();
   });
+
 });

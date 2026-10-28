@@ -1,4 +1,4 @@
-import { assertRecordingCapacity, configureRollingBackup, finishRollingBackup, queueRollingBackup, rollingBackupWarning, serializeSourceWrite } from "./recording-disk-writer";
+import { assertRecordingCapacity, configureRollingBackup, finishRollingBackup, queueRollingBackup, rollingBackupWarning, serializeSourceWrite, waitForRecordingWrites } from "./recording-disk-writer";
 import { microphoneSlots, microphoneAssetId } from "../shared/audio-tracks";
 import { durableAppend, durableJson, renameWithRetry, withFileLockRetry } from "./durable-file";
 import path from "node:path";
@@ -169,6 +169,8 @@ interface CaptureManifest {
 }
 
 const captureManifestQueues = new Map<string, Promise<void>>();
+const finalizingCaptures = new Set<string>();
+const sealedCaptures = new Set<string>();
 
 function assertRecordingFolder(folderPath: string) {
   const episodesRoot = path.resolve(getEpisodesRoot());
@@ -263,6 +265,8 @@ async function backupExistingRecordingFiles(folderPath: string) {
 
 export async function beginRecordingMedia(folderPath: string) {
   const safeFolder = assertRecordingFolder(folderPath);
+  if (finalizingCaptures.has(safeFolder)) throw new Error("This recording is still saving.");
+  await waitForRecordingWrites(safeFolder);
   const session = await readJsonFile<RecordingSession>(path.join(safeFolder, "Session", "recording-session.json"));
   if (!session) throw new Error("Recording session could not be opened.");
   await backupExistingRecordingFiles(safeFolder);
@@ -280,11 +284,14 @@ export async function beginRecordingMedia(folderPath: string) {
   const now = new Date().toISOString();
   const manifest: CaptureManifest = { sessionId: session.id, startedAt: now, updatedAt: now, sources: {} };
   await writeJson(captureManifestPath(safeFolder), manifest);
+  sealedCaptures.delete(safeFolder);
   return manifest;
 }
 
 export async function appendRecordingChunk(folderPath: string, chunk: RecordingChunkInput) {
-  return serializeSourceWrite(`${folderPath}:${chunk.target}`, () => appendSourceChunk(folderPath, chunk));
+  const folder = assertRecordingFolder(folderPath);
+  if (finalizingCaptures.has(folder) || sealedCaptures.has(folder)) throw new Error("This recording has stopped accepting chunks. Its saved files are protected.");
+  return serializeSourceWrite(`${folder}:${chunk.target}`, () => appendSourceChunk(folder, chunk));
 }
 async function appendSourceChunk(folderPath: string, chunk: RecordingChunkInput) {
   const safeFolder = assertRecordingFolder(folderPath);
@@ -443,6 +450,16 @@ async function copyFinalizedRecordingToBackup(session: RecordingSession, program
 
 export async function finalizeRecordingMedia(folderPath: string): Promise<RecordingFinalizeResult> {
   const safeFolder = assertRecordingFolder(folderPath);
+  if (finalizingCaptures.has(safeFolder)) throw new Error("This recording is already saving. Wait for it to finish.");
+  finalizingCaptures.add(safeFolder);
+  try {
+    await waitForRecordingWrites(safeFolder);
+    sealedCaptures.add(safeFolder);
+    return await finalizeDrainedRecordingMedia(safeFolder);
+  } finally { finalizingCaptures.delete(safeFolder); }
+}
+
+async function finalizeDrainedRecordingMedia(safeFolder: string): Promise<RecordingFinalizeResult> {
   await logger.info("RecordingService", "Finalization started.", { folderPath: safeFolder });
   await captureManifestQueues.get(safeFolder)?.catch(() => undefined);
   const manifest = await readJsonFile<CaptureManifest>(captureManifestPath(safeFolder));

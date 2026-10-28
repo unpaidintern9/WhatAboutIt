@@ -27,6 +27,19 @@ export async function serializeSourceWrite<T>(
     if (sources.get(source) === next) sources.delete(source);
   }
 }
+/** Finalization must not rename a source while a protected append is in flight. */
+export async function waitForRecordingWrites(folder: string, timeoutMs = 10000) {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const drain = async () => {
+    while (true) {
+      const pending = [...sources.entries()].filter(([source]) => source.startsWith(`${folder}:`)).map(([, work]) => work);
+      if (!pending.length) return;
+      await Promise.allSettled(pending);
+    }
+  };
+  try { await Promise.race([drain(), new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error("Recording writes are still pending. Wait for the drive, then retry saving; recovery files remain in place.")), timeoutMs); })]); }
+  finally { clearTimeout(timer); }
+}
 export async function assertRecordingCapacity(folder: string, bytes: number) {
   let capacity = volumes.get(folder);
   if (!capacity || Date.now() - capacity.at > 2000) {

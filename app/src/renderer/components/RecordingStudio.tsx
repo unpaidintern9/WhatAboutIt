@@ -232,6 +232,7 @@ export function RecordingStudio({
   const isPaused = snapshot.status === "paused";
   const isComplete = snapshot.status === "stopped" || Boolean(canContinueRecording && !isRecording && !isPaused);
   const hasMedia = Boolean(isComplete && snapshot.session);
+  const canRetrySave = snapshot.status === "error" && Boolean(snapshot.session);
   const savingLocation = snapshot.session?.folderPath ?? "Session folder appears after Record starts";
   const cameraReadyCount = cameraSlots.filter((slot) => findDevice(detection.cameras, defaults.cameras[slot.key])).length;
   const storageReady = !storageWarning;
@@ -256,8 +257,9 @@ export function RecordingStudio({
     const channel = defaults.microphoneChannels?.[key] ?? "mix";
     return Boolean(defaults.microphones[key] && channel !== "mix" && count !== undefined && Number(channel.replace("input-", "")) > count);
   });
-  const studioReady = !checkingReadiness && cameraReadyCount > 0 && storageReady && deviceAssignmentsHealthy && programMicSelected && assignedDevices.missingDeviceIds.length === 0 && !invalidChannels && (!recordingInProgress || recordingHealthy);
-  const startBlockedReason = checkingReadiness ? "Checking inputs and storage…"
+  const studioReady = !canRetrySave && !checkingReadiness && cameraReadyCount > 0 && storageReady && deviceAssignmentsHealthy && programMicSelected && assignedDevices.missingDeviceIds.length === 0 && !invalidChannels && (!recordingInProgress || recordingHealthy);
+  const startBlockedReason = canRetrySave ? "Finish this take with Retry Save, or choose New Episode to start a separate recording."
+    : checkingReadiness ? "Checking inputs and storage…"
     : !storageReady ? storageWarning
     : !deviceAssignmentsHealthy ? routingIssue ?? "Choose a separate physical input for each microphone channel."
     : assignedDevices.missingDeviceIds.length > 0 ? "An assigned camera or microphone is disconnected. Reconnect inputs or change the selection in Setup."
@@ -827,9 +829,9 @@ export function RecordingStudio({
               {isPaused || isComplete ? <Play size={28} /> : <Pause size={28} />}
               <span><strong>{isPaused || isComplete ? "Resume" : "Pause"}</strong><small>{isComplete ? "Continue this episode" : isPaused ? "Resume recording" : "Pause recording"}</small></span>
             </StudioControlButton>
-            <StudioControlButton className="stop" disabled={!recordingInProgress || recordingAction !== "idle"} onClick={requestStop}>
+            <StudioControlButton className="stop" disabled={(!recordingInProgress && !canRetrySave) || recordingAction !== "idle"} onClick={requestStop}>
               {recordingAction === "saving" ? <LoaderCircle className="control-spinner" size={28} /> : <Square size={28} />}
-              <span><strong>{recordingAction === "saving" ? "Saving" : "Stop & Save"}</strong><small>{recordingAction === "saving" ? "Finalizing files" : "Stop recording"}</small></span>
+              <span><strong>{recordingAction === "saving" ? "Saving" : canRetrySave ? "Retry Save" : "Stop & Save"}</strong><small>{recordingAction === "saving" ? "Finalizing files" : canRetrySave ? "Finish this take" : "Stop recording"}</small></span>
             </StudioControlButton>
             <StudioControlButton className="auto-edit" disabled={!hasMedia || recordingAction !== "idle"} onClick={goAutoEdit}>
               <Sparkles size={28} />

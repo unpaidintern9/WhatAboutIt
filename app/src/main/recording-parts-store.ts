@@ -1,6 +1,6 @@
 import { preferredAudioFile } from "./audio-source";
 import { microphoneSlots } from "../shared/audio-tracks";
-import { durableJson } from "./durable-file";
+import { durableJson, renameWithRetry } from "./durable-file";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -167,12 +167,15 @@ export async function materializeRecordingParts(folder: string, report?: (progre
   const staged = path.join(folder, "Session", `.assembly-${randomUUID()}`);
   await fs.mkdir(staged, { recursive: true });
   const outputs: Array<{ target: typeof targetPaths[number]; temporary: string; destination: string }> = [];
+  const stale = new Set<string>();
   const warnings = journal.parts.flatMap((part) => part.result?.integrity.warnings ?? []);
   try {
     for (const [index, target] of targetPaths.entries()) {
       report?.(Math.round(index / targetPaths.length * 95), `Assembling and verifying ${target.slot}`);
       const present = journal.parts.every((part) => target.slot === "program" || part.result?.tracks.some((track) => track.slot === target.slot && track.status === "saved"));
       if (!present) {
+        const candidates = target.video ? [target.file] : ["flac", "wav", "m4a"].map((extension) => target.file.replace(/\.flac$/, `.${extension}`));
+        for (const file of candidates) if (await fs.stat(path.join(folder, file)).then((stat) => stat.isFile(), () => false)) stale.add(file);
         if (journal.parts.some((part) => part.result?.tracks.some((track) => track.slot === target.slot))) warnings.push(`${target.slot} is incomplete across recording parts; its originals remain in Recordings.`);
         continue;
       }
@@ -189,7 +192,12 @@ export async function materializeRecordingParts(folder: string, report?: (progre
     }
     // Every assembled file is validated before publishing any canonical media.
     // The immutable parts remain authoritative if publication is interrupted.
-    for (const item of outputs) { await fs.mkdir(path.dirname(item.destination), { recursive: true }); await fs.rename(item.temporary, item.destination); }
+    if (stale.size) {
+      const archive = path.join(folder, "Backup", `previous-assembly-${randomUUID()}`);
+      for (const file of stale) { const destination = path.join(archive, file); await fs.mkdir(path.dirname(destination), { recursive: true }); await renameWithRetry(path.join(folder, file), destination); }
+      warnings.push("Earlier incomplete-track assemblies were kept in Backup; only complete tracks appear in this episode.");
+    }
+    for (const item of outputs) { await fs.mkdir(path.dirname(item.destination), { recursive: true }); await renameWithRetry(item.temporary, item.destination); }
     const tracks = outputs.filter((item) => item.target.slot !== "program").map((item) => ({ slot: item.target.slot as RecordingTrackSlot, kind: item.target.video ? "camera" as const : "audio" as const, status: "saved" as const, filePath: item.destination, message: "All recording parts combined and verified" }));
     const result: RecordingFinalizeResult = { programPath: path.join(folder, "Program", "program.webm"), tracks, integrity: { checkedAt: new Date().toISOString(), playable: true, programPlayable: true, savedSourceCount: tracks.length, expectedSourceCount: new Set(journal.parts.flatMap((part) => part.result?.tracks.map((track) => track.slot) ?? [])).size, warnings } };
     const firstSync = await readRecordingJson<SyncMetadata>(path.join(partPath(folder, journal.parts[0]), "Session", "sync-metadata.json"));

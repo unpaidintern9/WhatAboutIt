@@ -595,5 +595,23 @@ describe("recording session store", () => {
     read.mockRestore();
     expect(await fs.readFile(path.join(folder, "Program/program.partial.webm"))).toEqual(Buffer.from(chunk.bytes));
   });
+  it("waits for an accepted source append before finalizing and rejects late chunks afterward", async () => {
+    const store = await import("./recording-session-store"); const durable = await import("./durable-file"); const tools = await import("./ffmpeg-tools");
+    const session = await store.createRecordingSession({ episodeId: "pending-finalization", deviceDefaults: { cameras: { camera1: "camera" }, microphones: { morganMic: "mic" } } });
+    const folder = session.captureFolderPath!; await store.beginRecordingMedia(folder);
+    const fixture = path.join(mockPaths.episodesRoot, "pending.webm");
+    await tools.runFfmpeg(["-y", "-f", "lavfi", "-i", "color=c=blue:size=160x90:rate=10", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "0.3", "-c:v", "libvpx", "-c:a", "libopus", fixture]);
+    const bytes = await fs.readFile(fixture); let release!: () => void; let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; }); const blocked = new Promise<void>((resolve) => { entered = resolve; });
+    const append = durable.durableAppend; vi.spyOn(durable, "durableAppend").mockImplementation(async (file, data) => { entered(); await gate; return append(file, data); });
+    const writing = store.appendRecordingChunk(folder, { target: "program", kind: "program", mimeType: "video/webm", sequence: 0, bytes });
+    await blocked; let finished = false;
+    const finalizing = store.finalizeRecordingMedia(folder).then((result) => { finished = true; return result; });
+    await new Promise((resolve) => setTimeout(resolve, 80)); expect(finished).toBe(false);
+    release(); await writing; const result = await finalizing; expect(result.integrity.programPlayable).toBe(true);
+    const original = await fs.readFile(result.programPath!);
+    await expect(store.appendRecordingChunk(folder, { target: "program", kind: "program", mimeType: "video/webm", sequence: 1, bytes })).rejects.toThrow("saved files are protected");
+    expect(await fs.readFile(result.programPath!)).toEqual(original);
+  });
 
 });

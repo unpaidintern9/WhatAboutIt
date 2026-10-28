@@ -1,13 +1,15 @@
 import type { DeviceDefaults } from "../../shared/types";
 import { microphoneSlots } from "../../shared/audio-tracks";
-import { getDeviceAssignmentConflicts } from "../../shared/device-config";
+import { getDeviceAssignmentConflicts, getMicrophoneRoutingIssue } from "../../shared/device-config";
 import { assertMicrophoneInputAvailable, getAudioStreamDiagnostics } from "../plugins/audio/studio-audio";
 import type { DeviceService } from "./device-service";
 
 /** Checks real streams and driver-visible channels, not just saved device names. */
 export async function checkRecordingInputs(defaults: DeviceDefaults, devices: Pick<DeviceService, "openCameraPreview" | "openMicrophoneStream" | "releaseStream">) {
   const conflicts = getDeviceAssignmentConflicts(defaults);
+  if (conflicts.some((conflict) => conflict.kind === "camera")) throw new Error("Choose a different camera device for each camera slot.");
   if (conflicts.length > 0) throw new Error("Choose a separate physical input for each assigned microphone channel.");
+  const routingIssue = getMicrophoneRoutingIssue(defaults); if (routingIssue) throw new Error(routingIssue);
   if (!defaults.cameras.camera1 || !defaults.microphones.morganMic) throw new Error("Choose a main camera and microphone before recording.");
   const streams: Array<{ kind: "camera" | "microphone"; id: string; stream: MediaStream }> = [];
   const checks = [
@@ -23,7 +25,7 @@ export async function checkRecordingInputs(defaults: DeviceDefaults, devices: Pi
       const diagnostics = getAudioStreamDiagnostics(stream);
       for (const { key, label } of microphoneSlots.filter(({ key }) => defaults.microphones[key] === id)) {
         const channel = defaults.microphoneChannels?.[key] ?? "mix";
-        if (channel !== "mix" && diagnostics.channelCount === undefined) throw new Error(`${label}: this driver did not report its active input count. Choose Mix or a driver that exposes numbered inputs.`);
+        if (channel !== "mix" && diagnostics.channelCount === undefined) throw new Error(`${label}: this driver did not report its active input count. Check the Windows interface driver and two-channel sound format, then reconnect inputs.`);
         try { assertMicrophoneInputAvailable(channel, diagnostics.channelCount); }
         catch (error) { throw new Error(`${label}: ${String(error).replace(/^Error: /, "")}`, { cause: error }); }
       }
