@@ -6,7 +6,7 @@ import { PcmTrackRecorder, type CaptureRecorder } from "./pcm-track-recorder";
 import type { RecordingEngineHealth, RecordingEnginePlugin, RecordingStartRequest } from "./types";
 import type { RecordingMediaTarget, RecordingSession, RecordingTrackKind, RecordingTrackSaveInput, RecordingTrackSlot } from "../../../shared/recording";
 import type { MicrophoneInputChannel } from "../../../shared/types";
-import { normalizeSharedMicrophoneRoutes } from "../../../shared/device-config";
+import { normalizeSharedMicrophoneRoutes, getMicrophoneRoutingIssue } from "../../../shared/device-config";
 import {
   connectInputChannelSource,
   createStudioAudioContext,
@@ -109,6 +109,9 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       this.practiceActive = true;
       return;
     }
+
+    const routingIssue = getMicrophoneRoutingIssue(normalizedRequest.deviceDefaults);
+    if (routingIssue) throw new Error(routingIssue);
 
     this.expectedCameraTracks = Object.values(normalizedRequest.deviceDefaults.cameras).filter(Boolean).length;
     this.expectedAudioTracks = Object.values(normalizedRequest.deviceDefaults.microphones).filter(Boolean).length;

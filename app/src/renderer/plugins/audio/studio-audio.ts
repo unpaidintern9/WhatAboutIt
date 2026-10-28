@@ -128,7 +128,7 @@ export function getMicrophoneInputIndex(channel: MicrophoneInputChannel) {
 export function assertMicrophoneInputAvailable(channel: MicrophoneInputChannel, availableChannelCount?: number) {
   const inputIndex = getMicrophoneInputIndex(channel);
   if (inputIndex !== undefined && availableChannelCount !== undefined && inputIndex >= availableChannelCount) {
-    throw new Error(`Only ${availableChannelCount} input channel${availableChannelCount === 1 ? " is" : "s are"} available from this browser.`);
+    throw new Error(`Only ${availableChannelCount} input channel${availableChannelCount === 1 ? " is" : "s are"} available from Windows. For separate microphones, choose the interface’s 2-channel format in Windows Sound settings, then reconnect inputs.`);
   }
 }
 

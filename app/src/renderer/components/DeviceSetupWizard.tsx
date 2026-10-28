@@ -2,9 +2,11 @@ import { microphoneSlots } from "../../shared/audio-tracks";
 import { AlertTriangle, ArrowRight, Camera, CheckCircle2, Headphones, HelpCircle, Mic2, RotateCcw, Search, Settings, ShieldCheck, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { DeviceDefaults, MicrophoneInputChannel } from "../../shared/types";
-import { getDeviceAssignmentConflicts, getMicrophoneInputDisplay, microphoneInputChannelOptions, saveCameraSlot, saveMicrophoneDeviceRoute, saveMicrophoneInputChannel } from "../../shared/device-config";
+import { getDeviceAssignmentConflicts, getMicrophoneInputDisplay, getMicrophoneInputOptions, distinctAudioDeviceChoices, getMicrophoneRoutingIssue, microphoneRoutesOverlap, saveCameraSlot, saveMicrophoneDeviceRoute, saveMicrophoneInputChannel } from "../../shared/device-config";
 import { AudioMeter, Button } from ".";
-import { calculateAudioLevel, connectInputChannelSource, createStudioAudioContext, getAudioStreamDiagnostics, stopStudioMediaStream } from "../plugins/audio/studio-audio";
+import { acquireStudioAudioContext, subscribeStudioMeter } from "../plugins/audio/shared-audio-engine";
+import { AudioInterfaceQuickSetup } from "./AudioInterfaceQuickSetup";
+import { calculateAudioLevel, connectInputChannelSource, getAudioStreamDiagnostics, stopStudioMediaStream } from "../plugins/audio/studio-audio";
 import type { DeviceDetectionResult, StudioDevice } from "../plugins/devices/types";
 import { findDeviceLabel, getDeviceReadiness, getEmptyStateMessage } from "../services";
 
@@ -74,10 +76,13 @@ export function DeviceSetupWizard({
   const [visibleMicrophoneCount, setVisibleMicrophoneCount] = useState(initiallyVisibleMicrophoneCount);
   const readyState = getDeviceReadiness(detection, defaults);
   const assignmentConflicts = getDeviceAssignmentConflicts(defaults);
+  const routingIssue = getMicrophoneRoutingIssue(defaults);
+  const [inputCounts, setInputCounts] = useState<Record<string, number>>({});
   const cameraCapacity = getCameraCapacity(detection.cameras);
-  const interfaceDevice = detection.microphones.find((device) => device.audio?.interfaceLike);
   const selectedAudioDevice = detection.microphones.find((device) => Object.values(defaults.microphones).includes(device.id));
+  const interfaceDevice = selectedAudioDevice?.audio?.interfaceLike ? selectedAudioDevice : distinctAudioDeviceChoices(detection.microphones).find((device) => device.audio?.interfaceLike);
   const audioInputAvailable = detection.microphones.length > 0;
+  const sharedInterface = Boolean(defaults.microphones.morganMic && defaults.microphones.morganMic === defaults.microphones.guestMic);
   const setupItems = [
     { label: "Camera 1 selected", ready: Boolean(defaults.cameras.camera1) },
     { label: "Morgan Mic selected", ready: Boolean(defaults.microphones.morganMic) },
@@ -93,8 +98,8 @@ export function DeviceSetupWizard({
   }, [defaults.cameras.camera2, defaults.cameras.camera3, defaults.microphones]);
 
   function assignMicrophone(slot: (typeof microphoneSlots)[number]["key"], deviceId: string) {
-    const routed = saveMicrophoneDeviceRoute(defaults, slot, deviceId);
     const selectedDevice = detection.microphones.find((device) => device.id === deviceId);
+    const routed = saveMicrophoneDeviceRoute(defaults, slot, deviceId, selectedDevice?.rawLabel ?? selectedDevice?.label);
     onDefaultsChange({
       ...routed,
       microphoneDeviceLabels: { ...routed.microphoneDeviceLabels, [slot]: selectedDevice?.rawLabel ?? selectedDevice?.label }
@@ -105,7 +110,7 @@ export function DeviceSetupWizard({
     const deviceId = defaults.microphones[slot];
     const routeInUse = microphoneSlots.some((candidate) => candidate.key !== slot
       && defaults.microphones[candidate.key] === deviceId
-      && (defaults.microphoneChannels?.[candidate.key] ?? "mix") === channel);
+      && microphoneRoutesOverlap(defaults.microphoneChannels?.[candidate.key] ?? "mix", channel));
     if (routeInUse) return;
     onDefaultsChange(saveMicrophoneInputChannel(defaults, slot, channel));
   }
@@ -241,15 +246,17 @@ export function DeviceSetupWizard({
 
       {currentStep === 1 && (
         <div className="wizard-panel">
-          <WizardHeading title="Pick your microphones" message="Choose who each mic belongs to, then say something and watch the meter move." />
-          <div className={`audio-interface-strip ${audioInputAvailable ? "ready" : "needs-attention"}`}>
+          <WizardHeading title="Pick your microphones" message="Choose the interface, then assign a separate mono input to each voice." />
+          <AudioInterfaceQuickSetup devices={detection.microphones} defaults={defaults} onChange={onDefaultsChange} />
+          {routingIssue || assignmentConflicts.some((item) => item.kind === "microphone-route") ? <p role="alert" className="input-route-warning">{routingIssue ?? "These tracks share an input. Choose a separate numbered input for each voice."}</p> : null}
+          {!interfaceDevice ? <div className={`audio-interface-strip ${audioInputAvailable ? "ready" : "needs-attention"}`}>
             {audioInputAvailable ? <CheckCircle2 size={20} /> : <AlertTriangle size={20} />}
             <div>
               <strong>{interfaceDevice ? "Audio interface" : "Audio inputs"}</strong>
               <span>{interfaceDevice?.label ?? selectedAudioDevice?.label ?? (audioInputAvailable ? "Windows microphone inputs detected" : "No microphone input detected")}</span>
             </div>
             <b>{audioInputAvailable ? "Connected" : "Check cable and Windows sound settings"}</b>
-          </div>
+          </div> : null}
           {detection.microphones.length === 0 ? (
             <FriendlyState title={getEmptyStateMessage("microphone")} message="Plug in a mic, make sure it is on, then check again." />
           ) : (
@@ -264,17 +271,30 @@ export function DeviceSetupWizard({
                       onChange={(event) => onDefaultsChange({ ...defaults, microphoneNames: { ...defaults.microphoneNames, [slot.key]: event.target.value } })}
                     />
                   </label>
+                  {sharedInterface ? <details className="track-device-choice"><summary>Change this track's audio device</summary>
                   <DeviceSelect
                     label={`Assign ${slot.label}`}
                     value={defaults.microphones[slot.key] ?? ""}
-                    devices={detection.microphones}
+                    devices={distinctAudioDeviceChoices(detection.microphones, defaults.microphones[slot.key])}
                     emptyLabel="No mic picked yet"
                     onChange={(deviceId) => assignMicrophone(slot.key, deviceId)}
                   />
+                  </details> : <>
+                  <DeviceSelect
+                    label={`Assign ${slot.label}`}
+                    value={defaults.microphones[slot.key] ?? ""}
+                    devices={distinctAudioDeviceChoices(detection.microphones, defaults.microphones[slot.key])}
+                    emptyLabel="No mic picked yet"
+                    onChange={(deviceId) => assignMicrophone(slot.key, deviceId)}
+                  />
+                  </>}
                   <InputChannelSelect
                     label={`${slot.label} interface input`}
                     value={defaults.microphoneChannels?.[slot.key] ?? "mix"}
                     ownerName={defaults.microphoneNames?.[slot.key] ?? slot.label}
+                    deviceLabel={detection.microphones.find((device) => device.id === defaults.microphones[slot.key])?.rawLabel ?? detection.microphones.find((device) => device.id === defaults.microphones[slot.key])?.label}
+                    channelCount={inputCounts[defaults.microphones[slot.key] ?? ""]}
+                    disabledChannels={microphoneSlots.filter((other) => other.key !== slot.key && defaults.microphones[other.key] && defaults.microphones[other.key] === defaults.microphones[slot.key]).map((other) => defaults.microphoneChannels?.[other.key] ?? "mix")}
                     onChange={(channel) => assignInputChannel(slot.key, channel)}
                   />
                   <SetupMicFeedback
@@ -283,6 +303,7 @@ export function DeviceSetupWizard({
                     onOpenMicrophoneStream={onOpenMicrophoneStream}
                     onReleaseMicrophoneStream={onReleaseMicrophoneStream}
                     fallbackLevel={slot.key === "morganMic" ? microphoneLevel : 0}
+                    onChannelCount={(count) => { const id = defaults.microphones[slot.key]; if (id && count) setInputCounts((current) => current[id] === count ? current : { ...current, [id]: count }); }}
                   />
                 </DeviceSlot>
               ))}
@@ -293,11 +314,11 @@ export function DeviceSetupWizard({
                   <span>Only add another channel when this episode needs it.</span>
                 </button>
               ) : null}
-              <div className="device-test-card">
+              {new Set(Object.values(defaults.microphones).filter(Boolean)).size === 1 && Object.values(defaults.microphones).filter(Boolean).length > 1 ? <div className="device-test-card"><strong>Check each voice separately</strong><p>Speak into one microphone at a time and watch its own meter. Room pickup can reach the other microphone; the selected input should respond most strongly.</p></div> : <div className="device-test-card">
                 <Button variant="primary" icon={<Mic2 size={20} />} onClick={onTestMicrophone}>Say something!</Button>
                 <AudioMeter label="Mic check" level={microphoneLevel} />
                 <p>Speak into each microphone. Each selected interface channel has its own live meter above.</p>
-              </div>
+              </div>}
             </div>
           )}
         </div>
@@ -528,17 +549,21 @@ function SetupMicFeedback({
   inputChannel,
   fallbackLevel,
   onOpenMicrophoneStream,
-  onReleaseMicrophoneStream
+  onReleaseMicrophoneStream,
+  onChannelCount
 }: {
   deviceId?: string;
   inputChannel: MicrophoneInputChannel;
   fallbackLevel: number;
+  onChannelCount?: (count?: number) => void;
   onOpenMicrophoneStream: (deviceId?: string) => Promise<MediaStream>;
   onReleaseMicrophoneStream?: (deviceId?: string, stream?: MediaStream) => void;
 }) {
   const [level, setLevel] = useState(fallbackLevel);
   const [peak, setPeak] = useState(0);
   const [inputStatus, setInputStatus] = useState("Checking input...");
+  const channelCountCallback = useRef(onChannelCount);
+  channelCountCallback.current = onChannelCount;
 
   useEffect(() => {
     if (!deviceId || !window.AudioContext) {
@@ -547,7 +572,10 @@ function SetupMicFeedback({
     }
 
     let canceled = false;
-    let frame = 0;
+    let stopMeter: (() => void) | undefined;
+    let lease: ReturnType<typeof acquireStudioAudioContext> | undefined;
+    let route: ReturnType<typeof connectInputChannelSource> | undefined;
+    let silence: GainNode | undefined;
     let audioContext: AudioContext | undefined;
     let stream: MediaStream | undefined;
 
@@ -561,12 +589,17 @@ function SetupMicFeedback({
           return;
         }
         const diagnostics = getAudioStreamDiagnostics(stream);
-        audioContext = createStudioAudioContext();
+        channelCountCallback.current?.(diagnostics.channelCount);
+        lease = acquireStudioAudioContext(diagnostics.sampleRate);
+        audioContext = lease.context;
         const analyser = audioContext.createAnalyser();
         const source = audioContext.createMediaStreamSource(stream);
-        const samples = new Uint8Array(analyser.frequencyBinCount);
-        const routed = connectInputChannelSource(audioContext, source, inputChannel, diagnostics.channelCount);
-        routed.output.connect(analyser);
+        analyser.fftSize = 512;
+        const samples = new Uint8Array(analyser.fftSize);
+        route = connectInputChannelSource(audioContext, source, inputChannel, diagnostics.channelCount);
+        route.output.connect(analyser);
+        silence = audioContext.createGain(); silence.gain.value = 0;
+        analyser.connect(silence).connect(audioContext.destination);
         await audioContext.resume();
         setInputStatus(`${diagnostics.channelCount ?? "Unknown"} channel${diagnostics.channelCount === 1 ? "" : "s"} / ${diagnostics.sampleRate ?? "unknown"} Hz`);
 
@@ -576,10 +609,11 @@ function SetupMicFeedback({
           const measured = calculateAudioLevel(samples);
           setLevel(measured.rms);
           setPeak(measured.peak);
-          frame = window.requestAnimationFrame(tick);
+
         };
 
         tick();
+        stopMeter = subscribeStudioMeter(tick);
       } catch (error) {
         setLevel(0);
         setPeak(0);
@@ -592,10 +626,12 @@ function SetupMicFeedback({
 
     return () => {
       canceled = true;
-      if (frame) window.cancelAnimationFrame(frame);
+      stopMeter?.();
+      route?.disconnect();
+      silence?.disconnect();
       if (stream && onReleaseMicrophoneStream) onReleaseMicrophoneStream(deviceId, stream);
       else stopStudioMediaStream(stream);
-      void audioContext?.close();
+      lease?.release();
     };
   }, [deviceId, fallbackLevel, inputChannel, onOpenMicrophoneStream, onReleaseMicrophoneStream]);
 
@@ -610,31 +646,21 @@ function SetupMicFeedback({
   );
 }
 
-function InputChannelSelect({
-  label,
-  value,
-  ownerName,
-  onChange
-}: {
-  label: string;
-  value: MicrophoneInputChannel;
-  ownerName: string;
-  onChange: (channel: MicrophoneInputChannel) => void;
+function InputChannelSelect({ label, value, ownerName, deviceLabel, channelCount, disabledChannels, onChange }: {
+  label: string; value: MicrophoneInputChannel; ownerName: string; deviceLabel?: string; channelCount?: number;
+  disabledChannels: MicrophoneInputChannel[]; onChange: (channel: MicrophoneInputChannel) => void;
 }) {
-  const display = getMicrophoneInputDisplay(value);
-  return (
-    <label className="device-select input-channel-select" title="Choose the physical jack on a multichannel interface when its Windows driver exposes that channel to the app.">
-      Physical interface jack
-      <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value as MicrophoneInputChannel)}>
-        {microphoneInputChannelOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
-      </select>
-      <span className={`physical-input-assignment ${value === "mix" ? "automatic" : "routed"}`}>
-        <strong>{display.short}</strong>
-        <b>{value === "mix" ? "Use for a laptop or one-mic device" : `Feeds ${ownerName || "this track"}`}</b>
-      </span>
-      <small>Choose Left or Right only when a multichannel interface exposes separate Windows channels.</small>
-    </label>
-  );
+  const options = getMicrophoneInputOptions(deviceLabel, channelCount, disabledChannels.length > 0);
+  const available = options.some((option) => option.value === value);
+  return <label className="device-select input-channel-select">Track input
+    <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value as MicrophoneInputChannel)}>
+      {!available ? <option value={value} disabled>{getMicrophoneInputDisplay(value).short} · choose an available input</option> : null}
+      {options.map((option) => <option value={option.value} key={option.value}
+        disabled={option.value !== value && disabledChannels.some((other) => microphoneRoutesOverlap(other, option.value))}>{option.label}</option>)}
+    </select>
+    <small>{value === "mix" ? "Combined audio. For two microphones, choose a separate numbered input per track." : `${getMicrophoneInputDisplay(value).short} → ${ownerName || "this track"} · separate recording`}</small>
+    {!available ? <small role="alert">This input is unavailable. Check the interface and Windows two-channel sound format.</small> : null}
+  </label>;
 }
 
 function DeviceSelect({

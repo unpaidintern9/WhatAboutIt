@@ -300,12 +300,12 @@ describe("DeviceSetupWizard", () => {
     expect(microphoneMarkup).toContain("Say something!");
     expect(microphoneMarkup).toContain("NO SIGNAL");
     expect(microphoneMarkup).toContain("Automatic / combined input");
-    expect(microphoneMarkup).toContain("Physical Input 1 (left channel)");
-    expect(microphoneMarkup).toContain("Physical Input 2 (right channel)");
-    expect(microphoneMarkup).toContain("Input 16");
+    expect(microphoneMarkup).toContain("Input 1 · Mono");
+    expect(microphoneMarkup).toContain("Input 2 · Mono");
+    expect(microphoneMarkup).not.toContain("Input 16");
     expect(microphoneMarkup).toContain("Audio inputs");
     expect(microphoneMarkup).toContain("Windows microphone inputs detected");
-    expect(microphoneMarkup).toContain("Choose Left or Right only when a multichannel interface exposes separate Windows channels");
+    expect(microphoneMarkup).toContain("choose a separate numbered input per track");
     expect(microphoneMarkup).not.toContain("M-Track Duo");
     expect(headphoneMarkup).toContain("Play Test Sound");
     expect(readyMarkup).toContain("Device selections saved");

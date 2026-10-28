@@ -1,3 +1,4 @@
+import { AudioInterfaceQuickSetup } from "./AudioInterfaceQuickSetup";
 import { AudioSignalDiagnostics } from "../services/audio-signal-diagnostics";
 import { writeRuntimeDiagnostic } from "../services/runtime-diagnostics";
 import { acquireStudioAudioContext, subscribeStudioMeter } from "../plugins/audio/shared-audio-engine";
@@ -37,7 +38,7 @@ import {
 } from "lucide-react";
 import type { CameraSlotKey, DeviceDefaults, MicrophoneInputChannel, MicrophoneSlotKey, RecordingPreferences } from "../../shared/types";
 import { defaultRecordingPreferences } from "../../shared/types";
-import { getDeviceAssignmentConflicts, getMicrophoneInputDisplay, microphoneInputChannelOptions, saveMicrophoneDeviceRoute } from "../../shared/device-config";
+import { getDeviceAssignmentConflicts, getMicrophoneInputDisplay, getMicrophoneInputOptions, distinctAudioDeviceChoices, getMicrophoneRoutingIssue, microphoneRoutesOverlap, saveMicrophoneDeviceRoute } from "../../shared/device-config";
 import type { RecordingSession, RecordingTrackSaveResult, RecordingTrackSlot } from "../../shared/recording";
 import type { CameraLayout, PodcastToolsState, SoundSlot } from "../../shared/podcast-tools";
 import { cameraLayouts, createLiveMarker, markerButtons } from "../../shared/podcast-tools";
@@ -239,7 +240,8 @@ export function RecordingStudio({
   const recordingPreferences = { ...defaultRecordingPreferences, ...recordingPreferencesProp };
   const liveMode = isRecording && recordingPreferences.liveModeEnabled;
   const recordingHealthy = snapshot.status !== "error" && (!isRecording || Boolean(snapshot.health?.programActive));
-  const deviceAssignmentsHealthy = getDeviceAssignmentConflicts(defaults).length === 0;
+  const routingIssue = getMicrophoneRoutingIssue(defaults);
+  const deviceAssignmentsHealthy = getDeviceAssignmentConflicts(defaults).length === 0 && !routingIssue;
   const programMicSlot = defaults.cameraMicrophones?.camera1 ?? "morganMic";
   const programMicSignal = micSignals[programMicSlot];
   const programMicSelected = Boolean(findDevice(detection.microphones, defaults.microphones[programMicSlot]));
@@ -257,7 +259,7 @@ export function RecordingStudio({
   const studioReady = !checkingReadiness && cameraReadyCount > 0 && storageReady && deviceAssignmentsHealthy && programMicSelected && assignedDevices.missingDeviceIds.length === 0 && !invalidChannels && (!recordingInProgress || recordingHealthy);
   const startBlockedReason = checkingReadiness ? "Checking inputs and storage…"
     : !storageReady ? storageWarning
-    : !deviceAssignmentsHealthy ? "Choose a separate physical input for each microphone channel."
+    : !deviceAssignmentsHealthy ? routingIssue ?? "Choose a separate physical input for each microphone channel."
     : assignedDevices.missingDeviceIds.length > 0 ? "An assigned camera or microphone is disconnected. Reconnect inputs or change the selection in Setup."
     : cameraReadyCount === 0 ? "Choose Camera 1 in Setup before recording."
     : !programMicSelected ? "Choose the microphone assigned to Camera 1 in Setup before recording."
@@ -388,7 +390,7 @@ export function RecordingStudio({
 
   function setMicInput(slot: MicKey, deviceId: string) {
     const selectedDevice = findDevice(detection.microphones, deviceId);
-    const routed = saveMicrophoneDeviceRoute(defaults, slot, deviceId);
+    const routed = saveMicrophoneDeviceRoute(defaults, slot, deviceId, selectedDevice?.rawLabel ?? selectedDevice?.label);
     const next = {
       ...routed,
       microphoneDeviceLabels: { ...routed.microphoneDeviceLabels, [slot]: selectedDevice?.rawLabel ?? selectedDevice?.label }
@@ -734,6 +736,7 @@ export function RecordingStudio({
                       <Volume2 size={16} /> Play Test Sound
                     </RusticButton>
                   </div>
+                  <AudioInterfaceQuickSetup devices={detection.microphones} defaults={defaults} disabled={inputChangesLocked} onChange={onDefaultsChange} />
                   <div className="meter-list pro-tools-mixer">
                     {visibleMicSlots.map((slot) => {
                       const deviceId = defaults.microphones[slot.key];
@@ -927,7 +930,7 @@ function findAssignedMicSlot(
   return (Object.entries(assignments) as Array<[MicKey, string | undefined]>)
     .find(([slot, assignedDeviceId]) => slot !== exceptSlot
       && assignedDeviceId === deviceId
-      && (channelAssignments?.[slot] ?? "mix") === channel)?.[0];
+      && microphoneRoutesOverlap(channelAssignments?.[slot] ?? "mix", channel))?.[0];
 }
 
 function findAssignedCameraRoute(assignments: Partial<Record<CameraKey, MicKey>> | undefined, micSlot: MicKey, exceptSlot?: CameraKey) {
@@ -1476,6 +1479,10 @@ function LiveMicMeter({
   const [routeIssue, setRouteIssue] = useState<string | undefined>();
   const [monitorIssue, setMonitorIssue] = useState<string | undefined>();
   const inputDisplay = getMicrophoneInputDisplay(inputChannel);
+  const [activeChannelCount, setActiveChannelCount] = useState<number>();
+  const selectedDevice = inputOptions.find((device) => device.id === selectedInputId);
+  const inputChannelOptions = getMicrophoneInputOptions(selectedDevice?.rawLabel ?? selectedDevice?.label, activeChannelCount, Object.entries(inputAssignments).some(([slot, id]) => slot !== micSlot && id === selectedInputId && Boolean(id)));
+  const savedChannelAvailable = inputChannelOptions.some((option) => option.value === inputChannel);
 
   controlsRef.current = controls;
   outputDeviceIdRef.current = outputDeviceId;
@@ -1587,6 +1594,7 @@ function LiveMicMeter({
 
     async function startMeter() {
       try {
+        setActiveChannelCount(undefined);
         stream = await onOpenMicrophoneStream(deviceId);
         if (canceled) {
           onReleaseMicrophoneStream(deviceId, stream);
@@ -1596,6 +1604,7 @@ function LiveMicMeter({
         const track = stream.getAudioTracks()[0];
         const diagnostics = getAudioStreamDiagnostics(stream);
         meterStreamDiagnostics = diagnostics;
+        setActiveChannelCount(diagnostics.channelCount);
         setRouteIssue(undefined);
         if (track && typeof track.addEventListener === "function") {
           track.addEventListener("ended", () => {
@@ -1700,19 +1709,13 @@ function LiveMicMeter({
       {routeIssue ? <small className="input-route-warning">{routeIssue}</small> : null}
       {trackStatus && <TrackSavePill status={trackStatus} />}
       <DistressedMeter level={level} label={label} />
-      <details className="channel-advanced"><summary>Input and headphone controls</summary><div className="channel-console">
-        {onNameChange && (
-          <label className="channel-name-control" title="This name is saved with the episode and its separate audio track.">
-            <span className="control-caption">Name</span>
-            <input disabled={inputChangesLocked} aria-label={`${roleLabel ?? label} name`} value={label} onChange={(event) => onNameChange(event.target.value)} />
-          </label>
-        )}
+      <div className="visible-input-routing">
         {onInputChange && (
           <label className="channel-input-control" title="Choose which physical mic feeds this mixer channel.">
-            <span className="control-caption">Input</span>
+            <span className="control-caption">Audio device</span>
             <select disabled={inputChangesLocked} aria-label={`${label} input`} value={selectedInputId ?? ""} onChange={(event) => onInputChange(event.target.value)}>
               <option value="">Pick input</option>
-              {inputOptions.map((device) => {
+              {distinctAudioDeviceChoices(inputOptions, selectedInputId).map((device) => {
                 const owner = findAssignedMicSlot(inputAssignments, inputChannelAssignments, device.id, inputChannel, micSlot);
                 return (
                   <option value={device.id} key={device.id}>
@@ -1724,15 +1727,25 @@ function LiveMicMeter({
           </label>
         )}
         {onInputChannelChange && (
-          <label className="channel-route-control" title="Choose the physical input jack when the Windows audio driver exposes it.">
-            <span className="control-caption">Physical Jack</span>
+          <label className="channel-route-control" title="Each numbered mono input records a separate microphone track.">
+            <span className="control-caption">Track input</span>
             <select disabled={inputChangesLocked} aria-label={`${label} interface channel`} value={inputChannel} onChange={(event) => onInputChannelChange(event.target.value as MicrophoneInputChannel)}>
-              {microphoneInputChannelOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
+              {!savedChannelAvailable ? <option value={inputChannel} disabled>{inputDisplay.short} · choose an available input</option> : null}
+              {inputChannelOptions.map((option) => <option value={option.value} key={option.value}
+                disabled={option.value !== inputChannel && Boolean(findAssignedMicSlot(inputAssignments, inputChannelAssignments, selectedInputId, option.value, micSlot))}>{option.label}</option>)}
             </select>
             <span className={`physical-input-assignment compact ${inputChannel === "mix" ? "automatic" : "routed"}`}>
               <strong>{inputDisplay.short}</strong>
               <b>{inputChannel === "mix" ? "Combined" : `Feeds ${label}`}</b>
             </span>
+          </label>
+        )}
+      </div>
+      <details className="channel-advanced"><summary>Input and headphone controls</summary><div className="channel-console">
+        {onNameChange && (
+          <label className="channel-name-control" title="This name is saved with the episode and its separate audio track.">
+            <span className="control-caption">Name</span>
+            <input disabled={inputChangesLocked} aria-label={`${roleLabel ?? label} name`} value={label} onChange={(event) => onNameChange(event.target.value)} />
           </label>
         )}
         <label className="channel-effect-control" title="Live headphone processing for podcast voice checks. Recordings keep the high-quality mic capture.">
