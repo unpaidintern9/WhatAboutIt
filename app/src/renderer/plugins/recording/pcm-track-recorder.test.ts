@@ -9,6 +9,12 @@ const pcmWorkletSource = fs.readFileSync(
 );
 
 describe("lossless audio rendering-thread capture", () => {
+  it("rejects a stale 44.1 kHz shared capture graph instead of saving mixed-rate audio", async () => {
+    const close = vi.fn();
+    const context = { sampleRate: 44100, close } as unknown as AudioContext;
+    await expect(PcmTrackRecorder.create({} as MediaStream, context)).rejects.toThrow("48 kHz");
+    expect(close).not.toHaveBeenCalled();
+  });
   it("shares the interface context and worklet module without closing other live channels", async () => {
     const nodes: Array<{ port: { onmessage?: (event: { data: { stopped: boolean } }) => void } }> = [];
     const audioNode = () => ({ connect(next: unknown) { return next; }, disconnect: vi.fn() });

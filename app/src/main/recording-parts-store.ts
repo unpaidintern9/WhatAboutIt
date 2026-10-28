@@ -134,7 +134,10 @@ async function assembleTarget(folder: string, parts: RecordingPart[], target: ty
   const includeAudio = streams.every((list) => list.some((stream) => stream.codec_type === "audio"));
   const channels = streams[0].find((stream) => stream.codec_type === "audio")?.channels ?? 1;
   const syncs = await Promise.all(parts.map((part) => readRecordingJson<SyncMetadata>(path.join(partPath(folder, part), "Session", "sync-metadata.json"))));
-  const signature = (list: StreamInfo[]) => JSON.stringify(list.map(({ codec_type, codec_name, width, height, r_frame_rate, channels, sample_rate, pix_fmt, time_base }) => ({ codec_type, codec_name, width, height, r_frame_rate, channels, sample_rate, pix_fmt, time_base })));
+  // r_frame_rate is a probe estimate for Chromium VFR WebM, sometimes 1000/1.
+  // Packet timestamps are preserved by concat; that estimate is not a codec
+  // incompatibility. Duration/decode validation below still gates stream copy.
+  const signature = (list: StreamInfo[]) => JSON.stringify(list.map(({ codec_type, codec_name, width, height, channels, sample_rate, pix_fmt, time_base }) => ({ codec_type, codec_name, width, height, channels, sample_rate, pix_fmt, time_base })));
   const compatible = streams.every((list) => signature(list) === signature(streams[0]))
     && syncs.every((sync) => target.slot === "program" || Math.abs(sync.sourceStartOffsetsMs?.[target.slot] ?? 0) <= 2);
   if (compatible) {
@@ -142,7 +145,7 @@ async function assembleTarget(folder: string, parts: RecordingPart[], target: ty
     const escapeFile = (file: string) => file.replaceAll("\\", "/").replaceAll("'", "'\\''");
     await fs.writeFile(listFile, inputs.map((file, index) => `file '${escapeFile(file)}'\nduration ${((parts[index].durationMs ?? 0) / 1000).toFixed(6)}`).join("\n"));
     try {
-      await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listFile, "-map", "0", "-c", "copy", output]);
+      await runFfmpeg(["-y", "-f", "concat", "-safe", "0", "-i", listFile, "-map", "0", "-c", "copy", ...(video ? ["-r", String(recordingFrameRate(video))] : []), output]);
       const duration = await getMediaDurationMs(output);
       const expected = parts.reduce((sum, part) => sum + (part.durationMs ?? 0), 0);
       if (Math.abs(duration - expected) <= 120 && await validatePlayableMedia(output, undefined, { video: target.video, audio: !target.video || target.slot === "program", decode: true })) return;

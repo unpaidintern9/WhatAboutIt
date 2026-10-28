@@ -646,7 +646,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     }
     if (typeof window === "undefined" || !window.AudioContext) throw new Error("Web Audio is unavailable");
     const diagnostics = getAudioStreamDiagnostics(inputStream);
-    const audioContext = createStudioAudioContext(undefined, diagnostics.sampleRate, "playback");
+    const audioContext = createStudioAudioContext(undefined, 48000, "playback");
     const router: SharedMicrophoneRouter = {
       audioContext,
       inputStream,

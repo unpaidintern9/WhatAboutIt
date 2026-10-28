@@ -122,6 +122,23 @@ describe("durable episode recording parts", () => {
     expect(result.result?.integrity.programPlayable).toBe(true);
     expect(await fs.readFile(path.join(first.captureFolderPath!, "Program", "program.webm"))).toEqual(original);
   }, 40000);
+  it("stream-copies compatible resumed cameras when only the guessed frame-rate label differs", async () => {
+    const store = await import("./recording-session-store");
+    const tools = await import("./ffmpeg-tools");
+    const first = await store.createRecordingSession({ episodeId: "camera-rate-label", deviceDefaults: defaults });
+    await capture(first, "camera2", true);
+    await store.checkpointRecordingSession(first.folderPath, true);
+    const second = await store.createRecordingSession({ episodeId: first.episodeId, deviceDefaults: defaults, resume: true });
+    await capture(second, "camera2");
+    const ffmpeg = vi.spyOn(tools, "runFfmpeg");
+    try {
+      const result = await store.checkpointRecordingSession(first.folderPath, false);
+      const camera = result.result!.tracks.find((track) => track.slot === "camera2")!;
+      expect(camera.status).toBe("saved");
+      expect(await tools.getMediaDurationMs(camera.filePath!)).toBeGreaterThan(1000);
+      expect(ffmpeg.mock.calls.some(([args]) => args.includes("libvpx-vp9") && args.some((arg) => arg.includes("camera-2.webm")))).toBe(false);
+    } finally { ffmpeg.mockRestore(); }
+  }, 40000);
   it("recovers after part finalization was interrupted before journal completion", async () => {
     const store = await import("./recording-session-store");
     const session = await store.createRecordingSession({ episodeId: "episode-crash", deviceDefaults: defaults });
