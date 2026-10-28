@@ -12,6 +12,14 @@ describe("studio audio capture", () => {
     expect(highQualityAudioConstraint("built-in-mic")).toMatchObject({ deviceId: { exact: "built-in-mic" } });
   });
 
+  it("requests the native two-channel input for the M-Audio Solo/Duo without changing other interfaces", () => {
+    expect(highQualityAudioConstraint("duo", "Line 1/2 (3- M-Audio M-Track Solo and Duo)")).toMatchObject({
+      channelCount: { ideal: 2 }, sampleSize: { ideal: 16 }, sampleRate: { ideal: 48000 },
+      echoCancellation: false, noiseSuppression: false, autoGainControl: false
+    });
+    expect(highQualityAudioConstraint("other", "Eight channel USB interface")).toMatchObject({ channelCount: { ideal: 8 } });
+  });
+
   it("preserves a stereo request when optional quality preferences are rejected", async () => {
     const stream = { getTracks: () => [] } as unknown as MediaStream;
     const openStream = vi.fn()
@@ -30,7 +38,7 @@ describe("studio audio capture", () => {
     });
   });
 
-  it("falls back to the selected device alone only after stereo capture is rejected", async () => {
+  it("keeps browser voice processing off when quality and channel preferences are rejected", async () => {
     const stream = { getTracks: () => [] } as unknown as MediaStream;
     const openStream = vi.fn()
       .mockRejectedValueOnce(new DOMException("Unsupported quality constraint", "OverconstrainedError"))
@@ -39,7 +47,13 @@ describe("studio audio capture", () => {
 
     await expect(openAudioStreamWithFallback(openStream, "interface-a")).resolves.toBe(stream);
     expect(openStream).toHaveBeenCalledTimes(3);
-    expect(openStream.mock.calls[2][0]).toEqual({ deviceId: { exact: "interface-a" } });
+    expect(openStream.mock.calls[2][0]).toEqual({ deviceId: { exact: "interface-a" }, echoCancellation: false, noiseSuppression: false, autoGainControl: false });
+  });
+
+  it("requests a stable recording buffer without forcing a device clock", () => {
+    const constraints = highQualityAudioConstraint("interface-a") as MediaTrackConstraints;
+    expect(constraints).toMatchObject({ latency: { ideal: 0.04 }, sampleRate: { ideal: 48000 } });
+    expect(constraints.sampleRate).not.toHaveProperty("exact");
   });
 
   it("maps every supported numbered interface route", () => {

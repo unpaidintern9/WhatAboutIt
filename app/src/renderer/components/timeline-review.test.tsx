@@ -74,6 +74,24 @@ const media: ReviewMediaInventory = {
 };
 
 describe("TimelineReview", () => {
+  it("maximizes and restores without replacing the playing video or moving its playhead", () => {
+    const draft = createTimelineDraft({ episodeId: "episode-a", deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 });
+    const host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      act(() => root.render(<TimelineReview draft={draft} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />));
+      const video = host.querySelector(".review-player-stage video") as HTMLVideoElement;
+      video.currentTime = 12;
+      act(() => (host.querySelector('[aria-label="Maximize video"]') as HTMLButtonElement).click());
+      expect(host.querySelector(".edit-source-monitor.is-maximized")).not.toBeNull();
+      expect(host.querySelector(".review-player-stage video")).toBe(video);
+      expect(video.currentTime).toBe(12);
+      act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+      expect(host.querySelector(".edit-source-monitor.is-maximized")).toBeNull();
+      expect(host.querySelector(".review-player-stage video")).toBe(video);
+      expect(video.currentTime).toBe(12);
+    } finally { act(() => root.unmount()); host.remove(); }
+  });
   it("reuses the audio element when exact cleanup replaces a live source", async () => {
     vi.useFakeTimers();
     const originalStudio = window.studio;

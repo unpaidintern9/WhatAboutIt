@@ -1,4 +1,5 @@
 import { withEpisodeLibraryStatus } from "./episode-library-status";
+import { claimStudioInstance } from "./single-instance";
 import { cancelAllReviewProxyWork } from "./review-proxy-store";
 import { fetchCollaborationApi } from "./collaboration-remote-service";
 import { setCapturePriority, withRecordingFinalization } from "./media-work-scheduler";
@@ -275,7 +276,10 @@ async function saveWorkspaceState(state: StudioWorkspaceState) {
   return studioWindowManager.saveState(state);
 }
 
+const ownsStudioInstance = claimStudioInstance(app, () => BrowserWindow.getAllWindows()[0]);
+
 app.whenReady().then(async () => {
+  if (!ownsStudioInstance) return;
   const initialSettings = await getSettings();
   const requestedEpisodesRoot = initialSettings.recordingPreferences?.primaryFolderPath;
   if (requestedEpisodesRoot) {

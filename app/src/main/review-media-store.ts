@@ -1,5 +1,6 @@
 import type { CollaborationAssetManifestEntry } from "../shared/collaboration";
 import { prepareEpisodeReviewProxies, type ReviewProxyEntry } from "./review-proxy-store";
+import { runReviewArtworkQueue } from "./review-artwork-queue";
 import { preferredAudioFile } from "./audio-source";
 import { microphoneSlots } from "../shared/audio-tracks";
 import path from "node:path";
@@ -213,17 +214,19 @@ function queueReviewArtwork(episodeId: string, folder: string, assets: ReviewMed
   const promise = (async () => {
     // Release the initial inventory before reading/decoding any full track.
     await new Promise<void>((resolve) => setImmediate(resolve));
-    for (const asset of assets) {
+    await runReviewArtworkQueue(assets, async (asset) => {
       if (controller.signal.aborted) return;
-      if (asset.status !== "ready" || !asset.filePath) continue;
+      if (asset.status !== "ready" || !asset.filePath) return;
       const before = await fs.stat(asset.filePath).catch(() => undefined);
-      if (!before) continue;
+      if (!before) return;
       const withWaveform = await ensureMediaWaveform(folder, asset, controller.signal);
       const prepared = await ensureVideoFilmstrip(folder, withWaveform, controller.signal);
       const after = await fs.stat(asset.filePath).catch(() => undefined);
-      if (controller.signal.aborted || !after || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.size !== after.size) continue;
+      if (controller.signal.aborted || !after || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.size !== after.size) return;
       for (const listener of artworkListeners) listener({ episodeId, asset: prepared });
-    }
+    }, controller.signal, (error) => {
+      void logger.warning("ReviewMedia", "A timeline artwork source needs attention.", { episodeId, error: String(error) });
+    });
   })().catch((error) => {
     if (!controller.signal.aborted) void logger.warning("ReviewMedia", "Background timeline artwork needs attention.", { episodeId, error: String(error) });
   }).finally(() => {

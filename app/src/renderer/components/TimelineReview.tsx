@@ -17,6 +17,7 @@ import {
   LoaderCircle,
   Magnet,
   Maximize2,
+  Minimize2,
   Minus,
   MousePointer2,
   Pause,
@@ -181,6 +182,15 @@ export function TimelineReview({
   const [treatmentPreviewBusy, setTreatmentPreviewBusy] = useState(false);
   const [treatmentPreviewError, setTreatmentPreviewError] = useState<string>();
   const [showMulticam, setShowMulticam] = useState(false);
+  const [monitorMaximized, setMonitorMaximized] = useState(false);
+  useEffect(() => {
+    if (!monitorMaximized) return;
+    const exit = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMonitorMaximized(false);
+    };
+    window.addEventListener("keydown", exit);
+    return () => window.removeEventListener("keydown", exit);
+  }, [monitorMaximized]);
   const [inspectorPanel, setInspectorPanel] = useState<"video" | "audio" | "captions" | "media">(() => draft.tracks.find((track) => track.id === draft.selectedTrackId)?.kind === "microphone" ? "audio" : "video");
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [advancedEditing, setAdvancedEditing] = useState(false);
@@ -918,7 +928,7 @@ export function TimelineReview({
       </header>
 
       <section className="edit-studio-workspace">
-        <div className="edit-source-monitor">
+        <div className={`edit-source-monitor${monitorMaximized ? " is-maximized" : ""}`}>
           <div className="panel-heading">
             <div>
               <span>Source monitor</span>
@@ -1149,6 +1159,9 @@ export function TimelineReview({
             </div>
           )}
           {hasPlayableProgram ? <div className="edit-transport" aria-label="Playback controls">
+            <button type="button" aria-label={monitorMaximized ? "Restore video size" : "Maximize video"} aria-pressed={monitorMaximized} title={monitorMaximized ? "Restore video size (Esc)" : "Maximize video"} onClick={() => setMonitorMaximized((value) => !value)}>
+              {monitorMaximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+            </button>
             <button type="button" disabled={selectedVideo?.status !== "ready"} onClick={() => seek(playheadMs - 5000)} title="Back 5 seconds (J)" aria-label="Back 5 seconds">
               <Rewind size={17} />
             </button>

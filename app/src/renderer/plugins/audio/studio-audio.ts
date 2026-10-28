@@ -11,15 +11,20 @@ export interface AudioStreamDiagnostics {
   echoCancellation?: boolean;
   noiseSuppression?: boolean;
   autoGainControl?: boolean;
+  latency?: number;
 }
 
-export function highQualityAudioConstraint(deviceId?: string): MediaTrackConstraints | boolean {
+export function highQualityAudioConstraint(deviceId?: string, deviceLabel = ""): MediaTrackConstraints | boolean {
+  // The Solo/Duo is a two-channel, 16-bit input, not an eight-channel interface.
+  const mTrack = /m[- ]?audio.*m[- ]?track.*(?:solo|duo)/i.test(deviceLabel);
   const constraints: MediaTrackConstraints & { latency?: { ideal: number } } = {
     ...(deviceId ? { deviceId: deviceId === "default" || deviceId === "communications" ? { ideal: deviceId } : { exact: deviceId } } : {}),
     sampleRate: { ideal: 48000 },
-    sampleSize: { ideal: 24 },
-    channelCount: { ideal: 8 },
-    latency: { ideal: 0.01 },
+    sampleSize: { ideal: mTrack ? 16 : 24 },
+    channelCount: { ideal: mTrack ? 2 : 8 },
+    // Recording must tolerate USB scheduling jitter with several live cameras.
+    // Monitoring uses its own graph; do not request a 10 ms capture buffer.
+    latency: { ideal: 0.04 },
     echoCancellation: false,
     noiseSuppression: false,
     autoGainControl: false
@@ -30,12 +35,19 @@ export function highQualityAudioConstraint(deviceId?: string): MediaTrackConstra
 
 export async function openAudioStreamWithFallback(
   openStream: (constraints: MediaTrackConstraints | boolean) => Promise<MediaStream>,
-  deviceId?: string
+  deviceId?: string,
+  deviceLabel = ""
 ) {
-  const preferred = highQualityAudioConstraint(deviceId);
+  const preferred = highQualityAudioConstraint(deviceId, deviceLabel);
   const deviceOnly: MediaTrackConstraints = deviceId
     ? { deviceId: deviceId === "default" || deviceId === "communications" ? { ideal: deviceId } : { exact: deviceId } }
     : {};
+  const unprocessedDevice: MediaTrackConstraints = {
+    ...deviceOnly,
+    echoCancellation: false,
+    noiseSuppression: false,
+    autoGainControl: false
+  };
   const channelPreserving: MediaTrackConstraints = {
     ...deviceOnly,
     channelCount: { ideal: 2 },
@@ -51,7 +63,7 @@ export async function openAudioStreamWithFallback(
       return await openStream(channelPreserving);
     } catch {
       try {
-        return await openStream(deviceOnly);
+        return await openStream(unprocessedDevice);
       } catch {
         throw preferredError;
       }
@@ -195,7 +207,8 @@ export function getAudioStreamDiagnostics(stream: MediaStream): AudioStreamDiagn
     sampleSize: settings.sampleSize,
     echoCancellation: settings.echoCancellation,
     noiseSuppression: settings.noiseSuppression,
-    autoGainControl: settings.autoGainControl
+    autoGainControl: settings.autoGainControl,
+    latency: (settings as MediaTrackSettings & { latency?: number }).latency
   };
 }
 

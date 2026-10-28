@@ -861,10 +861,15 @@ function deviceConstraint(deviceId?: string) {
 
 function openRecordingAudioStream(deviceId?: string) {
   return openMediaStreamWithTimeout(
-    () => openAudioStreamWithFallback(
-      (audio) => navigator.mediaDevices.getUserMedia({ audio, video: false }),
-      deviceId
-    ),
+    async () => {
+      const devices = await navigator.mediaDevices.enumerateDevices?.().catch(() => []) ?? [];
+      const label = devices.find((device) => device.kind === "audioinput" && device.deviceId === deviceId)?.label;
+      return openAudioStreamWithFallback(
+        (audio) => navigator.mediaDevices.getUserMedia({ audio, video: false }),
+        deviceId,
+        label
+      );
+    },
     "microphone"
   );
 }
