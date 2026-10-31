@@ -74,6 +74,27 @@ const media: ReviewMediaInventory = {
 };
 
 describe("TimelineReview", () => {
+  it("keeps the playhead advancing when starting the microphone mix without a video seek", async () => {
+    const draft = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 });
+    const host = document.createElement("div"); document.body.appendChild(host); const root = createRoot(host);
+    await act(async () => root.render(<TimelineReview draft={draft} media={media} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />));
+    const video = host.querySelector('.realtime-preview-layer.active') as HTMLVideoElement;
+    Object.defineProperty(video, "readyState", { configurable: true, value: 4 });
+    Object.defineProperty(video, "duration", { configurable: true, value: 30 });
+    video.play = vi.fn().mockResolvedValue(undefined);
+    const audio = host.querySelector('audio[data-track-id]') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined); audio.pause = vi.fn();
+    try {
+      act(() => video.dispatchEvent(new Event("loadedmetadata")));
+      act(() => video.dispatchEvent(new Event("seeked")));
+      await act(async () => (host.querySelector('.transport-play') as HTMLButtonElement).click());
+      act(() => { video.currentTime = 1.25; video.dispatchEvent(new Event("timeupdate")); });
+      expect((host.querySelector('[aria-label="Episode playhead"]') as HTMLInputElement).value).toBe("1250");
+      act(() => (host.querySelector('[aria-label="Forward 5 seconds"]') as HTMLButtonElement).click());
+      expect(video.currentTime).toBe(6.25);
+      expect(audio.currentTime).toBe(6.25);
+    } finally { act(() => root.unmount()); host.remove(); }
+  });
   it("maximizes and restores without replacing the playing video or moving its playhead", () => {
     const draft = createTimelineDraft({ episodeId: "episode-a", deviceDefaults: { cameras: { camera1: "camera-a" }, microphones: { morganMic: "mic-a" } }, durationMs: 30000 });
     const host = document.createElement("div"); document.body.appendChild(host);

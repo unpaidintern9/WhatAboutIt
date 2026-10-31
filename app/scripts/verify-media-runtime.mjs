@@ -5,6 +5,7 @@ import path from "node:path";
 import os from "node:os";
 import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { verifyReviewTransport } from "./verify-review-transport.mjs";
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 let mediaServer;
@@ -13,7 +14,7 @@ let window;
 const timeout = setTimeout(() => {
   console.error("Electron media verification timed out");
   app.exit(1);
-}, 20000);
+}, 45000);
 app.whenReady().then(async () => {
   try {
     const { startMediaPlaybackServer } = await import(
@@ -82,6 +83,7 @@ app.whenReady().then(async () => {
     assert.equal(result.pcm.bytes, 144000);
     assert.ok(result.peak > 0.05, `Web Audio received silence: ${result.peak}`);
     assert.ok(result.secureContext && result.meaningfulScreen);
+    result.reviewTransport = await verifyReviewTransport(window, appRoot, temporary, mediaServer.baseUrl);
     console.log(JSON.stringify({ passed: true, ...result }));
   } catch (error) {
     console.error(String(error));
