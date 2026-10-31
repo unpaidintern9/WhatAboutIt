@@ -69,6 +69,8 @@ jobs:
           git push origin "v$version"
       - name: Build the compiled Electron application
         run: npm run build
+      - name: Check real playback, recording controls and microphone mute
+        run: npm run verify:media-runtime
       - name: Build Windows installer
         shell: pwsh
         run: npx electron-builder --win nsis --publish never
