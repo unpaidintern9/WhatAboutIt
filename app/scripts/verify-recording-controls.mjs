@@ -69,10 +69,14 @@ export async function verifyRecordingControls(window, appRoot, temporary) {
       await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
       workspace.scrollTop=workspace.scrollHeight;
       await new Promise(r=>requestAnimationFrame(r));
-      const controls=document.querySelector('.giant-control-row').getBoundingClientRect();
-      return {width:innerWidth,height:innerHeight,scrollTop:workspace.scrollTop,clientHeight:workspace.clientHeight,scrollHeight:workspace.scrollHeight,controlsReachable:controls.top<innerHeight&&controls.bottom>0};
+      const endScrollTop=workspace.scrollTop;
+      const transport=document.querySelector('.giant-control-row');
+      transport.scrollIntoView({block:'center'});
+      await new Promise(r=>requestAnimationFrame(r));
+      const controls=transport.getBoundingClientRect();
+      return {width:innerWidth,height:innerHeight,endScrollTop,scrollTop:workspace.scrollTop,clientHeight:workspace.clientHeight,scrollHeight:workspace.scrollHeight,controlsReachable:controls.top<innerHeight&&controls.bottom>0};
     })()`, true);
-    assert.ok(state.scrollTop > 0 && state.controlsReachable, JSON.stringify(state));
+    assert.ok(state.endScrollTop > 0 && state.controlsReachable, JSON.stringify(state));
     viewports.push(state);
   }
   await fs.writeFile(path.join(temporary, "recording-controls.png"), (await window.webContents.capturePage()).toPNG());
