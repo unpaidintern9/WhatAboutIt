@@ -42,7 +42,7 @@ export async function prepareReviewAudio(client: string, episodeId: string, trac
       await fs.mkdir(path.dirname(destination), { recursive: true });
       const temporary = path.join(path.dirname(destination), `.audio-treatment-${randomUUID()}.flac`);
       try {
-        await runFfmpegWithProgress(["-y", "-i", source, "-vn", "-af", filters, "-c:a", "flac", "-sample_fmt", "s32", "-ar", "48000", temporary], { durationMs: await getMediaDurationMs(source), signal: controller.signal });
+        await runFfmpegWithProgress(["-y", "-i", source, "-vn", ...(filters ? ["-af", filters] : []), "-c:a", "flac", "-sample_fmt", "s32", "-ar", "48000", temporary], { durationMs: await getMediaDurationMs(source), signal: controller.signal });
         controller.signal.throwIfAborted();
         if (!await validatePlayableMedia(temporary, undefined, { audio: true, decode: true, signal: controller.signal })) throw new Error("Processed review audio could not be verified.");
         const after = await fs.stat(source);

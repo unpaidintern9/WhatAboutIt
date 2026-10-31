@@ -394,7 +394,9 @@ async function finalizeTrackSource(folderPath: string, source: CaptureManifestSo
     const rate = Number(/rate=(\d+)/.exec(source.mimeType)?.[1] ?? 48000);
     const pcmInput = pcm ? ["-f", "s24le", "-ar", String(rate), "-ac", "1"] : [];
     const ratio = source.clockRateRatio ?? 1;
-    const driftFilter = pcm && ratio > 0.998 && ratio < 1.002 && Math.abs(ratio - 1) >= 0.0001 ? `asetrate=${Math.round(rate * ratio)},aresample=${rate}` : undefined;
+    // Correct derived-track duration without changing the speakers' pitch.
+    // The raw PCM and its actual sample-rate metadata remain untouched.
+    const driftFilter = pcm && ratio > 0.998 && ratio < 1.002 && Math.abs(ratio - 1) >= 0.0001 ? `atempo=${ratio.toFixed(9)}` : undefined;
     const originalPath = path.join(folderPath, "Audio", "Originals", `${mediaBaseName(slot)}.source.${originalExtension}`);
     await fs.rm(finalPath, { force: true });
     const normalizedLeadInMs = Math.max(0, Math.min(30000, Math.round(audioLeadInMs)));

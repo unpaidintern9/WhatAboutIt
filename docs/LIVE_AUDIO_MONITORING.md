@@ -7,6 +7,8 @@ Phase 9F replaces the single global monitor toggle with per-channel monitoring.
 - Morgan Mic, Guest Mic, and Extra Mic start with monitoring Off.
 - Each channel has its own clear control: `Hear Morgan`, `Hear Guest`, or `Hear Extra`.
 - Each monitor control shows `On` or `Off`.
+- Record has no voice presets or tone filters. Headphone monitoring only routes the selected input to both ears and adjusts listening level; it does not alter saved capture. Optional voice treatment belongs in Review.
+- Default Natural Review bypasses tone EQ and compression. Output peak protection engages near clipping, rather than compressing ordinary speech at −6 dB.
 - Mute blocks monitoring for that channel.
 - Solo limits monitoring to the soloed channel or channels.
 - Web Audio meters still move independently for selected mic device ids.

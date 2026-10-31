@@ -111,8 +111,9 @@ describe("RecordingStudio", () => {
     expect(host.textContent).toContain("Audio input");
     expect(host.textContent).toContain("Input");
     expect(host.textContent).toContain("Output");
-    expect(host.textContent).toContain("Voice Polish");
-    expect(host.textContent).toContain("Warm Podcast");
+    expect(host.textContent).not.toContain("Voice Polish");
+    expect(host.textContent).not.toContain("Warm Podcast");
+    expect(host.textContent).toContain("Original voice. Headphone level only; no voice filters.");
     expect(host.textContent).toContain("CHECKING");
     expect(host.textContent).toContain("Audio Diagnostics");
     expect(host.textContent).toContain("Cameras Ready");
@@ -555,6 +556,7 @@ describe("RecordingStudio", () => {
       connect: vi.fn(),
       disconnect: vi.fn()
     });
+    const createVoiceFilter = vi.fn();
     class TestAudioContext {
       static instances = 0;
       destination = node();
@@ -584,6 +586,7 @@ describe("RecordingStudio", () => {
         return node();
       }
       createBiquadFilter() {
+        createVoiceFilter();
         return { ...node(), type: "lowpass", frequency: audioParam(), Q: audioParam(), gain: audioParam() };
       }
       createDynamicsCompressor() {
@@ -633,12 +636,8 @@ describe("RecordingStudio", () => {
       gain.dispatchEvent(new InputEvent("input", { bubbles: true, data: "52", inputType: "insertText" }));
     });
 
-    const polish = host.querySelector('select[aria-label="Morgan Mic voice polish"]') as HTMLSelectElement;
-    act(() => {
-      const valueSetter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
-      valueSetter?.call(polish, "broadcast");
-      polish.dispatchEvent(new Event("change", { bubbles: true }));
-    });
+    expect(host.querySelector('select[aria-label="Morgan Mic voice polish"]')).toBeNull();
+    expect(createVoiceFilter).not.toHaveBeenCalled();
 
     await act(async () => {
       await Promise.resolve();

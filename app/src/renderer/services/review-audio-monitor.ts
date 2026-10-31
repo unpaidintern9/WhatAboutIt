@@ -1,4 +1,4 @@
-import { getAudioTreatmentParameters } from "../../shared/audio-treatment";
+import { getAudioTreatmentParameters, needsExactAudioTreatment } from "../../shared/audio-treatment";
 
 type AudioContextWithOutput = AudioContext & {
   setSinkId?: (deviceId: string) => Promise<void>;
@@ -7,7 +7,7 @@ type AudioContextWithOutput = AudioContext & {
 type MonitorRoute = {
   context: AudioContextWithOutput;
   source: MediaElementAudioSourceNode;
-  bakedTreatment: boolean;
+  bypassTone: boolean;
   highpass: BiquadFilterNode;
   lowpass: BiquadFilterNode;
   low: BiquadFilterNode;
@@ -192,7 +192,7 @@ function getMonitorRoute(element: HTMLMediaElement) {
   }
   if (!masterLimiter) {
     masterLimiter = sharedContext.createDynamicsCompressor();
-    masterLimiter.threshold.value = -6;
+    masterLimiter.threshold.value = -0.45;
     masterLimiter.knee.value = 0;
     masterLimiter.ratio.value = 20;
     masterLimiter.attack.value = 0.001;
@@ -239,7 +239,7 @@ function getMonitorRoute(element: HTMLMediaElement) {
   const route: MonitorRoute = {
     context: sharedContext,
     source,
-    bakedTreatment: false,
+    bypassTone: false,
     highpass,
     lowpass,
     low,
@@ -264,10 +264,11 @@ function getMonitorRoute(element: HTMLMediaElement) {
 function applyTreatment(route: MonitorRoute, element: HTMLMediaElement, treatment: ReviewMonitorTreatment) {
   const settings = getReviewMonitorSettings(treatment);
   const baked = Boolean(treatment.bakedTreatment);
-  if (baked !== route.bakedTreatment) {
+  const bypassTone = baked || !needsExactAudioTreatment(treatment);
+  if (bypassTone !== route.bypassTone) {
     route.source.disconnect();
-    route.source.connect(baked ? route.compressorMakeup : route.highpass);
-    route.bakedTreatment = baked;
+    route.source.connect(bypassTone ? route.compressorMakeup : route.highpass);
+    route.bypassTone = bypassTone;
   }
   route.settings = settings;
   setParam(route.highpass.frequency, settings.highpassHz, route.context);

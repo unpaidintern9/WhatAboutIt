@@ -4,7 +4,9 @@ import { getAudioTreatmentParameters } from "../shared/audio-treatment";
 export function createAudioTreatment(track: TimelineTrack | undefined) {
   const filters: string[] = [];
   const treatment = getAudioTreatmentParameters(track);
-  filters.push(`highpass=f=${treatment.highpassHz.toFixed(0)}`, `lowpass=f=${treatment.lowpassHz.toFixed(0)}`);
+  if ((track?.audioPreset ?? "natural") !== "natural" || (track?.noiseReduction ?? 0) > 0) {
+    filters.push(`highpass=f=${treatment.highpassHz.toFixed(0)}`, `lowpass=f=${treatment.lowpassHz.toFixed(0)}`);
+  }
   if (track) {
     if (track.deEsser > 0) {
       const amount = Math.max(0, Math.min(100, track.deEsser));
