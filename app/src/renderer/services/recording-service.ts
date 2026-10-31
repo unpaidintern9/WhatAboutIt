@@ -1,10 +1,11 @@
 import { setRuntimeDiagnosticContext, writeRuntimeDiagnostic } from "./runtime-diagnostics";
-import type { DeviceDefaults } from "../../shared/types";
+import type { DeviceDefaults, MicrophoneSlotKey } from "../../shared/types";
 import type { RecordingIntegrityReport, RecordingSession, RecordingState, RecordingStatus, RecordingTrackSaveResult } from "../../shared/recording";
 import { createInitialRecordingState, friendlyRecordingError } from "../../shared/recording";
 import type { RecordingEngineHealth, RecordingEnginePlugin, RecordingEngineResult } from "../plugins/recording/types";
 
 export interface RecordingServiceSnapshot {
+  mutedMicrophones?: MicrophoneSlotKey[];
   status: RecordingStatus;
   elapsedMs: number;
   session?: RecordingSession;
@@ -38,6 +39,7 @@ export class RecordingService {
   private deviceDefaults?: DeviceDefaults;
   private stateWrites: Promise<unknown> = Promise.resolve();
   private starting?: Promise<RecordingServiceSnapshot>;
+  private mutedMicrophones = new Set<MicrophoneSlotKey>();
 
   constructor(private readonly plugin: RecordingEnginePlugin) {}
 
@@ -59,6 +61,7 @@ export class RecordingService {
           ? "Episode saved. You can close the app and resume this recording later"
           : "Ready to save directly to this computer";
     return {
+      mutedMicrophones: [...this.mutedMicrophones],
       status: this.status,
       elapsedMs: this.elapsedMs(),
       session: this.session,
@@ -71,6 +74,15 @@ export class RecordingService {
   }
 
   hasActiveCapture() { return Boolean(this.starting || this.stopPromise) || this.status === "recording"; }
+
+  setMicrophoneMuted(slot: MicrophoneSlotKey, muted: boolean) {
+    if (!this.plugin.setMicrophoneMuted) throw new Error("This recording engine does not support live microphone muting.");
+    this.plugin.setMicrophoneMuted(slot, muted);
+    if (muted) this.mutedMicrophones.add(slot);
+    else this.mutedMicrophones.delete(slot);
+    logRecordingEvent("info", "Recording microphone mute changed.", { slot, muted, elapsedMs: this.elapsedMs() });
+    return this.getSnapshot();
+  }
 
   selectEpisode(episodeId: string) {
     if (this.hasActiveCapture()) throw new Error("Pause and save the active episode first.");

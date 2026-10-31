@@ -80,6 +80,28 @@ function click(host: HTMLElement, label: string) {
 }
 
 describe("RecordingStudio", () => {
+  it("keeps recording mute available during capture independently of headphone monitoring", async () => {
+    const onRecordingMuteChange = vi.fn();
+    const snapshot = { status: "recording" as const, elapsedMs: 1000, localSaveMessage: "Writing", trackStatuses: [] };
+    const { host, root, props } = renderStudio({ onRecordingMuteChange, snapshot });
+    const mute = host.querySelector<HTMLButtonElement>('[aria-label$=" recording mute"]')!;
+    expect(mute.disabled).toBe(false);
+    await act(async () => mute.click());
+    expect(onRecordingMuteChange).toHaveBeenCalledWith("morganMic", true);
+    act(() => root.render(<RecordingStudio {...props} snapshot={{ ...snapshot, mutedMicrophones: ["morganMic"] }} />));
+    expect(mute.getAttribute("aria-pressed")).toBe("true");
+    expect(mute.textContent).toContain("Recording muted");
+    await act(async () => mute.click());
+    expect(onRecordingMuteChange).toHaveBeenLastCalledWith("morganMic", false);
+  });
+
+  it("identifies the missing saved camera instead of claiming connected microphones are disconnected", () => {
+    const { host } = renderStudio({ defaults: { ...defaults, cameras: { camera1: "camera-a", camera2: "old-camera" } } });
+    expect(host.textContent).toContain("Unavailable saved inputs: Camera 2.");
+    expect(host.textContent).not.toContain("An assigned camera or microphone is disconnected");
+    expect(host.querySelector<HTMLButtonElement>("button.record")?.disabled).toBe(true);
+  });
+
   it("offers Resume after Stop and a visible New Episode action", async () => {
     const onContinue = vi.fn(async () => undefined), onNewEpisode = vi.fn(async () => undefined);
     const { host } = renderStudio({ snapshot: { status: "stopped", elapsedMs: 12000, localSaveMessage: "Saved", trackStatuses: [] }, onContinue, onNewEpisode });

@@ -6,6 +6,7 @@ import os from "node:os";
 import assert from "node:assert/strict";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { verifyReviewTransport } from "./verify-review-transport.mjs";
+import { verifyRecordingControls } from "./verify-recording-controls.mjs";
 const appRoot = fileURLToPath(new URL("..", import.meta.url));
 app.commandLine.appendSwitch("autoplay-policy", "no-user-gesture-required");
 let mediaServer;
@@ -84,6 +85,7 @@ app.whenReady().then(async () => {
     assert.ok(result.peak > 0.05, `Web Audio received silence: ${result.peak}`);
     assert.ok(result.secureContext && result.meaningfulScreen);
     result.reviewTransport = await verifyReviewTransport(window, appRoot, temporary, mediaServer.baseUrl);
+    result.recordingControls = await verifyRecordingControls(window, appRoot, temporary);
     const { RecordingPowerProtection } = await import(pathToFileURL(path.join(appRoot, "dist/main/recording-power-protection.js")).href);
     const protection = new RecordingPowerProtection(powerSaveBlocker);
     try {

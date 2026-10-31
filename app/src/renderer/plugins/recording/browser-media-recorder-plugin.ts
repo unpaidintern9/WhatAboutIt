@@ -5,7 +5,7 @@ import { microphoneSlots } from "../../../shared/audio-tracks";
 import { PcmTrackRecorder, type CaptureRecorder } from "./pcm-track-recorder";
 import type { RecordingEngineHealth, RecordingEnginePlugin, RecordingStartRequest } from "./types";
 import type { RecordingMediaTarget, RecordingSession, RecordingTrackKind, RecordingTrackSaveInput, RecordingTrackSlot } from "../../../shared/recording";
-import type { MicrophoneInputChannel } from "../../../shared/types";
+import type { DeviceDefaults, MicrophoneInputChannel, MicrophoneSlotKey } from "../../../shared/types";
 import { normalizeSharedMicrophoneRoutes, getMicrophoneRoutingIssue } from "../../../shared/device-config";
 import {
   connectInputChannelSource,
@@ -45,6 +45,7 @@ interface ProgramAudioBridge {
 }
 
 interface SharedMicrophoneRouter {
+  deviceId: string;
   audioContext: AudioContext;
   inputStream: MediaStream;
   source: MediaStreamAudioSourceNode;
@@ -89,8 +90,22 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
   private programAudioReady?: Promise<boolean>;
   private sharedMicrophoneRouters = new Map<string, SharedMicrophoneRouter>();
   private sharedMicrophoneOpenPromises = new Map<string, Promise<SharedMicrophoneRouter>>();
+  private captureDefaults?: DeviceDefaults;
+  private mutedMicrophones = new Set<MicrophoneSlotKey>();
 
   constructor(private readonly streams: BrowserMediaRecorderStreamResolver = {}) {}
+
+  setMicrophoneMuted(slot: MicrophoneSlotKey, muted: boolean) {
+    if (muted) this.mutedMicrophones.add(slot);
+    else this.mutedMicrophones.delete(slot);
+    for (const router of this.sharedMicrophoneRouters.values()) {
+      for (const [channel, { route }] of router.routes) route.output.gain.value = this.isMicrophoneRouteMuted(router.deviceId, channel) ? 0 : 1;
+    }
+  }
+
+  private isMicrophoneRouteMuted(deviceId: string, channel: MicrophoneInputChannel) {
+    return [...this.mutedMicrophones].some((slot) => this.captureDefaults?.microphones[slot] === deviceId && (this.captureDefaults.microphoneChannels?.[slot] ?? "mix") === channel);
+  }
 
   async start(request: RecordingStartRequest) {
     await this.shutdown();
@@ -103,6 +118,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
       ...request,
       deviceDefaults: normalizeSharedMicrophoneRoutes(request.deviceDefaults)
     };
+    this.captureDefaults = normalizedRequest.deviceDefaults;
 
     if (request.practice) {
       this.chunks = [];
@@ -648,6 +664,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     const diagnostics = getAudioStreamDiagnostics(inputStream);
     const audioContext = createStudioAudioContext(undefined, 48000, "playback");
     const router: SharedMicrophoneRouter = {
+      deviceId,
       audioContext,
       inputStream,
       source: audioContext.createMediaStreamSource(inputStream),
@@ -668,7 +685,7 @@ export class BrowserMediaRecorderPlugin implements RecordingEnginePlugin {
     let routed = router.routes.get(channel);
     if (!routed) {
       const route = connectInputChannelSource(router.audioContext, router.source, channel, router.channelCount);
-      route.output.gain.value = 1;
+      route.output.gain.value = this.isMicrophoneRouteMuted(router.deviceId, channel) ? 0 : 1;
       const destination = router.audioContext.createMediaStreamDestination();
       route.output.connect(destination);
       routed = { destination, route };

@@ -1,4 +1,4 @@
-import type { DeviceDefaults } from "../../../shared/types";
+import type { DeviceDefaults, MicrophoneSlotKey } from "../../../shared/types";
 import type { RecordingIntegrityReport, RecordingSession, RecordingSourceHealth, RecordingTrackSaveInput } from "../../../shared/recording";
 
 export interface RecordingStartRequest {
@@ -28,6 +28,7 @@ export interface RecordingEngineHealth {
 }
 
 export interface RecordingEnginePlugin {
+  setMicrophoneMuted?: (slot: MicrophoneSlotKey, muted: boolean) => void;
   start: (request: RecordingStartRequest) => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
