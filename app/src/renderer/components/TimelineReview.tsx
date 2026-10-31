@@ -340,11 +340,14 @@ export function TimelineReview({
     if (!nextVideo) return;
     const previousVideo = videoRef.current;
     const shouldResume = isPlaying || Boolean(previousVideo && !previousVideo.paused);
-    pendingPreviewSeekMsRef.current = playheadMs;
+    const targetMs = pendingPreviewSeekMsRef.current ?? playheadMs;
+    pendingPreviewSeekMsRef.current = targetMs;
     videoRef.current = nextVideo;
     nextVideo.muted = masterMuted || stemMixActive || (!programMode && pairedAudio?.status === "ready");
-    syncPreviewVideos(playheadMs, shouldResume);
-  }, [masterMuted, outgoingPreviewAssetId, pairedAudio?.status, programMode, selectedVideo?.id, stemMixActive]);
+    syncPreviewVideos(targetMs, shouldResume);
+    settlePreviewSeek(nextVideo);
+    // Audio mix and mute changes must not arm a seek or rewind the video.
+  }, [outgoingPreviewAssetId, programMode, selectedVideo?.id, selectedVideo?.playbackUrl, selectedVideoOffsetMs]);
 
   useEffect(() => {
     if (!isPlaying || !programMode || !realtimeProgramPreview?.nextBoundaryMs) return;
@@ -405,10 +408,24 @@ export function TimelineReview({
 
   function seek(timestampMs: number) {
     const safeTimestamp = Math.max(0, Math.min(timestampMs, draft.durationMs || timestampMs));
+    // Ignore old media-clock events until the requested video position settles.
+    pendingPreviewSeekMsRef.current = safeTimestamp;
     setPlayheadMs(safeTimestamp);
     syncPreviewVideos(safeTimestamp);
-    if (pairedAudioRef.current) pairedAudioRef.current.currentTime = Math.max(0, safeTimestamp / 1000);
+    if (pairedAudioRef.current) pairedAudioRef.current.currentTime = Math.max(0, (safeTimestamp + (pairedTrack?.syncOffsetMs ?? 0)) / 1000);
     syncProgramAudio(safeTimestamp);
+    if (videoRef.current) settlePreviewSeek(videoRef.current);
+  }
+
+  function settlePreviewSeek(video: HTMLVideoElement) {
+    if (video !== videoRef.current) return false;
+    const targetMs = pendingPreviewSeekMsRef.current;
+    if (targetMs === undefined) return true;
+    const sourceTime = Math.max(0, (targetMs + selectedVideoOffsetMs) / 1000);
+    const expected = Math.min(sourceTime, Number.isFinite(video.duration) ? video.duration : sourceTime);
+    if (video.readyState < 1 || video.seeking || Math.abs(video.currentTime - expected) > 0.08) return false;
+    pendingPreviewSeekMsRef.current = undefined;
+    return true;
   }
 
   function setTimelineZoomAtPlayhead(nextZoom: number) {
@@ -667,6 +684,7 @@ export function TimelineReview({
     const video = videoRef.current;
     const audio = pairedAudioRef.current;
     if (!video) return;
+    if (pendingPreviewSeekMsRef.current !== undefined) return;
     const timelineTime = Math.max(0, Math.round(video.currentTime * 1000 - selectedVideoOffsetMs));
     const nextPlayable = programMode && !programIsEmpty ? getNextPlayableTimelineTime(draft, timelineTime) : timelineTime;
     if (programMode && nextPlayable === undefined) {
@@ -697,7 +715,7 @@ export function TimelineReview({
   boundarySyncRef.current = () => syncPreviewAudio(true);
 
   function loadSelectedVideoAtPlayhead() {
-    syncPreviewVideos(playheadMs, resumePlaybackRef.current);
+    syncPreviewVideos(pendingPreviewSeekMsRef.current ?? playheadMs, resumePlaybackRef.current);
   }
 
   function cutToCamera(cameraTrack: TimelineTrack, reason = `${cameraTrack.label} selected during playback`) {
@@ -1069,6 +1087,7 @@ export function TimelineReview({
                         videoRef.current = event.currentTarget;
                         setPlaybackError(undefined);
                         loadSelectedVideoAtPlayhead();
+                        if (settlePreviewSeek(event.currentTarget)) syncPreviewAudio();
                       }}
                       onError={(event) => {
                         const mediaError = event.currentTarget.error;
@@ -1095,8 +1114,7 @@ export function TimelineReview({
                       }}
                       onSeeked={(event) => {
                         if (event.currentTarget !== videoRef.current) return;
-                        pendingPreviewSeekMsRef.current = undefined;
-                        syncPreviewAudio();
+                        if (settlePreviewSeek(event.currentTarget)) syncPreviewAudio();
                       }}
                       onTimeUpdate={(event) => event.currentTarget === videoRef.current && pendingPreviewSeekMsRef.current === undefined && syncPreviewAudio()}
                       onVolumeChange={(event) => event.currentTarget === videoRef.current && syncPreviewAudio()}
