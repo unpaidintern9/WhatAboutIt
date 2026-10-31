@@ -69,6 +69,7 @@ interface RecordingStudioProps {
   readinessMessage?: string;
   onCheckReadiness?: () => Promise<void>;
   onReconnectInputs?: () => Promise<void>;
+  onRecordingMuteChange?: (slot: MicrophoneSlotKey, muted: boolean) => void;
   recordingPreferences?: RecordingPreferences;
   onStart: () => Promise<RecordingServiceSnapshot | void> | RecordingServiceSnapshot | void;
   onContinue?: () => Promise<void> | void;
@@ -145,6 +146,7 @@ export function RecordingStudio({
   readinessMessage,
   onCheckReadiness,
   onReconnectInputs,
+  onRecordingMuteChange,
   recordingPreferences: recordingPreferencesProp,
   onStart,
   onContinue,
@@ -235,6 +237,11 @@ export function RecordingStudio({
     return signal !== "no-signal" && signal !== "disconnected";
   }).length;
   const assignedDevices = getHardwareDeviceReadiness(defaults, [...detection.cameras.map((item) => ({ ...item, kind: "camera" as const })), ...detection.microphones.map((item) => ({ ...item, kind: "microphone" as const }))]);
+  const missingInputNames = [
+    ...cameraSlots.filter(({ key }) => defaults.cameras[key] && !findDevice(detection.cameras, defaults.cameras[key])).map(({ key }) => getCameraSlotLabel(key)),
+    ...microphoneSlots.filter(({ key }) => defaults.microphones[key] && !findDevice(detection.microphones, defaults.microphones[key])).map(({ key }) => defaults.microphoneNames?.[key] || getMicSlotLabel(key))
+  ];
+  const missingInputMessage = missingInputNames.length > 0 ? `Unavailable saved inputs: ${missingInputNames.join(", ")}. Click Reconnect inputs or reselect these devices in Setup.` : undefined;
   const invalidChannels = microphoneSlots.some(({ key }) => {
     const count = audioDiagnostics[key]?.channelCount;
     const channel = defaults.microphoneChannels?.[key] ?? "mix";
@@ -245,7 +252,7 @@ export function RecordingStudio({
     : checkingReadiness ? "Checking inputs and storage…"
     : !storageReady ? storageWarning
     : !deviceAssignmentsHealthy ? routingIssue ?? "Choose a separate physical input for each microphone channel."
-    : assignedDevices.missingDeviceIds.length > 0 ? "An assigned camera or microphone is disconnected. Reconnect inputs or change the selection in Setup."
+    : assignedDevices.missingDeviceIds.length > 0 ? missingInputMessage
     : cameraReadyCount === 0 ? "Choose Camera 1 in Setup before recording."
     : !programMicSelected ? "Choose the microphone assigned to Camera 1 in Setup before recording."
     : invalidChannels ? "A selected microphone channel is unavailable. Choose a driver-visible input in Input and headphone controls."
@@ -641,7 +648,6 @@ export function RecordingStudio({
             finally { setRecordingAction("idle"); }
           }}>Reconnect inputs</RusticButton>}
           {invalidChannels && <strong role="alert">A selected microphone input is not exposed by its driver.</strong>}
-          {assignedDevices.missingDeviceIds.length > 0 && <strong role="alert">An assigned camera or microphone is disconnected.</strong>}
           {!recordingInProgress && onCheckReadiness && <RusticButton disabled={checkingReadiness || recordingAction !== "idle"} onClick={async () => { setCheckingReadiness(true); try { await onCheckReadiness(); } catch (error) { setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "Check your recording setup." }); } finally { setCheckingReadiness(false); } }}>{checkingReadiness ? "Checking inputs & drive…" : "Check inputs & drive"}</RusticButton>}
         </section>
 
@@ -744,6 +750,11 @@ export function RecordingStudio({
                           inputChannel={micKey ? defaults.microphoneChannels?.[micKey] ?? "mix" : "mix"}
                           outputLabel={outputLabel}
                           controls={controls}
+                          recordingMuted={snapshot.mutedMicrophones?.includes(micKey) ?? false}
+                          onRecordingMuteChange={onRecordingMuteChange ? (muted) => {
+                            try { onRecordingMuteChange(micKey, muted); }
+                            catch (error) { setStudioNotice({ tone: "needs-attention", message: error instanceof Error ? error.message : "Microphone mute could not be changed." }); }
+                          } : undefined}
                           monitorLabel={getMonitorLabel(slot.label)}
                           monitoring={controls.monitor && !controls.muted && (soloedChannels.length === 0 || soloedChannels.includes(slot.key))}
                           softwareMonitoringDisabled={recordingInProgress}
@@ -1402,6 +1413,8 @@ function LiveMicMeter({
   inputChannel,
   outputLabel,
   controls,
+  recordingMuted,
+  onRecordingMuteChange,
   monitorLabel,
   monitoring,
   softwareMonitoringDisabled,
@@ -1431,6 +1444,8 @@ function LiveMicMeter({
   inputChannel: MicrophoneInputChannel;
   outputLabel: string;
   controls: MixerChannelControls;
+  recordingMuted?: boolean;
+  onRecordingMuteChange?: (muted: boolean) => void;
   monitorLabel: string;
   monitoring: boolean;
   softwareMonitoringDisabled: boolean;
@@ -1693,6 +1708,12 @@ function LiveMicMeter({
         <strong>{label}{roleLabel ? <small>{roleLabel}</small> : null}</strong>
         <span>{copy}{controls.muted ? " / HEADPHONES MUTED" : ""}</span>
       </div>
+      {onRecordingMuteChange && <button className={`recording-mic-mute ${recordingMuted ? "is-muted" : ""}`} type="button" disabled={!deviceId}
+        aria-label={`${label} recording mute`} aria-pressed={recordingMuted}
+        title="Mutes this mic in saved audio and Program. Hardware direct monitoring is controlled on the interface."
+        onClick={() => onRecordingMuteChange(!recordingMuted)}>
+        <VolumeX size={16} /> {recordingMuted ? "Recording muted · Unmute" : "Mute recording"}
+      </button>}
       {routeIssue ? <small className="input-route-warning">{routeIssue}</small> : null}
       {trackStatus && <TrackSavePill status={trackStatus} />}
       <DistressedMeter level={level} label={label} />

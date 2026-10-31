@@ -129,6 +129,24 @@ function streamWith(track: FakeTrack) {
 }
 
 describe("BrowserMediaRecorderPlugin", () => {
+  it("mutes only the selected recorded input before start and live without stopping capture", async () => {
+    vi.stubGlobal("AudioContext", FakeAudioContext);
+    Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia: vi.fn() } });
+    window.studio = { beginRecordingMedia: vi.fn(), appendRecordingChunk: vi.fn(async () => ({ bytesWritten: 3, lastChunkAt: new Date().toISOString() })) } as unknown as typeof window.studio;
+    const plugin = new BrowserMediaRecorderPlugin({ getCameraStream: () => streamWith(new FakeTrack("video", "cam")), getMicrophoneStream: () => streamWith(new FakeTrack("audio", "duo")) });
+    plugin.setMicrophoneMuted("morganMic", true);
+    await plugin.start({ session: { folderPath: "/mute-test" } as never, deviceDefaults: { cameras: { camera1: "cam" }, microphones: { morganMic: "duo", guestMic: "duo" }, microphoneChannels: { morganMic: "input-1", guestMic: "input-2" } } });
+    const routes = vi.mocked(PcmTrackRecorder.create).mock.calls.slice(-2).map((call) => call[2] as GainNode);
+    expect(routes.map((route) => route.gain.value)).toEqual([0, 1]);
+    plugin.setMicrophoneMuted("morganMic", false);
+    plugin.setMicrophoneMuted("guestMic", true);
+    expect(routes.map((route) => route.gain.value)).toEqual([1, 0]);
+    expect(plugin.getHealth()).toMatchObject({ programActive: true, activeAudioTracks: 2 });
+    plugin.setMicrophoneMuted("guestMic", false);
+    expect(routes.map((route) => route.gain.value)).toEqual([1, 1]);
+    await plugin.stop();
+  });
+
   beforeEach(() => {
     vi.spyOn(PcmTrackRecorder, "create").mockImplementation(async (stream) => new FakeMediaRecorder(stream, { mimeType: "audio/x-pcm;rate=48000;channels=1" }) as unknown as PcmTrackRecorder);
     FakeMediaRecorder.streams = [];

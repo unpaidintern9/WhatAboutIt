@@ -249,3 +249,17 @@ body .camera-setup-content .camera-card-grid { grid-template-columns: repeat(aut
 body .camera-setup-content .setup-live-preview { position: relative; height: clamp(190px,28vh,280px); min-height: 0; aspect-ratio: auto; }
 body .camera-setup-content .setup-live-preview video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
 body .device-wizard .setup-next-action { position: sticky; bottom: 0; z-index: 5; padding: 12px; background: #fff1d6; }
+
+/* The window owns the viewport; content must grow inside its scrollable workspace. */
+body main.studio-shell { height: 100dvh; min-height: 0; }
+body main.studio-shell:not(.studio-shell--review) .workspace {
+  height: 100%; max-height: 100dvh; min-height: 0;
+  grid-auto-rows: max-content; align-content: start;
+  overflow-x: hidden; overflow-y: auto;
+}
+body main.studio-shell--recording .live-studio { height: auto; min-height: 0; max-height: none; align-self: start; }
+body main.studio-shell--recording .reference-studio-board { min-height: 0; }
+body main.studio-shell--recording .reference-studio-board > *,
+body main.studio-shell--recording .reference-workbench > * { flex-shrink: 0; }
+.recording-mic-mute { min-height: 38px; margin-block: 6px; padding: 8px 12px; display: inline-flex; gap: 8px; align-items: center; border: 1px solid currentColor; border-radius: 6px; }
+.recording-mic-mute.is-muted { background: #a52c32; color: white; }

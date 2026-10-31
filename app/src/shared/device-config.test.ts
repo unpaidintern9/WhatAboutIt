@@ -11,11 +11,34 @@ import {
   saveMicrophoneInputChannel,
   saveMicrophoneSlot,
   resolveAvailableAudioOutputId,
+  reconnectMicrophoneSelections,
   withDeviceDefaults
 } from "./device-config";
 import type { StudioSettings } from "./types";
 
 describe("device config", () => {
+  it("reconnects both physical inputs when Windows changes one interface endpoint ID", () => {
+    const saved = assignTwoInputInterface(defaultDeviceDefaults, "old-duo", "Line 1/2 (3- M-Audio M-Track Solo and Duo) (08bb:29c0)");
+    const next = reconnectMicrophoneSelections(saved, [{ id: "new-duo", label: "Line 1/2 (M-Audio M-Track Solo and Duo) (08bb:29c0)" }]);
+    expect(next.microphones).toEqual({ morganMic: "new-duo", guestMic: "new-duo" });
+    expect(next.microphoneChannels).toEqual(saved.microphoneChannels);
+    expect(next.cameras).toBe(saved.cameras);
+  });
+
+  it("keeps existing endpoints and never substitutes an unrelated laptop microphone", () => {
+    const saved = assignTwoInputInterface(defaultDeviceDefaults, "duo", "M-Track Duo");
+    expect(reconnectMicrophoneSelections(saved, [{ id: "duo", label: "M-Track Duo" }])).toBe(saved);
+    expect(reconnectMicrophoneSelections(saved, [{ id: "laptop", label: "Microphone Array" }])).toBe(saved);
+  });
+
+  it("requires a unique physical match and ignores default aliases", () => {
+    const saved = assignTwoInputInterface(defaultDeviceDefaults, "old", "M-Track Duo");
+    expect(reconnectMicrophoneSelections(saved, [{ id: "default", label: "M-Track Duo" }])).toBe(saved);
+    expect(reconnectMicrophoneSelections(saved, [{ id: "one", label: "M-Track Duo" }, { id: "two", label: "M-Track Duo" }])).toBe(saved);
+    const ambiguous = { ...saved, microphones: { morganMic: "old-one", guestMic: "old-two" } };
+    expect(reconnectMicrophoneSelections(ambiguous, [{ id: "new", label: "M-Track Duo" }])).toBe(ambiguous);
+  });
+
   it("adds default device settings for older local settings", () => {
     const oldSettings = {
       activeThemeId: "what-about-it",

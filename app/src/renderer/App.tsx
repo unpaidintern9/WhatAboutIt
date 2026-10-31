@@ -19,7 +19,7 @@ import { defaultStudioWorkspaceState, studioPanelLabels, withStudioWorkspaceDefa
 import type { AppUpdateStatus } from "../shared/app-update";
 import { createInitialAppUpdateStatus } from "../shared/app-update";
 import type { LocalTranscriptionProgress, LocalTranscriptionResult, LocalTranscriptionStatus } from "../shared/local-transcription";
-import { defaultDeviceDefaults, resolveAvailableAudioOutputId, withDeviceDefaults } from "../shared/device-config";
+import { defaultDeviceDefaults, reconnectMicrophoneSelections, resolveAvailableAudioOutputId, withDeviceDefaults } from "../shared/device-config";
 import type { HardwareTestResults, HardwareTestStep } from "../shared/hardware-test";
 import { createHardwareTestResults, didDeviceDisconnectDuringRecording, getHardwareDeviceReadiness, getExportTestStatus, getFriendlyHardwareFailureMessage, getNextHardwareTestStep, getRecordingTestStatus, type DiagnosticsBundleResult, type HardwareDeviceSummary } from "../shared/hardware-test";
 import type { LiveLogInfo, StorageStatus } from "../shared/diagnostics";
@@ -1379,7 +1379,15 @@ export default function App() {
       deviceService.releaseAll();
       setDeviceRefreshKey((current) => current + 1);
     }
-    return refreshDevices();
+    const detectedDevices = await refreshDevices();
+    if (!recordingService.hasActiveCapture() && !detectedDevices.permissionNeeded) {
+      const reconnected = reconnectMicrophoneSelections(settings.deviceDefaults, detectedDevices.microphones);
+      if (reconnected !== settings.deviceDefaults) {
+        await saveDeviceDefaults(reconnected);
+        setReadinessMessage("Microphone interface reconnected. Your separate input channels were preserved.");
+      }
+    }
+    return detectedDevices;
   }
 
   async function withCameraAccessStatus(detectedDevices: DeviceDetectionResult) {
@@ -1874,6 +1882,7 @@ export default function App() {
             }}
             recordingPreferences={recordingPreferences}
             onStart={() => startRecording(false)}
+            onRecordingMuteChange={(slot, muted) => setRecordingSnapshot(recordingService.setMicrophoneMuted(slot, muted))}
             canContinueRecording={Boolean(activeEpisode?.resumeAvailable && reviewMedia?.episodeId === activeEpisode.id && reviewMedia.hasPlayableProgram)}
             onContinue={async () => {
               await verifyRecordingReady();

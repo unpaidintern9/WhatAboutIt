@@ -108,6 +108,29 @@ export function resolveAvailableAudioOutputId(configuredId: string | undefined, 
   return configuredId && availableIds.includes(configuredId) ? configuredId : undefined;
 }
 
+/** Reconnect a renamed USB endpoint only when its saved label identifies one physical device. */
+export function reconnectMicrophoneSelections(defaults: DeviceDefaults, devices: readonly { id: string; label: string }[]): DeviceDefaults {
+  const labelKey = (label: string) => label.toLowerCase().replace(/\(\d+-\s*/g, "(").replace(/\s+/g, " ").trim();
+  const physical = devices.filter(({ id }) => id !== "default" && id !== "communications");
+  const replacements = new Map<string, { id: string; label: string }>();
+  for (const [slot, oldId] of Object.entries(defaults.microphones) as Array<[MicrophoneSlotKey, string | undefined]>) {
+    if (!oldId || devices.some(({ id }) => id === oldId)) continue;
+    const savedLabel = defaults.microphoneDeviceLabels?.[slot];
+    if (!savedLabel) continue;
+    const key = labelKey(savedLabel);
+    // Identical models cannot be distinguished by label; keep manual selection in that case.
+    const savedIds = new Set(Object.entries(defaults.microphones).filter(([otherSlot]) => labelKey(defaults.microphoneDeviceLabels?.[otherSlot as MicrophoneSlotKey] ?? "") === key).map(([, id]) => id));
+    const matches = physical.filter(({ label }) => labelKey(label) === key);
+    if (savedIds.size === 1 && matches.length === 1) replacements.set(oldId, matches[0]);
+  }
+  if (replacements.size === 0) return defaults;
+  return {
+    ...defaults,
+    microphones: Object.fromEntries(Object.entries(defaults.microphones).map(([slot, id]) => [slot, id && replacements.get(id)?.id || id])),
+    microphoneDeviceLabels: Object.fromEntries(Object.entries(defaults.microphones).map(([slot, id]) => [slot, id && replacements.get(id)?.label || defaults.microphoneDeviceLabels?.[slot as MicrophoneSlotKey]]))
+  };
+}
+
 export function withDeviceDefaults(settings: StudioSettings): StudioSettings {
   const mergedDefaults: DeviceDefaults = {
     captureQuality: settings.deviceDefaults?.captureQuality ?? "balanced",
