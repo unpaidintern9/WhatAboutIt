@@ -1,5 +1,5 @@
 // Synthetic media only. This CLI harness never opens the user's studio data or cloud credentials.
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, powerSaveBlocker } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -84,6 +84,17 @@ app.whenReady().then(async () => {
     assert.ok(result.peak > 0.05, `Web Audio received silence: ${result.peak}`);
     assert.ok(result.secureContext && result.meaningfulScreen);
     result.reviewTransport = await verifyReviewTransport(window, appRoot, temporary, mediaServer.baseUrl);
+    const { RecordingPowerProtection } = await import(pathToFileURL(path.join(appRoot, "dist/main/recording-power-protection.js")).href);
+    const protection = new RecordingPowerProtection(powerSaveBlocker);
+    try {
+      protection.setActive(window.webContents.id, true, "studio");
+      protection.setActive(window.webContents.id, true);
+      assert.ok(protection.getActive().every(({ blockerId }) => powerSaveBlocker.isStarted(blockerId)));
+      protection.setActive(window.webContents.id, false, "studio");
+      assert.equal(protection.getActive().length, 1);
+      assert.ok(powerSaveBlocker.isStarted(protection.getActive()[0].blockerId));
+      result.powerProtection = { displayAndSystem: true, recordingSurvivesStudioRelease: true };
+    } finally { protection.releaseAll(); }
     console.log(JSON.stringify({ passed: true, ...result }));
   } catch (error) {
     console.error(String(error));

@@ -5,7 +5,7 @@ import { fetchCollaborationApi } from "./collaboration-remote-service";
 import { setCapturePriority, withRecordingFinalization } from "./media-work-scheduler";
 import { checkRecordingDrive } from "./recording-drive-check";
 import { prepareReviewAudio, cancelPreparedReviewAudio, cancelReviewAudioWork } from "./review-audio-store";
-import { app, BrowserWindow, dialog, ipcMain, powerSaveBlocker, session, shell, systemPreferences } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, powerMonitor, powerSaveBlocker, session, shell, systemPreferences } from "electron";
 import path from "node:path";
 import fs from "node:fs/promises";
 import crypto from "node:crypto";
@@ -82,6 +82,15 @@ function createWindow() {
     }
   });
   const webContentsId = mainWindow.webContents.id;
+  const protectVisibleStudio = (active: boolean) => {
+    recordingPowerProtection.setActive(webContentsId, active, "studio");
+    void logger.info("PowerProtection", "Studio display wake protection changed.", { webContentsId, active });
+  };
+  protectVisibleStudio(true);
+  mainWindow.on("show", () => protectVisibleStudio(true));
+  mainWindow.on("restore", () => protectVisibleStudio(true));
+  mainWindow.on("hide", () => protectVisibleStudio(false));
+  mainWindow.on("minimize", () => protectVisibleStudio(false));
 
   mainWindow.on("close", (event) => {
     if (!closeProtectedWebContents.has(webContentsId)) return;
@@ -295,6 +304,17 @@ app.whenReady().then(async () => {
     configureEpisodesRoot();
   }
   await ensureBaseFolders();
+  const logSystemPowerEvent = (event: string) => {
+    void logger[event === "suspend" ? "warning" : "info"]("PowerProtection", "System power event.", {
+      event, blockers: recordingPowerProtection.getActive(), recordings: recordingTelemetryContexts()
+    });
+  };
+  powerMonitor.on("suspend", () => logSystemPowerEvent("suspend"));
+  powerMonitor.on("resume", () => logSystemPowerEvent("resume"));
+  powerMonitor.on("lock-screen", () => logSystemPowerEvent("lock-screen"));
+  powerMonitor.on("unlock-screen", () => logSystemPowerEvent("unlock-screen"));
+  powerMonitor.on("on-ac", () => logSystemPowerEvent("on-ac"));
+  powerMonitor.on("on-battery", () => logSystemPowerEvent("on-battery"));
   await logger.info("App", "What About It Studio launched.", { appVersion: app.getVersion(), platform: process.platform, arch: process.arch, versions: process.versions });
   let previousHealthSample = performance.now();
   const healthTimer = setInterval(() => {
@@ -375,6 +395,7 @@ app.whenReady().then(async () => {
     if (active) closeProtectedWebContents.add(event.sender.id);
     else closeProtectedWebContents.delete(event.sender.id);
     recordingPowerProtection.setActive(event.sender.id, active);
+    void logger.info("PowerProtection", "Recording display wake protection changed.", { webContentsId: event.sender.id, active });
     if (!active) setCapturePriority(event.sender.id, false);
   });
   ipcMain.handle("recording:save-program", (_event, input) => saveProgramRecording(input.folderPath, input.bytes));
