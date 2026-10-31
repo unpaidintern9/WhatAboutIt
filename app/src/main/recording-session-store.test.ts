@@ -21,6 +21,33 @@ vi.mock("./logger", () => ({
 }));
 
 describe("recording session store", () => {
+  it.each([0.998125, 1.001875])("preserves voice pitch while correcting a %s microphone clock ratio", async (clockRateRatio) => {
+    const { runFfmpeg, getMediaDurationMs } = await import("./ffmpeg-tools");
+    const store = await import("./recording-session-store");
+    const fixture = path.join(mockPaths.episodesRoot, "program.webm");
+    const pcmPath = path.join(mockPaths.episodesRoot, "voice.pcm");
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "color=size=160x90:rate=10", "-t", "8", "-c:v", "libvpx", "-deadline", "realtime", fixture]);
+    await runFfmpeg(["-y", "-f", "lavfi", "-i", "sine=frequency=1000:sample_rate=48000", "-t", "8", "-f", "s24le", "-c:a", "pcm_s24le", pcmPath]);
+    const original = await fs.readFile(pcmPath);
+    const session = await store.createRecordingSession({ episodeId: "pitch-check", deviceDefaults: { cameras: { camera1: "camera" }, microphones: { morganMic: "mic" } } });
+    await store.beginRecordingMedia(session.folderPath);
+    await store.appendRecordingChunk(session.folderPath, { target: "program", kind: "program", mimeType: "video/webm", sequence: 0, bytes: await fs.readFile(fixture) });
+    await store.appendRecordingChunk(session.folderPath, { target: "morganMic", kind: "audio", mimeType: "audio/x-pcm;rate=48000;channels=1", sequence: 0, clockRateRatio, sampleFrames: 8 * 48000, bytes: original });
+    const result = await store.finalizeRecordingMedia(session.folderPath);
+    const audio = result.tracks.find((track) => track.slot === "morganMic")!;
+    expect(audio.status).toBe("saved");
+    const decoded = path.join(mockPaths.episodesRoot, "decoded.f32");
+    await runFfmpeg(["-y", "-i", audio.filePath!, "-f", "f32le", decoded]);
+    const bytes = await fs.readFile(decoded);
+    const crossings: number[] = [];
+    for (let index = 48000; index < 7 * 48000; index++) {
+      if (bytes.readFloatLE((index - 1) * 4) < 0 && bytes.readFloatLE(index * 4) >= 0) crossings.push(index);
+    }
+    const frequency = (crossings.length - 1) * 48000 / (crossings.at(-1)! - crossings[0]);
+    expect(Math.abs(frequency - 1000)).toBeLessThan(0.2);
+    expect(Math.abs(await getMediaDurationMs(audio.filePath!) - 8000 / clockRateRatio)).toBeLessThan(40);
+    expect(await fs.readFile(path.join(session.folderPath, "Audio", "Originals", "morgan-mic.source.pcm"))).toEqual(original);
+  }, 15000);
   it("adds seekable duration metadata to isolated streaming cameras without changing video samples", async () => {
     const { runFfmpeg, getMediaDurationMs } = await import("./ffmpeg-tools");
     const { createRecordingSession, beginRecordingMedia, appendRecordingChunk, finalizeRecordingMedia } = await import("./recording-session-store");

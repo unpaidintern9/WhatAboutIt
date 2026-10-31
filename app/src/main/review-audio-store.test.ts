@@ -10,6 +10,12 @@ vi.mock("./config-service", () => ({ getEpisodesRoot: () => paths.root }));
 vi.mock("./logger", () => ({ logger: { warning: vi.fn() } }));
 
 describe("export-matched audio cleanup", () => {
+  it("leaves Natural audio free of tone filters until cleanup is selected", () => {
+    const track = createTimelineDraft({ deviceDefaults: { cameras: {}, microphones: { morganMic: "usb" } } }).tracks.find((track) => track.kind === "microphone")!;
+    expect(createAudioTreatment(track)).toBe("");
+    expect(createAudioTreatment(undefined)).toBe("");
+    expect(createAudioTreatment({ ...track, audioPreset: "warm" })).toContain("equalizer=f=120");
+  });
   beforeEach(async () => { paths.root = await fs.mkdtemp(path.join(os.tmpdir(), "wai-audio-match-")); });
   afterEach(async () => { await (await import("./review-audio-store")).cancelReviewAudioWork(); await fs.rm(paths.root, { recursive: true, force: true }); });
   it("compresses harsh high-band sound without applying a permanent treble cut to speech", async () => {
@@ -21,7 +27,7 @@ describe("export-matched audio cleanup", () => {
     const track = createTimelineDraft({ deviceDefaults: { cameras: {}, microphones: { morganMic: "usb" } } }).tracks.find((track) => track.kind === "microphone")!;
     const baseline = path.join(paths.root, "baseline.f32");
     const cleaned = path.join(paths.root, "cleaned.f32");
-    for (const [target, amount] of [[baseline, 0], [cleaned, 100]] as const) await runFfmpeg(["-y", "-i", input, "-af", createAudioTreatment({ ...track, deEsser: amount }).replace(/,$/, ""), "-f", "f32le", target]);
+    for (const [target, amount] of [[baseline, 0], [cleaned, 100]] as const) await runFfmpeg(["-y", "-i", input, "-af", createAudioTreatment({ ...track, deEsser: amount }).replace(/,$/, "") || "anull", "-f", "f32le", target]);
     const db = (bytes: Buffer, start: number, end: number) => { let energy = 0; for (let i = start; i < end; i++) energy += bytes.readFloatLE(i * 4) ** 2; return 10 * Math.log10(energy / (end - start)); };
     const raw = await fs.readFile(baseline); const processed = await fs.readFile(cleaned);
     expect(Math.abs(db(processed, 12000, 36000) - db(raw, 12000, 36000))).toBeLessThan(1);

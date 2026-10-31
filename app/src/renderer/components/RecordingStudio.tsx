@@ -101,8 +101,7 @@ interface RecordingStudioProps {
 type CameraKey = CameraSlotKey;
 type MicKey = MicrophoneSlotKey;
 type StudioNoticeTone = "ready" | "needs-attention" | "recording";
-type VoicePreset = "clean" | "warm" | "broadcast";
-type MixerChannelControls = { gain: number; muted: boolean; solo: boolean; monitor: boolean; voicePreset: VoicePreset };
+type MixerChannelControls = { gain: number; muted: boolean; solo: boolean; monitor: boolean };
 type MixerChannelState = Record<string, MixerChannelControls>;
 type RecordingAction = "idle" | "starting" | "saving";
 type MicSignalState = "checking" | "active" | "quiet" | "no-signal" | "clipping" | "disconnected";
@@ -112,8 +111,7 @@ const defaultMixerChannel: MixerChannelControls = {
   gain: 75,
   muted: false,
   solo: false,
-  monitor: false,
-  voicePreset: "warm"
+  monitor: false
 };
 
 const cameraSlots: Array<{ key: CameraKey; label: string }> = [
@@ -132,21 +130,6 @@ const fallbackCameraMicRoutes: Record<CameraKey, MicKey> = {
   camera1: "morganMic",
   camera2: "guestMic",
   camera3: "extraMic"
-};
-
-const voicePresets: Record<VoicePreset, { label: string; description: string }> = {
-  clean: {
-    label: "Clean",
-    description: "Natural monitor tone for checking raw input."
-  },
-  warm: {
-    label: "Warm Podcast",
-    description: "Low-delay high-pass and light warmth in headphones."
-  },
-  broadcast: {
-    label: "Broadcast",
-    description: "Low-delay monitor tone with stronger presence."
-  }
 };
 
 export function RecordingStudio({
@@ -1538,7 +1521,7 @@ function LiveMicMeter({
         await sinkableContext.setSinkId(outputDeviceIdRef.current);
       }
 
-      const chain = connectVoiceMonitorChain(audioContext, source, audioContext.destination, currentControls.voicePreset, currentControls.gain, inputChannel);
+      const chain = connectVoiceMonitorChain(audioContext, source, audioContext.destination, currentControls.gain, inputChannel);
 
       if (monitorRequestRef.current !== requestId) {
         chain.disconnect();
@@ -1592,7 +1575,7 @@ function LiveMicMeter({
       trackState: stream?.getAudioTracks()[0]?.readyState, sourceMuted: stream?.getAudioTracks()[0]?.muted,
       diagnostics: meterStreamDiagnostics,
       headphoneGainPercent: controlsRef.current.gain, headphonesMuted: controlsRef.current.muted,
-      voicePreset: controlsRef.current.voicePreset, softwareHear: monitoringRef.current });
+      softwareHear: monitoringRef.current });
     const signalDiagnostics = new AudioSignalDiagnostics((summary) => writeRuntimeDiagnostic("info", "AudioSignal", "Audio input signal summary.", { ...meterContext(), ...summary }),
       () => performance.now(), inputChannel === "mix" ? 0.98 : 0.931);
 
@@ -1696,8 +1679,8 @@ function LiveMicMeter({
   }, [controls.muted, deviceId, inputChannel, monitoring, outputDeviceId, softwareMonitoringDisabled, startMonitorPlayback, stopMonitorPlayback]);
 
   useEffect(() => {
-    monitorGraphRef.current?.chain.update(controls.voicePreset, controls.gain);
-  }, [controls.gain, controls.voicePreset]);
+    monitorGraphRef.current?.chain.update(controls.gain);
+  }, [controls.gain]);
 
   const copy = routeIssue
     ? "Needs attention"
@@ -1752,18 +1735,6 @@ function LiveMicMeter({
             <input disabled={inputChangesLocked} aria-label={`${roleLabel ?? label} name`} value={label} onChange={(event) => onNameChange(event.target.value)} />
           </label>
         )}
-        <label className="channel-effect-control" title="Live headphone processing for podcast voice checks. Recordings keep the high-quality mic capture.">
-          <span className="control-caption">Voice Polish</span>
-          <select
-            aria-label={`${label} voice polish`}
-            value={controls.voicePreset}
-            onChange={(event) => onControlsChange({ voicePreset: event.target.value as VoicePreset })}
-          >
-            {(Object.entries(voicePresets) as Array<[VoicePreset, { label: string; description: string }]>).map(([preset, details]) => (
-              <option value={preset} key={preset}>{details.label}</option>
-            ))}
-          </select>
-        </label>
         <label className="channel-volume-control" title="Controls this channel's headphone monitoring level. Recording level and the live input meter are unchanged.">
           <span className="control-caption">Headphone level <strong>{controls.gain}%</strong></span>
           <input
@@ -1777,7 +1748,7 @@ function LiveMicMeter({
         </label>
         <span className="channel-output" title={`This channel monitors through ${outputLabel}.`}>Output <strong>{outputLabel}</strong></span>
         <small className="channel-effect-copy" title="Inputs are centered in both ears. Use your interface Direct Monitor switch or mixer control for true zero-delay monitoring.">
-          {voicePresets[controls.voicePreset].description}
+          Original voice. Headphone level only; no voice filters.
         </small>
         <div className="channel-buttons">
           <Tooltip label="Mute: silence this channel in your headphones.">
@@ -1958,49 +1929,26 @@ function connectVoiceMonitorChain(
   audioContext: AudioContext,
   source: AudioNode,
   destination: AudioNode,
-  preset: VoicePreset,
   gainValue: number,
   inputChannel: MicrophoneInputChannel
 ) {
-  const highPass = audioContext.createBiquadFilter();
-  highPass.type = "highpass";
-  highPass.Q.value = 0.7;
-
-  const warmth = audioContext.createBiquadFilter();
-  warmth.type = "lowshelf";
-  warmth.frequency.value = 180;
-
-  const presence = audioContext.createBiquadFilter();
-  presence.type = "peaking";
-  presence.frequency.value = 3200;
-  presence.Q.value = 0.9;
-
   const makeup = audioContext.createGain();
   const centered = connectInputChannelSource(audioContext, source, inputChannel);
 
-  centered.output.connect(highPass);
-  highPass.connect(warmth);
-  warmth.connect(presence);
-  presence.connect(makeup);
+  centered.output.connect(makeup);
   makeup.connect(destination);
 
-  function update(nextPreset: VoicePreset, nextGainValue: number) {
+  function update(nextGainValue: number) {
     const now = audioContext.currentTime;
-    highPass.frequency.setTargetAtTime(nextPreset === "clean" ? 60 : 82, now, 0.01);
-    warmth.gain.setTargetAtTime(nextPreset === "warm" ? 2 : nextPreset === "broadcast" ? 1 : 0, now, 0.01);
-    presence.gain.setTargetAtTime(nextPreset === "broadcast" ? 2.5 : nextPreset === "warm" ? 1.2 : 0, now, 0.01);
     makeup.gain.setTargetAtTime(Math.max(0, Math.min(1.35, nextGainValue / 82)), now, 0.01);
   }
 
-  update(preset, gainValue);
+  update(gainValue);
 
   return {
     update,
     disconnect() {
       centered.disconnect();
-      highPass.disconnect();
-      warmth.disconnect();
-      presence.disconnect();
       makeup.disconnect();
     }
   };

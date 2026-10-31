@@ -1,7 +1,37 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { clampReviewMonitorGain, createReviewOutputRouter, getReviewMonitorSettings } from "./review-audio-monitor";
 
 describe("review audio monitor", () => {
+  it("bypasses tone processing by default and enables it only for an editor choice", async () => {
+    vi.resetModules();
+    const parameter = (value = 0) => ({ value, cancelScheduledValues() {}, setTargetAtTime(next: number) { this.value = next; } });
+    const node = (kind: string) => ({ kind, type: kind, connections: [] as unknown[], connect(target: unknown) { this.connections.push(target); return target; }, disconnect() { this.connections = []; }, frequency: parameter(), Q: parameter(), gain: parameter(1), pan: parameter(), threshold: parameter(), ratio: parameter(), knee: parameter(), attack: parameter(), release: parameter(), frequencyBinCount: 128 });
+    const source = node("source");
+    const compressors: ReturnType<typeof node>[] = [];
+    class Context {
+      currentTime = 0;
+      destination = node("destination");
+      createMediaElementSource() { return source; }
+      createBiquadFilter() { return node("filter"); }
+      createGain() { return node("gain"); }
+      createStereoPanner() { return node("pan"); }
+      createAnalyser() { return node("analyser"); }
+      createDynamicsCompressor() { const compressor = node("compressor"); compressors.push(compressor); return compressor; }
+    }
+    const original = window.AudioContext;
+    Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: Context });
+    try {
+      const { setReviewMonitorTreatment } = await import("./review-audio-monitor");
+      const audio = document.createElement("audio");
+      setReviewMonitorTreatment(audio, {}, 1);
+      expect(source.connections).toEqual([expect.objectContaining({ kind: "gain" })]);
+      expect(compressors[0].threshold.value).toBe(-0.45);
+      setReviewMonitorTreatment(audio, { audioPreset: "warm" }, 1);
+      expect(source.connections).toEqual([expect.objectContaining({ type: "highpass" })]);
+      setReviewMonitorTreatment(audio, { audioPreset: "natural" }, 1);
+      expect(source.connections).toEqual([expect.objectContaining({ kind: "gain" })]);
+    } finally { Object.defineProperty(window, "AudioContext", { configurable: true, writable: true, value: original }); }
+  });
   it("allows a deliberate live boost while bounding unsafe values", () => {
     expect(clampReviewMonitorGain(1)).toBe(1);
     expect(clampReviewMonitorGain(2.5)).toBe(2.5);
