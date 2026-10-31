@@ -2,17 +2,33 @@ import { describe, expect, it, vi } from "vitest";
 import { RecordingPowerProtection } from "./recording-power-protection";
 
 describe("RecordingPowerProtection", () => {
-  it("prevents app suspension once per recording window and releases it after stop", () => {
+  it("keeps the display and system awake once per recording window and releases it after stop", () => {
     const powerSaveBlocker = { start: vi.fn(() => 42), stop: vi.fn() };
     const protection = new RecordingPowerProtection(powerSaveBlocker);
 
     protection.setActive(7, true);
     protection.setActive(7, true);
     expect(powerSaveBlocker.start).toHaveBeenCalledTimes(1);
-    expect(powerSaveBlocker.start).toHaveBeenCalledWith("prevent-app-suspension");
+    expect(powerSaveBlocker.start).toHaveBeenCalledWith("prevent-display-sleep");
 
     protection.setActive(7, false);
     expect(powerSaveBlocker.stop).toHaveBeenCalledWith(42);
+  });
+
+  it("keeps a visible studio awake after Stop without releasing an active recording on minimize", () => {
+    const powerSaveBlocker = { start: vi.fn().mockReturnValueOnce(21).mockReturnValueOnce(22).mockReturnValueOnce(23), stop: vi.fn() };
+    const protection = new RecordingPowerProtection(powerSaveBlocker);
+    protection.setActive(7, true, "studio");
+    protection.setActive(7, true);
+    protection.setActive(7, false, "studio");
+    expect(powerSaveBlocker.stop).toHaveBeenCalledWith(21);
+    expect(powerSaveBlocker.stop).not.toHaveBeenCalledWith(22);
+    protection.setActive(7, true, "studio");
+    protection.setActive(7, false);
+    expect(protection.getActive()).toEqual([{ webContentsId: 7, activity: "studio", blockerId: 23 }]);
+    protection.release(7);
+    expect(powerSaveBlocker.stop).toHaveBeenCalledWith(23);
+    expect(protection.getActive()).toEqual([]);
   });
 
   it("releases every active blocker during shutdown", () => {
