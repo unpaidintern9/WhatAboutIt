@@ -39,6 +39,8 @@ export function recordingCaptureBytesPerSecond(cameraCount: number, microphoneCo
 export interface RecordingStorageAssessment {
   ready: boolean;
   requiredBytes: number;
+  recommendedBytes: number;
+  caution?: string;
   availableBytes?: number;
   estimatedMinutes: number;
   message: string;
@@ -57,21 +59,27 @@ export function assessRecordingStorage(input: {
   const cameraBitsPerSecond = input.cameraCount * bitsPerCamera;
   const microphoneBitsPerSecond = input.microphoneCount * 48000 * 24;
   const captureBytes = ((programBitsPerSecond + cameraBitsPerSecond + microphoneBitsPerSecond) / 8) * estimatedMinutes * 60;
-  const requiredBytes = Math.ceil(captureBytes * 3 + 2 * 1024 ** 3);
+  const requiredBytes = 50 * 1024 ** 3;
+  const recommendedBytes = Math.max(120 * 1024 ** 3, Math.ceil(captureBytes * 3 + 2 * 1024 ** 3));
   const availableBytes = input.status?.availableBytes;
   const ready = Boolean(availableBytes && availableBytes >= requiredBytes);
-  const requiredGb = Math.ceil(requiredBytes / 1024 ** 3);
+  const recommendedGb = Math.ceil(recommendedBytes / 1024 ** 3);
   const availableGb = availableBytes === undefined ? undefined : Math.floor(availableBytes / 1024 ** 3);
+  const caution = ready && availableBytes! < recommendedBytes
+    ? `Caution: ${availableGb} GB free. Recording is allowed with at least 50 GB, but ${recommendedGb} GB is recommended for this ${estimatedMinutes}-minute episode. Watch remaining space; a long recording may fill the drive.`
+    : undefined;
 
   return {
     ready,
     requiredBytes,
+    recommendedBytes,
+    caution,
     availableBytes,
     estimatedMinutes,
     message: availableGb === undefined
       ? "Storage could not be verified. Check the recording drive before starting."
       : ready
-        ? `${availableGb} GB free · about ${requiredGb} GB reserved for ${estimatedMinutes} minutes`
-        : `Only ${availableGb} GB free · about ${requiredGb} GB is needed for ${estimatedMinutes} minutes`
+        ? caution ?? `${availableGb} GB free · storage ready for recording`
+        : `Only ${availableGb} GB free · at least 50 GB is needed to start recording. Free space or choose another recording drive.`
   };
 }
