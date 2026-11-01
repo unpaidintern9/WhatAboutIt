@@ -11,6 +11,7 @@ import { withLocalProjectSave, markProjectSavePending, readPendingProjectSave, c
 import { waitForMediaBudget } from "./media-work-scheduler";
 
 const cloudSaves = new Map<string, Promise<void>>();
+export function hasPendingTimelineSync() { return cloudSaves.size > 0; }
 /** Cloud work can fail or wait for recording without delaying the durable local Save. */
 export function syncSavedTimelineInBackground(episodeId: string) {
   if (cloudSaves.has(episodeId)) return cloudSaves.get(episodeId)!;

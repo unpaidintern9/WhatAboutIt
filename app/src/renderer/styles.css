@@ -600,6 +600,12 @@ h3 {
   gap: var(--space-md);
 }
 
+.episode-library-row { display: flex; align-items: center; gap: 12px; }
+.episode-library-row .episode-card { flex: 1; min-width: 0; text-align: left; }
+.episode-delete { display: inline-flex; align-items: center; gap: 6px; padding: 9px 12px; border: 1px solid #a43e46; border-radius: 6px; background: transparent; color: #a43e46; cursor: pointer; }
+.episode-delete:disabled { opacity: .5; cursor: not-allowed; }
+.episode-delete:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+
 .episode-card {
   display: flex;
   align-items: center;
