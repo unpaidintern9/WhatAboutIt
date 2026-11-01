@@ -397,3 +397,5 @@ export function cancelLocalTranscription(episodeId: string) {
   activeTranscription.controller.abort();
   return true;
 }
+
+export function hasActiveLocalTranscription() { return Boolean(activeTranscription); }

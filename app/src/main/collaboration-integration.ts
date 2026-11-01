@@ -25,6 +25,7 @@ import { openCollaborationPresenceWindow } from "./collaboration-presence-window
 import { openCollaborationWindow } from "./collaboration-window";
 
 const activeCloudTransfers = new Map<string, AbortController>();
+export function hasActiveCloudTransfers() { return activeCloudTransfers.size > 0; }
 
 function getReviewWindow() {
   return BrowserWindow.getAllWindows().find((window) => !window.isDestroyed() && !window.webContents.getURL().startsWith("data:text/html"));

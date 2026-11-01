@@ -2,7 +2,8 @@ import { withEpisodeLibraryStatus } from "./episode-library-status";
 import { claimStudioInstance } from "./single-instance";
 import { cancelAllReviewProxyWork } from "./review-proxy-store";
 import { fetchCollaborationApi } from "./collaboration-remote-service";
-import { setCapturePriority, withRecordingFinalization } from "./media-work-scheduler";
+import { mediaWorkStatus, setCapturePriority, withRecordingFinalization } from "./media-work-scheduler";
+import { deleteLocalEpisode } from "./episode-delete-store";
 import { checkRecordingDrive } from "./recording-drive-check";
 import { prepareReviewAudio, cancelPreparedReviewAudio, cancelReviewAudioWork } from "./review-audio-store";
 import { app, BrowserWindow, dialog, ipcMain, powerMonitor, powerSaveBlocker, session, shell, systemPreferences } from "electron";
@@ -21,8 +22,8 @@ import { logger, flushLogs, writeEmergencyLog, flushLogsOnExit, withLogContext }
 import { registerRecordingContext, forgetRecordingContext, markRecordingActive, inRecordingContext, observeChunk, finishRecordingTelemetry, recordingTelemetryContexts } from "./recording-telemetry";
 import { appendRecordingChunk, appendRecordingError, beginRecordingMedia, checkpointRecordingSession, createRecordingSession, finalizeRecordingMedia, listUnfinishedRecordingSessions, recoverRecordingSession, saveProgramRecording, saveRecordedTracks, writeRecordingState } from "./recording-session-store";
 import { loadPodcastTools, savePodcastTools } from "./podcast-tools-store";
-import { loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
-import { cancelExport, createExport, detectMediaTools, openExportFolder, renderTrackTreatmentPreview } from "./export-store";
+import { hasPendingTimelineSync, loadTimelineDraft, saveTimelineDraft } from "./timeline-store";
+import { cancelExport, createExport, detectMediaTools, hasPendingExports, openExportFolder, renderTrackTreatmentPreview } from "./export-store";
 import { runAutoEdit } from "./auto-edit-store";
 import { createDiagnosticsBundle, getLiveLogInfo, getStorageStatus, openLiveLogs } from "./diagnostics-store";
 import type { RuntimeLogEntry } from "../shared/diagnostics";
@@ -32,10 +33,10 @@ import type { ReviewMediaImportSlot } from "../shared/review-media";
 import { StudioWindowManager } from "./studio-window-manager";
 import { startMediaPlaybackServer, type MediaPlaybackServer } from "./media-playback-server";
 import { AppUpdateService } from "./app-update-service";
-import { cancelLocalTranscription, getLocalTranscriptionStatus, transcribeEpisodeLocally } from "./local-transcription-store";
+import { cancelLocalTranscription, getLocalTranscriptionStatus, hasActiveLocalTranscription, transcribeEpisodeLocally } from "./local-transcription-store";
 import { RecordingPowerProtection } from "./recording-power-protection";
 import { isStudioMediaPermission } from "../shared/media-permissions";
-import { configureCollaboration } from "./collaboration-integration";
+import { configureCollaboration, hasActiveCloudTransfers } from "./collaboration-integration";
 
 app.setName("What About It Studio");
 process.on("warning", (warning) => { void logger.warning("MainProcess", "Runtime warning.", { warning }); });
@@ -64,6 +65,13 @@ let mediaPlaybackServer: MediaPlaybackServer | undefined;
 let appUpdateService: AppUpdateService;
 const activeMediaImports = new Map<string, AbortController>();
 const closeProtectedWebContents = new Set<number>();
+let deletingEpisode = false;
+let episodeWork = 0;
+async function withEpisodeWork<T>(operation: () => Promise<T>): Promise<T> {
+  if (deletingEpisode) throw new Error("Wait for episode deletion to finish.");
+  episodeWork++;
+  try { return await operation(); } finally { episodeWork--; }
+}
 const recordingPowerProtection = new RecordingPowerProtection(powerSaveBlocker);
 
 function createWindow() {
@@ -343,6 +351,30 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("episodes:list", listEpisodes);
   ipcMain.handle("episodes:create", (_event, input) => createEpisode(input));
+  ipcMain.handle("episodes:delete", async (event, episodeId: string) => {
+    if (deletingEpisode) throw new Error("An episode is already being deleted.");
+    deletingEpisode = true;
+    try {
+      const deleted = await deleteLocalEpisode(episodeId, {
+        isBusy: () => {
+          const work = mediaWorkStatus();
+          return closeProtectedWebContents.size > 0 || work.capturing > 0 || work.finalizing > 0 || episodeWork > 0 || activeMediaImports.size > 0 || hasPendingExports() || hasActiveCloudTransfers() || hasPendingTimelineSync() || hasActiveLocalTranscription();
+        },
+        confirm: async (episode) => {
+          const parent = BrowserWindow.fromWebContents(event.sender);
+          const options = { type: "warning" as const, title: "Delete Episode", message: `Permanently delete “${episode.title}”?`, detail: "This removes this computer's episode folder, including recordings, audio, edits, backups, and exports inside it, and frees disk space. This cannot be undone. Cloud copies and files outside this folder are kept.", buttons: ["Cancel", "Delete Episode"], defaultId: 0, cancelId: 0, noLink: true };
+          const choice = parent ? await dialog.showMessageBox(parent, options) : await dialog.showMessageBox(options);
+          return choice.response === 1;
+        },
+        beforeDelete: async () => { await cancelReviewAudioWork(); await cancelReviewArtwork(); await cancelAllReviewProxyWork(); }
+      });
+      if (deleted) {
+        await logger.info("EpisodeService", "Deleted local episode after confirmation.", { episodeId });
+        for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send("episodes:deleted", episodeId);
+      }
+      return deleted;
+    } finally { deletingEpisode = false; }
+  });
   ipcMain.handle("settings:get", getSettings);
   ipcMain.handle("settings:save", (_event, settings) => saveSettings(settings));
   ipcMain.handle("workspace:get-state", () => studioWindowManager.getState());
@@ -354,12 +386,14 @@ app.whenReady().then(async () => {
   ipcMain.handle("workspace:apply-layout", (_event, input: { layoutId: StudioLayoutProfileId; episodeId?: string }) => studioWindowManager.applyLayout(input.layoutId, input.episodeId));
   ipcMain.handle("workspace:reset-layout", () => studioWindowManager.resetLayout());
   ipcMain.handle("recording:create-session", async (event, input) => {
+    if (deletingEpisode) throw new Error("Wait for episode deletion to finish before recording.");
     const recording = await createRecordingSession(input); registerRecordingContext(event.sender.id, recording);
     inRecordingContext(event.sender.id, () => { void logger.info("RecordingService", "Recording session selected."); });
     return recording;
   });
   ipcMain.handle("recording:write-state", (_event, input) => writeRecordingState(input.folderPath, input.state));
   ipcMain.handle("recording:begin-media", async (event, folderPath) => {
+    if (deletingEpisode) throw new Error("Wait for episode deletion to finish before recording.");
     setCapturePriority(event.sender.id, true);
     markRecordingActive(event.sender.id, true);
     try { return await inRecordingContext(event.sender.id, () => beginRecordingMedia(folderPath)); }
@@ -402,10 +436,16 @@ app.whenReady().then(async () => {
   ipcMain.handle("recording:save-tracks", (_event, input) => saveRecordedTracks(input.folderPath, input.tracks));
   ipcMain.handle("recording:append-error", (_event, input) => appendRecordingError(input.folderPath, input.message));
   ipcMain.handle("recording:list-unfinished", listUnfinishedRecordingSessions);
-  ipcMain.handle("podcast-tools:load", (_event, episodeId) => loadPodcastTools(episodeId));
-  ipcMain.handle("podcast-tools:save", (_event, input) => savePodcastTools(input.episodeId, input.state));
-  ipcMain.handle("timeline:load", (_event, episodeId) => loadTimelineDraft(episodeId));
-  ipcMain.handle("timeline:save", (_event, input) => saveTimelineDraft(input.episodeId, input.draft));
+  ipcMain.handle("podcast-tools:load", (_event, episodeId) => withEpisodeWork(() => loadPodcastTools(episodeId)));
+  ipcMain.handle("podcast-tools:save", (_event, input) => withEpisodeWork(async () => {
+    await fs.access(path.join(getEpisodesRoot(), input.episodeId, "metadata.json"));
+    return savePodcastTools(input.episodeId, input.state);
+  }));
+  ipcMain.handle("timeline:load", (_event, episodeId) => withEpisodeWork(() => loadTimelineDraft(episodeId)));
+  ipcMain.handle("timeline:save", (_event, input) => withEpisodeWork(async () => {
+    await fs.access(path.join(getEpisodesRoot(), input.episodeId, "metadata.json"));
+    return saveTimelineDraft(input.episodeId, input.draft);
+  }));
   ipcMain.handle("local-transcription:status", () => getLocalTranscriptionStatus());
   ipcMain.handle("local-transcription:start", (event, episodeId: string) => transcribeEpisodeLocally(episodeId, (progress) => event.sender.send("local-transcription:progress", progress)));
   ipcMain.handle("local-transcription:cancel", (_event, episodeId: string) => cancelLocalTranscription(episodeId));

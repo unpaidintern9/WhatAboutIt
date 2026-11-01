@@ -1,6 +1,6 @@
 import { setRuntimeDiagnosticContext } from "./services/runtime-diagnostics";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, BookOpen, Brush, Camera, CheckCircle2, Circle, Compass, Download, FolderOpen, HardDrive, Mic2, Plus, RefreshCw, Settings, ShieldCheck, Sparkles, ListVideo, Wand2, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BookOpen, Brush, Camera, CheckCircle2, Circle, Compass, Download, FolderOpen, HardDrive, Mic2, Plus, RefreshCw, Settings, ShieldCheck, Sparkles, ListVideo, Trash2, Wand2, X } from "lucide-react";
 import type { DeviceDefaults, EpisodeMetadata, StudioSettings } from "../shared/types";
 import { defaultRecordingPreferences } from "../shared/types";
 import type { RecordingSession } from "../shared/recording";
@@ -740,6 +740,42 @@ export default function App() {
 
   const [newEpisodeBusy, setNewEpisodeBusy] = useState(false);
   const [episodeActionError, setEpisodeActionError] = useState<string>();
+  const [deletingEpisodeId, setDeletingEpisodeId] = useState<string>();
+  const handleEpisodeDeleted = useCallback((episodeId: string) => {
+    setEpisodes((current) => current.filter((episode) => episode.id !== episodeId));
+    setUnfinishedSessions((current) => current.filter((session) => session.episodeId !== episodeId));
+    if (activeEpisodeRef.current?.id === episodeId) {
+      episodeLoadSequenceRef.current++;
+      if (timelineAutosaveTimerRef.current) window.clearTimeout(timelineAutosaveTimerRef.current);
+      pendingTimelineSaveRef.current = undefined;
+      activeEpisodeRef.current = undefined;
+      setActiveEpisode(undefined);
+      setRecordingSnapshot(recordingService.selectEpisode(""));
+      setTimelineDraft(createTimelineDraft({ deviceDefaults: defaultDeviceDefaults }));
+      setExportJob(undefined);
+      setAutoEditResult(undefined);
+      setView("home");
+    }
+    setWorkspaceMessage("Episode deleted from this computer.");
+  }, [recordingService]);
+  useEffect(() => studio.onEpisodeDeleted?.(handleEpisodeDeleted), [studio, handleEpisodeDeleted]);
+
+  async function deleteEpisode(episode: EpisodeMetadata) {
+    if (deletingEpisodeId) return;
+    setEpisodeActionError(undefined);
+    if (recordingService.hasActiveCapture()) { setEpisodeActionError("Finish recording and saving before deleting an episode."); return; }
+    setDeletingEpisodeId(episode.id);
+    try {
+      if (!studio.deleteEpisode) throw new Error("Update the installed app to delete episodes.");
+      await flushPendingTimelineSave();
+      await timelineSaveQueue.flush();
+      if (await studio.deleteEpisode(episode.id)) {
+        handleEpisodeDeleted(episode.id);
+        setStorageStatus(await studio.getStorageStatus());
+      }
+    } catch (error) { setEpisodeActionError(error instanceof Error ? error.message : "The episode could not be deleted."); }
+    finally { setDeletingEpisodeId(undefined); }
+  }
   async function startNewEpisode() {
     if (newEpisodeBusy) return;
     setNewEpisodeBusy(true);
@@ -1831,7 +1867,7 @@ export default function App() {
           />
         )}
         {episodeActionError && <div role="alert" className="studio-notice needs-attention">{episodeActionError}</div>}
-        {view === "home" && <HomeView episodes={episodes} cameraReady={selectedCameraReady} microphoneReady={selectedMicrophoneReady} onNewEpisode={() => void startNewEpisode()} onStudioSetup={() => setView("device-setup")} onOpenEpisode={(episode) => void openEpisode(episode)} />}
+        {view === "home" && <HomeView episodes={episodes} cameraReady={selectedCameraReady} microphoneReady={selectedMicrophoneReady} onNewEpisode={() => void startNewEpisode()} onStudioSetup={() => setView("device-setup")} onOpenEpisode={(episode) => void openEpisode(episode)} onDeleteEpisode={(episode) => void deleteEpisode(episode)} deletingEpisodeId={deletingEpisodeId} deletionBlocked={recordingService.hasActiveCapture()} />}
         {view === "new-episode" && <NewEpisodeView title={title} guestName={guestName} description={description} setTitle={setTitle} setGuestName={setGuestName} setDescription={setDescription} createEpisode={createEpisode} onBack={() => setView("home")} onNext={() => setView("device-setup")} />}
         {view === "device-setup" && (
           <div className="view-stack">
@@ -2178,7 +2214,7 @@ function FirstRunSetup({ onClose, onStartSetup, onHardwareTest }: { onClose: (pr
   );
 }
 
-function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStudioSetup, onOpenEpisode }: { episodes: EpisodeMetadata[]; cameraReady: boolean; microphoneReady: boolean; onNewEpisode: () => void; onStudioSetup: () => void; onOpenEpisode: (episode: EpisodeMetadata) => void }) {
+function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStudioSetup, onOpenEpisode, onDeleteEpisode, deletingEpisodeId, deletionBlocked }: { episodes: EpisodeMetadata[]; cameraReady: boolean; microphoneReady: boolean; onNewEpisode: () => void; onStudioSetup: () => void; onOpenEpisode: (episode: EpisodeMetadata) => void; onDeleteEpisode: (episode: EpisodeMetadata) => void; deletingEpisodeId?: string; deletionBlocked: boolean }) {
   return (
     <div className="view-stack episode-home">
       <section className="hero-panel">
@@ -2208,7 +2244,8 @@ function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStud
           ) : (
             <div className="episode-list">
               {episodes.map((episode) => (
-                <button type="button" className="episode-card" onClick={() => onOpenEpisode(episode)} title={`Open ${episode.title}`} key={episode.id}>
+                <div className="episode-library-row" key={episode.id}>
+                <button type="button" className="episode-card" onClick={() => onOpenEpisode(episode)} title={`Open ${episode.title}`} disabled={Boolean(deletingEpisodeId)}>
                   <div>
                     <h4>{episode.title}</h4>
                     <p>
@@ -2217,6 +2254,10 @@ function HomeView({ episodes, cameraReady, microphoneReady, onNewEpisode, onStud
                   </div>
                   <span>{episode.resumeAvailable ? (episode.status === "recorded" || episode.status === "exported" ? "Saved — can resume" : "Paused — resume") : episode.status === "draft" ? "New episode" : episode.status === "recorded" ? "Recorded" : episode.status === "exported" ? "Exported" : "Ready"}</span>
                 </button>
+                <button type="button" className="episode-delete" aria-label={`Delete episode ${episode.title}`} title="Permanently delete this local episode" disabled={deletionBlocked || Boolean(deletingEpisodeId)} onClick={() => onDeleteEpisode(episode)}>
+                  <Trash2 size={17} aria-hidden="true" /> {deletingEpisodeId === episode.id ? "Deleting…" : "Delete"}
+                </button>
+                </div>
               ))}
             </div>
           )}

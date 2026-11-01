@@ -1322,6 +1322,8 @@ export async function createExport(request: ExportRequest, report?: ExportProgre
   }
 }
 
+export function hasPendingExports() { return pendingExportEpisodes.size > 0; }
+
 export async function cancelExport(episodeId: string, job: ExportJob): Promise<ExportJob> {
   activeExports.get(episodeId)?.controller.abort();
   const canceled = cancelExportJob(job);

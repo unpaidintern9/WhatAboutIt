@@ -24,6 +24,12 @@ contextBridge.exposeInMainWorld("studio", {
     return () => ipcRenderer.removeListener("review-media:updated", handler);
   },
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
+  deleteEpisode: (episodeId: string): Promise<boolean> => ipcRenderer.invoke("episodes:delete", episodeId),
+  onEpisodeDeleted: (listener: (episodeId: string) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, episodeId: string) => listener(episodeId);
+    ipcRenderer.on("episodes:deleted", handler);
+    return () => ipcRenderer.removeListener("episodes:deleted", handler);
+  },
   createEpisode: (input: { title: string; guestName?: string; description?: string }): Promise<EpisodeMetadata> => ipcRenderer.invoke("episodes:create", input),
   openEpisodeFolder: (episodeId: string): Promise<string> => ipcRenderer.invoke("episodes:open-folder", episodeId),
   openEpisodeLibraryFolder: (): Promise<string> => ipcRenderer.invoke("episodes:open-library-folder"),
@@ -233,7 +239,7 @@ function episodeRow(title: string, detail: string, source: "local" | "cloud", ep
   const actions = document.createElement("div");
   actions.style.cssText = "display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;";
   if (source === "local") {
-    actions.append(makeActionButton("Review", "review-local", episodeId), makeActionButton("Open Folder", "open-folder", episodeId, true), makeActionButton("Upload / Sync", "upload", episodeId, true));
+    actions.append(makeActionButton("Review", "review-local", episodeId), makeActionButton("Open Folder", "open-folder", episodeId, true), makeActionButton("Upload / Sync", "upload", episodeId, true), makeActionButton("Delete Episode", "delete-local", episodeId, true));
   } else {
     actions.append(makeActionButton("Stream Review", "review-cloud", episodeId), makeActionButton("Download All", "download-cloud", episodeId, true));
   }
@@ -467,6 +473,14 @@ async function openReviewEpisodeLibrary() {
         return;
       }
       if (!episodeId) return;
+      if (action === "delete-local") {
+        setLibraryButtonDisabled(button, true);
+        try {
+          const deleted = await ipcRenderer.invoke("episodes:delete", episodeId) as boolean;
+          if (deleted) { await populateReviewLibrary(list, status); status.textContent = "Episode deleted from this computer. Disk space is now available."; }
+        } finally { setLibraryButtonDisabled(button, false); }
+        return;
+      }
       if (action === "open-folder") {
         await ipcRenderer.invoke("episodes:open-folder", episodeId);
         return;

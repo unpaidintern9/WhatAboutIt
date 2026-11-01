@@ -23,6 +23,8 @@ declare global {
       checkRecordingDrive?: () => Promise<import("../shared/diagnostics").RecordingDriveCheck>;
       onReviewMediaUpdate?: (listener: (update: import("../shared/review-media").ReviewMediaUpdate) => void) => () => void;
       listEpisodes: () => Promise<EpisodeMetadata[]>;
+      deleteEpisode?: (episodeId: string) => Promise<boolean>;
+      onEpisodeDeleted?: (listener: (episodeId: string) => void) => () => void;
       onCollaborationProjectPulled?: (listener: (episodeId: string) => void) => () => void;
       createEpisode: (input: { title: string; guestName?: string; description?: string }) => Promise<EpisodeMetadata>;
       openEpisodeFolder?: (episodeId: string) => Promise<string>;
