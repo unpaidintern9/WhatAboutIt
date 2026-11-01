@@ -64,6 +64,7 @@ interface RecordingStudioProps {
   unfinishedSessions: RecordingSession[];
   podcastTools: PodcastToolsState;
   storageWarning?: string;
+  storageCaution?: string;
   availableBytes?: number;
   driveCheck?: RecordingDriveCheck;
   readinessMessage?: string;
@@ -141,6 +142,7 @@ export function RecordingStudio({
   unfinishedSessions,
   podcastTools,
   storageWarning,
+  storageCaution,
   availableBytes,
   driveCheck,
   readinessMessage,
@@ -628,6 +630,12 @@ export function RecordingStudio({
           <div className={`studio-notice ${snapshot.friendlyError ? "needs-attention" : studioNotice.tone}`}>
             <strong>{snapshot.friendlyError ? "Something needs a quick check" : studioNotice.message}</strong>
             <span>{snapshot.friendlyError ?? storageWarning ?? "Live checks are ready when your gear is."}</span>
+          </div>
+        )}
+        {storageCaution && (
+          <div className="studio-notice needs-attention" role="status">
+            <strong>Storage caution</strong>
+            <span>{storageCaution}</span>
           </div>
         )}
 

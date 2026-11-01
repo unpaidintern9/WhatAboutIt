@@ -80,6 +80,19 @@ function click(host: HTMLElement, label: string) {
 }
 
 describe("RecordingStudio", () => {
+  it("shows a storage caution without blocking recording", () => {
+    const { host } = renderStudio({ storageCaution: "Caution: 50 GB free. Watch remaining space." });
+    expect(host.textContent).toContain("Storage caution");
+    expect(host.textContent).toContain("Caution: 50 GB free");
+    expect(host.querySelector<HTMLButtonElement>("button.record")?.disabled).toBe(false);
+  });
+
+  it("blocks recording when storage is below the minimum", () => {
+    const { host } = renderStudio({ storageWarning: "Only 49 GB free · at least 50 GB is needed to start recording." });
+    expect(host.querySelector<HTMLButtonElement>("button.record")?.disabled).toBe(true);
+    expect(host.textContent).toContain("at least 50 GB is needed");
+  });
+
   it("keeps recording mute available during capture independently of headphone monitoring", async () => {
     const onRecordingMuteChange = vi.fn();
     const snapshot = { status: "recording" as const, elapsedMs: 1000, localSaveMessage: "Writing", trackStatuses: [] };

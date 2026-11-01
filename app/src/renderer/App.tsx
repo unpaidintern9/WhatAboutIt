@@ -1872,6 +1872,7 @@ export default function App() {
             unfinishedSessions={unfinishedSessions}
             podcastTools={podcastTools}
             storageWarning={recordingStorage.ready ? undefined : recordingStorage.message}
+            storageCaution={recordingStorage.caution}
             availableBytes={storageStatus?.availableBytes}
             driveCheck={recordingDriveCheck}
             readinessMessage={readinessMessage}
