@@ -15,7 +15,7 @@ describe("delete local episode", () => {
     await fs.mkdir(path.join(folder, "Audio"), { recursive: true });
     await fs.writeFile(path.join(folder, "metadata.json"), JSON.stringify({ id, title: "Morgan interview", folderPath: "/untrusted/external-path" }));
     await fs.writeFile(path.join(folder, "Audio", "mic.wav"), "original");
-    return folder;
+    return fs.realpath(folder);
   }
   function options() { return { isBusy: vi.fn(() => false), confirm: vi.fn(async () => true), beforeDelete: vi.fn(async () => undefined) }; }
 
