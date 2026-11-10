@@ -590,3 +590,51 @@ test("client completion counters cannot recover missing checksum receipts", asyn
   assert.equal((await (await worker.fetch(request("/episodes/recover-publish/upload-status"), env)).json()).phase, "error");
   assert.equal((await (await worker.fetch(request("/episodes/recover-publish/manifest"), env)).json()).revisionId, "base");
 });
+
+test("organization publishes readable category folders, verifies copies and retains the original revision", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  assert.equal((await worker.fetch(request(url, { method: "POST" }), env)).status, 200);
+  const organize = url.replace("upload-recovery", "upload-organization");
+  const plan = await worker.fetch(request(organize), env);
+  assert.equal(plan.status, 200);
+  assert.equal((await plan.json()).files.length, 1);
+  let copies = 0;
+  const put = env.EPISODE_MEDIA.put.bind(env.EPISODE_MEDIA);
+  env.EPISODE_MEDIA.put = async (key, body, options) => { if (key.startsWith("episodes/") && key.includes("/versions/")) copies++; return put(key, body, options); };
+  const copyUrl = organize + "&relativePath=" + encodeURIComponent(candidate.assets[0].relativePath);
+  assert.equal((await worker.fetch(request(copyUrl, { method: "POST" }), env)).status, 200);
+  assert.equal((await worker.fetch(request(copyUrl, { method: "POST" }), env)).status, 200);
+  assert.equal(copies, 1);
+  const published = await worker.fetch(request(organize, { method: "POST" }), env);
+  assert.equal(published.status, 200, await published.clone().text());
+  assert.equal((await published.json()).status.completionPercent, 100);
+  const manifest = await (await worker.fetch(request("/episodes/recover-publish/manifest"), env)).json();
+  assert.match(manifest.assets[0].cloudPath, /^episodes\/recover-publish\/Program\/versions\/\d{4}-\d{2}-\d{2}_/);
+  assert.ok(await env.EPISODE_MEDIA.head(candidate.assets[0].cloudPath));
+  const relative = manifest.assets[0].cloudPath.slice("episodes/recover-publish/".length);
+  const assetUrl = "/episodes/recover-publish/assets/" + encodeURIComponent(relative);
+  assert.equal((await worker.fetch(request(assetUrl, { method: "HEAD" }), env)).headers.get("x-content-verified"), "true");
+  assert.equal(await (await worker.fetch(request(assetUrl), env)).text(), "verified recording");
+  assert.equal((await worker.fetch(request(assetUrl, { method: "DELETE" }), env)).status, 409);
+  assert.equal((await worker.fetch(request(assetUrl, { method: "PUT", body: "overwrite", headers: { "x-content-sha256": await sha256("overwrite") } }), env)).status, 409);
+  assert.equal((await (await worker.fetch(request(organize), env)).json()).published, true);
+});
+
+test("organization cannot publish missing copies or overwrite concurrent project edits", async () => {
+  const { env, url, base } = await pendingBackup();
+  await worker.fetch(request(url, { method: "POST" }), env);
+  const organize = url.replace("upload-recovery", "upload-organization");
+  await worker.fetch(request(organize), env);
+  assert.equal((await worker.fetch(request(organize, { method: "POST" }), env)).status, 400);
+  await worker.fetch(request("/episodes/recover-publish/manifest", { method: "PUT", body: JSON.stringify({ ...base, revisionId: "concurrent" }) }), env);
+  assert.equal((await worker.fetch(request(organize, { method: "POST" }), env)).status, 409);
+  assert.equal((await (await worker.fetch(request("/episodes/recover-publish/manifest"), env)).json()).revisionId, "concurrent");
+});
+
+test("organized paths preserve file names and reject unsafe categories or version folders", async () => {
+  const { organizedPath } = await import("./organized-files.js");
+  assert.equal(organizedPath("Audio/guest-mic.flac", "2026-11-10_23-12-56"), "Audio/versions/2026-11-10_23-12-56/guest-mic.flac");
+  assert.equal(organizedPath("metadata.json", "today"), "Project/versions/today/metadata.json");
+  for (const name of ["../escape", "/escape", "Audio//file"]) assert.throws(() => organizedPath(name, "today"));
+  assert.throws(() => organizedPath("Audio/file", "../escape"));
+});

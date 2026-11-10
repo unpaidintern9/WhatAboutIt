@@ -7,6 +7,7 @@ type UploadJournal = {
   version: 1;
   episodeId: string;
   assets: Record<string, MultipartUploadCheckpoint>;
+  preparedPaths?: Record<string, { contentHash: string; objectPath: string }>;
 };
 
 const updateQueues = new Map<string, Promise<void>>();
@@ -44,11 +45,41 @@ export async function setUploadCheckpoint(episodeId: string, relativePath: strin
     const journal = await readJournal(episodeId);
     if (checkpoint) journal.assets[relativePath] = checkpoint;
     else delete journal.assets[relativePath];
-    if (Object.keys(journal.assets).length === 0) {
+    if (Object.keys(journal.assets).length === 0 && Object.keys(journal.preparedPaths ?? {}).length === 0) {
       await fs.rm(journalPath(episodeId), { force: true });
       return;
     }
     await writeJournal(journal);
+  });
+  updateQueues.set(episodeId, next.catch(() => undefined));
+  await next;
+}
+
+
+/** Keep versioned object identities until the episode manifest publishes, including
+ * files whose multipart checkpoint has already been cleared after verification. */
+export async function prepareUploadObjectPath(episodeId: string, relativePath: string, contentHash: string, proposedPath: string) {
+  let objectPath = proposedPath;
+  const previous = updateQueues.get(episodeId) ?? Promise.resolve();
+  const next = previous.then(async () => {
+    const journal = await readJournal(episodeId);
+    const saved = journal.preparedPaths?.[relativePath];
+    objectPath = saved?.contentHash === contentHash ? saved.objectPath : proposedPath;
+    journal.preparedPaths = { ...journal.preparedPaths, [relativePath]: { contentHash, objectPath } };
+    await writeJournal(journal);
+  });
+  updateQueues.set(episodeId, next.catch(() => undefined));
+  await next;
+  return objectPath;
+}
+
+export async function clearPreparedUploadPaths(episodeId: string) {
+  const previous = updateQueues.get(episodeId) ?? Promise.resolve();
+  const next = previous.then(async () => {
+    const journal = await readJournal(episodeId);
+    delete journal.preparedPaths;
+    if (Object.keys(journal.assets).length) await writeJournal(journal);
+    else await fs.rm(journalPath(episodeId), { force: true });
   });
   updateQueues.set(episodeId, next.catch(() => undefined));
   await next;

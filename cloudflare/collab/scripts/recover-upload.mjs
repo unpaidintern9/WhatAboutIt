@@ -27,3 +27,37 @@ if (state.phase === "complete" && state.verification === "manifest-verified") {
   if (result.status?.phase !== "complete" || result.status?.verification !== "manifest-verified" || result.status?.completionPercent !== 100) throw new Error("The recovered backup has no final verification receipt.");
   console.log("PASS: recovered the reviewed full backup without retransmitting media.");
 }
+
+if (operation.organizeFiles) {
+  const organizeUrl = url.replace("/upload-recovery?", "/upload-organization?");
+  async function organize(method, relativePath) {
+    const target = new URL(organizeUrl);
+    if (relativePath) target.searchParams.set("relativePath", relativePath);
+    for (let attempt = 1; attempt <= 4; attempt++) {
+      try {
+        const response = await fetch(target, { method, headers: { "x-whataboutit-key": secret }, signal: AbortSignal.timeout(15 * 60 * 1000) });
+        const result = await response.json();
+        if (!response.ok) throw new Error(`Organization ${response.status}: ${result.error}`);
+        return result;
+      } catch (error) {
+        if (attempt === 4) throw error;
+        console.log(`Retrying organized copy: ${relativePath || "publication"}, attempt ${attempt}`);
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+  const plan = await organize("GET");
+  if (!plan.published) {
+    let index = 0, completed = 0;
+    await Promise.all(Array.from({ length: 3 }, async () => {
+      while (index < plan.files.length) {
+        const asset = plan.files[index++];
+        await organize("POST", asset.relativePath);
+        console.log(`Organized and SHA-256 verified ${++completed}/${plan.files.length}: ${asset.relativePath}`);
+      }
+    }));
+    const result = await organize("POST");
+    if (!result.published || result.status?.completionPercent !== 100 || result.status?.verification !== "manifest-verified") throw new Error("Organized backup publication did not verify.");
+  }
+  console.log(`PASS: ${plan.files.length} backup files published in dated category folders; original revision retained.`);
+}

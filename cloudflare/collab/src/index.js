@@ -1,3 +1,4 @@
+import { handleOrganization } from "./organized-files.js";
 import { handleUploadStatus, completeRecoveredUpload } from "./upload-status.js";
 import { verifyStoredObject, CHUNK_BYTES } from "./bounded-verification.js";
 
@@ -11,12 +12,13 @@ const PRESENCE_TTL_MS = 45_000;
 const EDITOR_LEASE_MS = 30_000;
 const MAX_MANIFEST_ASSETS = 2_000;
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+const isVersionedKey = key => key.includes("/objects/") || key.includes("/versions/");
 const uploadIdPattern = /^[A-Za-z0-9_-]{1,80}$/;
 
 async function verifyManifestAssets(bucket, episodeId, assets) {
           for (const asset of assets) {
             const prefix = `episodes/${episodeId}/`;
-            if (!asset.cloudPath?.startsWith(prefix + "objects/")) continue;
+            if (!asset.cloudPath?.startsWith(prefix) || !isVersionedKey(asset.cloudPath)) continue;
             const relative = asset.cloudPath.slice(prefix.length);
             const objectKey = episodeAssetKey(episodeId, relative);
             const [object, receiptObject] = await Promise.all([
@@ -361,7 +363,7 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const accessKeys = configuredAccessKeys(env);
-    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256", versionedPublication: true, streamingChecksums: true, uploadProgress: true, boundedVerification: true, storageChecksums: true, verificationChunkBytes: CHUNK_BYTES }, 200, cors);
+    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256", versionedPublication: true, streamingChecksums: true, uploadProgress: true, boundedVerification: true, storageChecksums: true, organizedFiles: true, verificationChunkBytes: CHUNK_BYTES }, 200, cors);
     if (accessKeys.length === 0) return json({ error: "Collaboration authentication is not configured." }, 503, cors);
     const identity = await authorizedIdentity(request, env);
     if (!identity) return json({ error: "Unauthorized" }, 401, cors);
@@ -395,6 +397,18 @@ export default {
       const headers = new Headers(response.headers);
       Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
       return new Response(response.body, { status: response.status, headers });
+    }
+
+    if (suffix === "/upload-organization") {
+      const result = await handleOrganization(request, env.EPISODE_MEDIA, episodeId, identity, async (manifest, etag) => {
+        const target = new URL(request.url); target.pathname = `/episodes/${encodeURIComponent(episodeId)}/manifest`; target.search = "";
+        const headers = new Headers({ "content-type": "application/json", "if-match": etag });
+        if (request.headers.has("x-whataboutit-key")) headers.set("x-whataboutit-key", request.headers.get("x-whataboutit-key"));
+        else headers.set("authorization", request.headers.get("authorization"));
+        return this.fetch(new Request(target, { method: "PUT", headers, body: JSON.stringify(manifest) }), env);
+      });
+      const headers = new Headers(result.headers); Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
+      return new Response(result.body, { status: result.status, headers });
     }
 
     if (suffix === "/upload-recovery" && ["GET", "POST"].includes(request.method)) {
@@ -527,7 +541,7 @@ export default {
         try {
           const contentHash = cleanSha256(request.headers.get("x-content-sha256"));
           const existing = await env.EPISODE_MEDIA.head(key);
-          if (key.includes("/objects/") && existing) {
+          if (isVersionedKey(key) && existing) {
             const receipt = await env.EPISODE_MEDIA.get(`verification/${key}`);
             if (receipt && (await receipt.json()).sha256 === contentHash) return json({ alreadyExists: true }, 200, cors);
             return json({ error: "Versioned object already exists; retry with a new object version." }, 409, cors);
@@ -590,7 +604,7 @@ export default {
           const verification = await verifyStoredObject(env.EPISODE_MEDIA, key, object, expectedHash, bounded);
           if (verification.updateRequired) return json({ error: "Update What About It Studio to finish resumable checksum verification of files larger than 5 GiB.", code: "studio-update-required" }, 409, cors);
           if (verification.mismatch) {
-            if (!key.includes("/objects/")) await env.EPISODE_MEDIA.delete(key);
+            if (!isVersionedKey(key)) await env.EPISODE_MEDIA.delete(key);
             return json({ error: "Uploaded bytes did not match the declared SHA-256 checksum.", code: "checksum-mismatch" }, 422, cors);
           }
           return json({ ok: verification.verified, key, etag: verification.etag, verificationPending: !verification.verified, verifiedBytes: verification.verifiedBytes, totalBytes: verification.totalBytes }, verification.verified ? 200 : 202, cors);
@@ -618,7 +632,7 @@ export default {
         const headers = new Headers(cors);
         if (object.httpEtag) headers.set("etag", object.httpEtag);
         headers.set("x-content-sha256", object.checksums?.sha256 ? hex(object.checksums.sha256) : object.customMetadata?.sha256 || "");
-        if (key.includes("/objects/")) {
+        if (isVersionedKey(key)) {
           const receiptObject = await env.EPISODE_MEDIA.get(`verification/${key}`);
           const receipt = receiptObject ? await receiptObject.json() : undefined;
           headers.set("x-content-verified", String(Boolean(receipt && receipt.etag === object.httpEtag)));
@@ -629,7 +643,7 @@ export default {
       if (request.method === "PUT") {
         try {
           const contentHash = cleanSha256(request.headers.get("x-content-sha256"));
-          if (key.includes("/objects/") && await env.EPISODE_MEDIA.head(key)) {
+          if (isVersionedKey(key) && await env.EPISODE_MEDIA.head(key)) {
             const receipt = await env.EPISODE_MEDIA.get(`verification/${key}`);
             if (receipt && (await receipt.json()).sha256 === contentHash) return json({ ok: true, key, sha256: contentHash }, 200, cors);
             return json({ error: "Versioned object already exists; retry with a new object version." }, 409, cors);
@@ -671,7 +685,7 @@ export default {
         return new Response(object.body, { status: object.range ? 206 : 200, headers });
       }
       if (request.method === "DELETE") {
-        if (key.includes("/objects/")) return json({ error: "Versioned episode objects are retained for revision recovery." }, 409, cors);
+        if (isVersionedKey(key)) return json({ error: "Versioned episode objects are retained for revision recovery." }, 409, cors);
         await env.EPISODE_MEDIA.delete(key);
         await env.EPISODE_MEDIA.delete(`verification/${key}`);
         return json({ ok: true, key }, 200, cors);
