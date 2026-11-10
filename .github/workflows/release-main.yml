@@ -41,14 +41,6 @@ jobs:
           $runPatch = [int]"${{ github.run_number }}"
           $releasePatch = [Math]::Max($sourceVersion.Build, $runPatch)
           npm version "0.2.$releasePatch" --no-git-tag-version --allow-same-version
-      - name: Create the matching GitHub release tag
-        shell: pwsh
-        run: |
-          $version = node -p "require('./package.json').version"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git tag "v$version" "${{ github.sha }}"
-          git push origin "v$version"
       - name: Build the compiled Electron application
         run: npm run build
       - name: Check real playback, recording controls and microphone mute
@@ -63,6 +55,19 @@ jobs:
           if ($bootstrap.Count -ne 2 -or $bootstrap.apiUrl -cne "https://whataboutit-collab.whataboutit-collab.workers.dev" -or $bootstrap.personId -cne "morgan-owner") {
             throw "The public installer must contain only the approved collaboration defaults."
           }
+      - name: Verify Cloudflare supports remote upload progress
+        shell: pwsh
+        run: |
+          $health = Invoke-RestMethod -Uri "https://whataboutit-collab.whataboutit-collab.workers.dev/health" -TimeoutSec 20
+          if ($health.uploadProgress -ne $true -or $health.boundedVerification -ne $true) { throw "Deploy the progress-enabled collaboration Worker before publishing this update." }
+      - name: Create the matching GitHub release tag
+        shell: pwsh
+        run: |
+          $version = node -p "require('./package.json').version"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag "v$version" "${{ github.sha }}"
+          git push origin "v$version"
       - name: Publish and verify newest GitHub release assets
         shell: pwsh
         run: |

@@ -94,4 +94,19 @@ describe("episode cloud publishing", () => {
     expect(parentRevisions).toEqual(["initial"]);
     expect(current.revisionId).toBe("other-computer");
   });
+
+  it("keeps the backup usable when cloud progress reporting is unavailable", async () => {
+    const original = electron.fetch.getMockImplementation()!;
+    let reportingAttempts = 0;
+    electron.fetch.mockImplementation(async (input: string, init: RequestInit) => {
+      if (new URL(input).pathname.endsWith("/upload-status")) {
+        reportingAttempts++;
+        return Response.json({ error: "Temporarily unavailable" }, { status: 503 });
+      }
+      return original(input, init);
+    });
+    await expect(publishEpisodeToCloud(episode, "full-backup")).resolves.toMatchObject({ episodeId: episode.id });
+    expect(reportingAttempts).toBe(2);
+    expect(current.uploadOperationId).toBeTruthy();
+  });
 });

@@ -37,6 +37,8 @@ type UploadOptions = {
   onCheckpoint?: (checkpoint: MultipartUploadCheckpoint | undefined) => void | Promise<void>;
   signal?: AbortSignal;
   onProgress?: (completedBytes: number) => void | Promise<void>;
+  onResume?: (completedBytes: number) => void | Promise<void>;
+  onVerificationProgress?: (verifiedBytes: number) => void | Promise<void>;
 };
 
 export type MultipartPart = {
@@ -206,6 +208,9 @@ async function uploadMultipart(options: UploadOptions) {
     : undefined;
   let uploadId = reusableCheckpoint?.uploadId;
   const partsByNumber = new Map((reusableCheckpoint?.parts ?? []).map((part) => [part.partNumber, part]));
+  let completedBytes = Math.min(options.bytes, [...partsByNumber.keys()].reduce((total, partNumber) => total + Math.min(partSize, options.bytes - (partNumber - 1) * partSize), 0));
+  await options.onProgress?.(completedBytes);
+  if (reusableCheckpoint) await options.onResume?.(completedBytes);
 
   if (!uploadId) {
     const createResponse = await requestCollaborationWithRetry(
@@ -275,10 +280,8 @@ async function uploadMultipart(options: UploadOptions) {
     if (uploaded.partNumber !== partNumber || !uploaded.etag)
       throw new Error(`Cloud storage returned an invalid receipt for upload part ${partNumber}.`);
     partsByNumber.set(partNumber, uploaded);
-    await options.onProgress?.(Math.min(options.bytes, [...partsByNumber.keys()].reduce((total, uploadedPartNumber) => {
-      const start = (uploadedPartNumber - 1) * partSize;
-      return total + Math.min(partSize, options.bytes - start);
-    }, 0)));
+    completedBytes += end - offset + 1;
+    await options.onProgress?.(Math.min(options.bytes, completedBytes));
     await saveCheckpoint();
   };
 
@@ -293,7 +296,7 @@ async function uploadMultipart(options: UploadOptions) {
           {
             method: "POST",
             signal: options.signal,
-            body: JSON.stringify({ parts: [...partsByNumber.values()].sort((a, b) => a.partNumber - b.partNumber) }),
+            body: JSON.stringify({ verification: "bounded-v1", parts: [...partsByNumber.values()].sort((a, b) => a.partNumber - b.partNumber) }),
           },
         ),
       options,
@@ -303,10 +306,24 @@ async function uploadMultipart(options: UploadOptions) {
         completeResponse,
         "Could not complete multipart upload",
       );
+    let verification = await completeResponse.json() as { ok?: boolean; verificationPending?: boolean; verifiedBytes?: number };
+    let verifiedBytes = -1;
+    let verificationSteps = 0;
+    while (verification.verificationPending) {
+      const checked = verification.verifiedBytes;
+      if (typeof checked !== "number" || !Number.isSafeInteger(checked) || checked <= verifiedBytes || checked > options.bytes || ++verificationSteps > Math.ceil(options.bytes / (16 * 1024 * 1024)) + 2) throw new Error("Cloud checksum verification stopped advancing. Retry the upload to resume verification.");
+      verifiedBytes = checked;
+      await options.onVerificationProgress?.(checked);
+      const response = await requestCollaborationWithRetry("verify completed upload", () => options.apiFetch(`${options.pathname}?multipart=verify&uploadId=${encodeURIComponent(uploadId)}`, { method: "POST", signal: options.signal, body: "{}" }), options);
+      if (!response.ok) throw await responseError(response, "Could not verify the completed upload");
+      verification = await response.json() as typeof verification;
+    }
     await options.onCheckpoint?.(undefined);
   } catch (error) {
+    if ((error as Error & { status?: number }).status === 422) await options.onCheckpoint?.(undefined);
     if (reusableCheckpoint && (error as Error & { status?: number }).status === 404) {
       await options.onCheckpoint?.(undefined);
+      await options.onProgress?.(0);
       return uploadMultipart({ ...options, checkpoint: undefined });
     }
     if (await verifiedAfterFailure(options)) {
