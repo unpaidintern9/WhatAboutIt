@@ -76,7 +76,7 @@ try {
     await delay(250);
   }
   assert.ok(ready, `Local Worker did not start: ${logs}`);
-  // Exceeds the bounded non-streaming fallback: this must use crypto.DigestStream.
+  // R2 validates the full checksum while streaming, without whole-file Worker hashing.
   const bytes = Buffer.alloc(33 * 1024 * 1024, 43);
   const hash = createHash("sha256").update(bytes).digest("hex");
   const episodeId = "local-runtime-canary";
@@ -105,9 +105,9 @@ try {
     `${assetUrl}?multipart=complete&uploadId=${encodeURIComponent(uploadId)}`,
     { method: "POST", body: JSON.stringify({ verification: "bounded-v1", parts }) },
   );
-  assert.equal(complete.status, 202, await complete.clone().text());
+  assert.equal(complete.status, 200, await complete.clone().text());
   let verification = await complete.json();
-  assert.equal((await request(assetUrl, { method: "HEAD" })).headers.get("x-content-verified"), "false");
+  assert.equal((await request(assetUrl, { method: "HEAD" })).headers.get("x-content-verified"), "true");
   let verificationSteps = 0;
   while (verification.verificationPending) {
     const response = await request(`${assetUrl}?multipart=verify&uploadId=${encodeURIComponent(uploadId)}`, { method: "POST", body: "{}" });
@@ -116,7 +116,7 @@ try {
     verificationSteps++;
     assert.ok(verificationSteps <= 3);
   }
-  assert.equal(verificationSteps, 2);
+  assert.equal(verificationSteps, 0);
   const head = await request(assetUrl, { method: "HEAD" });
   assert.equal(head.headers.get("x-content-verified"), "true");
   assert.equal(head.headers.get("x-content-sha256"), hash);

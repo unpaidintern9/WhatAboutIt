@@ -162,8 +162,8 @@ jobs:
 
           # Exercise the same R2 multipart route used for long recordings.
           TEMP_DIR="$(mktemp -d)"
-          dd if=/dev/zero of="$TEMP_DIR/part-1.bin" bs=1M count=5 status=none
-          dd if=/dev/zero of="$TEMP_DIR/part-2.bin" bs=1M count=4 status=none
+          dd if=/dev/zero of="$TEMP_DIR/part-1.bin" bs=1M count=28 status=none
+          dd if=/dev/zero of="$TEMP_DIR/part-2.bin" bs=1M count=5 status=none
           printf 'whataboutit-multipart-%s' "$GITHUB_RUN_ID" >> "$TEMP_DIR/part-2.bin"
           MULTIPART_HASH="$(cat "$TEMP_DIR/part-1.bin" "$TEMP_DIR/part-2.bin" | sha256sum | cut -d' ' -f1)"
           MULTIPART_URL="$SERVICE_URL/episodes/$CANARY_EPISODE/assets/$MULTIPART_ASSET"

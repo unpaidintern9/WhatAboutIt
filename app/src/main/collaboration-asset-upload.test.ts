@@ -266,6 +266,19 @@ describe("collaboration asset upload", () => {
     expect(checked).toHaveBeenCalledWith(16 * 1024 * 1024);
   });
 
+  it("finishes free-plan verification across many small resumable steps", async () => {
+    const partSize = 5 * 1024 * 1024;
+    const bytes = partSize;
+    let verified = 0;
+    const apiFetch = vi.fn(async () => {
+      verified = Math.min(bytes, verified + 256 * 1024);
+      return Response.json({ ok: verified === bytes, verificationPending: verified < bytes, verifiedBytes: verified }, { status: verified < bytes ? 202 : 200 });
+    });
+    await uploadCollaborationAsset({ apiFetch, pathname: "/episodes/a/assets/program.webm", absolutePath: filePath, bytes, contentType: "video/webm", contentHash: "hash", multipartThresholdBytes: 1, partSizeBytes: partSize,
+      checkpoint: { uploadId: "stored", bytes, contentHash: "hash", partSizeBytes: partSize, parts: [{ partNumber: 1, etag: "stored" }], updatedAt: new Date().toISOString() } });
+    expect(apiFetch).toHaveBeenCalledTimes(20);
+  });
+
   it("accepts a matching remote hash when a final response is ambiguous", async () => {
     await fs.writeFile(filePath, Buffer.from("camera bytes"));
     const apiFetch = vi.fn(async (_pathname: string, init?: RequestInit) => {

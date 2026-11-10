@@ -1,5 +1,5 @@
 import { handleUploadStatus } from "./upload-status.js";
-import { verifyObjectChunk } from "./bounded-verification.js";
+import { verifyStoredObject, CHUNK_BYTES } from "./bounded-verification.js";
 
 const json = (value, status = 200, headers = {}) =>
   new Response(JSON.stringify(value), {
@@ -65,16 +65,6 @@ function cleanSha256(value) {
 
 function hex(buffer) {
   return [...new Uint8Array(buffer)].map((value) => value.toString(16).padStart(2, "0")).join("");
-}
-
-async function hashObject(object) {
-  if (typeof crypto.DigestStream === "undefined") {
-    if (object.size > 8 * 1024 * 1024) throw new Error("Streaming checksum verification is unavailable in this runtime.");
-    return hex(await crypto.subtle.digest("SHA-256", await new Response(object.body).arrayBuffer()));
-  }
-  const digest = new crypto.DigestStream("SHA-256");
-  await object.body.pipeTo(digest);
-  return hex(await digest.digest);
 }
 
 function cleanEpisodeId(value) {
@@ -328,7 +318,7 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const accessKeys = configuredAccessKeys(env);
-    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256", versionedPublication: true, streamingChecksums: true, uploadProgress: true, boundedVerification: true }, 200, cors);
+    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256", versionedPublication: true, streamingChecksums: true, uploadProgress: true, boundedVerification: true, storageChecksums: true, verificationChunkBytes: CHUNK_BYTES }, 200, cors);
     if (accessKeys.length === 0) return json({ error: "Collaboration authentication is not configured." }, 503, cors);
     const identity = await authorizedIdentity(request, env);
     if (!identity) return json({ error: "Unauthorized" }, 401, cors);
@@ -525,22 +515,13 @@ export default {
           const receiptObject = await env.EPISODE_MEDIA.get(`verification/${key}`);
           const receipt = receiptObject ? await receiptObject.json() : undefined;
           if (receipt?.etag === object.httpEtag && receipt.sha256 === expectedHash) return json({ ok: true, key, etag: object.httpEtag }, 200, cors);
-          if (bounded) {
-            const verification = await verifyObjectChunk(env.EPISODE_MEDIA, key, object, expectedHash);
-            if (verification.mismatch) return json({ error: "Uploaded bytes did not match the declared SHA-256 checksum.", code: "checksum-mismatch" }, 422, cors);
-            return json({ ok: verification.verified, key, etag: object.httpEtag, verificationPending: !verification.verified, verifiedBytes: verification.verifiedBytes, totalBytes: verification.totalBytes }, verification.verified ? 200 : 202, cors);
-          }
-          const stored = await env.EPISODE_MEDIA.get(key);
-          if (!stored) throw new Error("Completed object could not be verified.");
-          const actualHash = await hashObject(stored);
-          if (actualHash !== expectedHash) {
-            await env.EPISODE_MEDIA.delete(key);
-            logEvent("error", "checksum-mismatch", { identity, key, expectedHash, actualHash });
+          const verification = await verifyStoredObject(env.EPISODE_MEDIA, key, object, expectedHash, bounded);
+          if (verification.updateRequired) return json({ error: "Update What About It Studio to finish resumable checksum verification of files larger than 5 GiB.", code: "studio-update-required" }, 409, cors);
+          if (verification.mismatch) {
+            if (!key.includes("/objects/")) await env.EPISODE_MEDIA.delete(key);
             return json({ error: "Uploaded bytes did not match the declared SHA-256 checksum.", code: "checksum-mismatch" }, 422, cors);
           }
-          await env.EPISODE_MEDIA.put(`verification/${key}`, JSON.stringify({ sha256: actualHash, etag: stored.httpEtag, size: stored.size }));
-          logEvent("log", "multipart-verified", { identity, key, sha256: actualHash });
-          return json({ ok: true, key, etag: object.httpEtag }, 200, cors);
+          return json({ ok: verification.verified, key, etag: verification.etag, verificationPending: !verification.verified, verifiedBytes: verification.verifiedBytes, totalBytes: verification.totalBytes }, verification.verified ? 200 : 202, cors);
         } catch (error) {
           return multipartStorageFailure(error, cors);
         }
