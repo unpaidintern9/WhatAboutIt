@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { getCollaborationRemoteConfig, acquireCollaborationEditorLease } from "./collaboration-remote-service";
-import { pullLatestProjectChanges, assertProjectRevisionCurrent, pushProjectChanges } from "./collaboration-project-sync";
+import { pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
 import { readPendingProjectSave } from "./local-project-save";
 import { setCapturePriority } from "./media-work-scheduler";
 import { applyTimelineEdit, createTimelineDraft, selectTimelinePoint } from "../shared/timeline";
@@ -26,7 +26,6 @@ vi.mock("./collaboration-remote-service", () => ({
 
 vi.mock("./collaboration-project-sync", () => ({
   pullLatestProjectChanges: vi.fn(async () => ({ changed: 0 })),
-  assertProjectRevisionCurrent: vi.fn(async () => undefined),
   pushProjectChanges: vi.fn(async () => undefined)
 }));
 
@@ -43,7 +42,6 @@ describe("timeline store", () => {
   beforeEach(async () => {
     vi.mocked(getCollaborationRemoteConfig).mockResolvedValue({ apiUrl: undefined, personId: "morgan-owner", accessKeyConfigured: false });
     vi.mocked(pullLatestProjectChanges).mockClear();
-    vi.mocked(assertProjectRevisionCurrent).mockReset();
     vi.mocked(pushProjectChanges).mockReset();
     vi.mocked(acquireCollaborationEditorLease).mockReset();
     mockPaths.episodesRoot = await fs.mkdtemp(path.join(os.tmpdir(), "wai-timeline-"));
@@ -178,7 +176,7 @@ describe("timeline store", () => {
     await expect(saveTimelineDraft("upload", draftFor("upload"))).resolves.toMatchObject({ hasUnsavedChanges: false });
     await syncSavedTimelineInBackground("upload");
     expect(await readPendingProjectSave("upload")).toBeTruthy();
-    expect(assertProjectRevisionCurrent).toHaveBeenCalledWith("upload");
+    expect(pushProjectChanges).toHaveBeenCalledWith("upload");
   });
 
   it("saves locally during capture and defers cloud checks until capture ends", async () => {

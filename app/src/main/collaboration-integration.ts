@@ -17,10 +17,9 @@ import {
   listCloudEpisodes,
   releaseCollaborationEditorLease,
   sendCollaborationPresence,
-  setCollaborationRemoteConfig,
-  uploadEpisodeToCloud
+  setCollaborationRemoteConfig
 } from "./collaboration-remote-service";
-import { getProjectSyncStatus, markProjectMaterialized, pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
+import { getProjectSyncStatus, markProjectMaterialized, publishEpisodeToCloud, pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
 import { openCollaborationPresenceWindow } from "./collaboration-presence-window";
 import { openCollaborationWindow } from "./collaboration-window";
 
@@ -174,9 +173,7 @@ export function configureCollaboration(preloadPath: string) {
     activeCloudTransfers.set(operationId, controller);
     const onProgress = (progress: CollaborationTransferProgress) => event.sender.send("collaboration:cloud:progress", progress);
     try {
-      const result = await uploadEpisodeToCloud(episode, payload.selection ?? "full-backup", { operationId, signal: controller.signal, onProgress });
-      await markProjectMaterialized(episode.id).catch(() => undefined);
-      return result;
+      return await publishEpisodeToCloud(episode, payload.selection ?? "full-backup", { operationId, signal: controller.signal, onProgress });
     } finally {
       activeCloudTransfers.delete(operationId);
     }

@@ -4,7 +4,7 @@ import type { TimelineDraft } from "../shared/timeline";
 import { compactTimelineDraftForPersistence, markTimelineSaved } from "../shared/timeline";
 import { getEpisodesRoot } from "./config-service";
 import { acquireCollaborationEditorLease, getCollaborationRemoteConfig, sendCollaborationPresence } from "./collaboration-remote-service";
-import { assertProjectRevisionCurrent, pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
+import { pullLatestProjectChanges, pushProjectChanges } from "./collaboration-project-sync";
 import { logger } from "./logger";
 import { renameWithRetry } from "./durable-file";
 import { withLocalProjectSave, markProjectSavePending, readPendingProjectSave, clearPendingProjectSave } from "./local-project-save";
@@ -27,7 +27,6 @@ export function syncSavedTimelineInBackground(episodeId: string) {
         if (collaboration.activeEditor && collaboration.activeEditor.memberId !== collaboration.self.memberId) {
           throw new Error(`${collaboration.activeEditor.displayName} is editing the shared episode. Your local draft is safe; cloud sync is waiting.`);
         }
-        await assertProjectRevisionCurrent(episodeId);
         await waitForMediaBudget();
         await pushProjectChanges(episodeId);
       }

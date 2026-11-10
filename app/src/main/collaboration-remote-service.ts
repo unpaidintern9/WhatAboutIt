@@ -349,8 +349,8 @@ async function mapWithConcurrency<T, R>(items: T[], concurrency: number, task: (
 export async function uploadEpisodeToCloud(
   episode: EpisodeMetadata,
   selection: CollaborationUploadSelection = "full-backup",
-  options: CollaborationTransferOptions = {}
-): Promise<CollaborationSyncResult> {
+  options: CollaborationTransferOptions & { expectedRevision?: { revisionId?: string; uploadedAt?: string } } = {}
+): Promise<{ manifest: CloudEpisodeManifest; result: CollaborationSyncResult }> {
   const config = await readConfig();
   if (!config.apiUrl) throw new Error("Connect the What About It collaboration service before uploading.");
   const operationId = options.operationId ?? crypto.randomUUID();
@@ -358,8 +358,9 @@ export async function uploadEpisodeToCloud(
   let existingAssets = [] as CloudEpisodeManifest["assets"];
   const existingResponse = await requestCollaborationWithRetry(
     "read cloud episode manifest",
-    () => apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`),
+    () => apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`, { cache: "no-store", signal: options.signal }),
     {
+      signal: options.signal,
       onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest read failure.", { episodeId: episode.id, ...event })
     }
   );
@@ -367,8 +368,13 @@ export async function uploadEpisodeToCloud(
   let existingRevisionId: string | undefined;
   if (existingResponse.ok) {
     const existing = (await existingResponse.json()) as CloudEpisodeManifest;
+    const expected = options.expectedRevision;
+    if (expected && (existing.revisionId ? existing.revisionId !== expected.revisionId : existing.uploadedAt > (expected.uploadedAt ?? ""))) {
+      throw new Error("Newer project changes are available from Cloudflare. Reopen this episode to apply them before syncing.");
+    }
     existingAssets = Array.isArray(existing.assets) ? existing.assets : [];
     existingEtag = existingResponse.headers.get("etag") ?? undefined;
+    if (!existingEtag) throw new Error("Cloudflare did not return the current episode revision tag. Retry after checking the cloud connection.");
     existingRevisionId = existing.revisionId;
   } else if (existingResponse.status !== 404) {
     throw new Error(`Could not read the existing cloud episode manifest (${existingResponse.status}).`);
@@ -503,18 +509,21 @@ export async function uploadEpisodeToCloud(
   );
   if (!manifestResponse.ok) {
     const body = (await manifestResponse.json().catch(() => ({}))) as { error?: string };
-    if (manifestResponse.status === 412) throw new Error("Another computer published this episode while the upload was running. Reopen the episode to receive those changes, then retry the upload.");
+    if (manifestResponse.status === 412) throw new Error("The cloud episode changed while the upload was running. Reopen the episode to receive those changes, then retry the upload.");
     throw new Error(body.error || `Could not save the cloud episode manifest (${manifestResponse.status}).`);
   }
   await recordCollaborationUploadComplete(episode.folderPath, episode.id, episode.title, selectedAssets.map((asset) => asset.id));
   await report("complete", "Cloudflare upload is complete and verified.");
 
   return {
-    episodeId: episode.id,
-    uploadedAssets,
-    skippedAssets,
-    totalBytes: uploadedBytes,
-    message: uploadedAssets > 0 ? `Uploaded ${uploadedAssets} changed episode files. ${skippedAssets} unchanged files stayed in Cloudflare.` : "Cloudflare already has the current episode files."
+    manifest,
+    result: {
+      episodeId: episode.id,
+      uploadedAssets,
+      skippedAssets,
+      totalBytes: uploadedBytes,
+      message: uploadedAssets > 0 ? `Uploaded ${uploadedAssets} changed episode files. ${skippedAssets} unchanged files stayed in Cloudflare.` : "Cloudflare already has the current episode files."
+    }
   };
   } finally {
     await fs.rm(snapshotFolder, { recursive: true, force: true });

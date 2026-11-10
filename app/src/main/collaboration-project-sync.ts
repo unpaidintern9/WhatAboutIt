@@ -3,11 +3,12 @@ import { createReadStream } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import type { CloudEpisodeManifest, CollaborationProjectSyncStatus } from "../shared/collaboration";
+import type { CloudEpisodeManifest, CollaborationProjectSyncStatus, CollaborationUploadSelection } from "../shared/collaboration";
 import { isProjectCollaborationAsset } from "../shared/collaboration";
 import type { EpisodeMetadata } from "../shared/types";
 import { getEpisodesRoot } from "./config-service";
 import { fetchCollaborationApi, getCollaborationRemoteConfig, uploadEpisodeToCloud } from "./collaboration-remote-service";
+import type { CollaborationTransferOptions } from "./collaboration-remote-service";
 
 import { readPendingProjectSave } from "./local-project-save";
 
@@ -16,6 +17,33 @@ interface ProjectSyncMarker {
   remoteUploadedAt?: string;
   remoteRevisionId?: string;
   syncedAt: string;
+}
+
+const cloudPublishes = new Map<string, Promise<unknown>>();
+
+export async function publishEpisodeToCloud(episode: EpisodeMetadata, selection: CollaborationUploadSelection, options: CollaborationTransferOptions = {}) {
+  const previous = cloudPublishes.get(episode.id);
+  // A background project save and a manual media sync share one cloud revision.
+  // Queue them without blocking durable local saves or uploads of other episodes.
+  const task = Promise.resolve(previous).catch(() => undefined).then(async () => {
+    options.signal?.throwIfAborted();
+    const marker = await readMarker(episode.id);
+    const { manifest, result } = await uploadEpisodeToCloud(episode, selection, {
+      ...options,
+      expectedRevision: marker?.remoteRevisionId || marker?.remoteUploadedAt ? {
+        revisionId: marker.remoteRevisionId,
+        uploadedAt: marker.remoteUploadedAt
+      } : undefined
+    });
+    await writeMarker(episode.id, manifest);
+    return result;
+  });
+  cloudPublishes.set(episode.id, task);
+  try {
+    return await task;
+  } finally {
+    if (cloudPublishes.get(episode.id) === task) cloudPublishes.delete(episode.id);
+  }
 }
 
 function markerPath(episodeId: string) {
@@ -51,7 +79,7 @@ async function apiFetch(pathname: string, init?: RequestInit) {
 }
 
 async function getRemoteManifest(episodeId: string): Promise<CloudEpisodeManifest | undefined> {
-  const response = await apiFetch(`/episodes/${encodeURIComponent(episodeId)}/manifest`);
+  const response = await apiFetch(`/episodes/${encodeURIComponent(episodeId)}/manifest`, { cache: "no-store" });
   if (!response || response.status === 404) return undefined;
   if (!response.ok) throw new Error(`Could not read cloud project state (${response.status}).`);
   return response.json() as Promise<CloudEpisodeManifest>;
@@ -169,29 +197,12 @@ export async function pullLatestProjectChanges(episodeId: string) {
   return { changed, remoteUploadedAt: manifest.uploadedAt };
 }
 
-/** Refuses a stale local edit after another computer has published a newer project revision. */
-export async function assertProjectRevisionCurrent(episodeId: string) {
-  const config = await getCollaborationRemoteConfig();
-  if (!config.apiUrl) return;
-  const [marker, manifest] = await Promise.all([readMarker(episodeId), getRemoteManifest(episodeId)]);
-  if (!manifest || (!marker?.remoteUploadedAt && !marker?.remoteRevisionId)) return;
-  const changedRevision = manifest.revisionId
-    ? manifest.revisionId !== marker.remoteRevisionId
-    : manifest.uploadedAt > (marker.remoteUploadedAt ?? "");
-  if (changedRevision) {
-    throw new Error("Newer project changes are available from Cloudflare. Reopen this episode to apply them before editing so no newer work is overwritten.");
-  }
-}
-
 /** Uploads only timeline/comments/captions/markers/metadata after a local project save. */
 export async function pushProjectChanges(episodeId: string) {
   const config = await getCollaborationRemoteConfig();
   if (!config.apiUrl) return undefined;
   const metadata = JSON.parse(await fs.readFile(path.join(episodeFolder(episodeId), "metadata.json"), "utf8")) as EpisodeMetadata;
-  const result = await uploadEpisodeToCloud({ ...metadata, folderPath: episodeFolder(episodeId) }, "project-only");
-  const manifest = await getRemoteManifest(episodeId);
-  await writeMarker(episodeId, manifest);
-  return result;
+  return publishEpisodeToCloud({ ...metadata, folderPath: episodeFolder(episodeId) }, "project-only");
 }
 
 /** Called after a deliberate full cloud materialization so future project pulls are safe. */

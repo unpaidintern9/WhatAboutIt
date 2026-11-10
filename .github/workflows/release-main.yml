@@ -41,24 +41,6 @@ jobs:
           $runPatch = [int]"${{ github.run_number }}"
           $releasePatch = [Math]::Max($sourceVersion.Build, $runPatch)
           npm version "0.2.$releasePatch" --no-git-tag-version --allow-same-version
-      - name: Prepare What About It collaboration bootstrap
-        shell: pwsh
-        env:
-          WHATABOUTIT_COLLAB_ACCESS_KEY: ${{ secrets.WHATABOUTIT_MORGAN_ACCESS_KEY || secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
-        run: |
-          if ([string]::IsNullOrWhiteSpace($env:WHATABOUTIT_COLLAB_ACCESS_KEY)) {
-            throw "WHATABOUTIT_MORGAN_ACCESS_KEY is required to publish Morgan's connected What About It installer."
-          }
-          New-Item -ItemType Directory -Force -Path build | Out-Null
-          $bootstrap = [ordered]@{
-            apiUrl = "https://whataboutit-collab.whataboutit-collab.workers.dev"
-            accessKey = $env:WHATABOUTIT_COLLAB_ACCESS_KEY
-            personId = "morgan-owner"
-          }
-          $bootstrap | ConvertTo-Json -Compress | Set-Content -Path build/collaboration-bootstrap.json -NoNewline -Encoding utf8
-          $verify = Get-Content build/collaboration-bootstrap.json -Raw | ConvertFrom-Json
-          if ($verify.apiUrl -ne "https://whataboutit-collab.whataboutit-collab.workers.dev") { throw "Unexpected collaboration URL in bootstrap." }
-          if ([string]::IsNullOrWhiteSpace($verify.accessKey)) { throw "Collaboration bootstrap access key is empty." }
       - name: Create the matching GitHub release tag
         shell: pwsh
         run: |
@@ -74,6 +56,13 @@ jobs:
       - name: Build Windows installer
         shell: pwsh
         run: npx electron-builder --win nsis --publish never
+      - name: Verify the packaged collaboration bootstrap contains only public defaults
+        shell: pwsh
+        run: |
+          $bootstrap = Get-Content release/win-unpacked/resources/collaboration-remote.json -Raw | ConvertFrom-Json -AsHashtable
+          if ($bootstrap.Count -ne 2 -or $bootstrap.apiUrl -cne "https://whataboutit-collab.whataboutit-collab.workers.dev" -or $bootstrap.personId -cne "morgan-owner") {
+            throw "The public installer must contain only the approved collaboration defaults."
+          }
       - name: Publish and verify newest GitHub release assets
         shell: pwsh
         run: |
