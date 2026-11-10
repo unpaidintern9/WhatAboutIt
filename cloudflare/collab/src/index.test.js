@@ -67,7 +67,7 @@ class MemoryR2 {
         let offset = 0;
         chunks.forEach((chunk) => { bytes.set(chunk, offset); offset += chunk.length; });
         const checksum = await crypto.subtle.digest("SHA-256", bytes);
-        bucket.objects.set(key, { bytes, httpMetadata: upload.options.httpMetadata ?? {}, customMetadata: upload.options.customMetadata ?? {}, checksum, version: 1 });
+        bucket.objects.set(key, { bytes, httpMetadata: upload.options.httpMetadata ?? {}, customMetadata: upload.options.customMetadata ?? {}, version: 1 });
         bucket.multipartUploads.delete(uploadId);
         return { httpEtag: `\"etag-${key}-1\"` };
       },
@@ -98,7 +98,7 @@ class MemoryR2 {
       body: new Response(bytes).body,
       size: entry.bytes.length,
       range,
-      checksums: { sha256: entry.checksum },
+      checksums: entry.checksum ? { sha256: entry.checksum } : {},
       httpMetadata: entry.httpMetadata,
       customMetadata: entry.customMetadata,
       httpEtag: `\"etag-${key}-${entry.version ?? 1}\"`,
@@ -109,7 +109,7 @@ class MemoryR2 {
   async head(key) {
     const entry = this.objects.get(key);
     if (!entry) return null;
-    return { size: entry.bytes.length, customMetadata: entry.customMetadata, checksums: { sha256: entry.checksum }, httpEtag: `\"etag-${key}-${entry.version ?? 1}\"` };
+    return { size: entry.bytes.length, customMetadata: entry.customMetadata, checksums: entry.checksum ? { sha256: entry.checksum } : {}, httpEtag: `\"etag-${key}-${entry.version ?? 1}\"` };
   }
   async delete(key) { this.objects.delete(key); }
   async list({ prefix = "" } = {}) {
@@ -442,4 +442,83 @@ test("multipart completion recovers a stored object after a lost completion resp
   }
   const head = await worker.fetch(request(path, { method: "HEAD" }), env);
   assert.equal(head.headers.get("x-content-verified"), "true");
+});
+
+
+test("R2 streaming verification preserves bytes and metadata and reuses native checksums", async () => {
+  const { verifyStoredObject } = await import("./bounded-verification.js");
+  const bucket = new MemoryR2();
+  const bytes = "recording audio and video";
+  const expected = await sha256(bytes);
+  await bucket.put("file", bytes, { customMetadata: { sha256: expected, recordedAt: "today" }, httpMetadata: { contentType: "video/webm" } });
+  bucket.objects.get("file").checksum = undefined;
+  const original = await bucket.head("file");
+  const verified = await verifyStoredObject(bucket, "file", original, expected, false);
+  assert.equal(verified.verified, true);
+  assert.notEqual(verified.etag, original.httpEtag);
+  const stored = await bucket.get("file");
+  assert.equal(await new Response(stored.body).text(), bytes);
+  assert.equal(stored.httpMetadata.contentType, "video/webm");
+  assert.equal(stored.customMetadata.recordedAt, "today");
+  assert.equal((await (await bucket.get("verification/file")).json()).etag, verified.etag);
+  const again = await verifyStoredObject(bucket, "file", await bucket.head("file"), expected, true);
+  assert.equal(again.etag, verified.etag);
+});
+
+test("R2 rejects corrupt assembled bytes without deleting versioned media or writing a receipt", async () => {
+  const { verifyStoredObject } = await import("./bounded-verification.js");
+  const bucket = new MemoryR2();
+  await bucket.put("file", "corrupt bytes", { customMetadata: { sha256: "0".repeat(64) } });
+  bucket.objects.get("file").checksum = undefined;
+  const original = await bucket.head("file");
+  assert.equal((await verifyStoredObject(bucket, "file", original, "0".repeat(64), true)).mismatch, true);
+  assert.equal((await bucket.head("file")).httpEtag, original.httpEtag);
+  assert.equal(await bucket.get("verification/file"), null);
+});
+
+test("files above the native write limit require resumable verification and hash only 256 KiB", async () => {
+  const { verifyStoredObject, CHUNK_BYTES } = await import("./bounded-verification.js");
+  const bucket = new MemoryR2();
+  await bucket.put("file", new Uint8Array(CHUNK_BYTES), { customMetadata: { sha256: "0".repeat(64) } });
+  bucket.objects.get("file").checksum = undefined;
+  const large = { ...await bucket.head("file"), size: 5 * 1024 ** 3 + 1 };
+  assert.equal((await verifyStoredObject(bucket, "file", large, "0".repeat(64), false)).updateRequired, true);
+  assert.equal(await bucket.get("verification/file"), null);
+  const first = await verifyStoredObject(bucket, "file", large, "0".repeat(64), true);
+  assert.equal(first.verified, false);
+  assert.equal(first.verifiedBytes, 256 * 1024);
+  assert.equal(await bucket.get("verification/file"), null);
+});
+
+test("a concurrent R2 version cannot be overwritten by checksum verification", async () => {
+  const { verifyStoredObject } = await import("./bounded-verification.js");
+  const bucket = new MemoryR2();
+  const expected = await sha256("original");
+  await bucket.put("file", "original", { customMetadata: { sha256: expected } });
+  bucket.objects.get("file").checksum = undefined;
+  const original = await bucket.head("file");
+  const put = bucket.put.bind(bucket);
+  bucket.put = async (key, body, options) => {
+    if (key === "file") await put(key, "concurrent recording");
+    return put(key, body, options);
+  };
+  await assert.rejects(verifyStoredObject(bucket, "file", original, expected, true), /changed during verification/);
+  assert.equal(await new Response((await bucket.get("file")).body).text(), "concurrent recording");
+  assert.equal(await bucket.get("verification/file"), null);
+});
+
+
+test("default free-plan SHA-256 steps resume across block boundaries and verify the entire file", async () => {
+  const { verifyObjectChunk, CHUNK_BYTES } = await import("./bounded-verification.js");
+  const bucket = new MemoryR2();
+  const bytes = Uint8Array.from({ length: CHUNK_BYTES * 8 + 7 }, (_, i) => (i * 31 + 7) % 256);
+  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(b => b.toString(16).padStart(2, "0")).join("");
+  await bucket.put("file", bytes);
+  const head = await bucket.head("file");
+  for (let step = 1; step <= 9; step++) {
+    const result = await verifyObjectChunk(bucket, "file", head, hash);
+    assert.equal(result.verifiedBytes, Math.min(bytes.length, step * CHUNK_BYTES));
+    assert.equal(result.verified, step === 9);
+  }
+  assert.equal((await (await bucket.get("verification/file")).json()).sha256, hash);
 });

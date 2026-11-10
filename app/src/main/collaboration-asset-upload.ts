@@ -311,7 +311,7 @@ async function uploadMultipart(options: UploadOptions) {
     let verificationSteps = 0;
     while (verification.verificationPending) {
       const checked = verification.verifiedBytes;
-      if (typeof checked !== "number" || !Number.isSafeInteger(checked) || checked <= verifiedBytes || checked > options.bytes || ++verificationSteps > Math.ceil(options.bytes / (16 * 1024 * 1024)) + 2) throw new Error("Cloud checksum verification stopped advancing. Retry the upload to resume verification.");
+      if (typeof checked !== "number" || !Number.isSafeInteger(checked) || checked <= verifiedBytes || checked > options.bytes || ++verificationSteps > Math.ceil(options.bytes / (256 * 1024)) + 2) throw new Error("Cloud checksum verification stopped advancing. Retry the upload to resume verification.");
       verifiedBytes = checked;
       await options.onVerificationProgress?.(checked);
       const response = await requestCollaborationWithRetry("verify completed upload", () => options.apiFetch(`${options.pathname}?multipart=verify&uploadId=${encodeURIComponent(uploadId)}`, { method: "POST", signal: options.signal, body: "{}" }), options);
