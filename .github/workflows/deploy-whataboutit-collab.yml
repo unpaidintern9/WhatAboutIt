@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "cloudflare/collab/**"
+      - ".github/whataboutit-recovery.json"
       - ".github/workflows/deploy-whataboutit-collab.yml"
   workflow_dispatch:
     inputs:
@@ -203,3 +204,9 @@ jobs:
           echo "R2 bucket: $WHATABOUTIT_BUCKET"
           echo "Service URL: $SERVICE_URL"
           echo "Account is sourced only from WHATABOUTIT_CLOUDFLARE_ACCOUNT_ID."
+
+      - name: Recover a reviewed completed backup publication when requested
+        env:
+          WHATABOUTIT_MORGAN_ACCESS_KEY: ${{ secrets.WHATABOUTIT_MORGAN_ACCESS_KEY }}
+          WHATABOUTIT_LEGACY_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
+        run: node scripts/recover-upload.mjs

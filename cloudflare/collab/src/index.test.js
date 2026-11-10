@@ -522,3 +522,71 @@ test("default free-plan SHA-256 steps resume across block boundaries and verify 
   }
   assert.equal((await (await bucket.get("verification/file")).json()).sha256, hash);
 });
+
+test("logical parent revisions tolerate a transformed transport ETag but reject real competing edits", async () => {
+  const env = makeEnv();
+  const manifest = { version: 1, revisionId: "base", episode: { id: "logical", title: "Episode", createdAt: "2026-11-10T00:00:00Z", updatedAt: "2026-11-10T00:00:00Z" }, uploadedAt: "2026-11-10T00:00:00Z", assets: [], collaborationStatus: "working" };
+  assert.equal((await worker.fetch(request("/episodes/logical/manifest", { method: "PUT", body: JSON.stringify(manifest), headers: { "if-none-match": "*" } }), env)).status, 200);
+  const read = await worker.fetch(request("/episodes/logical/manifest"), env);
+  assert.equal(read.headers.get("cache-control"), "no-store, no-transform");
+  const next = { ...manifest, revisionId: "next", parentRevisionId: "base" };
+  assert.equal((await worker.fetch(request("/episodes/logical/manifest", { method: "PUT", body: JSON.stringify(next), headers: { "if-match": `W/${read.headers.get("etag")}` } }), env)).status, 200);
+  assert.equal((await worker.fetch(request("/episodes/logical/manifest", { method: "PUT", body: JSON.stringify(next), headers: { "if-match": `W/${read.headers.get("etag")}` } }), env)).status, 200, "A lost successful response must be recoverable by replaying the identical publication");
+  const current = await worker.fetch(request("/episodes/logical/manifest"), env);
+  const stale = { ...manifest, revisionId: "stale", parentRevisionId: "base" };
+  assert.equal((await worker.fetch(request("/episodes/logical/manifest", { method: "PUT", body: JSON.stringify(stale), headers: { "if-match": current.headers.get("etag") } }), env)).status, 412);
+  assert.equal((await (await worker.fetch(request("/episodes/logical/manifest"), env)).json()).revisionId, "next");
+});
+
+async function pendingBackup() {
+  const env = makeEnv();
+  const episodeId = "recover-publish", operationId = "completed-transfer";
+  const bytes = "verified recording";
+  const hash = await sha256(bytes);
+  const asset = { id: "video", kind: "program-video", relativePath: "Program/program.webm", cloudPath: `episodes/${episodeId}/objects/backup/program.webm`, contentHash: hash, bytes: bytes.length };
+  await worker.fetch(request(`/episodes/${episodeId}/assets/objects%2Fbackup%2Fprogram.webm`, { method: "PUT", body: bytes, headers: { "x-content-sha256": hash } }), env);
+  const base = { version: 1, revisionId: "base", episode: { id: episodeId, title: "Episode" }, collaborationStatus: "working", assets: [] };
+  await worker.fetch(request(`/episodes/${episodeId}/manifest`, { method: "PUT", body: JSON.stringify(base) }), env);
+  const candidate = { ...base, revisionId: "pending", parentRevisionId: "base", uploadOperationId: operationId, assets: [asset] };
+  // A pre-fix failed CAS kept this candidate in history, without an operation index.
+  await env.EPISODE_MEDIA.put(`episode-history/${episodeId}/pending.json`, JSON.stringify(candidate));
+  const status = { operationId, sequence: 1, phase: "error", selection: "full-backup", completedAssets: 1, totalAssets: 1, transferredBytes: bytes.length, totalBytes: bytes.length, eventCount: 1, events: [{ type: "error", message: "Publication failed" }] };
+  await worker.fetch(request(`/episodes/${episodeId}/upload-status`, { method: "PUT", body: JSON.stringify(status) }), env);
+  return { env, candidate, base, url: `/episodes/${episodeId}/upload-recovery?operationId=${operationId}` };
+}
+
+test("server recovery publishes a checksum-verified pending backup without rewriting its media", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  const put = env.EPISODE_MEDIA.put.bind(env.EPISODE_MEDIA);
+  let mediaWrites = 0;
+  env.EPISODE_MEDIA.put = async (key, body, options) => { if (key.includes("/objects/")) mediaWrites++; return put(key, body, options); };
+  assert.equal((await (await worker.fetch(request(url), env)).json()).canRecover, true);
+  const result = await worker.fetch(request(url, { method: "POST" }), env);
+  assert.equal(result.status, 200, await result.clone().text());
+  const body = await result.json();
+  assert.equal(body.status.phase, "complete");
+  assert.equal(body.status.completionPercent, 100);
+  assert.equal(body.status.verification, "manifest-verified");
+  assert.equal(body.status.manifestRevisionId, candidate.revisionId);
+  assert.equal(mediaWrites, 0);
+  assert.equal((await worker.fetch(request(url, { method: "POST" }), env)).status, 200);
+  assert.equal(mediaWrites, 0);
+});
+
+test("recovery preserves another cloud revision and is restricted to the upload owner", async () => {
+  const { env, url, base } = await pendingBackup();
+  await worker.fetch(request("/episodes/recover-publish/manifest", { method: "PUT", body: JSON.stringify({ ...base, revisionId: "other-editor" }) }), env);
+  assert.equal((await worker.fetch(request(url, { method: "POST" }), env)).status, 409);
+  assert.equal((await (await worker.fetch(request("/episodes/recover-publish/manifest"), env)).json()).revisionId, "other-editor");
+  env.WHATABOUTIT_COLLAB_ACCESS_KEYS = JSON.stringify({ "test-user": "test-key-with-at-least-24-characters", other: "other-key-with-at-least-24-characters" });
+  assert.equal((await worker.fetch(request(url, { method: "POST", headers: { "x-whataboutit-key": "other-key-with-at-least-24-characters" } }), env)).status, 403);
+});
+
+test("client completion counters cannot recover missing checksum receipts", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  await env.EPISODE_MEDIA.delete(`verification/${candidate.assets[0].cloudPath}`);
+  const response = await worker.fetch(request(url, { method: "POST" }), env);
+  assert.equal(response.status, 400, await response.clone().text());
+  assert.equal((await (await worker.fetch(request("/episodes/recover-publish/upload-status"), env)).json()).phase, "error");
+  assert.equal((await (await worker.fetch(request("/episodes/recover-publish/manifest"), env)).json()).revisionId, "base");
+});

@@ -1,4 +1,4 @@
-import { handleUploadStatus } from "./upload-status.js";
+import { handleUploadStatus, completeRecoveredUpload } from "./upload-status.js";
 import { verifyStoredObject, CHUNK_BYTES } from "./bounded-verification.js";
 
 const json = (value, status = 200, headers = {}) =>
@@ -11,6 +11,49 @@ const PRESENCE_TTL_MS = 45_000;
 const EDITOR_LEASE_MS = 30_000;
 const MAX_MANIFEST_ASSETS = 2_000;
 const MAX_MANIFEST_BYTES = 2 * 1024 * 1024;
+const uploadIdPattern = /^[A-Za-z0-9_-]{1,80}$/;
+
+async function verifyManifestAssets(bucket, episodeId, assets) {
+          for (const asset of assets) {
+            const prefix = `episodes/${episodeId}/`;
+            if (!asset.cloudPath?.startsWith(prefix + "objects/")) continue;
+            const relative = asset.cloudPath.slice(prefix.length);
+            const objectKey = episodeAssetKey(episodeId, relative);
+            const [object, receiptObject] = await Promise.all([
+              bucket.head(objectKey), bucket.get(`verification/${objectKey}`)
+            ]);
+            const receipt = receiptObject ? await receiptObject.json() : undefined;
+            if (!object || !receipt || receipt.etag !== object.httpEtag || receipt.sha256 !== asset.contentHash || object.size !== asset.bytes) throw new Error(`Asset is not verified: ${asset.relativePath}`);
+          }
+}
+
+async function recoveryState(bucket, episodeId, operationId, identity) {
+  const logObject = await bucket.get(`episodes/${episodeId}/upload-logs/${operationId}.json`);
+  const status = logObject ? await logObject.json() : undefined;
+  if (!status || status.owner !== identity) return { error: "Upload operation is unavailable to this editor.", code: 403 };
+  if (status.selection !== "full-backup" || status.completedAssets !== status.totalAssets || status.transferredBytes !== status.totalBytes) return { error: "The backup still has unfinished file transfers.", code: 409 };
+  const currentObject = await bucket.get(`episodes/${episodeId}/manifest.json`);
+  const current = currentObject ? await currentObject.json() : undefined;
+  let candidate;
+  if (current?.uploadOperationId === operationId) candidate = current;
+  else {
+    const planned = await bucket.get(`upload-candidates/${episodeId}/${operationId}.json`);
+    candidate = planned ? await planned.json() : undefined;
+    if (!candidate) {
+      // Compatibility recovery for uploads made before the operation index existed.
+      const page = await bucket.list({ prefix: `episode-history/${episodeId}/`, limit: 1000 });
+      const recent = page.objects.sort((a, b) => new Date(b.uploaded || 0) - new Date(a.uploaded || 0)).slice(0, 20);
+      for (const entry of recent) {
+        const object = await bucket.get(entry.key);
+        const value = object ? await object.json() : undefined;
+        if (value?.uploadOperationId === operationId) { candidate = value; break; }
+      }
+    }
+  }
+  if (!candidate || candidate.episode?.id !== episodeId || candidate.uploadOperationId !== operationId) return { error: "The pending backup manifest was not found. Its uploaded files were not removed.", code: 404 };
+  const canRecover = current?.revisionId === candidate.revisionId || (candidate.parentRevisionId ? current?.revisionId === candidate.parentRevisionId : !current);
+  return { status, current, currentEtag: currentObject?.httpEtag, candidate, canRecover };
+}
 
 function logEvent(level, event, details = {}) {
   console[level](JSON.stringify({ service: "whataboutit-collab", event, at: new Date().toISOString(), ...details }));
@@ -354,6 +397,32 @@ export default {
       return new Response(response.body, { status: response.status, headers });
     }
 
+    if (suffix === "/upload-recovery" && ["GET", "POST"].includes(request.method)) {
+      try {
+      const operationId = url.searchParams.get("operationId");
+      if (!uploadIdPattern.test(operationId || "")) return json({ error: "A valid upload operation is required." }, 400, cors);
+      const recovery = await recoveryState(env.EPISODE_MEDIA, episodeId, operationId, identity);
+      if (recovery.error) return json({ error: recovery.error }, recovery.code, cors);
+      const { candidate, current } = recovery;
+      const diagnostic = { operationId, phase: recovery.status.phase, verification: recovery.status.verification, canRecover: recovery.canRecover, currentRevisionId: current?.revisionId, pendingRevisionId: candidate.revisionId, expectedParentRevisionId: candidate.parentRevisionId, pendingAssets: candidate.assets.length, pendingBytes: candidate.assets.reduce((total, asset) => total + asset.bytes, 0), currentAssets: current?.assets?.length ?? 0 };
+      if (request.method === "GET") return json(diagnostic, 200, cors);
+      if (!recovery.canRecover) return json({ ...diagnostic, error: "A different cloud revision is present. Recovery preserved the verified backup without overwriting that revision." }, 409, cors);
+      // Re-enter the ordinary publication path: every checksum receipt, size and
+      // compare-and-swap condition is validated again, without retransmitting media.
+      const headers = new Headers({ "content-type": "application/json", ...(recovery.currentEtag ? { "if-match": recovery.currentEtag } : { "if-none-match": "*" }) });
+      const key = request.headers.get("x-whataboutit-key");
+      if (key) headers.set("x-whataboutit-key", key);
+      else headers.set("authorization", request.headers.get("authorization"));
+      const target = new URL(request.url); target.pathname = `/episodes/${encodeURIComponent(episodeId)}/manifest`; target.search = "";
+      if (current?.revisionId !== candidate.revisionId) {
+        const result = await this.fetch(new Request(target, { method: "PUT", headers, body: JSON.stringify(candidate) }), env);
+        if (!result.ok) return result;
+      } else await verifyManifestAssets(env.EPISODE_MEDIA, episodeId, candidate.assets);
+      const status = await completeRecoveredUpload(env.EPISODE_MEDIA, episodeId, operationId, candidate.revisionId, identity);
+      return json({ ok: true, ...diagnostic, status }, 200, cors);
+      } catch (error) { return temporaryStorageFailure(error, cors); }
+    }
+
     if (suffix === "/manifest") {
       const key = `episodes/${episodeId}/manifest.json`;
       if (request.method === "GET") {
@@ -361,6 +430,7 @@ export default {
         if (!object) return json({ error: "Episode is not in the cloud library." }, 404, cors);
         const headers = new Headers(cors);
         headers.set("content-type", object.httpMetadata?.contentType || "application/json; charset=utf-8");
+        headers.set("cache-control", "no-store, no-transform");
         if (object.httpEtag) headers.set("etag", object.httpEtag);
         return new Response(object.body, { headers });
       }
@@ -380,18 +450,7 @@ export default {
             if (!Number.isSafeInteger(bytes) || bytes < 0) throw new Error("Manifest contains an invalid asset size.");
             return { ...asset, relativePath, bytes, contentHash: cleanSha256(asset?.contentHash) };
           });
-          // Versioned objects are published only after a server-verified receipt.
-          for (const asset of assets) {
-            const prefix = `episodes/${episodeId}/`;
-            if (!asset.cloudPath?.startsWith(prefix + "objects/")) continue;
-            const relative = asset.cloudPath.slice(prefix.length);
-            const objectKey = episodeAssetKey(episodeId, relative);
-            const [object, receiptObject] = await Promise.all([
-              env.EPISODE_MEDIA.head(objectKey), env.EPISODE_MEDIA.get(`verification/${objectKey}`)
-            ]);
-            const receipt = receiptObject ? await receiptObject.json() : undefined;
-            if (!object || !receipt || receipt.etag !== object.httpEtag || receipt.sha256 !== asset.contentHash || object.size !== asset.bytes) throw new Error(`Asset is not verified: ${asset.relativePath}`);
-          }
+          await verifyManifestAssets(env.EPISODE_MEDIA, episodeId, assets);
           const manifest = {
             version: 1,
             uploadOperationId: /^[A-Za-z0-9_-]{1,80}$/.test(input?.uploadOperationId || "") ? input.uploadOperationId : undefined,
@@ -414,10 +473,23 @@ export default {
           if (request.headers.has("if-match")) conditionalHeaders.set("if-match", request.headers.get("if-match"));
           if (request.headers.has("if-none-match")) conditionalHeaders.set("if-none-match", request.headers.get("if-none-match"));
           const hasCondition = request.headers.has("if-match") || request.headers.has("if-none-match");
+          if (request.headers.has("if-match") && manifest.parentRevisionId) {
+            const object = await env.EPISODE_MEDIA.get(key);
+            const current = object ? await object.json() : undefined;
+            if (current?.revisionId !== manifest.parentRevisionId && JSON.stringify(current) !== JSON.stringify(manifest)) {
+              if (manifest.uploadOperationId) await env.EPISODE_MEDIA.put(`upload-candidates/${episodeId}/${manifest.uploadOperationId}.json`, JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" } });
+              return json({ error: "The cloud episode changed before this manifest could be saved.", code: "revision-conflict" }, 412, cors);
+            }
+            // HTTP compression can weaken a transport ETag. The parent revision
+            // is the editor's logical precondition; use the current strong R2 ETag
+            // only after that exact revision matches, then still write with CAS.
+            conditionalHeaders.set("if-match", object.httpEtag);
+          }
           // Retain revision history for rollback; the current pointer uses compare-and-swap.
           let stored;
           try {
             await env.EPISODE_MEDIA.put(`episode-history/${episodeId}/${encodeURIComponent(manifest.revisionId)}.json`, JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" } });
+            if (manifest.uploadOperationId) await env.EPISODE_MEDIA.put(`upload-candidates/${episodeId}/${manifest.uploadOperationId}.json`, JSON.stringify(manifest), { httpMetadata: { contentType: "application/json" } });
             stored = await env.EPISODE_MEDIA.put(key, JSON.stringify(manifest), {
               httpMetadata: { contentType: "application/json" },
               ...(hasCondition ? { onlyIf: conditionalHeaders } : {})
