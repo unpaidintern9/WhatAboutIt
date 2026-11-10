@@ -137,6 +137,8 @@ describe("collaboration asset upload", () => {
     const bytes = fiveMiB * 2 + 17;
     await fs.writeFile(filePath, Buffer.alloc(bytes, 4));
     const uploadedParts: number[] = [];
+    const progressBytes: number[] = [];
+    const onResume = vi.fn();
     let completedParts: Array<{ partNumber: number; etag: string }> = [];
     let lastCheckpoint: MultipartUploadCheckpoint | undefined;
     const checkpoint: MultipartUploadCheckpoint = {
@@ -173,10 +175,15 @@ describe("collaboration asset upload", () => {
       multipartThresholdBytes: 1,
       partSizeBytes: fiveMiB,
       checkpoint,
+      onProgress: (bytes) => { progressBytes.push(bytes); },
+      onResume,
       onCheckpoint: (next) => { lastCheckpoint = next; },
       sleep: async () => undefined,
     });
 
+    expect(progressBytes[0]).toBe(fiveMiB);
+    expect(progressBytes.at(-1)).toBe(bytes);
+    expect(onResume).toHaveBeenCalledWith(fiveMiB);
     expect(uploadedParts.sort()).toEqual([2, 3]);
     expect(completedParts).toEqual([
       { partNumber: 1, etag: "etag-1" },
@@ -235,6 +242,28 @@ describe("collaboration asset upload", () => {
       { uploadId: "upload-new", partNumber: 1 },
       { uploadId: "upload-new", partNumber: 2 },
     ]));
+  });
+
+  it("resumes checksum verification after all parts were stored without uploading them again", async () => {
+    const partSize = 5 * 1024 * 1024;
+    const bytes = 17 * 1024 * 1024 + 1;
+    await fs.writeFile(filePath, Buffer.alloc(1));
+    await fs.truncate(filePath, bytes);
+    const calls: string[] = [];
+    const checked = vi.fn();
+    const apiFetch = vi.fn(async (pathname: string) => {
+      const action = new URL(pathname, "https://collab.test").searchParams.get("multipart")!;
+      calls.push(action);
+      if (action === "complete") return Response.json({ verificationPending: true, verifiedBytes: 16 * 1024 * 1024 }, { status: 202 });
+      if (action === "verify") return Response.json({ ok: true, verifiedBytes: bytes });
+      throw new Error("Already stored parts must not be uploaded again.");
+    });
+    await uploadCollaborationAsset({ apiFetch, pathname: "/episodes/a/assets/program.webm", absolutePath: filePath, bytes, contentType: "video/webm", contentHash: "hash", multipartThresholdBytes: 1, partSizeBytes: partSize,
+      checkpoint: { uploadId: "stored-upload", bytes, contentHash: "hash", partSizeBytes: partSize, parts: [1, 2, 3, 4].map(partNumber => ({ partNumber, etag: `part-${partNumber}` })), updatedAt: new Date().toISOString() },
+      onVerificationProgress: checked
+    });
+    expect(calls).toEqual(["complete", "verify"]);
+    expect(checked).toHaveBeenCalledWith(16 * 1024 * 1024);
   });
 
   it("accepts a matching remote hash when a final response is ambiguous", async () => {

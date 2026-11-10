@@ -28,6 +28,7 @@ import { recordCollaborationDownloadComplete, recordCollaborationUploadComplete,
 import { logger } from "./logger";
 import { runBoundedTasks } from "./bounded-task-pool";
 import { prepareCollaborationUploadSources } from "./collaboration-upload-snapshot";
+import { createUploadProgressReporter } from "./collaboration-upload-progress";
 
 type RemoteConfig = {
   apiUrl?: string;
@@ -351,6 +352,39 @@ export async function uploadEpisodeToCloud(
   selection: CollaborationUploadSelection = "full-backup",
   options: CollaborationTransferOptions & { expectedRevision?: { revisionId?: string; uploadedAt?: string } } = {}
 ): Promise<{ manifest: CloudEpisodeManifest; result: CollaborationSyncResult }> {
+  const operationId = options.operationId ?? crypto.randomUUID();
+  let latest: CollaborationTransferProgress = { operationId, episodeId: episode.id, direction: "upload", phase: "preparing", completedAssets: 0, totalAssets: 0, transferredBytes: 0, totalBytes: 0, message: "Preparing upload." };
+  const reporter = createUploadProgressReporter({
+    selection,
+    send: async (body) => {
+      if (selection === "project-only") return;
+      const response = await apiFetch(`/episodes/${encodeURIComponent(episode.id)}/upload-status`, { method: "PUT", body: JSON.stringify(body), signal: AbortSignal.timeout(5000) });
+      if (!response.ok) throw new Error("Cloud progress is unavailable.");
+      await response.body?.cancel();
+    },
+    onUnavailable: () => logger.warning("CollaborationUpload", "Cloud progress could not be updated; the media transfer continues.", { episodeId: episode.id, operationId })
+  });
+  try {
+    return await uploadEpisodeFiles(episode, selection, { ...options, operationId, reporter, onProgress: async (progress) => {
+      latest = progress;
+      reporter.update(progress);
+      await options.onProgress?.(progress);
+    } });
+  } catch (error) {
+    latest = { ...latest, phase: options.signal?.aborted ? "cancelled" : "error", message: options.signal?.aborted ? "Upload cancelled. Completed parts are retained for resume." : error instanceof Error ? error.message : "Upload failed." };
+    reporter.update(latest);
+    await options.onProgress?.(latest);
+    throw error;
+  } finally {
+    await reporter.close();
+  }
+}
+
+async function uploadEpisodeFiles(
+  episode: EpisodeMetadata,
+  selection: CollaborationUploadSelection,
+  options: CollaborationTransferOptions & { expectedRevision?: { revisionId?: string; uploadedAt?: string }; reporter: ReturnType<typeof createUploadProgressReporter> }
+): Promise<{ manifest: CloudEpisodeManifest; result: CollaborationSyncResult }> {
   const config = await readConfig();
   if (!config.apiUrl) throw new Error("Connect the What About It collaboration service before uploading.");
   const operationId = options.operationId ?? crypto.randomUUID();
@@ -361,7 +395,7 @@ export async function uploadEpisodeToCloud(
     () => apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`, { cache: "no-store", signal: options.signal }),
     {
       signal: options.signal,
-      onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest read failure.", { episodeId: episode.id, ...event })
+      onRetry: (event) => { options.reporter.event("retry", event.operation, undefined, event.attempt); return logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest read failure.", { episodeId: episode.id, ...event }); }
     }
   );
   let existingEtag: string | undefined;
@@ -427,6 +461,9 @@ export async function uploadEpisodeToCloud(
     if (await remoteAssetMatches(episode.id, asset.relativePath, asset.contentHash, asset.cloudPath)) {
       await setUploadCheckpoint(episode.id, asset.relativePath, undefined);
       completedAssets += 1;
+      assetProgress.set(asset.id, asset.bytes ?? 0);
+      transferredBytes = [...assetProgress.values()].reduce((total, value) => total + value, 0);
+      options.reporter.event("reused", "Existing cloud copy passed verification.", asset.relativePath);
       await report("transferring", `Verified ${completedAssets} of ${selectedAssets.length} files.`, asset.relativePath);
       return { uploaded: 0, skipped: 1, bytes: 0 };
     }
@@ -442,17 +479,25 @@ export async function uploadEpisodeToCloud(
         contentHash: asset.contentHash,
         signal: options.signal,
         onProgress: async (assetBytes) => {
-          transferredBytes = Math.min(totalBytes, transferredBytes + Math.max(0, assetBytes - (assetProgress.get(asset.id) ?? 0)));
           assetProgress.set(asset.id, assetBytes);
+          transferredBytes = Math.min(totalBytes, [...assetProgress.values()].reduce((total, value) => total + value, 0));
           await report("transferring", `Uploading ${asset.relativePath}`, asset.relativePath);
         },
         checkpoint: await getUploadCheckpoint(episode.id, asset.relativePath),
         onCheckpoint: (checkpoint) => setUploadCheckpoint(episode.id, asset.relativePath, checkpoint),
-        onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud upload failure.", {
+        onResume: (bytes) => options.reporter.event("resumed", `Resuming after ${bytes} bytes from saved part receipts.`, asset.relativePath),
+        onVerificationProgress: (verifiedBytes) => {
+          options.reporter.event("verification", `${verifiedBytes} of ${bytes} bytes checked.`, asset.relativePath);
+          return report("verifying", `Verifying ${asset.relativePath}: ${verifiedBytes} of ${bytes} bytes checked.`, asset.relativePath);
+        },
+        onRetry: (event) => {
+          options.reporter.event("retry", `${event.operation}${event.status ? ` (HTTP ${event.status})` : " (connection interrupted)"}`, asset.relativePath, event.attempt);
+          return logger.warning("CollaborationUpload", "Retrying a temporary cloud upload failure.", {
           episodeId: episode.id,
           relativePath: asset.relativePath,
           ...event
-        })
+          });
+        }
       });
     } catch (error) {
       await logger.error("CollaborationUpload", "Episode asset upload failed.", {
@@ -464,7 +509,10 @@ export async function uploadEpisodeToCloud(
       throw new Error(`Upload failed for ${asset.relativePath}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
     }
     await logger.info("CollaborationUpload", "Episode asset upload completed.", { episodeId: episode.id, relativePath: asset.relativePath, bytes });
+    assetProgress.set(asset.id, bytes);
+    transferredBytes = [...assetProgress.values()].reduce((total, value) => total + value, 0);
     completedAssets += 1;
+    options.reporter.event("file-complete", "File upload and checksum verification completed.", asset.relativePath);
     await report("verifying", `Uploaded and verified ${completedAssets} of ${selectedAssets.length} files.`, asset.relativePath);
     return { uploaded: 1, skipped: 0, bytes };
   });
@@ -480,6 +528,7 @@ export async function uploadEpisodeToCloud(
   selectedAssets.forEach((asset) => mergedByPath.set(asset.relativePath, { ...asset, state: "synced" }));
   const manifest: CloudEpisodeManifest = {
     version: 1,
+    uploadOperationId: operationId,
     revisionId: crypto.randomUUID(),
     parentRevisionId: existingRevisionId,
     episode: {
@@ -496,6 +545,7 @@ export async function uploadEpisodeToCloud(
     uploadedBy: collaborationPeople[config.personId].displayName,
     assets: [...mergedByPath.values()].sort((a, b) => a.relativePath.localeCompare(b.relativePath))
   };
+  await report("committing", "Publishing the verified episode backup.");
   const manifestResponse = await requestCollaborationWithRetry(
     "save cloud episode manifest",
     () => apiFetch(`/episodes/${encodeURIComponent(episode.id)}/manifest`, {
@@ -504,7 +554,7 @@ export async function uploadEpisodeToCloud(
       headers: existingEtag ? { "if-match": existingEtag } : { "if-none-match": "*" }
     }),
     {
-      onRetry: (event) => logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest save failure.", { episodeId: episode.id, ...event })
+      onRetry: (event) => { options.reporter.event("retry", event.operation, undefined, event.attempt); return logger.warning("CollaborationUpload", "Retrying a temporary cloud manifest save failure.", { episodeId: episode.id, ...event }); }
     }
   );
   if (!manifestResponse.ok) {
@@ -513,7 +563,7 @@ export async function uploadEpisodeToCloud(
     throw new Error(body.error || `Could not save the cloud episode manifest (${manifestResponse.status}).`);
   }
   await recordCollaborationUploadComplete(episode.folderPath, episode.id, episode.title, selectedAssets.map((asset) => asset.id));
-  await report("complete", "Cloudflare upload is complete and verified.");
+  await options.onProgress?.({ operationId, episodeId: episode.id, direction: "upload", phase: "complete", completedAssets, totalAssets: selectedAssets.length, transferredBytes, totalBytes, manifestRevisionId: manifest.revisionId, message: "Cloudflare upload is complete and verified." });
 
   return {
     manifest,

@@ -1,3 +1,6 @@
+import { handleUploadStatus } from "./upload-status.js";
+import { verifyObjectChunk } from "./bounded-verification.js";
+
 const json = (value, status = 200, headers = {}) =>
   new Response(JSON.stringify(value), {
     status,
@@ -325,7 +328,7 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const accessKeys = configuredAccessKeys(env);
-    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256", versionedPublication: true, streamingChecksums: true }, 200, cors);
+    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256", versionedPublication: true, streamingChecksums: true, uploadProgress: true, boundedVerification: true }, 200, cors);
     if (accessKeys.length === 0) return json({ error: "Collaboration authentication is not configured." }, 503, cors);
     const identity = await authorizedIdentity(request, env);
     if (!identity) return json({ error: "Unauthorized" }, 401, cors);
@@ -345,6 +348,13 @@ export default {
       return json({ error: error.message }, 400, cors);
     }
     const suffix = match[2] || "";
+
+    if (suffix === "/upload-status") {
+      const result = await handleUploadStatus(request, env.EPISODE_MEDIA, episodeId, identity, accessKeys.map(([, key]) => key));
+      const headers = new Headers(result.headers);
+      Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
+      return new Response(result.body, { status: result.status, headers });
+    }
 
     if (suffix === "/state" || suffix === "/presence" || suffix === "/lock" || suffix === "/lock/heartbeat") {
       const stub = env.EPISODES.getByName(episodeId);
@@ -394,6 +404,7 @@ export default {
           }
           const manifest = {
             version: 1,
+            uploadOperationId: /^[A-Za-z0-9_-]{1,80}$/.test(input?.uploadOperationId || "") ? input.uploadOperationId : undefined,
             revisionId: String(input?.revisionId || crypto.randomUUID()),
             parentRevisionId: input?.parentRevisionId ? String(input.parentRevisionId) : undefined,
             episode: {
@@ -486,25 +497,41 @@ export default {
           return multipartStorageFailure(error, cors);
         }
       }
-      if (multipartAction === "complete" && request.method === "POST") {
+      if ((multipartAction === "complete" || multipartAction === "verify") && request.method === "POST") {
         const uploadId = url.searchParams.get("uploadId");
         if (!uploadId || uploadId.length > 1024) return json({ error: "A valid multipart upload id is required." }, 400, cors);
         let parts;
+        let bounded = multipartAction === "verify";
         try {
           const input = await request.json();
+          bounded ||= input.verification === "bounded-v1";
           parts = Array.isArray(input?.parts) ? input.parts : [];
-          if (!parts.length || parts.some((part) => !Number.isInteger(part?.partNumber) || part.partNumber < 1 || part.partNumber > 10_000 || typeof part.etag !== "string" || !part.etag)) {
+          if (multipartAction === "complete" && (!parts.length || parts.some((part) => !Number.isInteger(part?.partNumber) || part.partNumber < 1 || part.partNumber > 10_000 || typeof part.etag !== "string" || !part.etag))) {
             return json({ error: "Valid uploaded part receipts are required." }, 400, cors);
           }
         } catch {
           return json({ error: "Multipart completion body must be valid JSON." }, 400, cors);
         }
         try {
-          const upload = env.EPISODE_MEDIA.resumeMultipartUpload(key, uploadId);
-          const object = await upload.complete(parts);
+          let object = await env.EPISODE_MEDIA.head(key);
+          if (!object) {
+            if (multipartAction === "verify") return json({ error: "The completed upload is not available for verification." }, 404, cors);
+            const upload = env.EPISODE_MEDIA.resumeMultipartUpload(key, uploadId);
+            await upload.complete(parts);
+            object = await env.EPISODE_MEDIA.head(key);
+          }
+          if (!object) throw new Error("Completed object could not be found.");
+          const expectedHash = cleanSha256(object.customMetadata?.sha256);
+          const receiptObject = await env.EPISODE_MEDIA.get(`verification/${key}`);
+          const receipt = receiptObject ? await receiptObject.json() : undefined;
+          if (receipt?.etag === object.httpEtag && receipt.sha256 === expectedHash) return json({ ok: true, key, etag: object.httpEtag }, 200, cors);
+          if (bounded) {
+            const verification = await verifyObjectChunk(env.EPISODE_MEDIA, key, object, expectedHash);
+            if (verification.mismatch) return json({ error: "Uploaded bytes did not match the declared SHA-256 checksum.", code: "checksum-mismatch" }, 422, cors);
+            return json({ ok: verification.verified, key, etag: object.httpEtag, verificationPending: !verification.verified, verifiedBytes: verification.verifiedBytes, totalBytes: verification.totalBytes }, verification.verified ? 200 : 202, cors);
+          }
           const stored = await env.EPISODE_MEDIA.get(key);
           if (!stored) throw new Error("Completed object could not be verified.");
-          const expectedHash = cleanSha256(stored.customMetadata?.sha256);
           const actualHash = await hashObject(stored);
           if (actualHash !== expectedHash) {
             await env.EPISODE_MEDIA.delete(key);

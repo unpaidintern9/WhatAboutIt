@@ -80,11 +80,18 @@ class MemoryR2 {
     let bytes = entry.bytes;
     let range;
     const rangeHeader = options.range instanceof Headers ? options.range.get("range") : undefined;
+    const etag = `\"etag-${key}-${entry.version ?? 1}\"`;
+    if (options.onlyIf instanceof Headers && options.onlyIf.get("if-match") !== etag) return null;
     const match = /^bytes=(\d+)-(\d*)$/.exec(rangeHeader || "");
     if (match) {
       const offset = Number(match[1]);
       const end = match[2] ? Math.min(Number(match[2]), entry.bytes.length - 1) : entry.bytes.length - 1;
       bytes = entry.bytes.slice(offset, end + 1);
+      range = { offset, length: bytes.length };
+    }
+    if (options.range && !(options.range instanceof Headers)) {
+      const offset = options.range.offset || 0;
+      bytes = entry.bytes.slice(offset, offset + options.range.length);
       range = { offset, length: bytes.length };
     }
     return {
@@ -349,4 +356,90 @@ test("retains the installed editor map while accepting the existing legacy crede
   assert.equal((await worker.fetch(new Request("https://collab.test/episodes"), env)).status, 401);
   env.WHATABOUTIT_COLLAB_ACCESS_KEY = "short";
   assert.equal((await worker.fetch(legacyRequest, env)).status, 503);
+});
+
+test("upload progress remains below 100 until the matching manifest is published", async () => {
+  const env = makeEnv();
+  const endpoint = "/episodes/progress/upload-status";
+  const payload = { operationId: "upload-a", sequence: 1, selection: "full-backup", phase: "transferring", completedAssets: 9, totalAssets: 10, transferredBytes: 10, totalBytes: 1000, eventCount: 1, events: [{ type: "retry", message: "Bearer private-value https://private.test/token key=test-key-with-at-least-24-characters" }] };
+  const put = (input) => worker.fetch(request(endpoint, { method: "PUT", body: JSON.stringify(input) }), env);
+  assert.equal((await worker.fetch(new Request("https://collab.test" + endpoint), env)).status, 401);
+  assert.equal((await put(payload)).status, 200);
+  const stored = await (await env.EPISODE_MEDIA.get("episodes/progress/upload-status.json")).json();
+  assert.equal(stored.completionPercent, 1);
+  assert.equal(stored.remainingPercent, 99);
+  const logs = await (await env.EPISODE_MEDIA.get(stored.logPath)).json();
+  assert.doesNotMatch(JSON.stringify(logs.events), /private-value|private.test|test-key-with-at-least-24-characters/);
+  const finishedBytes = { ...payload, sequence: 2, completedAssets: 10, transferredBytes: 1000, phase: "committing" };
+  assert.equal((await put(finishedBytes)).status, 200);
+  assert.equal((await (await env.EPISODE_MEDIA.get(stored.logPath)).json()).completionPercent, 99);
+  const complete = { ...finishedBytes, sequence: 3, phase: "complete", manifestRevisionId: "published" };
+  assert.equal((await put(complete)).status, 409);
+  const manifest = { version: 1, uploadOperationId: "upload-a", revisionId: "published", episode: { id: "progress" }, assets: Array.from({ length: 10 }, (_, index) => ({ kind: "original-audio", relativePath: `Audio/mic-${index}.wav`, bytes: 100, contentHash: "0".repeat(64) })) };
+  assert.equal((await worker.fetch(request("/episodes/progress/manifest", { method: "PUT", body: JSON.stringify(manifest) }), env)).status, 200);
+  assert.equal((await put(complete)).status, 200);
+  const final = await (await worker.fetch(request(endpoint), env)).json();
+  assert.equal(final.completionPercent, 100);
+  assert.equal(final.verification, "manifest-verified");
+  assert.equal((await put({ ...payload, sequence: 4 })).status, 200);
+  assert.equal((await (await worker.fetch(request(endpoint), env)).json()).phase, "complete");
+});
+
+test("late status reports, project autosaves, invalid counters and other editors cannot overwrite a media upload", async () => {
+  const env = makeEnv();
+  const endpoint = "/episodes/progress/upload-status";
+  const payload = { operationId: "upload-a", sequence: 2, selection: "full-backup", phase: "transferring", completedAssets: 0, totalAssets: 1, transferredBytes: 50, totalBytes: 100, eventCount: 0, events: [] };
+  const put = (input, headers) => worker.fetch(request(endpoint, { method: "PUT", body: JSON.stringify(input), headers }), env);
+  assert.equal((await put(payload)).status, 200);
+  assert.equal((await put({ ...payload, sequence: 1, transferredBytes: 0 })).status, 200);
+  assert.equal((await (await worker.fetch(request(endpoint), env)).json()).completionPercent, 50);
+  assert.equal((await put({ ...payload, sequence: 3, transferredBytes: 101 })).status, 400);
+  assert.equal((await put({ ...payload, operationId: "autosave", selection: "project-only" })).status, 200);
+  assert.equal((await (await worker.fetch(request(endpoint), env)).json()).operationId, "upload-a");
+  env.WHATABOUTIT_COLLAB_ACCESS_KEYS = JSON.stringify({ "test-user": "test-key-with-at-least-24-characters", other: "other-key-with-at-least-24-characters" });
+  assert.equal((await put({ ...payload, sequence: 3 }, { "x-whataboutit-key": "other-key-with-at-least-24-characters" })).status, 403);
+  const storedKey = "episodes/progress/upload-status.json";
+  const stale = await (await env.EPISODE_MEDIA.get(storedKey)).json();
+  await env.EPISODE_MEDIA.put(storedKey, JSON.stringify({ ...stale, validUntil: "2000-01-01T00:00:00Z" }));
+  assert.equal((await (await worker.fetch(request(endpoint), env)).json()).stale, true);
+});
+
+test("bounded SHA-256 checkpoints match native hashes across resumptions and reject corrupted bytes", async () => {
+  const { verifyObjectChunk } = await import("./bounded-verification.js");
+  for (const length of [0, 1, 55, 56, 63, 64, 65, 4095, 4096, 4097, 10003]) {
+    const bucket = new MemoryR2();
+    const bytes = Uint8Array.from({ length }, (_, index) => (index * 83 + 17) % 256);
+    const expected = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(value => value.toString(16).padStart(2, "0")).join("");
+    await bucket.put("file", bytes, { customMetadata: { sha256: expected } });
+    const head = await bucket.head("file");
+    let result;
+    let calls = 0;
+    do {
+      result = await verifyObjectChunk(bucket, "file", head, expected, 1024);
+      calls++;
+      assert.ok(calls <= Math.ceil(length / 1024) + 1);
+    } while (!result.verified);
+    const receipt = await (await bucket.get("verification/file")).json();
+    assert.equal(receipt.sha256, expected);
+    assert.equal(receipt.etag, head.httpEtag);
+    assert.equal(await bucket.get("verification-state/file"), null);
+    const failed = await verifyObjectChunk(bucket, "file", head, "0".repeat(64), 16 * 1024 * 1024);
+    assert.equal(failed.mismatch, true);
+  }
+});
+
+test("multipart completion recovers a stored object after a lost completion response", async () => {
+  const env = makeEnv();
+  const bytes = "a completed recording";
+  const hash = await sha256(bytes);
+  const path = "/episodes/recover/assets/objects%2Fcanary%2Fprogram.webm";
+  await env.EPISODE_MEDIA.put("episodes/recover/objects/canary/program.webm", bytes, { customMetadata: { sha256: hash } });
+  const body = JSON.stringify({ verification: "bounded-v1", parts: [{ partNumber: 1, etag: "original-receipt" }] });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const complete = await worker.fetch(request(path + "?multipart=complete&uploadId=already-completed", { method: "POST", body }), env);
+    assert.equal(complete.status, 200, await complete.clone().text());
+    assert.equal((await complete.json()).ok, true);
+  }
+  const head = await worker.fetch(request(path, { method: "HEAD" }), env);
+  assert.equal(head.headers.get("x-content-verified"), "true");
 });

@@ -133,6 +133,7 @@ jobs:
           fi
           curl -fsS "$SERVICE_URL/health" >/dev/null
           CANARY_EPISODE="deploy-canary-${GITHUB_RUN_ID}"
+          PROGRESS_OPERATION="deploy-${GITHUB_RUN_ID}"
           CANARY_ASSET="canary.txt"
           MULTIPART_ASSET="multipart-canary.bin"
           CANARY_BODY="whataboutit-upload-canary-${GITHUB_RUN_ID}"
@@ -142,6 +143,10 @@ jobs:
             curl -fsS -X DELETE -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$CANARY_URL" >/dev/null || true
             curl -fsS -X DELETE -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" \
               "$SERVICE_URL/episodes/$CANARY_EPISODE/assets/$MULTIPART_ASSET" >/dev/null || true
+            for report in upload-status.json "upload-logs%2F$PROGRESS_OPERATION.json"; do
+              curl -fsS -X DELETE -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" \
+                "$SERVICE_URL/episodes/$CANARY_EPISODE/assets/$report" >/dev/null || true
+            done
           }
           trap cleanup_canary EXIT
           printf '%s' "$CANARY_BODY" | curl -fsS -X PUT \
@@ -184,7 +189,15 @@ jobs:
             | sha256sum | cut -d' ' -f1 | grep -Fx "$MULTIPART_HASH" >/dev/null
           rm -f "$TEMP_DIR/part-1.bin" "$TEMP_DIR/part-2.bin"
           rmdir "$TEMP_DIR"
+          PROGRESS_BODY="$(node -e 'process.stdout.write(JSON.stringify({operationId:process.argv[1],sequence:1,selection:"full-backup",phase:"transferring",completedAssets:0,totalAssets:1,transferredBytes:50,totalBytes:100,eventCount:1,events:[{type:"phase",message:"Deployment status canary"}]}))' "$PROGRESS_OPERATION")"
+          curl -fsS -X PUT -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" -H "content-type: application/json" \
+            --data-binary "$PROGRESS_BODY" "$SERVICE_URL/episodes/$CANARY_EPISODE/upload-status" >/dev/null
+          curl -fsS -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$SERVICE_URL/episodes/$CANARY_EPISODE/upload-status" \
+            | node -e 'let body="";process.stdin.on("data",chunk=>body+=chunk).on("end",()=>{const result=JSON.parse(body);if(result.completionPercent!==50||result.remainingPercent!==50)process.exit(1)})'
+          curl -fsS -H "x-whataboutit-key: $WHATABOUTIT_COLLAB_ACCESS_KEY" "$SERVICE_URL/episodes/$CANARY_EPISODE/upload-status?operationId=$PROGRESS_OPERATION" \
+            | node -e 'let body="";process.stdin.on("data",chunk=>body+=chunk).on("end",()=>{if(JSON.parse(body).events[0].type!=="phase")process.exit(1)})'
           echo "WhatAboutIt Cloudflare deployment completed."
+          echo "Private progress and upload log readback passed."
           echo "Authenticated direct and multipart R2 upload canaries passed."
           echo "Worker: $WHATABOUTIT_WORKER"
           echo "R2 bucket: $WHATABOUTIT_BUCKET"

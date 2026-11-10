@@ -50,8 +50,12 @@ describe("collaboration window", () => {
     progressListener?.({ operationId: "sync-a", direction: "upload", phase: "preparing", completedAssets: 0, totalAssets: 0, transferredBytes: 0, totalBytes: 0, message: "Indexing changed project files." });
     expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("Preparing");
     expect(dom.window.document.querySelector("#syncBar")?.hasAttribute("value")).toBe(false);
+    progressListener?.({ operationId: "sync-a", direction: "upload", phase: "transferring", completedAssets: 9, totalAssets: 10, transferredBytes: 100, totalBytes: 1000, message: "Uploading a large recording." });
+    expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("10% complete · 90% remaining");
+    progressListener?.({ operationId: "sync-a", direction: "upload", phase: "committing", completedAssets: 10, totalAssets: 10, transferredBytes: 1000, totalBytes: 1000, message: "Publishing backup." });
+    expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("99% complete · 1% remaining");
     progressListener?.({ operationId: "sync-a", direction: "upload", phase: "complete", completedAssets: 2, totalAssets: 2, transferredBytes: 2048, totalBytes: 2048, message: "Cloudflare upload is complete and verified." });
-    expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("100%");
+    expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("100% complete · 0% remaining");
     expect(dom.window.document.querySelector("#syncProgress")?.classList.contains("complete")).toBe(true);
     dom.window.close();
   });

@@ -98,6 +98,7 @@ export interface CloudEpisodeSummary {
 }
 
 export interface CloudEpisodeManifest {
+  uploadOperationId?: string;
   version: 1;
   revisionId?: string;
   parentRevisionId?: string;
@@ -142,6 +143,7 @@ export type CollaborationTransferDirection = "upload" | "download";
 export type CollaborationTransferPhase = "preparing" | "transferring" | "verifying" | "committing" | "complete" | "cancelled" | "error";
 
 export interface CollaborationTransferProgress {
+  manifestRevisionId?: string;
   operationId: string;
   episodeId: string;
   direction: CollaborationTransferDirection;
