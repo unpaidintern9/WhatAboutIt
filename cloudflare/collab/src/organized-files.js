@@ -1,3 +1,4 @@
+import { episodeAssetKey } from "./storage-keys.js";
 import { verifyStoredObject } from "./bounded-verification.js";
 import { completeRecoveredUpload } from "./upload-status.js";
 
@@ -47,13 +48,19 @@ export async function handleOrganization(request, bucket, episodeId, identity, p
     const source = plan.sourceAssets.find(asset => asset.relativePath === relativePath);
     if (!asset || !source) return json({ error: "File is outside this reviewed backup." }, 404);
     if (asset.bytes > 5 * 1024 ** 3) return json({ error: "This file exceeds R2's single-copy limit; its original verified copy was preserved." }, 409);
-    const targetKey = asset.cloudPath;
+    const prefix = `episodes/${episodeId}/`;
+    const targetKey = episodeAssetKey(episodeId, asset.cloudPath.slice(prefix.length));
     let target = await bucket.head(targetKey);
     if (!target) {
-      const sourceKey = source.cloudPath || `episodes/${episodeId}/${source.relativePath}`;
+      const sourceKey = episodeAssetKey(episodeId, source.cloudPath ? source.cloudPath.slice(prefix.length) : source.relativePath);
       const original = await bucket.get(sourceKey);
-      const { value: receipt } = await read(bucket, `verification/${sourceKey}`);
-      if (!original?.body || original.size !== asset.bytes || receipt?.etag !== original.httpEtag || receipt.sha256 !== asset.contentHash) throw new Error("The original backup file is not checksum-verified.");
+      if (!original?.body || original.size !== asset.bytes) {
+        await original?.body?.cancel();
+        throw new Error("The original backup file is missing or has changed size.");
+      }
+      // Older uploads may predate verification receipts. R2 validates the actual
+      // streamed bytes against the manifest SHA-256 on the conditional write.
+      // Source metadata alone can never make a corrupted copy pass.
       const stored = await bucket.put(targetKey, original.body, { sha256: asset.contentHash, onlyIf: new Headers({ "if-none-match": "*" }), httpMetadata: original.httpMetadata, customMetadata: original.customMetadata });
       target = stored || await bucket.head(targetKey);
     }

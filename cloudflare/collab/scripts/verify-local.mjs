@@ -84,7 +84,7 @@ try {
   const progress = { operationId: "runtime-upload", sequence: 1, selection: "full-backup", phase: "transferring", completedAssets: 0, totalAssets: 1, transferredBytes: 5 * 1024 * 1024, totalBytes: bytes.length, eventCount: 1, events: [{ type: "retry", message: "A part was retried." }] };
   assert.equal((await request(progressUrl, { method: "PUT", body: JSON.stringify(progress) })).status, 200);
   assert.equal((await (await request(progressUrl)).json()).completionPercent, 15);
-  const relative = `objects/runtime/${hash}/program.mp4`;
+  const relative = `objects/runtime/${hash}/program review 50% 🎥.mp4`;
   const assetUrl = `/episodes/${episodeId}/assets/${encodeURIComponent(relative)}`;
   const create = await request(`${assetUrl}?multipart=create`, {
     method: "POST",
