@@ -1,7 +1,7 @@
 import { prepareEpisodeReviewProxies } from "./review-proxy-store";
 import { waitForMediaBudget } from "./media-work-scheduler";
 import { classifyCollaborationAsset } from "./collaboration-asset-index";
-import { cloudAssetPath } from "../shared/cloud-assets";
+import { cloudAssetPath, isVersionedCloudPath, organizedCloudObjectPath } from "../shared/cloud-assets";
 import { app, net, safeStorage } from "electron";
 import { createReadStream, createWriteStream } from "node:fs";
 import fs from "node:fs/promises";
@@ -23,7 +23,7 @@ import type { CollaborationSyncResult, CollaborationTransferProgress, Collaborat
 import { isProjectCollaborationAsset, shouldIncludeCollaborationAsset, transferableCollaborationAssets } from "../shared/collaboration";
 import { getEpisodesRoot } from "./config-service";
 import { requestCollaborationWithRetry, uploadCollaborationAsset } from "./collaboration-asset-upload";
-import { getUploadCheckpoint, setUploadCheckpoint } from "./collaboration-upload-journal";
+import { getUploadCheckpoint, setUploadCheckpoint, prepareUploadObjectPath, clearPreparedUploadPaths } from "./collaboration-upload-journal";
 import { recordCollaborationDownloadComplete, recordCollaborationUploadComplete, refreshCollaborationAssets } from "./collaboration-store";
 import { logger } from "./logger";
 import { runBoundedTasks } from "./bounded-task-pool";
@@ -325,7 +325,7 @@ async function remoteAssetMatches(episodeId: string, relativePath: string, conte
   );
   if (response.status === 404) return false;
   if (!response.ok) throw new Error(`Could not check cloud asset ${relativePath} (${response.status}).`);
-  return response.headers.get("x-content-sha256") === contentHash && (!cloudPath?.includes("/objects/") || response.headers.get("x-content-verified") === "true");
+  return response.headers.get("x-content-sha256") === contentHash && (!cloudPath || !isVersionedCloudPath(cloudPath) || response.headers.get("x-content-verified") === "true");
 }
 
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, task: (item: T) => Promise<R>) {
@@ -427,14 +427,16 @@ async function uploadEpisodeFiles(
   const snapshotFolder = await fs.mkdtemp(path.join(app.getPath("temp"), "whataboutit-cloud-upload-"));
   try {
   const uploadSources = await prepareCollaborationUploadSources(episode.folderPath, selectedWorkspaceAssets, snapshotFolder);
+  const folder = `${new Date().toISOString().slice(0, 19).replace("T", "_").replaceAll(":", "-")}Z_${operationId.slice(0, 8)}`;
   const selectedAssets = await Promise.all(uploadSources.map(async (source) => {
     const asset = source.asset;
     const previous = existingAssets.find((entry) => entry.relativePath === asset.relativePath && entry.contentHash === asset.contentHash);
     const checkpoint = await getUploadCheckpoint(episode.id, asset.relativePath);
     const resumePath = checkpoint?.contentHash === asset.contentHash && checkpoint?.pathname
       ? decodeURIComponent(checkpoint.pathname.split("/assets/")[1] ?? "") : undefined;
-    const objectPath = resumePath?.startsWith("objects/") && !resumePath.split("/").includes("..")
-      ? resumePath : `objects/${crypto.randomUUID()}/${asset.contentHash}/${asset.relativePath}`;
+    const proposedPath = resumePath && isVersionedCloudPath(resumePath) && !resumePath.split("/").includes("..")
+      ? resumePath : organizedCloudObjectPath(asset.relativePath, folder);
+    const objectPath = await prepareUploadObjectPath(episode.id, asset.relativePath, asset.contentHash ?? "", proposedPath);
     return { ...asset, cloudPath: previous?.cloudPath ?? `episodes/${episode.id}/${objectPath}` };
   }));
   const sourceById = new Map(uploadSources.map((source) => [source.asset.id, source.absolutePath]));
@@ -559,10 +561,11 @@ async function uploadEpisodeFiles(
   );
   if (!manifestResponse.ok) {
     const body = (await manifestResponse.json().catch(() => ({}))) as { error?: string };
-    if (manifestResponse.status === 412) throw new Error("The cloud episode changed while the upload was running. Reopen the episode to receive those changes, then retry the upload.");
+    if (manifestResponse.status === 412) throw new Error("The cloud episode changed while the upload was running. The verified files were kept. Reopen the episode to receive those changes, then retry to reuse the files already uploaded.");
     throw new Error(body.error || `Could not save the cloud episode manifest (${manifestResponse.status}).`);
   }
   await recordCollaborationUploadComplete(episode.folderPath, episode.id, episode.title, selectedAssets.map((asset) => asset.id));
+  await clearPreparedUploadPaths(episode.id).catch(error => logger.warning("CollaborationUpload", "Could not clear the completed upload path cache.", { episodeId: episode.id, error: String(error) }));
   await options.onProgress?.({ operationId, episodeId: episode.id, direction: "upload", phase: "complete", completedAssets, totalAssets: selectedAssets.length, transferredBytes, totalBytes, manifestRevisionId: manifest.revisionId, message: "Cloudflare upload is complete and verified." });
 
   return {

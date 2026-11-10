@@ -59,7 +59,7 @@ jobs:
         shell: pwsh
         run: |
           $health = Invoke-RestMethod -Uri "https://whataboutit-collab.whataboutit-collab.workers.dev/health" -TimeoutSec 20
-          if ($health.uploadProgress -ne $true -or $health.boundedVerification -ne $true -or $health.storageChecksums -ne $true) { throw "Deploy the progress-enabled collaboration Worker before publishing this update." }
+          if ($health.uploadProgress -ne $true -or $health.boundedVerification -ne $true -or $health.storageChecksums -ne $true -or $health.organizedFiles -ne $true) { throw "Deploy the progress-enabled collaboration Worker before publishing this update." }
       - name: Create the matching GitHub release tag
         shell: pwsh
         run: |

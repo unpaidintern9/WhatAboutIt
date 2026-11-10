@@ -44,3 +44,12 @@ Cloud progress reporting is best effort. A reporting outage does not fail the me
 Multipart files up to 5 GiB use R2's storage-side SHA-256 validation via a conditional streaming write. This does not buffer or hash the whole recording in Worker JavaScript. Existing bytes and metadata are preserved, and an ETag precondition prevents overwriting another version. A lost completion response can be retried without retransmitting the original parts; a native checksum or verification receipt avoids repeating the write.
 
 Files larger than R2's 5 GiB single-write limit use resumable 256 KiB SHA-256 steps. Hash checkpoints bind the exact object ETag, size and expected hash. The current installer continues until verification completes; older installers receive an update-required error for this size rather than an unbounded CPU operation. No object enters a versioned manifest until its complete checksum matches. The Worker configuration deliberately omits paid-only CPU overrides so deployment supports Workers Free. Free-tier request and R2 storage/operation quotas still apply; a free Workers plan does not guarantee zero R2 charges.
+
+
+## Readable cloud file folders
+
+New file versions follow the episode's familiar categories: `Audio/versions/<UTC date and upload>/guest-mic.flac`, `Cameras/versions/<UTC date and upload>/camera-1.webm`, `Program/versions/<UTC date and upload>/program.webm`, and corresponding Session, Exports, Collaboration, Recordings and Project folders. A backup has one dated version folder per category; individual files no longer require UUID/hash folders. Versioned files remain immutable and require server-verified checksum receipts before publication.
+
+The local upload journal keeps prepared cloud paths until manifest publication succeeds. A publication conflict therefore preserves reuse of verified media, including files whose multipart part receipts have already been cleared. Publishing still refuses genuine competing cloud edits.
+
+For an explicitly reviewed completed backup, the authenticated organizer can create readable R2 copies and publish their verified manifest. It never reads recording bytes through GitHub or retransmits them from the computer. Three concurrent storage copies run in the existing deployment job, with retries and per-file idempotence. The previous version remains readable for recovery. The current organizer refuses individual files above R2's 5 GiB single-write limit and preserves the original backup if any copy or final revision precondition fails.

@@ -1,3 +1,4 @@
+import { isVersionedCloudPath } from "../shared/cloud-assets";
 import { runBoundedTasks } from "./bounded-task-pool";
 import { createReadStream } from "node:fs";
 import { Readable } from "node:stream";
@@ -168,7 +169,7 @@ async function verifiedAfterFailure(options: UploadOptions) {
     const length = Number(response.headers.get("content-length"));
     return (
       response.headers.get("x-content-sha256") === options.contentHash &&
-      (!decodeURIComponent(options.pathname).includes("/assets/objects/") || response.headers.get("x-content-verified") === "true") &&
+      (!isVersionedCloudPath(decodeURIComponent(options.pathname)) || response.headers.get("x-content-verified") === "true") &&
       (!Number.isFinite(length) || length === options.bytes)
     );
   } catch {

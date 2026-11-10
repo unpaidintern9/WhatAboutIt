@@ -178,6 +178,20 @@ try {
   assert.equal((await request(recoveryUrl, { method: "POST" })).status, 200);
   const competing = await request(`/episodes/${episodeId}/manifest`, { method: "PUT", headers: { "if-match": weak }, body: JSON.stringify({ ...recoveryManifest, revisionId: "stale-runtime" }) });
   assert.equal(competing.status, 412);
+  const organizeUrl = recoveryUrl.replace("upload-recovery", "upload-organization");
+  const organizePlan = await request(organizeUrl);
+  assert.equal(organizePlan.status, 200, await organizePlan.clone().text());
+  const copy = await request(organizeUrl + "&relativePath=" + encodeURIComponent(manifest.assets[0].relativePath), { method: "POST" });
+  assert.equal(copy.status, 200, await copy.clone().text());
+  const organized = await request(organizeUrl, { method: "POST" });
+  assert.equal(organized.status, 200, await organized.clone().text());
+  const organizedManifest = await (await request(`/episodes/${episodeId}/manifest`)).json();
+  assert.ok(organizedManifest.assets[0].cloudPath.includes("/Session/versions/"));
+  const organizedAsset = `/episodes/${episodeId}/assets/` + encodeURIComponent(organizedManifest.assets[0].cloudPath.slice(`episodes/${episodeId}/`.length));
+  assert.equal((await request(organizedAsset, { method: "HEAD" })).headers.get("x-content-verified"), "true");
+  assert.equal((await request(assetUrl, { method: "HEAD" })).headers.get("x-content-verified"), "true");
+  assert.equal((await request(organizedAsset, { method: "DELETE" })).status, 409);
+  console.log("PASS: organized 33 MiB R2 streaming copy, checksum receipt, publication and retention of original bytes.");
   console.log("PASS: logical revision CAS, idempotent recovery and rejection of competing publication in workerd/R2.");
   console.log(
     "PASS: local workerd/R2 bounded resumable SHA-256, multipart upload, private progress/logs, verified publication, range playback and failed-publication isolation.",

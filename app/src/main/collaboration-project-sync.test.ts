@@ -95,6 +95,36 @@ describe("episode cloud publishing", () => {
     expect(current.revisionId).toBe("other-computer");
   });
 
+  it("reuses verified media after publication conflicts instead of sending it again", async () => {
+    await fs.mkdir(path.join(episode.folderPath, "Audio"));
+    await fs.writeFile(path.join(episode.folderPath, "Audio", "guest-mic.flac"), "microphone original");
+    const original = electron.fetch.getMockImplementation()!;
+    const objects = new Map<string, string>();
+    let microphoneWrites = 0;
+    electron.fetch.mockImplementation(async (input: string, init: RequestInit) => {
+      const url = new URL(input);
+      if (url.pathname.includes("/assets/")) {
+        if (init.method === "PUT") {
+          objects.set(url.pathname, new Headers(init.headers).get("x-content-sha256")!);
+          if (decodeURIComponent(url.pathname).endsWith("/guest-mic.flac")) microphoneWrites++;
+          return Response.json({ ok: true });
+        }
+        const hash = objects.get(url.pathname);
+        return hash ? new Response(null, { headers: { "x-content-sha256": hash, "x-content-verified": "true" } }) : new Response(null, { status: 404 });
+      }
+      return original(input, init);
+    });
+    beforePut = () => { current = { ...current, revisionId: "other-computer" }; };
+    await expect(publishEpisodeToCloud(episode, "full-backup")).rejects.toThrow("verified files were kept");
+    expect(microphoneWrites).toBe(1);
+    // Simulate the user receiving/resolving the competing project revision.
+    await markProjectMaterialized(episode.id);
+    beforePut = () => undefined;
+    await publishEpisodeToCloud(episode, "full-backup");
+    expect(microphoneWrites).toBe(1);
+    expect(current.assets.find(asset => asset.relativePath === "Audio/guest-mic.flac")?.cloudPath).toContain("/Audio/versions/");
+  });
+
   it("keeps the backup usable when cloud progress reporting is unavailable", async () => {
     const original = electron.fetch.getMockImplementation()!;
     let reportingAttempts = 0;
