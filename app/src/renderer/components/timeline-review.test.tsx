@@ -439,7 +439,7 @@ describe("TimelineReview", () => {
     host.remove();
   });
 
-  it("mutes embedded camera guide audio when a separate microphone is paired", () => {
+  it("keeps both microphones playing and seeking with the camera preview", async () => {
     const draft = createTimelineDraft({ deviceDefaults: { cameras: { camera1: "camera-a", camera3: "camera-c" }, microphones: { morganMic: "mic-a", guestMic: "mic-b" } }, durationMs: 30000 });
     const pairedMedia = {
       ...media,
@@ -449,17 +449,57 @@ describe("TimelineReview", () => {
     const host = document.createElement("div");
     document.body.appendChild(host);
     const root = createRoot(host);
-    act(() => root.render(<TimelineReview draft={draft} media={pairedMedia} onDraftChange={vi.fn()} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />));
+    const onDraftChange = vi.fn();
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue(undefined);
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => undefined);
+    const load = (video: HTMLVideoElement) => {
+      Object.defineProperty(video, "readyState", { configurable: true, value: 4 });
+      Object.defineProperty(video, "duration", { configurable: true, value: 30 });
+      act(() => video.dispatchEvent(new Event("loadedmetadata")));
+    };
+    try {
+      act(() => root.render(<TimelineReview draft={draft} media={pairedMedia} onDraftChange={onDraftChange} onSaveDraft={vi.fn()} onExport={vi.fn()} onAutoEdit={vi.fn()} />));
+      const initial = host.querySelector<HTMLVideoElement>(".realtime-preview-layer.active")!;
+      load(initial);
+      const stems = Array.from(host.querySelectorAll<HTMLAudioElement>("audio[data-track-id]"));
+      expect(stems).toHaveLength(2);
+      await act(async () => host.querySelector<HTMLButtonElement>(".transport-play")!.click());
+      act(() => { initial.currentTime = 8; initial.dispatchEvent(new Event("timeupdate")); });
 
-    const cameraThree = Array.from(host.querySelectorAll(".review-source-tabs button")).find((button) => button.textContent?.includes("Camera 3")) as HTMLButtonElement;
-    act(() => cameraThree.click());
+      const cameraThree = Array.from(host.querySelectorAll(".review-source-tabs button")).find((button) => button.textContent?.includes("Camera 3")) as HTMLButtonElement;
+      act(() => cameraThree.click());
+      const camera = host.querySelector<HTMLVideoElement>(".realtime-preview-layer.active")!;
+      load(camera);
 
-    expect(cameraThree.classList.contains("selected")).toBe(true);
-    expect(Array.from(host.querySelectorAll("video, audio")).every((element) => (element as HTMLMediaElement).crossOrigin === "anonymous")).toBe(true);
-    expect((host.querySelector(".realtime-preview-layer.active") as HTMLVideoElement).muted).toBe(true);
-    expect((host.querySelector('audio[src*="guest-mic"]') as HTMLAudioElement | null)).not.toBeNull();
-    act(() => root.unmount());
-    host.remove();
+      expect(cameraThree.classList.contains("selected")).toBe(true);
+      expect(camera.currentTime).toBe(8);
+      expect(camera.muted).toBe(true);
+      expect(play.mock.contexts).toEqual(expect.arrayContaining([camera, ...stems]));
+      expect(Array.from(host.querySelectorAll("audio[data-track-id]"))).toEqual(stems);
+      expect(Array.from(host.querySelectorAll("video, audio")).every((element) => (element as HTMLMediaElement).crossOrigin === "anonymous")).toBe(true);
+      expect(onDraftChange).toHaveBeenLastCalledWith(expect.objectContaining({ cameraDecisions: [] }));
+
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="Forward 5 seconds"]')!.click());
+      expect([camera, ...stems].map((element) => element.currentTime)).toEqual([13, 13, 13]);
+      act(() => host.querySelector<HTMLButtonElement>('[aria-label="Back 5 seconds"]')!.click());
+      expect([camera, ...stems].map((element) => element.currentTime)).toEqual([8, 8, 8]);
+
+      const micLane = host.querySelector<HTMLDivElement>('[aria-label="Guest Mic timeline"]')!;
+      vi.spyOn(micLane, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ width: 300 }));
+      micLane.setPointerCapture = vi.fn();
+      micLane.hasPointerCapture = vi.fn(() => false);
+      act(() => {
+        micLane.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, clientX: 200 }));
+        micLane.dispatchEvent(new MouseEvent("pointerup", { bubbles: true, clientX: 200 }));
+      });
+      expect(host.querySelector(".realtime-preview-layer.active")).toBe(camera);
+      expect([camera, ...stems].map((element) => element.currentTime)).toEqual([20, 20, 20]);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      play.mockRestore();
+      pause.mockRestore();
+    }
   });
 
   it("maps camera keyboard shortcuts to ready feeds when an earlier slot is missing", () => {

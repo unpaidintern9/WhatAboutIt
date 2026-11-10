@@ -226,6 +226,7 @@ export function TimelineReview({
   const pairedAudio = selectedVideo?.pairedAudioId ? media?.audio.find((asset) => asset.id === selectedVideo.pairedAudioId) : undefined;
   const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
   const pairedPlayback = pairedAudio ? exactAudio.playback(pairedAudio, pairedTrack) : undefined;
+  const usePairedCameraAudio = !programMode && !selectedVideo?.includesPairedAudio && pairedAudio?.status === "ready" && Boolean(pairedPlayback?.playbackUrl);
   const programAudioSources = useMemo(() => {
     const candidates = draft.tracks
       .filter((track) => track.kind === "microphone" && track.includedInProgram)
@@ -245,7 +246,7 @@ export function TimelineReview({
     const anySolo = candidates.some(({ track }) => track.solo && !track.muted);
     return candidates.filter(({ track }) => !track.muted && (!anySolo || track.solo));
   }, [draft.tracks, media?.audio, exactAudio.playback]);
-  const useProgramStemMix = programMode && programAudioSources.length > 0;
+  const useProgramStemMix = programAudioSources.length > 0;
   const mediaAssetsById = useMemo(
     () => new Map([media?.program, ...(media?.cameras ?? []), ...(media?.audio ?? [])].filter((asset): asset is ReviewMediaAsset => Boolean(asset)).map((asset) => [asset.id, asset])),
     [media]
@@ -343,7 +344,7 @@ export function TimelineReview({
     const targetMs = pendingPreviewSeekMsRef.current ?? playheadMs;
     pendingPreviewSeekMsRef.current = targetMs;
     videoRef.current = nextVideo;
-    nextVideo.muted = masterMuted || stemMixActive || (!programMode && pairedAudio?.status === "ready");
+    nextVideo.muted = masterMuted || stemMixActive || usePairedCameraAudio;
     syncPreviewVideos(targetMs, shouldResume);
     settlePreviewSeek(nextVideo);
     // Audio mix and mute changes must not arm a seek or rewind the video.
@@ -376,16 +377,16 @@ export function TimelineReview({
   }, [playbackRate]);
 
   useEffect(() => {
-    const suppressEmbeddedCameraAudio = !programMode && pairedAudio?.status === "ready";
-    setReviewMonitorGain(videoRef.current, masterMuted || stemMixActive || suppressEmbeddedCameraAudio ? 0 : masterVolume, audioOutputId);
+    setReviewMonitorGain(videoRef.current, masterMuted || stemMixActive || usePairedCameraAudio ? 0 : masterVolume, audioOutputId);
     const pairedTrack = pairedAudio ? draft.tracks.find((track) => track.sourceAssetId === pairedAudio.id) : undefined;
     if (pairedTrack) setReviewMonitorTreatment(pairedAudioRef.current, monitorTreatment(pairedTrack, pairedAudioRef.current), masterMuted ? 0 : masterVolume, audioOutputId);
     else setReviewMonitorGain(pairedAudioRef.current, masterMuted ? 0 : masterVolume, audioOutputId);
     syncProgramAudio(playheadMs, isPlaying && stemMixActive);
+    if (stemMixActive && pairedAudioRef.current && !pairedAudioRef.current.paused) pairedAudioRef.current.pause();
     if (stemMixActive && !useProgramStemMix) {
       setStemMixActive(false);
-      setAudioRouteMessage("Using recorded Program audio");
-      setReviewMonitorGain(videoRef.current, masterMuted ? 0 : masterVolume, audioOutputId);
+      setAudioRouteMessage(programMode ? "Using recorded Program audio" : "Using camera audio");
+      setReviewMonitorGain(videoRef.current, masterMuted || usePairedCameraAudio ? 0 : masterVolume, audioOutputId);
     }
     void setReviewMonitorOutput(audioOutputId).then((routed) => {
       if (routed) return;
@@ -396,7 +397,7 @@ export function TimelineReview({
         details: { audioOutputId }
       });
     });
-  }, [audioOutputId, draft.tracks, isPlaying, masterMuted, masterVolume, pairedAudio, pairedPlayback?.playbackUrl, programAudioSources, programMode, stemMixActive, useProgramStemMix]);
+  }, [audioOutputId, draft.tracks, isPlaying, masterMuted, masterVolume, pairedAudio, pairedPlayback?.playbackUrl, programAudioSources, programMode, stemMixActive, usePairedCameraAudio, useProgramStemMix]);
 
   useEffect(
     () => () => {
@@ -553,16 +554,16 @@ export function TimelineReview({
     resumeReviewMonitor();
     let useStems = false;
     if (useProgramStemMix) useStems = await startProgramStemMix(nextPlayable);
-    setReviewMonitorGain(video, masterMuted || useStems ? 0 : masterVolume, audioOutputId);
+    setReviewMonitorGain(video, masterMuted || useStems || usePairedCameraAudio ? 0 : masterVolume, audioOutputId);
     try {
       await video.play();
-      syncPreviewVideos(nextPlayable, true);
+      syncPreviewVideos(nextPlayable, true, useStems);
       setIsPlaying(true);
       void window.studio?.writeRuntimeLog?.({
         level: "info",
         source: "ReviewPlayback",
         message: "Review playback started.",
-        details: { route: useStems ? "microphone-stems" : "program-audio", stemCount: useStems ? programAudioSources.length : 0, audioOutputId }
+        details: { route: useStems ? "microphone-stems" : programMode ? "program-audio" : "camera-audio", stemCount: useStems ? programAudioSources.length : 0, audioOutputId }
       });
     } catch (error) {
       setIsPlaying(false);
@@ -584,15 +585,16 @@ export function TimelineReview({
     const active = attempts.length > 0 && failures.length === 0;
     setStemMixActive(active);
     if (active) {
+      pairedAudioRef.current?.pause();
       setAudioRouteMessage(`${attempts.length} microphone track${attempts.length === 1 ? "" : "s"} playing`);
       return true;
     }
     for (const audio of programAudioRefs.current.values()) audio.pause();
-    setAudioRouteMessage("Using recorded Program audio (microphone stems unavailable)");
+    setAudioRouteMessage(`Using ${programMode ? "recorded Program" : "camera"} audio (microphone tracks unavailable)`);
     void window.studio?.writeRuntimeLog?.({
       level: "warning",
       source: "ReviewPlayback",
-      message: "Microphone stems could not play; using Program audio.",
+      message: "Microphone tracks could not play; using source audio.",
       details: { failures: failures.map((failure) => String((failure as PromiseRejectedResult).reason)) }
     });
     return false;
@@ -637,7 +639,7 @@ export function TimelineReview({
     }
   }
 
-  function syncPreviewVideos(timestampMs: number, play = false) {
+  function syncPreviewVideos(timestampMs: number, play = false, mixingMicrophones = stemMixActive) {
     const activeAssetId = selectedVideo?.id;
     for (const [assetId, video] of previewVideoRefs.current) {
       const shouldPlay = assetId === activeAssetId || assetId === outgoingPreviewAssetId;
@@ -652,7 +654,7 @@ export function TimelineReview({
         video.currentTime = Math.min(targetSeconds, Number.isFinite(video.duration) ? video.duration : targetSeconds);
       }
       video.playbackRate = playbackRate;
-      setReviewMonitorGain(video, masterMuted || stemMixActive || assetId !== activeAssetId ? 0 : masterVolume, audioOutputId);
+      setReviewMonitorGain(video, masterMuted || mixingMicrophones || usePairedCameraAudio || assetId !== activeAssetId ? 0 : masterVolume, audioOutputId);
       if (play && shouldPlay) void video.play().catch(() => undefined);
       else if (!shouldPlay && !video.paused) video.pause();
     }
@@ -699,6 +701,7 @@ export function TimelineReview({
     setPlayheadMs(timelineTime);
     syncMulticamAngles(timelineTime, play);
     if (stemMixActive) {
+      if (audio && !audio.paused) audio.pause();
       syncProgramAudio(timelineTime, play);
       return;
     }
@@ -1075,7 +1078,7 @@ export function TimelineReview({
                       preload={isActive || asset.id === outgoingPreviewAssetId ? "auto" : "metadata"}
                       src={asset.playbackUrl}
                       poster={asset.posterUrl}
-                      muted={masterMuted || stemMixActive || !isActive || (!programMode && pairedAudio?.status === "ready")}
+                      muted={masterMuted || stemMixActive || !isActive || usePairedCameraAudio}
                       style={getLiveVideoStyle(track, isActive)}
                       aria-hidden={!isActive}
                       aria-label={isActive ? `${programMode ? "Edited Program" : asset.label} playback` : undefined}
@@ -1138,7 +1141,7 @@ export function TimelineReview({
                   <span>{playbackError}</span>
                 </div>
               ) : null}
-              {!programMode && !selectedVideo.includesPairedAudio && pairedAudio?.status === "ready" && pairedPlayback?.playbackUrl ? <audio crossOrigin="anonymous" key={pairedAudio.id} data-treatment-baked={pairedPlayback.baked} ref={pairedAudioRef} preload="metadata" src={pairedPlayback.playbackUrl} onLoadedMetadata={() => syncPreviewAudio(isPlaying)} /> : null}
+              {usePairedCameraAudio && pairedAudio && pairedPlayback?.playbackUrl ? <audio crossOrigin="anonymous" key={pairedAudio.id} data-treatment-baked={pairedPlayback.baked} ref={pairedAudioRef} preload="metadata" src={pairedPlayback.playbackUrl} onLoadedMetadata={() => syncPreviewAudio(isPlaying)} /> : null}
               {useProgramStemMix
                 ? programAudioSources.map(({ track, asset }) => (
                     <audio
@@ -1156,11 +1159,11 @@ export function TimelineReview({
                     />
                   ))
                 : null}
-              <div className={`review-audio-route ${programIsEmpty || selectedVideo.audioSignal === "silent" || allRecordedMicrophonesSilent ? "needs-attention" : programMode || pairedAudio?.status === "ready" ? "ready" : "needs-attention"}`}>
-                <strong>{programIsEmpty ? "Program is empty — previewing the source recording" : programMode ? audioRouteMessage : pairedAudio?.audioSignal === "silent" ? `${selectedVideo.pairedAudioLabel ?? "Paired mic"} recorded no signal` : (selectedVideo.pairedAudioLabel ?? "No paired mic")}</strong>
-                <span>{programIsEmpty ? "Use Undo or Restore to put video back in the finished episode. Source playback remains available for review." : programMode ? (allRecordedMicrophonesSilent ? "This recording contains silence, so there is no audible waveform to display." : useProgramStemMix ? "Separate microphone tracks are preferred; Program audio is the automatic fallback." : "Recorded Program audio is available.") : pairedAudio?.audioSignal === "silent" ? "Choose another audio source or import replacement audio for this take." : selectedVideo.message}</span>
-                {programMode && useProgramStemMix ? <span>{exactAudio.message}</span> : null}
-                {programMode && useProgramStemMix && isPlaying && !stemMixActive ? (
+              <div className={`review-audio-route ${programIsEmpty || allRecordedMicrophonesSilent || (!useProgramStemMix && selectedVideo.audioSignal === "silent") ? "needs-attention" : programMode || useProgramStemMix || pairedAudio?.status === "ready" ? "ready" : "needs-attention"}`}>
+                <strong>{programIsEmpty ? "Program is empty — previewing the source recording" : programMode || useProgramStemMix ? audioRouteMessage : pairedAudio?.audioSignal === "silent" ? `${selectedVideo.pairedAudioLabel ?? "Paired mic"} recorded no signal` : (selectedVideo.pairedAudioLabel ?? "No paired mic")}</strong>
+                <span>{programIsEmpty ? "Use Undo or Restore to put video back in the finished episode. Source playback remains available for review." : useProgramStemMix ? "The episode microphone mix follows the playhead across camera previews." : programMode ? (allRecordedMicrophonesSilent ? "This recording contains silence, so there is no audible waveform to display." : "Recorded Program audio is available.") : pairedAudio?.audioSignal === "silent" ? "Choose another audio source or import replacement audio for this take." : selectedVideo.message}</span>
+                {useProgramStemMix ? <span>{exactAudio.message}</span> : null}
+                {useProgramStemMix && isPlaying && !stemMixActive ? (
                   <button type="button" onClick={() => void startProgramStemMix(playheadMs).then((active) => {
                     if (active) setReviewMonitorGain(videoRef.current, 0, audioOutputId);
                   })}>
