@@ -1,3 +1,4 @@
+import { episodeAssetKey } from "./storage-keys.js";
 import { handleOrganization } from "./organized-files.js";
 import { handleUploadStatus, completeRecoveredUpload } from "./upload-status.js";
 import { verifyStoredObject, CHUNK_BYTES } from "./bounded-verification.js";
@@ -123,12 +124,6 @@ function cleanMember(input) {
   if (!/^[A-Za-z0-9._-]{1,80}$/.test(memberId)) throw new Error("Invalid member id.");
   if (!displayName || displayName.length > 120) throw new Error("Invalid display name.");
   return { memberId, displayName };
-}
-
-function episodeAssetKey(episodeId, relativePath) {
-  const cleaned = relativePath.split("/").filter(Boolean).map((part) => encodeURIComponent(part)).join("/");
-  if (!cleaned) throw new Error("Asset path is required.");
-  return `episodes/${episodeId}/${cleaned}`;
 }
 
 function temporaryStorageFailure(error, cors) {

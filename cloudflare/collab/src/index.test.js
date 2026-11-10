@@ -638,3 +638,51 @@ test("organized paths preserve file names and reject unsafe categories or versio
   for (const name of ["../escape", "/escape", "Audio//file"]) assert.throws(() => organizedPath(name, "today"));
   assert.throws(() => organizedPath("Audio/file", "../escape"));
 });
+
+
+test("organization verifies legacy bytes even when no old receipt exists", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  await worker.fetch(request(url, { method: "POST" }), env);
+  await env.EPISODE_MEDIA.delete(`verification/${candidate.assets[0].cloudPath}`);
+  const organize = url.replace("upload-recovery", "upload-organization");
+  assert.equal((await worker.fetch(request(organize), env)).status, 200);
+  const copied = await worker.fetch(request(organize + "&relativePath=" + encodeURIComponent(candidate.assets[0].relativePath), { method: "POST" }), env);
+  assert.equal(copied.status, 200, await copied.clone().text());
+  assert.equal((await worker.fetch(request(organize, { method: "POST" }), env)).status, 200);
+});
+
+test("legacy source metadata cannot make corrupted bytes pass copy verification", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  await worker.fetch(request(url, { method: "POST" }), env);
+  const sourceKey = candidate.assets[0].cloudPath;
+  await env.EPISODE_MEDIA.delete(`verification/${sourceKey}`);
+  await env.EPISODE_MEDIA.put(sourceKey, "x".repeat(candidate.assets[0].bytes), { customMetadata: { sha256: candidate.assets[0].contentHash } });
+  const organize = url.replace("upload-recovery", "upload-organization");
+  await worker.fetch(request(organize), env);
+  assert.equal((await worker.fetch(request(organize + "&relativePath=" + encodeURIComponent(candidate.assets[0].relativePath), { method: "POST" }), env)).status, 503);
+  assert.equal((await worker.fetch(request(organize, { method: "POST" }), env)).status, 400);
+  assert.equal((await (await worker.fetch(request("/episodes/recover-publish/manifest"), env)).json()).revisionId, "pending");
+});
+
+
+test("organization uses the uploader's canonical R2 encoding for spaces, Unicode and percent signs", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  await worker.fetch(request(url, { method: "POST" }), env);
+  const name = "Exports/edited 50% 🎥/export-job.json";
+  const relative = "objects/with-spaces/" + name;
+  const asset = { ...candidate.assets[0], relativePath: name, cloudPath: "episodes/recover-publish/" + relative };
+  const uploaded = await worker.fetch(request("/episodes/recover-publish/assets/" + encodeURIComponent(relative), { method: "PUT", body: "verified recording", headers: { "x-content-sha256": asset.contentHash } }), env);
+  assert.equal(uploaded.status, 200);
+  const current = await worker.fetch(request("/episodes/recover-publish/manifest"), env);
+  const next = { ...candidate, revisionId: "with-spaces", parentRevisionId: "pending", assets: [asset] };
+  assert.equal((await worker.fetch(request("/episodes/recover-publish/manifest", { method: "PUT", headers: { "if-match": current.headers.get("etag") }, body: JSON.stringify(next) }), env)).status, 200);
+  assert.equal((await worker.fetch(request(url, { method: "POST" }), env)).status, 200);
+  const organize = url.replace("upload-recovery", "upload-organization");
+  await worker.fetch(request(organize), env);
+  const copied = await worker.fetch(request(organize + "&relativePath=" + encodeURIComponent(name), { method: "POST" }), env);
+  assert.equal(copied.status, 200, await copied.clone().text());
+  assert.equal((await worker.fetch(request(organize, { method: "POST" }), env)).status, 200);
+  const manifest = await (await worker.fetch(request("/episodes/recover-publish/manifest"), env)).json();
+  const target = manifest.assets[0].cloudPath.slice("episodes/recover-publish/".length);
+  assert.equal(await (await worker.fetch(request("/episodes/recover-publish/assets/" + encodeURIComponent(target)), env)).text(), "verified recording");
+});
