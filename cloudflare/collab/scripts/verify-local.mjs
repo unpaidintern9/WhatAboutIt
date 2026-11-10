@@ -163,6 +163,22 @@ try {
       .revisionId,
     "runtime-revision",
   );
+  const recoverOperation = "runtime-recovery";
+  const recoveryProgress = await request(progressUrl, { method: "PUT", body: JSON.stringify({ ...progress, operationId: recoverOperation, sequence: 1, phase: "error", completedAssets: 1, transferredBytes: bytes.length }) });
+  assert.equal(recoveryProgress.status, 200);
+  const prior = await request(`/episodes/${episodeId}/manifest`);
+  const weak = `W/${prior.headers.get("etag")}`;
+  const recoveryManifest = { ...manifest, uploadOperationId: recoverOperation, revisionId: "recovered-runtime", parentRevisionId: manifest.revisionId };
+  const weakPublish = await request(`/episodes/${episodeId}/manifest`, { method: "PUT", headers: { "if-match": weak }, body: JSON.stringify(recoveryManifest) });
+  assert.equal(weakPublish.status, 200, await weakPublish.clone().text());
+  const recoveryUrl = `/episodes/${episodeId}/upload-recovery?operationId=${recoverOperation}`;
+  const recovered = await request(recoveryUrl, { method: "POST" });
+  assert.equal(recovered.status, 200, await recovered.clone().text());
+  assert.equal((await recovered.json()).status.completionPercent, 100);
+  assert.equal((await request(recoveryUrl, { method: "POST" })).status, 200);
+  const competing = await request(`/episodes/${episodeId}/manifest`, { method: "PUT", headers: { "if-match": weak }, body: JSON.stringify({ ...recoveryManifest, revisionId: "stale-runtime" }) });
+  assert.equal(competing.status, 412);
+  console.log("PASS: logical revision CAS, idempotent recovery and rejection of competing publication in workerd/R2.");
   console.log(
     "PASS: local workerd/R2 bounded resumable SHA-256, multipart upload, private progress/logs, verified publication, range playback and failed-publication isolation.",
   );
