@@ -53,10 +53,51 @@ describe("collaboration window", () => {
     progressListener?.({ operationId: "sync-a", direction: "upload", phase: "transferring", completedAssets: 9, totalAssets: 10, transferredBytes: 100, totalBytes: 1000, message: "Uploading a large recording." });
     expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("10% complete · 90% remaining");
     progressListener?.({ operationId: "sync-a", direction: "upload", phase: "committing", completedAssets: 10, totalAssets: 10, transferredBytes: 1000, totalBytes: 1000, message: "Publishing backup." });
-    expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("99% complete · 1% remaining");
+    expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("All files sent · publishing");
     progressListener?.({ operationId: "sync-a", direction: "upload", phase: "complete", completedAssets: 2, totalAssets: 2, transferredBytes: 2048, totalBytes: 2048, message: "Cloudflare upload is complete and verified." });
     expect(dom.window.document.querySelector("#syncPercent")?.textContent).toBe("100% complete · 0% remaining");
     expect(dom.window.document.querySelector("#syncProgress")?.classList.contains("complete")).toBe(true);
+    dom.window.close();
+  });
+});
+
+describe("clear backup controls", () => {
+  it("separates a 32-minute review copy, actual local inventory and the active upload", async () => {
+    let listener: ((p: Record<string, unknown>) => void) | undefined;
+    const assets = [
+      ...["metadata.json", "Collaboration/workspace.json", "Session/draft-timeline.json", "Session/proxy-catalog.json"].map(relativePath => ({ relativePath, kind: "metadata", bytes: 100, localOriginal: false })),
+      ...["program", "camera-1", "camera-2", "camera-3", "guest-mic", "morgan-mic"].map(name => ({ relativePath: `Session/Proxies/${name}-review.mp4`, kind: "proxy-video", bytes: 63000000, localOriginal: false }))
+    ];
+    const cloudFiles = { episodeId: "emma", assetCount: 10, totalBytes: 380700000, originalCount: 0, reviewCount: 6, fullBackupVerified: false, durationMs: 32 * 60 * 1000, currentFilesReady: true, files: [{ relativePath: "Session/Proxies/program-review.mp4", label: "program-review.mp4", path: "Review/program-review.mp4", type: "review", bytes: 63000000 }] };
+    const workspace = { episodeId: "emma", episodeTitle: "Emma Ep 1.2", assets, members: [], comments: [], status: "working", remoteState: "ready", durationMs: 32 * 60 * 1000, updatedAt: new Date().toISOString() };
+    const dom = new JSDOM(createCollaborationWindowHtml("emma"), { runScripts: "dangerously", url: "https://collaboration.local/#emma", beforeParse(window: Window & typeof globalThis) {
+      Object.defineProperty(window, "studio", { value: {
+        listEpisodes: async () => [{ id: "emma", title: "Emma Ep 1.2" }],
+        getCollaborationWorkspace: async () => workspace,
+        getCollaborationRemoteConfig: async () => ({ apiUrl: "https://cloud.example" }),
+        getProjectSyncStatus: async () => ({ connected: true, remoteExists: true, remoteChangesAvailable: false, cloudFiles }),
+        onCloudTransferProgress: (callback: typeof listener) => { listener = callback; }
+      } });
+    } });
+    await vi.waitFor(() => expect(dom.window.document.querySelector("#cloudFilesTitle")?.textContent).toContain("Review copy only"));
+    const document = dom.window.document;
+    expect(document.querySelector("#assetCount")?.textContent).toBe("10");
+    expect(document.querySelector("#originalCount")?.textContent).toBe("0");
+    expect(document.querySelector("#episodeDuration")?.textContent).toBe("32:00");
+    expect(document.querySelector("#revisionTitle")?.textContent).toBe("Project edits are in sync");
+    expect(document.querySelector<HTMLSelectElement>("#uploadMode")?.value).toBe("full-backup");
+    expect(document.querySelector<HTMLButtonElement>("#syncNow")?.disabled).toBe(true);
+    expect(document.querySelector("#syncMessage")?.textContent).toContain("Open the original recorded episode folder");
+    const mode = document.querySelector<HTMLSelectElement>("#uploadMode")!;
+    mode.value = "project-and-proxies"; mode.dispatchEvent(new dom.window.Event("change"));
+    expect(document.querySelector<HTMLButtonElement>("#syncNow")?.disabled).toBe(false);
+    expect(document.querySelector("#syncMessage")?.textContent).toContain("originals are excluded");
+    listener?.({ episodeId: "emma", operationId: "review", phase: "transferring", completedAssets: 4, totalAssets: 10, totalBytes: 1000000, transferredBytes: 7800, message: "Uploading review video" });
+    expect(document.querySelector("#syncPercent")?.textContent).toContain("0.7%");
+    expect(document.querySelector("#syncDetail")?.textContent).toContain("4 of 10 files in this upload");
+    expect(document.querySelector("#assetCount")?.textContent).toBe("10");
+    listener?.({ episodeId: "another-episode", operationId: "wrong", phase: "transferring", completedAssets: 1, totalAssets: 1, totalBytes: 100, transferredBytes: 50, message: "Other episode" });
+    expect(document.querySelector("#syncDetail")?.textContent).not.toContain("Other episode");
     dom.window.close();
   });
 });

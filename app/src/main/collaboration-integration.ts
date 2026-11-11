@@ -1,3 +1,4 @@
+import { readEpisodeCollaborationInventory } from "./collaboration-inventory";
 import { BrowserWindow, Menu, MenuItem, dialog, ipcMain, shell } from "electron";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -15,6 +16,7 @@ import {
   heartbeatCollaborationEditorLease,
   leaveCollaborationPresence,
   listCloudEpisodes,
+  publishCurrentEpisodeFiles,
   releaseCollaborationEditorLease,
   sendCollaborationPresence,
   setCollaborationRemoteConfig
@@ -107,13 +109,9 @@ export function configureCollaboration(preloadPath: string) {
   });
   ipcMain.handle("collaboration:get", async (_event, episodeId: string) => {
     const episode = await resolveEpisode(episodeId);
-    let remoteState: CollaborationWorkspace["remoteState"];
-    try {
-      remoteState = (await getProjectSyncStatus(episodeId)).connected ? "ready" : "not-connected";
-    } catch {
-      remoteState = "error";
-    }
-    const workspace = await loadCollaborationWorkspace(episode.folderPath, episode.id, episode.title);
+    const config = await getCollaborationRemoteConfig();
+    const remoteState: CollaborationWorkspace["remoteState"] = config.apiUrl ? "ready" : "not-connected";
+    const workspace = await readEpisodeCollaborationInventory(episode.folderPath, episode.id, episode.title);
     return {
       ...workspace,
       provider: remoteState === "ready" ? "cloudflare" : workspace.provider,
@@ -156,6 +154,11 @@ export function configureCollaboration(preloadPath: string) {
     }
   });
   ipcMain.handle("collaboration:cloud:list", () => listCloudEpisodes());
+  ipcMain.handle("collaboration:cloud:current-files", async (_event, episodeId: string) => {
+    await resolveEpisode(episodeId);
+    await publishCurrentEpisodeFiles(episodeId);
+    return getProjectSyncStatus(episodeId);
+  });
   ipcMain.handle("collaboration:project-status", async (_event, episodeId: string) => {
     await resolveEpisode(episodeId);
     return getProjectSyncStatus(episodeId);

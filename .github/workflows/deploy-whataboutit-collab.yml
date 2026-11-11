@@ -6,6 +6,7 @@ on:
     paths:
       - "cloudflare/collab/**"
       - ".github/whataboutit-recovery.json"
+      - ".github/whataboutit-current-files.json"
       - ".github/workflows/deploy-whataboutit-collab.yml"
   workflow_dispatch:
     inputs:
@@ -210,3 +211,9 @@ jobs:
           WHATABOUTIT_MORGAN_ACCESS_KEY: ${{ secrets.WHATABOUTIT_MORGAN_ACCESS_KEY }}
           WHATABOUTIT_LEGACY_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
         run: node scripts/recover-upload.mjs
+
+      - name: Publish reviewed direct audio and video file locations when requested
+        env:
+          WHATABOUTIT_MORGAN_ACCESS_KEY: ${{ secrets.WHATABOUTIT_MORGAN_ACCESS_KEY }}
+          WHATABOUTIT_LEGACY_ACCESS_KEY: ${{ secrets.WHATABOUTIT_COLLAB_ACCESS_KEY }}
+        run: node scripts/publish-current-files.mjs

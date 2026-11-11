@@ -1,0 +1,23 @@
+import fs from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import { afterEach, beforeEach, expect, it } from "vitest";
+import { loadCollaborationWorkspace } from "./collaboration-store";
+import { readEpisodeCollaborationInventory } from "./collaboration-inventory";
+let root: string;
+beforeEach(async () => { root = await fs.mkdtemp(path.join(os.tmpdir(), "wai-inventory-")); });
+afterEach(async () => { await fs.rm(root, { recursive: true, force: true }); });
+it("reads the actual folder and duration without rewriting a stale project-only workspace", async () => {
+  await loadCollaborationWorkspace(root, "episode", "Episode");
+  const workspaceFile = path.join(root, "Collaboration", "workspace.json");
+  const before = await fs.readFile(workspaceFile, "utf8");
+  await fs.mkdir(path.join(root, "Audio"));
+  await fs.mkdir(path.join(root, "Session"));
+  await fs.writeFile(path.join(root, "Audio", "guest-mic.flac"), "actual microphone bytes");
+  await fs.writeFile(path.join(root, "Session", "recording-parts.json"), JSON.stringify({ parts: [{ durationMs: 32 * 60 * 1000 }] }));
+  const inventory = await readEpisodeCollaborationInventory(root, "episode", "Episode");
+  expect(inventory.assets.some(a => a.relativePath === "Audio/guest-mic.flac" && a.localOriginal)).toBe(true);
+  expect(inventory.durationMs).toBe(32 * 60 * 1000);
+  expect(inventory.inventoryScanned).toBe(true);
+  expect(await fs.readFile(workspaceFile, "utf8")).toBe(before);
+});

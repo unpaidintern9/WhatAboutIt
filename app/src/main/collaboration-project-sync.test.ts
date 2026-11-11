@@ -122,7 +122,19 @@ describe("episode cloud publishing", () => {
     beforePut = () => undefined;
     await publishEpisodeToCloud(episode, "full-backup");
     expect(microphoneWrites).toBe(1);
-    expect(current.assets.find(asset => asset.relativePath === "Audio/guest-mic.flac")?.cloudPath).toContain("/Audio/versions/");
+    expect(current.assets.find(asset => asset.relativePath === "Audio/guest-mic.flac")?.cloudPath).toContain("/_system/versions/");
+  });
+
+  it("sending review proxies preserves the full Program already backed up", async () => {
+    await fs.mkdir(path.join(episode.folderPath, "Program"));
+    await fs.mkdir(path.join(episode.folderPath, "Session", "Proxies"), { recursive: true });
+    await fs.writeFile(path.join(episode.folderPath, "Program", "program.webm"), "full program bytes");
+    await fs.writeFile(path.join(episode.folderPath, "Session", "Proxies", "program-review.mp4"), "smaller review bytes");
+    const backedUp = { id: "program", kind: "program-video" as const, relativePath: "Program/program.webm", cloudPath: "episodes/episode-a/objects/full/program.webm", contentHash: "a".repeat(64), bytes: 18, state: "synced" as const, localOriginal: true, updatedAt: current.uploadedAt };
+    current.assets = [backedUp];
+    await publishEpisodeToCloud(episode, "project-and-proxies");
+    expect(current.assets.find(asset => asset.relativePath === "Program/program.webm")).toEqual(backedUp);
+    expect(current.assets.some(asset => asset.relativePath === "Session/Proxies/program-review.mp4")).toBe(true);
   });
 
   it("keeps the backup usable when cloud progress reporting is unavailable", async () => {

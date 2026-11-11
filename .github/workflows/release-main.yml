@@ -45,6 +45,12 @@ jobs:
         run: npm run build
       - name: Check real playback, recording controls and microphone mute
         run: npm run verify:media-runtime
+      - name: Save the verified collaboration screen
+        uses: actions/upload-artifact@v4
+        with:
+          name: collaboration-window-proof
+          path: ${{ runner.temp }}/wai-collaboration-proof.png
+          if-no-files-found: error
       - name: Build Windows installer
         shell: pwsh
         run: npx electron-builder --win nsis --publish never
@@ -59,7 +65,7 @@ jobs:
         shell: pwsh
         run: |
           $health = Invoke-RestMethod -Uri "https://whataboutit-collab.whataboutit-collab.workers.dev/health" -TimeoutSec 20
-          if ($health.uploadProgress -ne $true -or $health.boundedVerification -ne $true -or $health.storageChecksums -ne $true -or $health.organizedFiles -ne $true) { throw "Deploy the progress-enabled collaboration Worker before publishing this update." }
+          if ($health.uploadProgress -ne $true -or $health.boundedVerification -ne $true -or $health.storageChecksums -ne $true -or $health.organizedFiles -ne $true -or $health.simpleCurrentFiles -ne $true) { throw "Deploy the progress-enabled collaboration Worker before publishing this update." }
       - name: Create the matching GitHub release tag
         shell: pwsh
         run: |

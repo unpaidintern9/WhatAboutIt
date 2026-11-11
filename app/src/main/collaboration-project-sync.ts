@@ -133,10 +133,13 @@ export async function getProjectSyncStatus(episodeId: string): Promise<Collabora
   const marker = await readMarker(episodeId);
   if (!config.apiUrl) return { episodeId, connected: false, remoteExists: false, localRevisionId: marker?.remoteRevisionId, lastSyncedAt: marker?.syncedAt, remoteChangesAvailable: false, localChangesSinceSync: false };
   const manifest = await getRemoteManifest(episodeId);
+  const filesResponse = manifest ? await apiFetch(`/episodes/${encodeURIComponent(episodeId)}/current-files`, { cache: "no-store" }) : undefined;
+  const cloudFiles = filesResponse?.ok ? await filesResponse.json().catch(() => undefined) as import("../shared/collaboration").CloudEpisodeFiles | undefined : undefined;
   const remoteChangesAvailable = Boolean(manifest && (manifest.revisionId ? manifest.revisionId !== marker?.remoteRevisionId : manifest.uploadedAt > (marker?.remoteUploadedAt ?? "")));
   return {
     episodeId,
     connected: true,
+    cloudFiles,
     remoteExists: Boolean(manifest),
     remoteRevisionId: manifest?.revisionId,
     localRevisionId: marker?.remoteRevisionId,

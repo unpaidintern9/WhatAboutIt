@@ -1,3 +1,4 @@
+import { verifyCollaborationWindow } from "./verify-collaboration-window.mjs";
 // Synthetic media only. This CLI harness never opens the user's studio data or cloud credentials.
 import { app, BrowserWindow, powerSaveBlocker } from "electron";
 import fs from "node:fs/promises";
@@ -97,6 +98,7 @@ app.whenReady().then(async () => {
       assert.ok(powerSaveBlocker.isStarted(protection.getActive()[0].blockerId));
       result.powerProtection = { displayAndSystem: true, recordingSurvivesStudioRelease: true };
     } finally { protection.releaseAll(); }
+    result.collaborationWindow = await verifyCollaborationWindow(appRoot, temporary);
     console.log(JSON.stringify({ passed: true, ...result }));
   } catch (error) {
     console.error(String(error));

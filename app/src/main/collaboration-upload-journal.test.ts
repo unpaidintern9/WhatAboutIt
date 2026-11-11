@@ -10,7 +10,7 @@ beforeEach(async () => { state.root = await fs.mkdtemp(path.join(os.tmpdir(), "w
 afterEach(async () => { await fs.rm(state.root, { recursive: true, force: true }); });
 it("retains verified cloud file identities after clearing the final multipart checkpoint", async () => {
   const key = organizedCloudObjectPath("Audio/guest-mic.flac", "2026-11-10_23-12-56");
-  expect(key).toBe("Audio/versions/2026-11-10_23-12-56/guest-mic.flac");
+  expect(key).toBe("_system/versions/2026-11-10_23-12-56/Audio/guest-mic.flac");
   expect(isVersionedCloudPath(key)).toBe(true);
   await prepareUploadObjectPath("episode", "Audio/guest-mic.flac", "hash", key);
   await setUploadCheckpoint("episode", "Audio/guest-mic.flac", { uploadId: "saved", bytes: 10, partSizeBytes: 10, parts: [], updatedAt: "now" });

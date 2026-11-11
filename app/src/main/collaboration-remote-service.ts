@@ -325,7 +325,7 @@ async function remoteAssetMatches(episodeId: string, relativePath: string, conte
   );
   if (response.status === 404) return false;
   if (!response.ok) throw new Error(`Could not check cloud asset ${relativePath} (${response.status}).`);
-  return response.headers.get("x-content-sha256") === contentHash && (!cloudPath || !isVersionedCloudPath(cloudPath) || response.headers.get("x-content-verified") === "true");
+  return response.headers.get("x-content-sha256") === contentHash && response.headers.get("x-content-verified") === "true";
 }
 
 async function mapWithConcurrency<T, R>(items: T[], concurrency: number, task: (item: T) => Promise<R>) {
@@ -420,6 +420,7 @@ async function uploadEpisodeFiles(
     });
   }
   const workspace = await refreshCollaborationAssets(episode.folderPath, episode.id, episode.title, selection);
+  if (selection === "full-backup" && workspace.assets.some(asset => asset.kind === "proxy-video") && !workspace.assets.some(asset => asset.localOriginal)) throw new Error("This episode folder contains review copies only. Open the original recorded episode folder to back up its camera and microphone files.");
   const hasProgramProxy = workspace.assets.some((asset) => asset.relativePath.endsWith("/program-review.mp4"));
   const selectedWorkspaceAssets = workspace.assets.filter((asset) => shouldIncludeCollaborationAsset(asset.kind, selection) && !(selection === "project-and-proxies" && hasProgramProxy && asset.kind === "program-video"));
   const priority = (kind: string) => isProjectCollaborationAsset(kind as import("../shared/collaboration").CollaborationAssetKind) ? 0 : kind === "proxy-video" ? 1 : 2;
@@ -431,13 +432,14 @@ async function uploadEpisodeFiles(
   const selectedAssets = await Promise.all(uploadSources.map(async (source) => {
     const asset = source.asset;
     const previous = existingAssets.find((entry) => entry.relativePath === asset.relativePath && entry.contentHash === asset.contentHash);
+    const previousVerified = previous?.cloudPath && (isVersionedCloudPath(previous.cloudPath) || await remoteAssetMatches(episode.id, asset.relativePath, asset.contentHash, previous.cloudPath));
     const checkpoint = await getUploadCheckpoint(episode.id, asset.relativePath);
     const resumePath = checkpoint?.contentHash === asset.contentHash && checkpoint?.pathname
       ? decodeURIComponent(checkpoint.pathname.split("/assets/")[1] ?? "") : undefined;
     const proposedPath = resumePath && isVersionedCloudPath(resumePath) && !resumePath.split("/").includes("..")
       ? resumePath : organizedCloudObjectPath(asset.relativePath, folder);
     const objectPath = await prepareUploadObjectPath(episode.id, asset.relativePath, asset.contentHash ?? "", proposedPath);
-    return { ...asset, cloudPath: previous?.cloudPath ?? `episodes/${episode.id}/${objectPath}` };
+    return { ...asset, cloudPath: previousVerified ? previous!.cloudPath! : `episodes/${episode.id}/${objectPath}` };
   }));
   const sourceById = new Map(uploadSources.map((source) => [source.asset.id, source.absolutePath]));
   const totalBytes = selectedAssets.reduce((total, asset) => total + (asset.bytes ?? 0), 0);
@@ -524,13 +526,14 @@ async function uploadEpisodeFiles(
 
   const mergedByPath = new Map(
     existingAssets
-      .filter((asset) => !shouldIncludeCollaborationAsset(asset.kind, selection))
+      .filter((asset) => !shouldIncludeCollaborationAsset(asset.kind, selection) || (selection === "project-and-proxies" && hasProgramProxy && asset.kind === "program-video"))
       .map((asset) => [asset.relativePath, asset])
   );
   selectedAssets.forEach((asset) => mergedByPath.set(asset.relativePath, { ...asset, state: "synced" }));
   const manifest: CloudEpisodeManifest = {
     version: 1,
     uploadOperationId: operationId,
+    uploadSelection: selection,
     revisionId: crypto.randomUUID(),
     parentRevisionId: existingRevisionId,
     episode: {
@@ -564,10 +567,18 @@ async function uploadEpisodeFiles(
     if (manifestResponse.status === 412) throw new Error("The cloud episode changed while the upload was running. The verified files were kept. Reopen the episode to receive those changes, then retry to reuse the files already uploaded.");
     throw new Error(body.error || `Could not save the cloud episode manifest (${manifestResponse.status}).`);
   }
-  await recordCollaborationUploadComplete(episode.folderPath, episode.id, episode.title, selectedAssets.map((asset) => asset.id));
+  await recordCollaborationUploadComplete(episode.folderPath, episode.id, episode.title, selectedAssets.map((asset) => asset.id), selection);
   await clearPreparedUploadPaths(episode.id).catch(error => logger.warning("CollaborationUpload", "Could not clear the completed upload path cache.", { episodeId: episode.id, error: String(error) }));
   await options.onProgress?.({ operationId, episodeId: episode.id, direction: "upload", phase: "complete", completedAssets, totalAssets: selectedAssets.length, transferredBytes, totalBytes, manifestRevisionId: manifest.revisionId, message: "Cloudflare upload is complete and verified." });
 
+  let currentFilesWarning = "";
+  if (selection !== "project-only") {
+    try { await publishCurrentEpisodeFiles(episode.id, options.signal); }
+    catch (error) {
+      currentFilesWarning = " Your backup is verified; the simple Cloudflare file view can be resumed without uploading media again.";
+      await logger.warning("CollaborationUpload", "Current-file view did not finish.", { episodeId: episode.id, error: String(error) });
+    }
+  }
   return {
     manifest,
     result: {
@@ -575,7 +586,7 @@ async function uploadEpisodeFiles(
       uploadedAssets,
       skippedAssets,
       totalBytes: uploadedBytes,
-      message: uploadedAssets > 0 ? `Uploaded ${uploadedAssets} changed episode files. ${skippedAssets} unchanged files stayed in Cloudflare.` : "Cloudflare already has the current episode files."
+      message: uploadedAssets > 0 ? `Uploaded ${uploadedAssets} changed episode files. ${skippedAssets} unchanged files stayed in Cloudflare.${currentFilesWarning}` : `Cloudflare already has the current episode files.${currentFilesWarning}`
     }
   };
   } finally {
@@ -793,4 +804,19 @@ export async function downloadCloudEpisode(episodeId: string, options: Collabora
       message: downloadedAssets > 0 ? `Downloaded ${downloadedAssets} changed cloud files. ${skippedAssets} local files were already current or protected.` : "This episode is already current on this computer."
     }
   };
+}
+
+
+export async function publishCurrentEpisodeFiles(episodeId: string, signal?: AbortSignal) {
+  const route = `/episodes/${encodeURIComponent(episodeId)}/current-files`;
+  const plan = await apiFetch(route, { cache: "no-store", signal });
+  if (!plan.ok) throw new Error("Could not read the current episode file list.");
+  const summary = await plan.json() as import("../shared/collaboration").CloudEpisodeFiles;
+  if (summary.currentFilesReady) return;
+  await mapWithConcurrency(summary.files, 3, async file => {
+    const response = await requestCollaborationWithRetry("publish readable cloud file", () => apiFetch(route + "?relativePath=" + encodeURIComponent(file.relativePath), { method: "POST", signal }), { signal });
+    if (!response.ok) throw new Error("Could not finish the simple Cloudflare file view. The verified backup was kept.");
+  });
+  const complete = await requestCollaborationWithRetry("finish current cloud file list", () => apiFetch(route, { method: "POST", signal }), { signal });
+  if (!complete.ok) throw new Error("The current cloud file list is not ready yet. The verified backup was kept.");
 }
