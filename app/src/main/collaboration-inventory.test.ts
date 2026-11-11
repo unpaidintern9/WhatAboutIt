@@ -19,5 +19,7 @@ it("reads the actual folder and duration without rewriting a stale project-only 
   expect(inventory.assets.some(a => a.relativePath === "Audio/guest-mic.flac" && a.localOriginal)).toBe(true);
   expect(inventory.durationMs).toBe(32 * 60 * 1000);
   expect(inventory.inventoryScanned).toBe(true);
+  expect(inventory.assets.find(a => a.relativePath === "Audio/guest-mic.flac")?.contentHash).toBeUndefined();
+  await expect(fs.stat(path.join(root, "Session", "asset-hashes.json"))).rejects.toMatchObject({ code: "ENOENT" });
   expect(await fs.readFile(workspaceFile, "utf8")).toBe(before);
 });

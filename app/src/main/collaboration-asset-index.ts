@@ -55,7 +55,7 @@ export async function hashEpisodeChunks(chunks: AsyncIterable<Buffer>) {
   return hash.digest("hex");
 }
 
-export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId: string, selection?: CollaborationUploadSelection): Promise<CollaborationAssetManifestEntry[]> {
+export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId: string, selection?: CollaborationUploadSelection, options: { hashUncached?: boolean } = {}): Promise<CollaborationAssetManifestEntry[]> {
   const now = new Date().toISOString();
   const cachePath = path.join(episodeFolder, "Session", "asset-hashes.json");
   const cache = await fs.readFile(cachePath, "utf8").then((text) => JSON.parse(text) as Record<string, { signature: string; hash: string }>, () => ({} as Record<string, { signature: string; hash: string }>));
@@ -70,11 +70,11 @@ export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId
     const stat = await fs.stat(absolutePath);
     const signature = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
     const normalized = relativePath.replaceAll("\\", "/");
-    const cached = (classified.localOriginal || classified.kind === "proxy-video") && cache[normalized]?.signature === signature ? cache[normalized].hash : undefined;
-    const hash = cached ?? await hashEpisodeAsset(absolutePath);
+    const cached = (options.hashUncached === false || classified.localOriginal || classified.kind === "proxy-video") && cache[normalized]?.signature === signature ? cache[normalized].hash : undefined;
+    const hash = cached ?? (options.hashUncached === false ? undefined : await hashEpisodeAsset(absolutePath));
     const after = await fs.stat(absolutePath);
-    if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs) throw new Error(`Wait for recording to finish before uploading ${normalized}.`);
-    cache[normalized] = { signature, hash };
+    if (options.hashUncached !== false && (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs)) throw new Error(`Wait for recording to finish before uploading ${normalized}.`);
+    if (hash) cache[normalized] = { signature, hash };
     manifest.push({
       id: crypto.createHash("sha1").update(relativePath.replaceAll("\\", "/")).digest("hex"),
       kind: classified.kind,
@@ -87,6 +87,6 @@ export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId
       updatedAt: now
     });
   }
-  await durableJson(cachePath, cache);
+  if (options.hashUncached !== false) await durableJson(cachePath, cache);
   return manifest.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 }
