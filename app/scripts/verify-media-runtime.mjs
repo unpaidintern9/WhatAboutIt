@@ -108,6 +108,6 @@ app.whenReady().then(async () => {
     window?.destroy();
     await mediaServer?.close();
     if (temporary) await fs.rm(temporary, { recursive: true, force: true });
-    app.quit();
+    app.exit(process.exitCode || 0);
   }
 });
