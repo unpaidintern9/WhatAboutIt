@@ -31,6 +31,8 @@ export async function verifyCollaborationWindow(appRoot, temporary) {
     assert.equal(result.mode, "full-backup");
     assert.equal(result.disabled, true);
     assert.ok(result.buttonBottom <= result.viewport, "The primary backup control must fit in the default window without opening the file list.");
+    window.showInactive();
+    await window.webContents.executeJavaScript("document.fonts.ready.then(() => true)");
     await fs.writeFile(path.join(process.env.RUNNER_TEMP || os.tmpdir(), "wai-collaboration-proof.png"), (await window.webContents.capturePage()).toPNG());
     return { actualInventory: true, reviewCopyExplicit: true, durationVisible: true, fullBackupDefault: true, primaryControlVisible: true };
   } finally { window.destroy(); }

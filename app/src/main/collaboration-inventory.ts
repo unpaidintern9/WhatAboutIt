@@ -5,7 +5,7 @@ import { loadCollaborationWorkspace } from "./collaboration-store";
 
 export async function readEpisodeCollaborationInventory(folder: string, episodeId: string, title: string) {
   const workspace = await loadCollaborationWorkspace(folder, episodeId, title);
-  const indexed = await buildEpisodeAssetManifest(folder, episodeId);
+  const indexed = await buildEpisodeAssetManifest(folder, episodeId, undefined, { hashUncached: false });
   const previous = new Map(workspace.assets.map(asset => [asset.relativePath, asset]));
   const assets = indexed.map(asset => {
     const saved = previous.get(asset.relativePath);
