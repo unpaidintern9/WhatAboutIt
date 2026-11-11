@@ -25,15 +25,15 @@ export async function verifyCollaborationWindow(appRoot, temporary) {
       if (result.cloud.includes("Review copy only")) break;
       await new Promise(resolve => setTimeout(resolve, 50));
     }
+    window.showInactive();
+    await window.webContents.executeJavaScript("document.fonts.ready.then(() => true)");
+    await fs.writeFile(path.join(process.env.RUNNER_TEMP || os.tmpdir(), "wai-collaboration-proof.png"), (await window.webContents.capturePage()).toPNG());
     assert.match(result.cloud, /Review copy only/);
     assert.equal(result.files, "10");
     assert.equal(result.duration, "32:00");
     assert.equal(result.mode, "full-backup");
     assert.equal(result.disabled, true);
-    assert.ok(result.buttonBottom <= result.viewport, "The primary backup control must fit in the default window without opening the file list.");
-    window.showInactive();
-    await window.webContents.executeJavaScript("document.fonts.ready.then(() => true)");
-    await fs.writeFile(path.join(process.env.RUNNER_TEMP || os.tmpdir(), "wai-collaboration-proof.png"), (await window.webContents.capturePage()).toPNG());
+    assert.ok(result.buttonBottom <= result.viewport, `The primary backup control must fit in the default window: ${JSON.stringify(result)}`);
     return { actualInventory: true, reviewCopyExplicit: true, durationVisible: true, fullBackupDefault: true, primaryControlVisible: true };
   } finally { window.destroy(); }
 }
