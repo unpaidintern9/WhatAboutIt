@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("studio", {
   openCloudSettings: (): Promise<boolean> => ipcRenderer.invoke("collaboration:open-live-control"),
   listEpisodes: (): Promise<EpisodeMetadata[]> => ipcRenderer.invoke("episodes:list"),
   getCollaborationWorkspace: (episodeId: string): Promise<CollaborationWorkspace> => ipcRenderer.invoke("collaboration:get", episodeId),
+  finishCloudFileView: (episodeId: string): Promise<CollaborationProjectSyncStatus> => ipcRenderer.invoke("collaboration:cloud:current-files", episodeId),
   getProjectSyncStatus: (episodeId: string): Promise<CollaborationProjectSyncStatus> => ipcRenderer.invoke("collaboration:project-status", episodeId),
   pullLatestProjectChanges: (episodeId: string): Promise<{ changed: number; remoteUploadedAt?: string; status: CollaborationProjectSyncStatus }> => ipcRenderer.invoke("collaboration:project-pull", episodeId),
   refreshCollaborationAssets: (episodeId: string): Promise<CollaborationWorkspace> => ipcRenderer.invoke("collaboration:refresh-assets", episodeId),

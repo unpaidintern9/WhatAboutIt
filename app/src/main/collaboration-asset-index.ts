@@ -70,7 +70,7 @@ export async function buildEpisodeAssetManifest(episodeFolder: string, episodeId
     const stat = await fs.stat(absolutePath);
     const signature = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
     const normalized = relativePath.replaceAll("\\", "/");
-    const cached = classified.localOriginal && cache[normalized]?.signature === signature ? cache[normalized].hash : undefined;
+    const cached = (classified.localOriginal || classified.kind === "proxy-video") && cache[normalized]?.signature === signature ? cache[normalized].hash : undefined;
     const hash = cached ?? await hashEpisodeAsset(absolutePath);
     const after = await fs.stat(absolutePath);
     if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs) throw new Error(`Wait for recording to finish before uploading ${normalized}.`);

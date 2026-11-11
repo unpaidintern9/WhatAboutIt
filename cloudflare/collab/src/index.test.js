@@ -375,7 +375,7 @@ test("upload progress remains below 100 until the matching manifest is published
   assert.equal((await (await env.EPISODE_MEDIA.get(stored.logPath)).json()).completionPercent, 99);
   const complete = { ...finishedBytes, sequence: 3, phase: "complete", manifestRevisionId: "published" };
   assert.equal((await put(complete)).status, 409);
-  const manifest = { version: 1, uploadOperationId: "upload-a", revisionId: "published", episode: { id: "progress" }, assets: Array.from({ length: 10 }, (_, index) => ({ kind: "original-audio", relativePath: `Audio/mic-${index}.wav`, bytes: 100, contentHash: "0".repeat(64) })) };
+  const manifest = { version: 1, uploadOperationId: "upload-a", revisionId: "published", episode: { id: "progress" }, assets: Array.from({ length: 10 }, (_, index) => ({ kind: "metadata", relativePath: `Data/file-${index}.json`, bytes: 100, contentHash: "0".repeat(64) })) };
   assert.equal((await worker.fetch(request("/episodes/progress/manifest", { method: "PUT", body: JSON.stringify(manifest) }), env)).status, 200);
   assert.equal((await put(complete)).status, 200);
   const final = await (await worker.fetch(request(endpoint), env)).json();
@@ -585,6 +585,7 @@ test("recovery preserves another cloud revision and is restricted to the upload 
 test("client completion counters cannot recover missing checksum receipts", async () => {
   const { env, url, candidate } = await pendingBackup();
   await env.EPISODE_MEDIA.delete(`verification/${candidate.assets[0].cloudPath}`);
+  env.EPISODE_MEDIA.objects.get(candidate.assets[0].cloudPath).checksum = undefined;
   const response = await worker.fetch(request(url, { method: "POST" }), env);
   assert.equal(response.status, 400, await response.clone().text());
   assert.equal((await (await worker.fetch(request("/episodes/recover-publish/upload-status"), env)).json()).phase, "error");
@@ -685,4 +686,107 @@ test("organization uses the uploader's canonical R2 encoding for spaces, Unicode
   const manifest = await (await worker.fetch(request("/episodes/recover-publish/manifest"), env)).json();
   const target = manifest.assets[0].cloudPath.slice("episodes/recover-publish/".length);
   assert.equal(await (await worker.fetch(request("/episodes/recover-publish/assets/" + encodeURIComponent(target)), env)).text(), "verified recording");
+});
+
+test("current files use direct normal filenames and unchanged repeats copy no media", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  await worker.fetch(request(url, { method: "POST" }), env);
+  const route = "/episodes/recover-publish/current-files";
+  const initial = await (await worker.fetch(request(route), env)).json();
+  assert.equal(initial.fullBackupVerified, true);
+  assert.equal(initial.currentFilesReady, false);
+  assert.equal(initial.files[0].path, "Program/program.webm");
+  const copyUrl = route + "?relativePath=" + encodeURIComponent(candidate.assets[0].relativePath);
+  const first = await (await worker.fetch(request(copyUrl, { method: "POST" }), env)).json();
+  assert.equal(first.path, "Program/program.webm");
+  assert.equal(first.copiedBytes, candidate.assets[0].bytes);
+  const second = await (await worker.fetch(request(copyUrl, { method: "POST" }), env)).json();
+  assert.equal(second.copiedBytes, 0);
+  assert.equal((await worker.fetch(request(route, { method: "POST" }), env)).status, 200);
+  const ready = await (await worker.fetch(request(route), env)).json();
+  assert.equal(ready.currentFilesReady, true);
+  assert.equal(ready.fullBackupVerified, true);
+  assert.equal(await (await worker.fetch(request("/episodes/recover-publish/assets/Program%2Fprogram.webm"), env)).text(), "verified recording");
+  assert.ok(await env.EPISODE_MEDIA.get(candidate.assets[0].cloudPath));
+});
+
+test("current files preserve an unmanaged legacy recording with different bytes", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  await worker.fetch(request(url, { method: "POST" }), env);
+  await env.EPISODE_MEDIA.put("episodes/recover-publish/Program/program.webm", "a different old recording");
+  const response = await worker.fetch(request("/episodes/recover-publish/current-files?relativePath=" + encodeURIComponent(candidate.assets[0].relativePath), { method: "POST" }), env);
+  assert.equal(response.status, 200, await response.clone().text());
+  assert.equal((await response.json()).path, "Program/Latest-program.webm");
+  assert.equal(await new Response((await env.EPISODE_MEDIA.get("episodes/recover-publish/Program/program.webm")).body).text(), "a different old recording");
+});
+
+test("simple file publication refuses corrupted source bytes and premature readiness", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  await worker.fetch(request(url, { method: "POST" }), env);
+  const route = "/episodes/recover-publish/current-files";
+  assert.equal((await worker.fetch(request(route, { method: "POST" }), env)).status, 409);
+  await env.EPISODE_MEDIA.put(candidate.assets[0].cloudPath, "x".repeat(candidate.assets[0].bytes));
+  assert.equal((await worker.fetch(request(route + "?relativePath=" + encodeURIComponent(candidate.assets[0].relativePath), { method: "POST" }), env)).status, 503);
+  assert.equal((await (await worker.fetch(request(route), env)).json()).currentFilesReady, false);
+});
+
+test("cloud summaries distinguish project data from a thirty-minute compressed review copy", async () => {
+  const env = makeEnv(), episodeId = "review-only";
+  const catalog = JSON.stringify({ assets: [{ id: "program", durationMs: 32 * 60 * 1000 }] });
+  const hash = await sha256(catalog);
+  await env.EPISODE_MEDIA.put(`episodes/${episodeId}/Session/proxy-catalog.json`, catalog);
+  const manifest = { version: 1, episode: { id: episodeId }, revisionId: "review", collaborationStatus: "working", assets: [
+    { kind: "metadata", relativePath: "Session/proxy-catalog.json", contentHash: hash, bytes: catalog.length },
+    { kind: "proxy-video", relativePath: "Session/Proxies/program-review.mp4", contentHash: "a".repeat(64), bytes: 380700000 }
+  ] };
+  assert.equal((await worker.fetch(request(`/episodes/${episodeId}/manifest`, { method: "PUT", body: JSON.stringify(manifest) }), env)).status, 200);
+  const summary = await (await worker.fetch(request(`/episodes/${episodeId}/current-files`), env)).json();
+  assert.equal(summary.fullBackupVerified, false);
+  assert.equal(summary.originalCount, 0);
+  assert.equal(summary.reviewCount, 1);
+  assert.equal(summary.durationMs, 32 * 60 * 1000);
+  assert.equal(summary.files[0].path, "Review/program-review.mp4");
+});
+
+test("project-only autosaves retain the full recording backup proof", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  await worker.fetch(request(url, { method: "POST" }), env);
+  const next = { ...candidate, revisionId: "project-save", parentRevisionId: candidate.revisionId, uploadOperationId: "project-save", episode: { ...candidate.episode, title: "Updated title" } };
+  const response = await worker.fetch(request("/episodes/recover-publish/manifest", { method: "PUT", headers: { "if-match": "a-transformed-etag" }, body: JSON.stringify(next) }), env);
+  assert.equal(response.status, 200);
+  const summary = await (await worker.fetch(request("/episodes/recover-publish/current-files"), env)).json();
+  assert.equal(summary.fullBackupVerified, true);
+});
+
+test("delta publication updates one changed recording and reuses the unchanged microphone", async () => {
+  const { env, url, candidate } = await pendingBackup();
+  await worker.fetch(request(url, { method: "POST" }), env);
+  const microphone = { ...candidate.assets[0], relativePath: "Audio/guest-mic.flac", kind: "original-audio" };
+  const first = { ...candidate, revisionId: "two-files", parentRevisionId: candidate.revisionId, assets: [...candidate.assets, microphone] };
+  let current = await worker.fetch(request("/episodes/recover-publish/manifest"), env);
+  await worker.fetch(request("/episodes/recover-publish/manifest", { method: "PUT", headers: { "if-match": current.headers.get("etag") }, body: JSON.stringify(first) }), env);
+  const route = "/episodes/recover-publish/current-files";
+  for (const asset of first.assets) assert.equal((await worker.fetch(request(route + "?relativePath=" + encodeURIComponent(asset.relativePath), { method: "POST" }), env)).status, 200);
+  assert.equal((await worker.fetch(request(route, { method: "POST" }), env)).status, 200);
+  const updatedBytes = "changed program video";
+  const updated = { ...candidate.assets[0], bytes: updatedBytes.length, contentHash: await sha256(updatedBytes), cloudPath: "episodes/recover-publish/objects/updated/program.webm" };
+  await worker.fetch(request("/episodes/recover-publish/assets/objects%2Fupdated%2Fprogram.webm", { method: "PUT", body: updatedBytes, headers: { "x-content-sha256": updated.contentHash } }), env);
+  current = await worker.fetch(request("/episodes/recover-publish/manifest"), env);
+  const next = { ...first, revisionId: "changed-file", parentRevisionId: first.revisionId, assets: [updated, microphone] };
+  await worker.fetch(request("/episodes/recover-publish/manifest", { method: "PUT", headers: { "if-match": current.headers.get("etag") }, body: JSON.stringify(next) }), env);
+  const changed = await (await worker.fetch(request(route + "?relativePath=" + encodeURIComponent(updated.relativePath), { method: "POST" }), env)).json();
+  const unchanged = await (await worker.fetch(request(route + "?relativePath=" + encodeURIComponent(microphone.relativePath), { method: "POST" }), env)).json();
+  assert.equal(changed.copiedBytes, updatedBytes.length);
+  assert.equal(unchanged.copiedBytes, 0);
+  assert.equal((await worker.fetch(request(route, { method: "POST" }), env)).status, 200);
+  assert.ok(await env.EPISODE_MEDIA.get(candidate.assets[0].cloudPath));
+});
+
+test("unverified legacy media cannot obtain a full-backup proof from declared metadata", async () => {
+  const env = makeEnv();
+  await env.EPISODE_MEDIA.put("episodes/unsafe/Program/program.webm", "actual bytes", { customMetadata: { sha256: "0".repeat(64) } });
+  env.EPISODE_MEDIA.objects.get("episodes/unsafe/Program/program.webm").checksum = undefined;
+  const manifest = { version: 1, uploadSelection: "full-backup", revisionId: "unverified", episode: { id: "unsafe" }, assets: [{ kind: "program-video", relativePath: "Program/program.webm", contentHash: "0".repeat(64), bytes: 12 }] };
+  assert.equal((await worker.fetch(request("/episodes/unsafe/manifest", { method: "PUT", body: JSON.stringify(manifest) }), env)).status, 400);
+  assert.equal(await env.EPISODE_MEDIA.get("_system/last-full-backup/unsafe.json"), null);
 });

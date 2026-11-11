@@ -1,3 +1,5 @@
+import { saveFullBackupProof, recordedMedia } from "./backup-proof.js";
+import { handleCurrentFiles } from "./current-files.js";
 import { episodeAssetKey } from "./storage-keys.js";
 import { handleOrganization } from "./organized-files.js";
 import { handleUploadStatus, completeRecoveredUpload } from "./upload-status.js";
@@ -19,14 +21,14 @@ const uploadIdPattern = /^[A-Za-z0-9_-]{1,80}$/;
 async function verifyManifestAssets(bucket, episodeId, assets) {
           for (const asset of assets) {
             const prefix = `episodes/${episodeId}/`;
-            if (!asset.cloudPath?.startsWith(prefix) || !isVersionedKey(asset.cloudPath)) continue;
-            const relative = asset.cloudPath.slice(prefix.length);
+            if ((!asset.cloudPath?.startsWith(prefix) || !isVersionedKey(asset.cloudPath)) && !recordedMedia(asset)) continue;
+            const relative = asset.cloudPath?.startsWith(prefix) ? asset.cloudPath.slice(prefix.length) : asset.relativePath;
             const objectKey = episodeAssetKey(episodeId, relative);
             const [object, receiptObject] = await Promise.all([
               bucket.head(objectKey), bucket.get(`verification/${objectKey}`)
             ]);
             const receipt = receiptObject ? await receiptObject.json() : undefined;
-            if (!object || !receipt || receipt.etag !== object.httpEtag || receipt.sha256 !== asset.contentHash || object.size !== asset.bytes) throw new Error(`Asset is not verified: ${asset.relativePath}`);
+            if (!object || object.size !== asset.bytes || !(object.checksums?.sha256 ? hex(object.checksums.sha256) === asset.contentHash : receipt && receipt.etag === object.httpEtag && receipt.sha256 === asset.contentHash)) throw new Error(`Asset is not verified: ${asset.relativePath}`);
           }
 }
 
@@ -358,7 +360,7 @@ export default {
     const cors = corsHeaders(request, env);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const accessKeys = configuredAccessKeys(env);
-    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256", versionedPublication: true, streamingChecksums: true, uploadProgress: true, boundedVerification: true, storageChecksums: true, organizedFiles: true, verificationChunkBytes: CHUNK_BYTES }, 200, cors);
+    if (url.pathname === "/health") return json({ ok: true, service: "whataboutit-collab", storage: "r2", coordination: "durable-objects", presence: true, editorLease: true, episodeLibrary: true, authenticationConfigured: accessKeys.length > 0, indexedLibrary: true, checksums: "sha256", versionedPublication: true, streamingChecksums: true, uploadProgress: true, boundedVerification: true, storageChecksums: true, organizedFiles: true, simpleCurrentFiles: true, verificationChunkBytes: CHUNK_BYTES }, 200, cors);
     if (accessKeys.length === 0) return json({ error: "Collaboration authentication is not configured." }, 503, cors);
     const identity = await authorizedIdentity(request, env);
     if (!identity) return json({ error: "Unauthorized" }, 401, cors);
@@ -392,6 +394,12 @@ export default {
       const headers = new Headers(response.headers);
       Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
       return new Response(response.body, { status: response.status, headers });
+    }
+
+    if (suffix === "/current-files") {
+      const result = await handleCurrentFiles(request, env.EPISODE_MEDIA, episodeId);
+      const headers = new Headers(result.headers); Object.entries(cors).forEach(([key, value]) => headers.set(key, value));
+      return new Response(result.body, { status: result.status, headers });
     }
 
     if (suffix === "/upload-organization") {
@@ -462,6 +470,7 @@ export default {
           await verifyManifestAssets(env.EPISODE_MEDIA, episodeId, assets);
           const manifest = {
             version: 1,
+            uploadSelection: ["full-backup", "project-and-proxies", "project-only"].includes(input.uploadSelection) ? input.uploadSelection : undefined,
             uploadOperationId: /^[A-Za-z0-9_-]{1,80}$/.test(input?.uploadOperationId || "") ? input.uploadOperationId : undefined,
             revisionId: String(input?.revisionId || crypto.randomUUID()),
             parentRevisionId: input?.parentRevisionId ? String(input.parentRevisionId) : undefined,
@@ -515,6 +524,9 @@ export default {
           await env.EPISODE_MEDIA.put(`episode-index/${episodeId}.json`, JSON.stringify(cloudSummary(manifest)), {
             httpMetadata: { contentType: "application/json" }
           });
+          if (manifest.uploadSelection === "full-backup") {
+            await saveFullBackupProof(env.EPISODE_MEDIA, episodeId, manifest).catch(error => logEvent("warn", "backup-proof-cache", { error: String(error) }));
+          }
           const responseHeaders = { ...cors };
           if (stored.httpEtag) responseHeaders.etag = stored.httpEtag;
           return json({ ok: true, key, manifest }, 200, responseHeaders);
@@ -627,10 +639,10 @@ export default {
         const headers = new Headers(cors);
         if (object.httpEtag) headers.set("etag", object.httpEtag);
         headers.set("x-content-sha256", object.checksums?.sha256 ? hex(object.checksums.sha256) : object.customMetadata?.sha256 || "");
-        if (isVersionedKey(key)) {
+        {
           const receiptObject = await env.EPISODE_MEDIA.get(`verification/${key}`);
           const receipt = receiptObject ? await receiptObject.json() : undefined;
-          headers.set("x-content-verified", String(Boolean(receipt && receipt.etag === object.httpEtag)));
+          headers.set("x-content-verified", String(Boolean(object.checksums?.sha256 || (receipt && receipt.etag === object.httpEtag && receipt.sha256 === headers.get("x-content-sha256")))));
         }
         headers.set("content-length", String(object.size || 0));
         return new Response(null, { status: 200, headers });

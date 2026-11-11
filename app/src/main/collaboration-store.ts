@@ -104,7 +104,8 @@ export async function recordCollaborationUploadComplete(
   episodeFolder: string,
   episodeId: string,
   episodeTitle: string,
-  syncedAssetIds: string[]
+  syncedAssetIds: string[],
+  selection?: CollaborationUploadSelection
 ) {
   const workspace = await loadCollaborationWorkspace(episodeFolder, episodeId, episodeTitle);
   const synced = new Set(syncedAssetIds);
@@ -115,7 +116,7 @@ export async function recordCollaborationUploadComplete(
   const historyEntry: CollaborationSyncHistoryEntry = {
     id: crypto.randomUUID(),
     direction: "upload",
-    selection: workspace.lastUploadPlan?.selection,
+    selection: selection ?? workspace.lastUploadPlan?.selection,
     status: "complete",
     completedAt: workspace.lastUploadedAt,
     totalBytes: completedAssets.reduce((total, asset) => total + (asset.bytes ?? 0), 0),

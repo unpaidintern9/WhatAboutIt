@@ -1,3 +1,4 @@
+import { saveFullBackupProof } from "./backup-proof.js";
 const phases = new Set(["preparing", "transferring", "verifying", "committing", "complete", "cancelled", "error"]);
 const selections = new Set(["project-only", "project-and-proxies", "full-backup"]);
 const terminal = new Set(["complete", "cancelled", "error"]);
@@ -106,6 +107,10 @@ export async function handleUploadStatus(request, bucket, episodeId, identity, r
       const onlyIf = new Headers(previous.etag ? { "if-match": previous.etag } : { "if-none-match": "*" });
       const written = await bucket.put(key, JSON.stringify(status), { onlyIf, httpMetadata: { contentType: "application/json", cacheControl: "no-store" } });
       if (!written) continue;
+      if (status.phase === "complete" && status.selection === "full-backup") {
+        const { value: published } = await readObject(bucket, `${root}manifest.json`);
+        if (published?.revisionId === status.manifestRevisionId) await saveFullBackupProof(bucket, episodeId, published);
+      }
       const { events: _events, ...summary } = status;
       await writeLatest(bucket, root + (input.selection === "project-only" ? "project-upload-status.json" : "upload-status.json"), summary);
       return response({ ok: true, status: summary });
@@ -126,6 +131,7 @@ export async function completeRecoveredUpload(bucket, episodeId, operationId, re
     const status = previous.value;
     const { value: manifest } = await readObject(bucket, `${root}manifest.json`);
     if (!status || status.owner !== identity || manifest?.revisionId !== revisionId || manifest.uploadOperationId !== operationId || manifest.assets.length !== status.totalAssets || manifest.assets.reduce((sum, asset) => sum + asset.bytes, 0) !== status.totalBytes) throw new Error("Recovered backup does not match its verified publication.");
+    if (status.selection === "full-backup") await saveFullBackupProof(bucket, episodeId, manifest);
     if (status.phase === "complete" && status.manifestRevisionId === revisionId) return status;
     const now = new Date().toISOString();
     const next = { ...status, sequence: status.sequence + 1, phase: "complete", transferredBytes: status.totalBytes, completedAssets: status.totalAssets, bytesRemaining: 0, completionPercent: 100, remainingPercent: 0, verification: "manifest-verified", manifestRevisionId: revisionId, updatedAt: now, validUntil: now, message, relativePath: "", eventCount: status.eventCount + 1, events: [...(status.events || []), { at: now, type: "recovered", message }].slice(-100) };

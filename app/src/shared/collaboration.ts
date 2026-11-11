@@ -67,6 +67,8 @@ export interface CollaborationUploadPlan {
 }
 
 export interface CollaborationWorkspace {
+  inventoryScanned?: boolean;
+  durationMs?: number;
   version: 1;
   episodeId: string;
   episodeTitle: string;
@@ -98,6 +100,7 @@ export interface CloudEpisodeSummary {
 }
 
 export interface CloudEpisodeManifest {
+  uploadSelection?: CollaborationUploadSelection;
   uploadOperationId?: string;
   version: 1;
   revisionId?: string;
@@ -117,7 +120,22 @@ export interface CloudEpisodeManifest {
   assets: CollaborationAssetManifestEntry[];
 }
 
+export interface CloudEpisodeFiles {
+  episodeId: string;
+  revisionId: string;
+  assetCount: number;
+  totalBytes: number;
+  originalCount: number;
+  recordedAssets?: Array<{ relativePath: string; contentHash: string; bytes: number }>;
+  reviewCount: number;
+  fullBackupVerified: boolean;
+  durationMs?: number;
+  currentFilesReady: boolean;
+  files: Array<{ relativePath: string; path: string; label: string; type: string; bytes: number; contentHash: string }>;
+}
+
 export interface CollaborationProjectSyncStatus {
+  cloudFiles?: CloudEpisodeFiles;
   episodeId: string;
   connected: boolean;
   remoteExists: boolean;

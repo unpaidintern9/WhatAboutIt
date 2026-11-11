@@ -191,6 +191,21 @@ try {
   assert.equal((await request(organizedAsset, { method: "HEAD" })).headers.get("x-content-verified"), "true");
   assert.equal((await request(assetUrl, { method: "HEAD" })).headers.get("x-content-verified"), "true");
   assert.equal((await request(organizedAsset, { method: "DELETE" })).status, 409);
+  const plainRoute = `/episodes/${episodeId}/current-files`;
+  const plainPlan = await (await request(plainRoute)).json();
+  assert.equal(plainPlan.currentFilesReady, false);
+  assert.equal(plainPlan.files[0].path, "Review/program-review.mp4");
+  const plainCopy = plainRoute + "?relativePath=" + encodeURIComponent(plainPlan.files[0].relativePath);
+  const copied = await request(plainCopy, { method: "POST" });
+  assert.equal(copied.status, 200, await copied.clone().text());
+  assert.equal((await copied.json()).copiedBytes, bytes.length);
+  assert.equal((await (await request(plainCopy, { method: "POST" })).json()).copiedBytes, 0);
+  assert.equal((await request(plainRoute, { method: "POST" })).status, 200);
+  assert.equal((await (await request(plainRoute)).json()).currentFilesReady, true);
+  const direct = await request(`/episodes/${episodeId}/assets/Review%2Fprogram-review.mp4`, { headers: { range: "bytes=2-33" } });
+  assert.equal(direct.status, 206);
+  assert.equal((await direct.arrayBuffer()).byteLength, 32);
+  console.log("PASS: direct readable filenames, unchanged-media reuse, checksum verification and playback.");
   console.log("PASS: organized 33 MiB R2 streaming copy, checksum receipt, publication and retention of original bytes.");
   console.log("PASS: logical revision CAS, idempotent recovery and rejection of competing publication in workerd/R2.");
   console.log(
